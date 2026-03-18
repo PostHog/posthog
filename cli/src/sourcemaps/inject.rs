@@ -1,18 +1,22 @@
-use anyhow::{anyhow, bail, Ok, Result};
-use std::path::PathBuf;
+use anyhow::{bail, Result};
+use std::path::Path;
 use tracing::info;
-use uuid;
+use walkdir::DirEntry;
 
 use crate::{
-    api::releases::ReleaseBuilder, invocation_context::context,
-    sourcemaps::source_pair::read_pairs, utils::git::get_git_info,
+    api::releases::{Release, ReleaseBuilder},
+    sourcemaps::{
+        args::{FileSelectionArgs, ReleaseArgs},
+        content::SourceMapFile,
+        source_pairs::{read_pairs, SourcePair},
+    },
+    utils::{files::FileSelection, git::get_git_info},
 };
 
 #[derive(clap::Args)]
 pub struct InjectArgs {
-    /// The directory containing the bundled chunks
-    #[arg(short, long)]
-    pub directory: PathBuf,
+    #[clap(flatten)]
+    pub file_selection: FileSelectionArgs,
 
     /// If your bundler adds a public path prefix to sourcemap URLs,
     /// we need to ignore it while searching for them
@@ -20,99 +24,95 @@ pub struct InjectArgs {
     #[arg(short, long)]
     pub public_path_prefix: Option<String>,
 
-    /// One or more directory glob patterns to ignore
-    #[arg(short, long)]
-    pub ignore: Vec<String>,
-
-    /// The project name associated with the uploaded chunks. Required to have the uploaded chunks associated with
-    /// a specific release. We will try to auto-derive this from git information if not provided. Strongly recommended
-    /// to be set explicitly during release CD workflows
-    #[arg(long)]
-    pub project: Option<String>,
-
-    /// The version of the project - this can be a version number, semantic version, or a git commit hash. Required
-    /// to have the uploaded chunks associated with a specific release. Overrides release information set during
-    /// injection. Strongly prefer setting release information during injection.
-    #[arg(long)]
-    pub version: Option<String>,
+    #[clap(flatten)]
+    pub release: ReleaseArgs,
 }
 
-pub fn inject(args: &InjectArgs) -> Result<()> {
+impl InjectArgs {
+    pub fn validate(&self) -> Result<()> {
+        self.file_selection.validate()
+    }
+}
+
+pub fn inject_impl(args: &InjectArgs, matcher: impl Fn(&DirEntry) -> bool + 'static) -> Result<()> {
     let InjectArgs {
-        directory,
+        file_selection,
         public_path_prefix,
-        ignore,
-        project,
-        version,
+        release,
     } = args;
 
-    context().capture_command_invoked("sourcemap_inject");
+    info!("injecting selection: {}", file_selection);
 
-    let directory = directory.canonicalize().map_err(|e| {
-        anyhow!(
-            "Directory '{}' not found or inaccessible: {}",
-            directory.display(),
-            e
-        )
-    })?;
+    let iterator = FileSelection::try_from(file_selection.clone())?;
 
-    info!("Processing directory: {}", directory.display());
-    let mut pairs = read_pairs(&directory, ignore, public_path_prefix)?;
+    let mut pairs = read_pairs(
+        iterator.into_iter().filter(|entry| matcher(entry)),
+        public_path_prefix,
+    );
     if pairs.is_empty() {
-        bail!("No source files found");
+        bail!("no source files found");
     }
-    info!("Found {} pairs", pairs.len());
 
+    let cwd = std::env::current_dir()?;
+
+    let created_release_id =
+        get_release_for_maps(&cwd, release.clone(), pairs.iter().map(|p| &p.sourcemap))?
+            .as_ref()
+            .map(|r| r.id.to_string());
+
+    pairs = inject_pairs(pairs, created_release_id)?;
+
+    // Write the source and sourcemaps back to disk
+    for pair in &pairs {
+        pair.save()?;
+    }
+    info!("injecting done");
+    Ok(())
+}
+
+pub fn inject_pairs(
+    mut pairs: Vec<SourcePair>,
+    created_release_id: Option<String>,
+) -> Result<Vec<SourcePair>> {
+    for pair in &mut pairs {
+        let current_release_id = pair.get_release_id();
+        // We only update release ids and chunk ids when the release id changed or is not present
+        if current_release_id != created_release_id || pair.get_chunk_id().is_none() {
+            pair.set_release_id(created_release_id.clone());
+
+            let chunk_id = uuid::Uuid::now_v7().to_string();
+            if let Some(previous_chunk_id) = pair.get_chunk_id() {
+                pair.update_chunk_id(previous_chunk_id, chunk_id)?;
+            } else {
+                pair.add_chunk_id(chunk_id)?;
+            }
+        }
+    }
+
+    Ok(pairs)
+}
+
+pub fn get_release_for_maps<'a>(
+    directory: &Path,
+    release: ReleaseArgs,
+    maps: impl IntoIterator<Item = &'a SourceMapFile>,
+) -> Result<Option<Release>> {
     // We need to fetch or create a release if: the user specified one, any pair is missing one, or the user
     // forced release overriding
-    let needs_release =
-        project.is_some() || version.is_some() || pairs.iter().any(|p| !p.has_release_id());
+    let needs_release = release.name.is_some()
+        || release.version.is_some()
+        || maps.into_iter().any(|p| !p.has_release_id());
 
     let mut created_release = None;
     if needs_release {
-        let mut builder = get_git_info(Some(directory))?
-            .map(ReleaseBuilder::init_from_git)
-            .unwrap_or_default();
+        let mut builder: ReleaseBuilder = release.into();
 
-        if let Some(project) = project {
-            builder.with_project(project);
-        }
-        if let Some(version) = version {
-            builder.with_version(version);
-        }
+        get_git_info(Some(directory.to_path_buf()))?.map(|info| builder.with_git(info));
 
         if builder.can_create() {
             created_release = Some(builder.fetch_or_create()?);
         }
     }
 
-    let mut skipped_pairs = 0;
-    for pair in &mut pairs {
-        if pair.has_chunk_id() {
-            skipped_pairs += 1;
-            continue;
-        }
-        let chunk_id = uuid::Uuid::now_v7().to_string();
-        pair.set_chunk_id(chunk_id)?;
-
-        // If we've got a release, and the user asked us to, or a set is missing one,
-        // put the release ID on the pair
-        if created_release.is_some() && !pair.has_release_id() {
-            pair.set_release_id(created_release.as_ref().unwrap().id.to_string());
-        }
-    }
-    if skipped_pairs > 0 {
-        info!(
-            "Skipped {} pairs because chunk IDs already exist",
-            skipped_pairs
-        );
-    }
-
-    // Write the source and sourcemaps back to disk
-    for pair in &pairs {
-        pair.save()?;
-    }
-    info!("Finished processing directory");
-
-    Ok(())
+    Ok(created_release)
 }

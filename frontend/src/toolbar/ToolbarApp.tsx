@@ -6,8 +6,8 @@ import { Slide, ToastContainer } from 'react-toastify'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useSecondRender } from 'lib/hooks/useSecondRender'
 
-import { ToolbarContainer } from '~/toolbar/ToolbarContainer'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { ToolbarContainer } from '~/toolbar/ToolbarContainer'
 import { ToolbarProps } from '~/types'
 
 import { TOOLBAR_ID } from './utils'
@@ -16,7 +16,7 @@ import { webVitalsToolbarLogic } from './web-vitals/webVitalsToolbarLogic'
 type HTMLElementWithShadowRoot = HTMLElement & { shadowRoot: ShadowRoot }
 
 export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
-    const { apiURL } = useValues(toolbarConfigLogic(props))
+    const { apiHost } = useValues(toolbarConfigLogic(props))
 
     const shadowRef = useRef<HTMLElementWithShadowRoot | null>(null)
     const [didLoadStyles, setDidLoadStyles] = useState(false)
@@ -42,7 +42,8 @@ export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
                   // this ensures that we bust the cache periodically
                   const timestampToNearestFiveMinutes =
                       Math.floor(Date.now() / fiveMinutesInMillis) * fiveMinutesInMillis
-                  styleLink.href = `${apiURL}/static/toolbar.css?t=${timestampToNearestFiveMinutes}`
+                  // Load CSS from API host (where static assets are served, same place as the JS was loaded from)
+                  styleLink.href = `${apiHost}/static/toolbar.css?t=${timestampToNearestFiveMinutes}`
                   styleLink.onload = () => setDidLoadStyles(true)
                   const shadowRoot =
                       shadowRef.current?.shadowRoot || window.document.getElementById(TOOLBAR_ID)?.shadowRoot
@@ -65,13 +66,7 @@ export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
             <root.div id={TOOLBAR_ID} className="ph-no-capture" ref={shadowRef} onMouseDown={onMouseDown}>
                 <div id="posthog-toolbar-styles" />
                 {didRender && (didLoadStyles || props.disableExternalStyles) ? <ToolbarContainer /> : null}
-                <ToastContainer
-                    autoClose={60000}
-                    transition={Slide}
-                    closeOnClick={false}
-                    draggable={false}
-                    position="bottom-center"
-                />
+                <ToastContainer autoClose={60000} transition={Slide} position="bottom-center" />
             </root.div>
         </>
     )

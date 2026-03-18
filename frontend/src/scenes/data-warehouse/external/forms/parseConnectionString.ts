@@ -19,9 +19,11 @@ export function parseConnectionString(str: string): Config {
     let result: URL
     let dummyHost = false
 
-    // Allow "postgres://" and "postgresql://"
+    // Allow "postgres://", "postgresql://", and "redshift://"
     if (str.startsWith('postgres://')) {
         str = 'postgresql://' + str.substring('postgres://'.length)
+    } else if (str.startsWith('redshift://')) {
+        str = 'postgresql://' + str.substring('redshift://'.length)
     }
 
     if (/ |%[^a-f0-9]|%[a-f0-9][^a-f0-9]/i.test(str)) {

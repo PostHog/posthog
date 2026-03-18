@@ -1,3 +1,4 @@
+use crate::parsing::u64_or_string;
 use crate::unordered_steps::AggregateFunnelRowUnordered;
 use crate::PropVal;
 use itertools::Itertools;
@@ -26,6 +27,7 @@ pub struct Event {
 #[derive(Deserialize)]
 pub struct Args {
     pub num_steps: usize,
+    #[serde(deserialize_with = "u64_or_string")]
     pub conversion_window_limit: u64, // In seconds
     pub breakdown_attribution_type: String,
     pub funnel_order_type: String,
@@ -120,7 +122,7 @@ impl AggregateFunnelRow {
                     true
                 }
             })
-            .group_by(|e| e.timestamp);
+            .chunk_by(|e| e.timestamp);
 
         for (timestamp, events_with_same_timestamp) in &filtered_events {
             let events_with_same_timestamp: Vec<_> = events_with_same_timestamp.collect();

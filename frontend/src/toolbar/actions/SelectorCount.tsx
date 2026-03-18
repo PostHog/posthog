@@ -1,6 +1,8 @@
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { useMemo } from 'react'
 
+import { pluralize } from 'lib/utils'
+
 interface SelectorCountProps {
     selector: string | null
 }
@@ -22,7 +24,7 @@ export function SelectorCount({ selector }: SelectorCountProps): JSX.Element | n
     return selector === null ? null : (
         <>
             <small className={`float-right ${selectorError && 'text-danger'}`}>
-                {selectorError ? 'Invalid selector' : `Matches ${matches} element${matches === 1 ? '' : 's'}`}
+                {selectorError ? 'Invalid selector' : `Matches ${pluralize(matches, 'element')}`}
             </small>
         </>
     )

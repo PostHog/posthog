@@ -166,11 +166,15 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             ("URL-encoded search for properties starting with '$cur'", "$cur", ["$current_url"]),
             ("Fuzzy search: 'hase ' matches properties containing 'chase'", "hase ", ["purchase", "purchase_value"]),
             ("Search matching multiple properties", "brow", ["$browser", "$browser_version"]),
+            ("Shorter name preferred: 'visit' before 'first_visit'", "visit", ["visit", "first_visit"]),
         ]
     )
     def test_property_search_returns_expected_results(
         self, _name: str, search_term: str, expected_property_names: list[str]
     ) -> None:
+        if search_term == "visit":
+            PropertyDefinition.objects.create(team=self.team, name="visit")
+
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search={search_term}")
         assert response.status_code == status.HTTP_200_OK
 
@@ -178,6 +182,19 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
         if search_term == "p ting":
             assert response.json()["results"][0]["is_seen_on_filtered_events"] is None
+
+    def test_whitespace_search_does_not_change_default_ordering(self) -> None:
+        default_response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/")
+        assert default_response.status_code == status.HTTP_200_OK
+        default_names = [r["name"] for r in default_response.json()["results"]]
+
+        whitespace_search_response = self.client.get(
+            f"/api/projects/{self.team.pk}/property_definitions/?search=%20%20"
+        )
+        assert whitespace_search_response.status_code == status.HTTP_200_OK
+        whitespace_search_names = [r["name"] for r in whitespace_search_response.json()["results"]]
+
+        assert whitespace_search_names == default_names
 
     def test_property_search_with_event_filter_shows_event_association(self):
         # URL params: search=$ and event_names=["$pageview"]
@@ -190,9 +207,9 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
         assert actual_results == [
             ("$browser", True),
-            ("$browser_version", False),
-            ("$current_url", False),
             ("$lib", False),
+            ("$current_url", False),
+            ("$browser_version", False),
         ]
 
     def test_is_event_property_filter(self):
@@ -287,7 +304,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                     "$virt_initial_channel_type",
                     "$virt_initial_referring_domain_type",
                     "$virt_revenue",
-                    "$virt_revenue_last_30_days",
+                    "$virt_mrr",
                 ],
             ),
             ("Search person properties containing 'prop'", "type=person&search=prop", ["person property"]),
@@ -333,15 +350,36 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("Search 'email a' matches via name substring", "type=person&search=email a", "email"),
+            ("Search 'email ad' matches via label alias", "type=person&search=email ad", "email"),
+            ("Search 'email address' matches via label alias", "type=person&search=email address", "email"),
+        ]
+    )
+    def test_person_property_search_matches_label_alias(
+        self, _name: str, query_params: str, expected_name: str
+    ) -> None:
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="email",
+            property_type="String",
+            type=PropertyDefinition.Type.PERSON,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?{query_params}")
+        assert response.status_code == status.HTTP_200_OK
+        assert any(prop["name"] == expected_name for prop in response.json()["results"])
+
+    @parameterized.expand(
+        [
             (
                 "Get all group1 properties",
                 "type=group&group_type_index=1",
-                ["group1 another", "group1 property", "$virt_revenue", "$virt_revenue_last_30_days"],
+                ["group1 another", "group1 property", "$virt_revenue", "$virt_mrr"],
             ),
             (
                 "Get all group2 properties",
                 "type=group&group_type_index=2",
-                ["group2 property", "$virt_revenue", "$virt_revenue_last_30_days"],
+                ["group2 property", "$virt_revenue", "$virt_mrr"],
             ),
             (
                 "Search group1 properties containing 'prop'",
@@ -405,9 +443,24 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert PropertyDefinition.objects.filter(id=property_definition.id).count() == 0
         mock_capture.assert_called_once_with(
-            event="property definition deleted",
             distinct_id=self.user.distinct_id,
-            properties={"name": "test_property", "type": "event"},
+            event="property definition deleted",
+            properties={
+                "source": ANY,
+                "$current_url": ANY,
+                "$host": ANY,
+                "$pathname": ANY,
+                "$session_id": ANY,
+                "was_impersonated": ANY,
+                "mcp_user_agent": ANY,
+                "mcp_client_name": ANY,
+                "mcp_client_version": ANY,
+                "mcp_protocol_version": ANY,
+                "mcp_oauth_client_name": ANY,
+                "$set_once": ANY,
+                "name": "test_property",
+                "type": "event",
+            },
             groups={
                 "instance": ANY,
                 "organization": str(self.organization.id),
@@ -446,20 +499,6 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert property_definition.property_type == "Numeric"
         assert property_definition.is_numerical
         assert response.json()["property_type"] == "Numeric"
-
-    @patch("posthog.models.Organization.is_feature_available", return_value=False)
-    def test_update_property_definition_cannot_set_verified_without_entitlement(self, mock_is_feature_available):
-        """Test that enterprise-only fields require license"""
-        property_definition = PropertyDefinition.objects.create(
-            team=self.team, name="test_property", property_type="String"
-        )
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.pk}/property_definitions/{property_definition.id}",
-            {"verified": True},  # This should be blocked since it's enterprise-only
-        )
-
-        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
 
     @patch("posthog.settings.EE_AVAILABLE", True)
     @patch("posthog.models.Organization.is_feature_available", return_value=True)
@@ -613,8 +652,8 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                     "tags": [],
                 },
                 {
-                    "id": "builtin_virt_revenue_last_30_days",
-                    "name": "$virt_revenue_last_30_days",
+                    "id": "builtin_virt_mrr",
+                    "name": "$virt_mrr",
                     "is_numerical": True,
                     "property_type": "Numeric",
                     "tags": [],
@@ -630,8 +669,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             assert len(virtual_props) == 4
             assert all(prop["is_numerical"] for prop in virtual_props)
             assert all(
-                prop["name"]
-                in ["$virt_session_count", "$virt_pageview_count", "$virt_revenue", "$virt_revenue_last_30_days"]
+                prop["name"] in ["$virt_session_count", "$virt_pageview_count", "$virt_revenue", "$virt_mrr"]
                 for prop in virtual_props
             )
 

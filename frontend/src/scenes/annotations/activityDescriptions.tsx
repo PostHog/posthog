@@ -80,7 +80,7 @@ export function annotationActivityDescriber(logItem: ActivityLogItem, asNotifica
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> created the annotation "
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created the annotation "
                     {nameOrLinkToAnnotation(logItem?.item_id, logItem?.detail.name)}"{contextDesc}
                 </>
             ),
@@ -99,7 +99,8 @@ export function annotationActivityDescriber(logItem: ActivityLogItem, asNotifica
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> deleted the annotation: {displayName}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted the annotation:{' '}
+                    {displayName}
                     {contextDesc}
                 </>
             ),
@@ -111,7 +112,7 @@ export function annotationActivityDescriber(logItem: ActivityLogItem, asNotifica
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> updated the annotation:{' '}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated the annotation:{' '}
                     {nameOrLinkToAnnotation(logItem?.item_id, logItem?.detail.name)}
                     {contextDesc}
                 </>

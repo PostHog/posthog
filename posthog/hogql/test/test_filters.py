@@ -125,6 +125,23 @@ class TestFilters(BaseTest):
             f"greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
+    def test_replace_filters_date_range_with_timezone(self):
+        # now with different team timezone
+        self.team.timezone = "America/New_York"
+        self.team.save()
+
+        select = replace_filters(
+            self._parse_select("SELECT event FROM events where {filters}"),
+            HogQLFilters(dateRange=DateRange(date_from="2020-02-02", date_to="2020-02-03 23:59:59Z")),
+            self.team,
+        )
+        self.assertEqual(
+            self._print_ast(select),
+            "SELECT event FROM events WHERE "
+            "and(less(timestamp, toDateTime('2020-02-03 18:59:59.000000')), "
+            f"greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
     def test_replace_filters_event_property(self):
         select = replace_filters(
             self._parse_select("SELECT event FROM events where {filters}"),
@@ -307,3 +324,12 @@ class TestFilters(BaseTest):
             "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions, logs or groups table.",
         ):
             replace_filters(select, HogQLFilters(dateRange=DateRange(date_from="2020-02-02")), self.team)
+
+    def test_raises_for_unsupported_filters_placeholder(self):
+        select = self._parse_select("SELECT dateTrunc({filters.interval}, timestamp) FROM events WHERE {filters}")
+
+        with self.assertRaisesMessage(
+            QueryError,
+            "Unsupported filters placeholder `{filters.interval}`",
+        ):
+            replace_filters(select, HogQLFilters(), self.team)

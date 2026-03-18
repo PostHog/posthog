@@ -85,3 +85,32 @@ export const Country_: Story = Template.bind({})
 Country_.args = {
     property: '$geoip_country_code',
 }
+
+export const FaviconSizeComparison: Story = {
+    tags: ['autodocs'],
+    render: () => {
+        const domains = ['www.facebook.com', 'www.google.com', 'github.com']
+        return (
+            <div className="space-y-4">
+                <h3>Favicon size should match PropertyIcon (both use 1em)</h3>
+                <div className="space-y-2">
+                    {domains.map((domain) => (
+                        <div key={domain} className="flex items-center gap-4">
+                            <div className="flex items-center gap-2">
+                                <img
+                                    src={`https://app-static-prod.posthog.com/favicons/${domain}`}
+                                    className="size-[1em]"
+                                    alt={`${domain} favicon`}
+                                />
+                                <span>{domain}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <PropertyIcon.WithLabel property="$browser" value="Chrome" />
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        )
+    },
+}

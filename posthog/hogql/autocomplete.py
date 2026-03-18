@@ -17,7 +17,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.base import AST, CTE, ConstantType
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import HOGQL_CHARACTERS_TO_BE_WRAPPED, Database, create_hogql_database
+from posthog.hogql.database.database import HOGQL_CHARACTERS_TO_BE_WRAPPED, Database
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
@@ -44,8 +44,10 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.insight_variable import InsightVariable
-from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team.team import Team
+from posthog.models.user import User
+
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
@@ -218,7 +220,7 @@ def get_table(context: HogQLContext, join_expr: ast.JoinExpr, ctes: Optional[dic
         # Handle a base table
         table_chain = [str(e) for e in join_expr.table.chain]
         if context.database.has_table(table_chain):
-            return context.database.get_table_by_chain(table_chain)
+            return context.database.get_table(table_chain)
     elif isinstance(join_expr.table, ast.SelectQuery):
         if join_expr.table.select_from is None:
             return None
@@ -385,7 +387,10 @@ def gather_hog_variables_in_scope(root_node, node) -> list[str]:
 
 
 def get_hogql_autocomplete(
-    query: HogQLAutocomplete, team: Team, database_arg: Optional[Database] = None
+    query: HogQLAutocomplete,
+    team: Team,
+    user: Optional[User] = None,
+    database_arg: Optional[Database] = None,
 ) -> HogQLAutocompleteResponse:
     response = HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
     timings = HogQLTimings()
@@ -393,9 +398,9 @@ def get_hogql_autocomplete(
     if database_arg is not None:
         database = database_arg
     else:
-        database = create_hogql_database(team=team, timings=timings)
+        database = Database.create_for(team=team, user=user, timings=timings)
 
-    context = HogQLContext(team_id=team.pk, team=team, database=database, timings=timings)
+    context = HogQLContext(team_id=team.pk, team=team, user=user, database=database, timings=timings)
     if query.sourceQuery:
         if query.sourceQuery.kind == "HogQLQuery" and (
             query.sourceQuery.query is None or query.sourceQuery.query == ""
@@ -431,6 +436,11 @@ def get_hogql_autocomplete(
                     select_ast.select = [root_node]
             elif query.language == HogLanguage.HOG_TEMPLATE:
                 with timings.measure("parse_template"):
+                    root_node = parse_string_template(query_to_try, timings=timings)
+            elif query.language == HogLanguage.LIQUID:
+                with timings.measure("parse_liquid"):
+                    # Liquid templates are handled similarly to Hog templates for autocomplete
+                    # We treat them as string templates but with Liquid syntax
                     root_node = parse_string_template(query_to_try, timings=timings)
             elif query.language == HogLanguage.HOG:
                 with timings.measure("parse_program"):
@@ -473,20 +483,22 @@ def get_hogql_autocomplete(
                         if loop_globals != query.globals:
                             break
 
-            if query.language in (HogLanguage.HOG, HogLanguage.HOG_TEMPLATE):
-                # For Hog, first add all local variables in scope
+            if query.language in (HogLanguage.HOG, HogLanguage.HOG_TEMPLATE, HogLanguage.LIQUID):
+                # For Hog and Liquid, first add all local variables in scope
                 hog_vars = gather_hog_variables_in_scope(root_node, node)
                 extend_responses(
                     keys=hog_vars,
                     suggestions=response.suggestions,
                     kind=AutocompleteCompletionItemKind.VARIABLE,
                 )
-                extend_responses(
-                    ALL_HOG_FUNCTIONS,
-                    response.suggestions,
-                    AutocompleteCompletionItemKind.FUNCTION,
-                    insert_text=lambda key: f"{key}()",
-                )
+
+                if query.language != HogLanguage.LIQUID:
+                    extend_responses(
+                        ALL_HOG_FUNCTIONS,
+                        response.suggestions,
+                        AutocompleteCompletionItemKind.FUNCTION,
+                        insert_text=lambda key: f"{key}()",
+                    )
 
             if isinstance(query.globals, dict):
                 # Override globals if a local variable has the same name
@@ -652,8 +664,10 @@ def get_hogql_autocomplete(
             elif isinstance(node, ast.Field) and isinstance(parent_node, ast.JoinExpr):
                 # Handle table names
                 with timings.measure("table_name"):
-                    table_names = database.get_all_tables()
-                    posthog_table_names = database.get_posthog_tables()
+                    table_names = [name for name in database.get_all_table_names() if database.has_table(name)]
+                    posthog_table_names = [
+                        name for name in database.get_posthog_table_names() if database.has_table(name)
+                    ]
 
                     if len(node.chain) == 1:
                         extend_responses(

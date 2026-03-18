@@ -9,7 +9,6 @@ import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
 import { insightLogic } from '../insightLogic'
-import { FunnelsCue } from '../views/Trends/FunnelsCue'
 
 export function InsightsNav(): JSX.Element {
     const { insightProps, insight } = useValues(insightLogic)
@@ -18,7 +17,6 @@ export function InsightsNav(): JSX.Element {
 
     return (
         <>
-            <FunnelsCue />
             {insight.short_id && <AlertDeletionWarning />}
             <LemonTabs
                 activeKey={activeView}

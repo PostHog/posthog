@@ -1,0 +1,32 @@
+{
+    "id": "1573817250283254651097202070",
+    "deploymentId": "dpl_233NRGRjVZX1caZrXWtz5g1TAksD",
+    "source": "lambda",
+    "host": "my-app-abc123.vercel.app",
+    "timestamp": 1573817250283,
+    "projectId": "gdufoJxB6b9b1fEqr1jUtFkyavUU",
+    "level": "info",
+    "message": "API request processed successfully",
+    "entrypoint": "api/index.js",
+    "requestId": "643af4e3-975a-4cc7-9e7a-1eda11539d90",
+    "statusCode": 200,
+    "path": "/api/users",
+    "executionRegion": "sfo1",
+    "environment": "production",
+    "traceId": "1b02cd14bb8642fd092bc23f54c7ffcd",
+    "spanId": "f24e8631bd11faa7",
+    "projectName": "my-app",
+    "proxy": {
+        "timestamp": 1573817250172,
+        "method": "GET",
+        "host": "my-app.vercel.app",
+        "path": "/api/users?page=1",
+        "userAgent": ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"],
+        "referer": "https://my-app.vercel.app",
+        "region": "sfo1",
+        "statusCode": 200,
+        "clientIp": "120.75.16.101",
+        "scheme": "https",
+        "vercelCache": "MISS"
+    }
+}

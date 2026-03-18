@@ -376,6 +376,40 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "String",
             "used_for_debug": True,
         },
+        "$sdk_debug_replay_full_snapshots": {
+            "label": "Replay full snapshots debug info",
+            "description": "Debug information about full snapshots in the replay session.",
+            "used_for_debug": True,
+        },
+        "$debug_first_full_snapshot_timestamp": {
+            "label": "First full snapshot timestamp",
+            "description": "The timestamp of the first full snapshot in the replay session.",
+            "type": "Numeric",
+            "used_for_debug": True,
+        },
+        "$product_tours_enabled_server_side": {
+            "label": "Product tours enabled server side",
+            "description": "Whether product tours are enabled server-side.",
+            "type": "Boolean",
+            "used_for_debug": True,
+        },
+        "$sess_rec_flush_size": {
+            "label": "Estimated bytes flushed",
+            "description": "Estimated size in bytes of flushed recording data so far in this session. Added to events as a debug property.",
+            "type": "Numeric",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_replay_flushed_size": {
+            "label": "Estimated bytes flushed",
+            "description": "Estimated size in bytes of flushed recording data so far in this session. Added to events as a debug property.",
+            "type": "Numeric",
+            "used_for_debug": True,
+        },
+        "$session_recording_remote_config": {
+            "label": "Session recording remote config received",
+            "description": "The remote config for session recording received from the server (or loaded from storage).",
+            "used_for_debug": True,
+        },
         "$initialization_time": {
             "label": "initialization time",
             "description": "The iso formatted timestamp of SDK initialization.",
@@ -426,6 +460,20 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["100"],
             "system": True,
             "ignored_in_assistant": True,
+            "used_for_debug": True,
+        },
+        "$sdk_debug_extensions_init_method": {
+            "label": "PostHog.js extensions init method",
+            "description": "The method used to initialize PostHog.js extensions.",
+            "examples": ["deferred", "synchronous"],
+            "type": "String",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_extensions_init_time_ms": {
+            "label": "PostHog.js extensions init time (ms)",
+            "description": "The time taken to initialize PostHog.js extensions in milliseconds.",
+            "examples": ["150"],
+            "type": "Numeric",
             "used_for_debug": True,
         },
         "$sdk_debug_retry_queue_size": {
@@ -740,10 +788,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Exception is synthetic",
             "description": "Whether this was detected as a synthetic exception.",
         },
-        "$exception_stack_trace_raw": {
-            "label": "Exception raw stack trace",
-            "description": "The exceptions stack trace, as a string.",
-        },
         "$exception_handled": {
             "label": "Exception was handled",
             "description": "Whether this was a handled or unhandled exception.",
@@ -876,10 +920,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "system": True,
             "used_for_debug": True,
         },
-        "$cymbal_errors": {
-            "label": "Exception processing errors",
-            "description": "Errors encountered while trying to process exceptions.",
+        "$has_recording": {
+            "label": "Has recording",
+            "description": "Whether a session recording exists for this event's session. This is a computed property used for display purposes and is not stored on events.",
             "system": True,
+            "used_for_debug": True,
         },
         "$geoip_city_name": {
             "label": "City name",
@@ -1368,6 +1413,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The unique identifier for the request that retrieved this feature flag result.\n\nNote: Primarily used by PostHog support for debugging issues with feature flags.",
             "examples": ["01234567-89ab-cdef-0123-456789abcdef"],
         },
+        "$feature_flag_evaluated_at": {
+            "label": "Feature flag evaluated at",
+            "description": "The timestamp (in milliseconds since Unix epoch) when the feature flag was evaluated.",
+            "examples": ["1732051200000"],
+        },
         "$feature_flag_version": {
             "label": "Feature flag version",
             "description": "The version of the feature flag that was called.",
@@ -1720,6 +1770,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The setting from an SDK to control whether an event has person processing enabled",
             "system": True,
         },
+        "$update_person_last_seen_at": {
+            "label": "Update last seen at",
+            "description": "When set to false, the event will not update the person's last_seen_at timestamp",
+            "system": True,
+        },
         "$dead_clicks_enabled_server_side": {
             "label": "Dead clicks enabled server side",
             "description": "Whether dead clicks were enabled in remote config",
@@ -1795,13 +1850,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The number of tokens in the input prompt that was sent to the LLM API.",
             "examples": [23],
         },
-        "$ai_output": {
-            "label": "AI output (LLM)",
-            "description": "The output JSON that was received from the LLM API.",
-            "examples": [
-                '{"choices": [{"text": "Quantum computing is a type of computing that harnesses the power of quantum mechanics to perform operations on data."}]}',
-            ],
-        },
         "$ai_output_choices": {
             "label": "AI output (LLM)",
             "description": "The output message choices JSON that was received from the LLM API.",
@@ -1824,6 +1872,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The number of tokens created in the cache for the input prompt (anthropic only).",
             "examples": [23],
         },
+        "$ai_cache_reporting_exclusive": {
+            "label": "AI cache reporting exclusive (LLM)",
+            "description": "Whether cache tokens are excluded from the input token count. When true, cache tokens are separate from input tokens (Anthropic-style). When false, input tokens already include cache tokens. Auto-detected from provider when not set explicitly.",
+            "examples": [True],
+        },
         "$ai_reasoning_tokens": {
             "label": "AI reasoning tokens (LLM)",
             "description": "The number of tokens in the reasoning output from the LLM API.",
@@ -1844,10 +1897,40 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The total cost in USD of the request made to the LLM API (input + output costs).",
             "examples": [0.0041],
         },
+        "$ai_request_cost_usd": {
+            "label": "AI request cost USD (LLM)",
+            "description": "The per-request cost in USD charged by the LLM API, independent of token usage.",
+            "examples": [0.005],
+        },
+        "$ai_web_search_cost_usd": {
+            "label": "AI web search cost USD (LLM)",
+            "description": "The cost in USD of web searches performed during the LLM API request.",
+            "examples": [0.005],
+        },
+        "$ai_model_cost_used": {
+            "label": "AI model cost used (LLM)",
+            "description": "The model identifier used for cost calculation. May differ from the requested model when a variant or alias is resolved.",
+            "examples": ["openai/gpt-4o-mini"],
+        },
+        "$ai_cost_model_source": {
+            "label": "AI cost model source (LLM)",
+            "description": "Where the cost data for this model was sourced from.",
+            "examples": ["openrouter", "manual", "custom", "passthrough"],
+        },
+        "$ai_cost_model_provider": {
+            "label": "AI cost model provider (LLM)",
+            "description": "The provider used to look up the cost for this model.",
+            "examples": ["openai", "anthropic", "custom"],
+        },
         "$ai_latency": {
             "label": "AI latency (LLM)",
             "description": "The latency of the request made to the LLM API, in seconds.",
             "examples": [0.361],
+        },
+        "$ai_time_to_first_token": {
+            "label": "AI time to first token (LLM)",
+            "description": "The time in seconds from request start until the first token was received. Only applicable for streaming responses.",
+            "examples": [0.125, 0.5],
         },
         "$ai_model": {
             "label": "AI model (LLM)",
@@ -1894,6 +1977,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The trace ID of the request made to the LLM API. Used to group together multiple generations into a single trace.",
             "examples": ["c9222e05-8708-41b8-98ea-d4a21849e761"],
         },
+        "$ai_session_id": {
+            "label": "AI Session ID (LLM)",
+            "description": "Groups related traces together in a session (e.g., a conversation or workflow). One session can contain many traces.",
+            "examples": ["session-abc-123", "conv-user-456"],
+        },
         "$ai_request_url": {
             "label": "AI Request URL (LLM)",
             "description": "The full URL of the request made to the LLM API.",
@@ -1928,6 +2016,36 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI Evaluation Reasoning (LLM)",
             "description": "The LLM's explanation for why the evaluation passed or failed.",
             "examples": ["The response accurately addresses the query", "The output contains factual inaccuracies"],
+        },
+        "$ai_evaluation_provider": {
+            "label": "AI Evaluation Provider (LLM)",
+            "description": "The LLM provider used as the judge (e.g., openai, anthropic, gemini).",
+            "examples": ["openai", "anthropic", "gemini"],
+        },
+        "$ai_evaluation_allows_na": {
+            "label": "AI Evaluation Allows N/A (LLM)",
+            "description": "Whether the evaluation allows N/A responses when the criteria doesn't apply.",
+            "examples": [True, False],
+        },
+        "$ai_evaluation_key_type": {
+            "label": "AI Evaluation Key Type (LLM)",
+            "description": "The type of API key used for the evaluation (byok = user's own key, posthog = PostHog default).",
+            "examples": ["byok", "posthog"],
+        },
+        "$ai_evaluation_key_id": {
+            "label": "AI Evaluation Key ID (LLM)",
+            "description": "The ID of the LLM provider key used for the evaluation.",
+            "examples": ["550e8400-e29b-41d4-a716-446655440000"],
+        },
+        "$ai_evaluation_applicable": {
+            "label": "AI Evaluation Applicable (LLM)",
+            "description": "Whether the evaluation criteria was applicable to this generation (only present when N/A is allowed).",
+            "examples": [True, False],
+        },
+        "$ai_evaluation_runtime": {
+            "label": "AI Evaluation Runtime (LLM)",
+            "description": "The runtime used to execute the evaluation (e.g., llm_judge for LLM-based, hog for code-based).",
+            "examples": ["llm_judge", "hog"],
         },
         "$ai_target_event_id": {
             "label": "AI Target Event ID (LLM)",
@@ -1968,6 +2086,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI Span Name (LLM)",
             "description": "The name given to this LLM trace, generation, or span.",
             "examples": ["summarize_text"],
+        },
+        "$ai_tools_called": {
+            "label": "AI Tools Called (LLM)",
+            "description": "The names of tools called by the LLM in this generation.",
+            "examples": ["get_weather,search_docs"],
+        },
+        "$ai_tool_call_count": {
+            "label": "AI Tool Call Count (LLM)",
+            "description": "The number of tool calls made by the LLM in this generation.",
+            "examples": ["2"],
         },
         "$csp_document_url": {
             "label": "Document URL",
@@ -2071,9 +2199,9 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "Numeric",
             "virtual": True,
         },
-        "$virt_revenue_last_30_days": {
-            "description": "The total revenue for this person in the last 30 days.",
-            "label": "Total revenue in the last 30 days",
+        "$virt_mrr": {
+            "description": "The current MRR for this person.",
+            "label": "Total MRR",
             "type": "Numeric",
             "virtual": True,
         },
@@ -2185,9 +2313,9 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "Numeric",
             "virtual": True,
         },
-        "$virt_revenue_last_30_days": {
-            "description": "The total revenue for this group in the last 30 days.",
-            "label": "Total revenue in the last 30 days",
+        "$virt_mrr": {
+            "description": "The current MRR for this group.",
+            "label": "Total MRR",
             "type": "Numeric",
             "virtual": True,
         },
@@ -2437,3 +2565,25 @@ PROPERTY_NAME_ALIASES = {
     for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items()
     if "label" in value and "deprecated" not in value["label"]
 }
+
+_PROP_TYPE_TO_TAXONOMY_GROUP = {
+    "event": "event_properties",
+    "person": "person_properties",
+    "group": "groups",
+    "session": "session_properties",
+}
+
+PROPERTY_NAME_ALIASES_BY_TYPE: dict[str, dict[str, str]] = {
+    prop_type: {
+        key: value["label"]
+        for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP.get(group_name, {}).items()
+        if "label" in value and "deprecated" not in value["label"]
+    }
+    for prop_type, group_name in _PROP_TYPE_TO_TAXONOMY_GROUP.items()
+}
+
+IGNORED_EVENT_NAMES: list[str] = [
+    name
+    for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items()
+    if defn.get("system") or defn.get("ignored_in_assistant")
+]

@@ -1,6 +1,6 @@
 export interface RoleBasedMessage {
     role: string
-    content: string | { type: string; content: string } | object[]
+    content: string | { type: string; content: string } | MultiModalContentItem[]
 }
 
 export interface OpenAIToolCall {
@@ -35,6 +35,81 @@ export interface VercelSDKImageMessage {
 export interface VercelSDKInputImageMessage {
     type: 'input_image'
     image_url: string
+}
+
+export interface OpenAIImageURLMessage {
+    type: 'image_url'
+    image_url: {
+        url: string
+    }
+}
+
+export interface OpenAIFileMessage {
+    type: 'file'
+    file: {
+        file_data: string
+        filename: string
+    }
+}
+
+export interface OpenAIAudioMessage {
+    type: 'audio'
+    data: string
+    transcript: string
+    id: string
+    expires_at: number
+}
+
+export interface AnthropicImageMessage {
+    type: 'image'
+    source: {
+        type: 'base64'
+        media_type: string
+        data: string
+    }
+}
+
+export interface AnthropicDocumentMessage {
+    type: 'document'
+    source: {
+        type: 'base64'
+        media_type: string
+        data: string
+    }
+}
+
+export interface GeminiAudioMessage {
+    type: 'audio'
+    data: string
+    mime_type: string
+}
+
+export interface GeminiImageMessage {
+    type: 'image'
+    // snake_case (Python SDK)
+    inline_data?: {
+        data: string
+        mime_type: string
+    }
+    // camelCase (Node SDK)
+    inlineData?: {
+        data: string
+        mimeType: string
+    }
+}
+
+export interface GeminiDocumentMessage {
+    type: 'document' | 'image' // 'image' when SDK misdetects PDF by MIME type
+    // snake_case (Python SDK)
+    inline_data?: {
+        data: string
+        mime_type: string
+    }
+    // camelCase (Node SDK)
+    inlineData?: {
+        data: string
+        mimeType: string
+    }
 }
 
 export interface VercelSDKInputTextMessage {
@@ -103,3 +178,26 @@ export interface LiteLLMResponse {
     choices?: LiteLLMChoice[]
     [additionalKey: string]: any
 }
+
+export interface TextContentItem {
+    type: 'text'
+    text: string
+}
+
+export interface ImageContentItem {
+    type: 'image'
+    image: string
+}
+
+export type MultiModalContentItem =
+    | string
+    | TextContentItem
+    | ImageContentItem
+    | OpenAIImageURLMessage
+    | OpenAIFileMessage
+    | OpenAIAudioMessage
+    | AnthropicImageMessage
+    | AnthropicDocumentMessage
+    | GeminiImageMessage
+    | GeminiDocumentMessage
+    | GeminiAudioMessage

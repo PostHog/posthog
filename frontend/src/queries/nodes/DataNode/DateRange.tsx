@@ -1,17 +1,30 @@
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
-import { EventsQuery, HogQLQuery, SessionAttributionExplorerQuery, TracesQuery } from '~/queries/schema/schema-general'
-import { isEventsQuery, isHogQLQuery, isSessionAttributionExplorerQuery, isTracesQuery } from '~/queries/utils'
+import {
+    EventsQuery,
+    HogQLQuery,
+    SessionAttributionExplorerQuery,
+    SessionsQuery,
+    TracesQuery,
+} from '~/queries/schema/schema-general'
+import {
+    isEventsQuery,
+    isHogQLQuery,
+    isSessionAttributionExplorerQuery,
+    isSessionsQuery,
+    isTracesQuery,
+} from '~/queries/utils'
 
-interface DateRangeProps<Q extends EventsQuery | HogQLQuery | SessionAttributionExplorerQuery | TracesQuery> {
+interface DateRangeProps<
+    Q extends EventsQuery | HogQLQuery | SessionAttributionExplorerQuery | SessionsQuery | TracesQuery,
+> {
     query: Q
     setQuery?: (query: Q) => void
 }
-export function DateRange<Q extends EventsQuery | HogQLQuery | SessionAttributionExplorerQuery | TracesQuery>({
-    query,
-    setQuery,
-}: DateRangeProps<Q>): JSX.Element | null {
-    if (isEventsQuery(query)) {
+export function DateRange<
+    Q extends EventsQuery | HogQLQuery | SessionAttributionExplorerQuery | SessionsQuery | TracesQuery,
+>({ query, setQuery }: DateRangeProps<Q>): JSX.Element | null {
+    if (isEventsQuery(query) || isSessionsQuery(query)) {
         return (
             <DateFilter
                 dateFrom={query.after ?? undefined}
@@ -24,6 +37,8 @@ export function DateRange<Q extends EventsQuery | HogQLQuery | SessionAttributio
                     }
                     setQuery?.(newQuery)
                 }}
+                allowFixedRangeWithTime
+                showJumpToTimestamp
             />
         )
     }
@@ -46,6 +61,7 @@ export function DateRange<Q extends EventsQuery | HogQLQuery | SessionAttributio
                     }
                     setQuery?.(newQuery)
                 }}
+                allowFixedRangeWithTime
             />
         )
     }
@@ -65,6 +81,7 @@ export function DateRange<Q extends EventsQuery | HogQLQuery | SessionAttributio
                     }
                     setQuery?.(newQuery)
                 }}
+                allowFixedRangeWithTime
             />
         )
     }

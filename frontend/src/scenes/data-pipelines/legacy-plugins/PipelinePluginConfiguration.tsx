@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import React, { useState } from 'react'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 
 import { IconLock, IconPencil } from '@posthog/icons'
 import {
@@ -16,8 +15,8 @@ import {
     SpinnerOverlay,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { PluginConfigSchema } from '@posthog/plugin-scaffold/src/types'
 
+import { AutoSizer } from 'lib/components/AutoSizer'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -27,6 +26,8 @@ import {
     getConfigSchemaArray,
     isValidField,
 } from 'scenes/data-pipelines/legacy-plugins/configUtils'
+
+import { PluginConfigSchema } from '~/legacy-plugin-scaffold'
 
 import { pipelinePluginConfigurationLogic } from './pipelinePluginConfigurationLogic'
 import { RenderApp } from './utils'
@@ -314,21 +315,25 @@ function JsonConfigField(props: {
     value: any
 }): JSX.Element {
     return (
-        <AutoSizer disableWidth className="min-h-60">
-            {({ height }) => (
-                <CodeEditor
-                    className="border"
-                    language="json"
-                    value={props.value}
-                    onChange={(v) => props.onChange?.(v ?? '')}
-                    height={height}
-                    options={{
-                        minimap: {
-                            enabled: false,
-                        },
-                    }}
-                />
-            )}
-        </AutoSizer>
+        <AutoSizer
+            disableWidth={true}
+            className="min-h-60"
+            renderProp={({ height }) =>
+                height ? (
+                    <CodeEditor
+                        className="border"
+                        language="json"
+                        value={props.value}
+                        onChange={(v) => props.onChange?.(v ?? '')}
+                        height={height}
+                        options={{
+                            minimap: {
+                                enabled: false,
+                            },
+                        }}
+                    />
+                ) : null
+            }
+        />
     )
 }

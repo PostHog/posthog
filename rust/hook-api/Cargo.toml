@@ -25,3 +25,4 @@ tracing-subscriber = { workspace = true }
 url = { workspace = true }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
+common-continuous-profiling = { path = "../common/continuous_profiling" }

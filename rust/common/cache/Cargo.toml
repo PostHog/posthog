@@ -1,0 +1,16 @@
+[package]
+name = "common-cache"
+version = "0.1.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[dependencies]
+common-metrics = { path = "../metrics" }
+common-redis = { path = "../redis" }
+moka = { version = "0.12", features = ["sync"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }

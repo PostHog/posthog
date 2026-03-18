@@ -1,9 +1,10 @@
 // KeaDevtools.tsx
 import { getContext } from 'kea'
 import type { BuiltLogic, Context as KeaContext } from 'kea'
-import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { List, ListRowProps } from 'react-virtualized/dist/es/List'
+import React, { CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
+import { List } from 'react-window'
+
+import { AutoSizer } from 'lib/components/AutoSizer'
 
 type MountedMap = Record<string, BuiltLogic>
 type SortMode = 'alpha' | 'recent'
@@ -23,6 +24,28 @@ function useDebounce<T>(value: T, delay: number): T {
     }, [value, delay])
 
     return debouncedValue
+}
+
+function usePageVisible(): boolean {
+    const getVisible = (): boolean => {
+        if (typeof document === 'undefined') {
+            return true
+        }
+        return document.visibilityState !== 'hidden'
+    }
+
+    const [visible, setVisible] = useState(getVisible)
+
+    useEffect(() => {
+        if (typeof document === 'undefined') {
+            return
+        }
+        const onVisibilityChange = (): void => setVisible(getVisible())
+        document.addEventListener('visibilitychange', onVisibilityChange)
+        return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+    }, [])
+
+    return visible
 }
 
 type KeaDevtoolsProps = {
@@ -109,6 +132,7 @@ function arrayPath(base: string, index: number): string {
 function diffStates(prev: unknown, next: unknown, limit = MAX_STATE_DIFF_ENTRIES): StateDiffResult {
     const changes: StateDiffEntry[] = []
     let truncated = false
+    const seenPairs = new WeakMap<object, WeakSet<object>>()
 
     const addChange = (change: StateDiffEntry): void => {
         if (changes.length >= limit) {
@@ -116,6 +140,21 @@ function diffStates(prev: unknown, next: unknown, limit = MAX_STATE_DIFF_ENTRIES
             return
         }
         changes.push(change)
+    }
+
+    const markPair = (prevObj: object, nextObj: object): boolean => {
+        const seenForPrev = seenPairs.get(prevObj)
+        if (seenForPrev) {
+            if (seenForPrev.has(nextObj)) {
+                return true
+            }
+            seenForPrev.add(nextObj)
+            return false
+        }
+        const nextSet = new WeakSet<object>()
+        nextSet.add(nextObj)
+        seenPairs.set(prevObj, nextSet)
+        return false
     }
 
     const visit = (prevValue: unknown, nextValue: unknown, path: string): void => {
@@ -132,6 +171,9 @@ function diffStates(prev: unknown, next: unknown, limit = MAX_STATE_DIFF_ENTRIES
         const nextIsArray = Array.isArray(nextValue)
 
         if (prevIsArray && nextIsArray) {
+            if (markPair(prevValue, nextValue)) {
+                return
+            }
             const maxLength = Math.max(prevValue.length, nextValue.length)
             for (let index = 0; index < maxLength; index += 1) {
                 if (changes.length >= limit) {
@@ -151,6 +193,9 @@ function diffStates(prev: unknown, next: unknown, limit = MAX_STATE_DIFF_ENTRIES
         }
 
         if (isPlainObject(prevValue) && isPlainObject(nextValue)) {
+            if (markPair(prevValue, nextValue)) {
+                return
+            }
             const keys = new Set([...Object.keys(prevValue), ...Object.keys(nextValue)])
             for (const key of keys) {
                 if (changes.length >= limit) {
@@ -1862,6 +1907,7 @@ export function KeaDevtools({
     maxActions = 1000,
 }: KeaDevtoolsProps): JSX.Element {
     const [open, setOpen] = useState(defaultOpen)
+    const pageVisible = usePageVisible()
     const [activeTab, setActiveTab] = useState<Tab>('logics')
     const [selectedKey, setSelectedKey] = useState<string | null>(null)
     const [sortMode, setSortMode] = useState<SortMode>('alpha')
@@ -1875,6 +1921,8 @@ export function KeaDevtools({
         pausedRef.current = paused
     }, [paused])
     const dispatchPatched = useRef(false)
+    const shouldRenderPanel = open && pageVisible
+    const shouldCollectActions = shouldRenderPanel && activeTab === 'actions'
     const maxActionsRef = useRef(maxActions)
     useEffect(() => {
         maxActionsRef.current = maxActions
@@ -1903,13 +1951,10 @@ export function KeaDevtools({
     const mounted = ((mount as any)?.mounted ?? {}) as MountedMap
 
     useEffect(() => {
-        if (typeof window === 'undefined') {
+        if (!shouldRenderPanel || !windowed || typeof window === 'undefined') {
             return
         }
         const handleMove = (event: MouseEvent): void => {
-            if (!windowed) {
-                return
-            }
             if (dragState.current) {
                 const { offsetX, offsetY } = dragState.current
                 setWindowRect((rect) => {
@@ -1944,10 +1989,10 @@ export function KeaDevtools({
             window.removeEventListener('mousemove', handleMove)
             window.removeEventListener('mouseup', handleUp)
         }
-    }, [windowed, offset])
+    }, [shouldRenderPanel, windowed, offset])
 
     useEffect(() => {
-        if (!windowed || typeof window === 'undefined') {
+        if (!shouldRenderPanel || !windowed || typeof window === 'undefined') {
             return
         }
         const clampToViewport = (): void => {
@@ -1972,7 +2017,7 @@ export function KeaDevtools({
         return () => {
             window.removeEventListener('resize', handleResize)
         }
-    }, [windowed, offset])
+    }, [shouldRenderPanel, windowed, offset])
 
     useEffect(() => {
         if (!windowed) {
@@ -2010,13 +2055,16 @@ export function KeaDevtools({
 
     // collect actions
     useEffect(() => {
+        if (!shouldCollectActions) {
+            return
+        }
         if (dispatchPatched.current) {
             return
         }
         const s: any = store as any
         const originalDispatch = s.dispatch
         s.__keaDevtoolsOriginalDispatch = originalDispatch
-        s.dispatch = (action: any) => {
+        const patchedDispatch = (action: any): any => {
             if (pausedRef.current) {
                 return originalDispatch(action)
             }
@@ -2054,14 +2102,18 @@ export function KeaDevtools({
             })
             return result
         }
+        s.__keaDevtoolsPatchedDispatch = patchedDispatch
+        s.dispatch = patchedDispatch
         dispatchPatched.current = true
         return () => {
-            if (s.__keaDevtoolsOriginalDispatch) {
-                s.dispatch = s.__keaDevtoolsOriginalDispatch
+            if (s.dispatch === patchedDispatch) {
+                s.dispatch = originalDispatch
             }
+            delete s.__keaDevtoolsOriginalDispatch
+            delete s.__keaDevtoolsPatchedDispatch
             dispatchPatched.current = false
         }
-    }, [store])
+    }, [store, shouldCollectActions])
 
     // keys + default selection
     const allKeys = useMemo(
@@ -2346,7 +2398,7 @@ export function KeaDevtools({
                 🦜
             </button>
 
-            {open ? (
+            {shouldRenderPanel ? (
                 windowed ? (
                     <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex }}>
                         <div
@@ -2524,7 +2576,7 @@ function ActionsTab({
     }
 
     // Calculate dynamic row height based on whether payload is expanded
-    const getRowHeight = ({ index }: { index: number }): number => {
+    const getRowHeight = (index: number): number => {
         const action = filtered[index]
         if (!action) {
             return 110
@@ -2540,10 +2592,17 @@ function ActionsTab({
     }
 
     // Row renderer for virtualized list
-    const renderRow = ({ index, key, style }: ListRowProps): JSX.Element => {
+    const renderRow = ({
+        index,
+        style,
+    }: {
+        ariaAttributes: Record<string, unknown>
+        index: number
+        style: CSSProperties
+    }): JSX.Element => {
         const action = filtered[index]
         if (!action) {
-            return <div key={key} style={style} />
+            return <div style={style} />
         }
 
         const isOpen = expanded.has(action.id)
@@ -2552,7 +2611,6 @@ function ActionsTab({
 
         return (
             <div
-                key={key}
                 style={{
                     ...style,
                     display: 'flex',
@@ -2666,14 +2724,6 @@ function ActionsTab({
         )
     }
 
-    // Create a ref for the List to trigger re-render when expanded state changes
-    const listRef = useRef<List>(null)
-
-    // Force re-render of list when expanded state changes
-    useEffect(() => {
-        listRef.current?.recomputeRowHeights()
-    }, [expanded, filtered])
-
     return (
         <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, gap: 8, padding: 10, flex: 1 }}>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -2771,19 +2821,20 @@ function ActionsTab({
                     {filtered.length === 0 ? (
                         <div style={{ padding: 12, color: 'rgba(0,0,0,0.6)' }}>No actions yet.</div>
                     ) : (
-                        <AutoSizer>
-                            {({ height, width }) => (
-                                <List
-                                    ref={listRef}
-                                    width={width}
-                                    height={height}
-                                    rowCount={filtered.length}
-                                    rowHeight={getRowHeight}
-                                    rowRenderer={renderRow}
-                                    overscanRowCount={10}
-                                />
-                            )}
-                        </AutoSizer>
+                        <AutoSizer
+                            renderProp={({ height, width }) =>
+                                height && width ? (
+                                    <List<Record<string, never>>
+                                        style={{ width, height }}
+                                        rowCount={filtered.length}
+                                        rowHeight={getRowHeight}
+                                        overscanCount={10}
+                                        rowComponent={renderRow}
+                                        rowProps={{}}
+                                    />
+                                ) : null
+                            }
+                        />
                     )}
                 </div>
             </div>

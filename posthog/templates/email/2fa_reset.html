@@ -1,0 +1,35 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block section %}
+<p>Hey, {{ user_name }},</p>
+
+<p>
+    We've received a request to reset two-factor authentication (2FA) for your account ({{ user_email }}).
+</p>
+
+<p>
+    If you no longer have access to your 2FA authenticator app, you can click the button below to reset your 2FA settings.
+    <b>This will disable 2FA on your account</b> so you can log in and set up a new authenticator.
+</p>
+
+<div class="mb mt text-center">
+    <a class="button" href="{{ url }}">Reset 2FA settings</a>
+</div>
+
+<div class="mt">
+    <p>
+        If the button above doesn't work, paste this link into your browser:<br />
+        <a href="{{ url }}">{{ url }}</a>
+    </p>
+</div>
+
+<p class="mt">
+    <b>Important:</b> This link will expire in {{ expiration_hours }} hour(s).
+</p>
+
+<p>
+    If you didn't request this reset, please let us know so we can keep your account secure.
+</p>
+
+{% endblock %}
+{% block preheader %}{{ preheader }}{% endblock %}
+{% block heading %}Reset your two-factor authentication{% endblock %}

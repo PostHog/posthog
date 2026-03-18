@@ -5,7 +5,7 @@ describe('sourceWizardLogic', () => {
         it('returns the default for an empty source', async () => {
             const res = buildKeaFormDefaultFromSourceDetails({})
 
-            expect(res).toEqual({ prefix: '', payload: {} })
+            expect(res).toEqual({ prefix: '', description: '', payload: {} })
         })
 
         it('returns defaults for text fields', async () => {
@@ -27,7 +27,7 @@ describe('sourceWizardLogic', () => {
                 },
             })
 
-            expect(res).toEqual({ prefix: '', payload: { test_field: '' } })
+            expect(res).toEqual({ prefix: '', description: '', payload: { test_field: '' } })
         })
 
         it('returns defaults for pure select field', async () => {
@@ -50,7 +50,7 @@ describe('sourceWizardLogic', () => {
                 },
             })
 
-            expect(res).toEqual({ prefix: '', payload: { test_field: 'value1' } })
+            expect(res).toEqual({ prefix: '', description: '', payload: { test_field: 'value1' } })
         })
 
         it('returns defaults for select field with fields', async () => {
@@ -87,7 +87,11 @@ describe('sourceWizardLogic', () => {
                 },
             })
 
-            expect(res).toEqual({ prefix: '', payload: { test_field: { selection: 'value1', option_field: '' } } })
+            expect(res).toEqual({
+                prefix: '',
+                description: '',
+                payload: { test_field: { selection: 'value1', option_field: '' } },
+            })
         })
 
         it('returns defaults for switch group field - default disabled', async () => {
@@ -117,7 +121,11 @@ describe('sourceWizardLogic', () => {
                 },
             })
 
-            expect(res).toEqual({ prefix: '', payload: { test_field: { enabled: false, option_field: '' } } })
+            expect(res).toEqual({
+                prefix: '',
+                description: '',
+                payload: { test_field: { enabled: false, option_field: '' } },
+            })
         })
 
         it('returns defaults for switch group field - default enabled', async () => {
@@ -147,7 +155,11 @@ describe('sourceWizardLogic', () => {
                 },
             })
 
-            expect(res).toEqual({ prefix: '', payload: { test_field: { enabled: true, option_field: '' } } })
+            expect(res).toEqual({
+                prefix: '',
+                description: '',
+                payload: { test_field: { enabled: true, option_field: '' } },
+            })
         })
     })
 
@@ -160,6 +172,20 @@ describe('sourceWizardLogic', () => {
         it('returns errors for an invalid prefix', () => {
             const res = getErrorsForFields([], { prefix: '@@@', payload: {} })
             expect(res.prefix).toBeTruthy()
+        })
+
+        it('requires name for direct mode', () => {
+            const res = getErrorsForFields([], { prefix: '   ', payload: {}, access_method: 'direct' })
+            expect(res.prefix).toEqual('Please enter a name for this direct query source.')
+        })
+
+        it('allows non-prefix characters for direct mode name', () => {
+            const res = getErrorsForFields([], {
+                prefix: 'prod us-east (readonly)',
+                payload: {},
+                access_method: 'direct',
+            })
+            expect(res.prefix).toBeUndefined()
         })
 
         it('returns errors for an empty required text field', () => {
@@ -401,6 +427,23 @@ describe('sourceWizardLogic', () => {
                 { prefix: '', payload: { test_field: { enabled: true, option_field: '' } } }
             )
             expect(res.payload.test_field.option_field).toBeTruthy()
+        })
+
+        it('allows empty password in edit mode validation', () => {
+            const res = getErrorsForFields(
+                [
+                    {
+                        name: 'password',
+                        label: 'Password',
+                        type: 'password',
+                        required: true,
+                        placeholder: '',
+                    },
+                ],
+                { prefix: 'prod-db', payload: { password: '' }, access_method: 'direct' },
+                { allowBlankSensitiveFields: true }
+            )
+            expect(res.payload.password).toBeUndefined()
         })
     })
 })

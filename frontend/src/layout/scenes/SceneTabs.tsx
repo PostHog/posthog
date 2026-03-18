@@ -5,136 +5,149 @@ import { SortableContext, horizontalListSortingStrategy, useSortable } from '@dn
 import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import React, { useEffect, useRef, useState } from 'react'
+import React, { Fragment, useEffect, useRef, useState } from 'react'
 
-import { IconPlus, IconSearch, IconX } from '@posthog/icons'
+import { IconPlus, IconX } from '@posthog/icons'
 
-import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { IconMenu } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { IconMenu } from 'lib/lemon-ui/icons'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 import { SceneTab } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTabContextMenu } from '~/layout/scenes/SceneTabContextMenu'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
+import { Scene } from '~/scenes/sceneTypes'
 
+import { sidePanelOfframpLogic } from '../navigation-3000/sidepanel/sidePanelOfframpLogic'
 import { navigationLogic } from '../navigation/navigationLogic'
 import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
 
-export interface SceneTabsProps {
-    className?: string
-}
-
-export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
-    const { tabs } = useValues(sceneLogic)
-    const { newTab, reorderTabs } = useActions(sceneLogic)
-    const { toggleSearchBar } = useActions(commandBarLogic)
-    const { isLayoutPanelVisible } = useValues(panelLayoutLogic)
+export function SceneTabs(): JSX.Element {
+    const { tabs, sceneId } = useValues(sceneLogic)
+    const { newTab, reorderTabs, clearFrozenWidths } = useActions(sceneLogic)
     const { mobileLayout } = useValues(navigationLogic)
+    const { showConfigurePinnedTabsModal } = useActions(navigationLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+    const { showOfframpModal } = useActions(sidePanelOfframpLogic)
+    const { isSceneTabsOfframpDismissed } = useValues(sidePanelOfframpLogic)
 
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
-        if (over && active.id !== over.id) {
-            reorderTabs(active.id as string, over.id as string)
+        if (!over || over.id === 'new' || active.id === over.id) {
+            return
         }
+
+        const activeIndex = active.data.current?.index
+        const overIndex = over.data.current?.index
+
+        if (typeof activeIndex !== 'number' || typeof overIndex !== 'number') {
+            return
+        }
+
+        const activeTab = tabs[activeIndex]
+        const overTab = tabs[overIndex]
+        if (!activeTab || !overTab) {
+            return
+        }
+
+        if (!!activeTab.pinned !== !!overTab.pinned) {
+            return
+        }
+
+        reorderTabs(activeTab.id, overTab.id)
     }
 
     return (
-        <div
-            className={cn(
-                'h-[var(--scene-layout-header-height)] flex items-center w-full bg-surface-tertiary z-[var(--z-top-navigation)] pr-1.5 border-b border-primary relative',
-                className
-            )}
-        >
-            {/* rounded corner on the left to make scene curve into tab line */}
+        <div className="h-[var(--scene-layout-header-height)] flex items-center w-full min-w-0 bg-surface-tertiary z-[var(--z-top-navigation)] relative">
+            {/* Mobile button to show/hide the layout navbar */}
             {mobileLayout && (
                 <ButtonPrimitive
                     onClick={() => showLayoutNavBar(!isLayoutNavbarVisibleForMobile)}
                     iconOnly
-                    className="ml-1"
+                    className="ml-1 z-20 rounded-lg mr-1"
                 >
                     {isLayoutNavbarVisibleForMobile ? <IconX /> : <IconMenu />}
                 </ButtonPrimitive>
             )}
 
-            {/* rounded corner on the left to make scene curve into tab line */}
-            {!isLayoutPanelVisible && (
-                <div className="absolute left-0 -bottom-1 size-2 bg-surface-tertiary">
-                    <div className="relative -bottom-1 size-2 border-l border-t border-primary rounded-tl bg-[var(--scene-layout-background)]" />
-                </div>
-            )}
+            {/* Line below tabs to to complete border on <main> element */}
+            <div className="absolute bottom-0 w-full lg:px-[5px] lg:pr-3">
+                <div className="w-full bottom-0 h-px border-b border-primary z-10" />
+            </div>
 
             <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-                <SortableContext items={[...tabs.map((t) => t.id), 'new']} strategy={horizontalListSortingStrategy}>
-                    <div className={cn('flex flex-row gap-1 max-w-full items-center', className)}>
-                        <div className="pl-[2px] shrink-0">
-                            <ButtonPrimitive
-                                iconOnly
-                                onClick={toggleSearchBar}
-                                data-attr="tree-navbar-search-button"
-                                className="z-20"
-                                size="sm"
-                                aria-label="Search (Command + K) or Commands (Command + Shift + K)"
-                                aria-describedby="search-tooltip"
-                                tooltip={
-                                    <div className="flex flex-col gap-0.5" id="search-tooltip">
-                                        <span>
-                                            For search, press <KeyboardShortcut command k />
-                                        </span>
-                                        <span>
-                                            For commands, press <KeyboardShortcut command shift k />
-                                        </span>
-                                    </div>
-                                }
+                <SortableContext
+                    items={[...tabs.map((tab, index) => getSortableId(tab, index)), 'new']}
+                    strategy={horizontalListSortingStrategy}
+                >
+                    <div
+                        className="scene-tab-row gap-1 flex-1 min-w-0 items-center flex h-[var(--scene-layout-header-height)] lg:h-auto pr-2"
+                        onMouseLeave={clearFrozenWidths}
+                    >
+                        {tabs.map((tab, index) => {
+                            const sortableId = getSortableId(tab, index)
+                            const isLastPinned =
+                                tab.pinned &&
+                                // last tab OR next tab is not pinned
+                                (index === tabs.length - 1 || !tabs[index + 1]?.pinned)
+
+                            return (
+                                <Fragment key={sortableId}>
+                                    <SortableSceneTab
+                                        tab={tab}
+                                        index={index}
+                                        sortableId={sortableId}
+                                        onConfigurePinnedTabs={() => showConfigurePinnedTabsModal()}
+                                    />
+                                    {isLastPinned && (
+                                        <div
+                                            className="h-4 w-px bg-border-secondary shrink-0 rounded opacity-50"
+                                            aria-hidden="true"
+                                        />
+                                    )}
+                                </Fragment>
+                            )
+                        })}
+                        <AppShortcut name="NewTab" keybind={[keyBinds.newTab]} intent="New tab" interaction="click">
+                            <Link
+                                to={urls.newTab()}
+                                data-attr="scene-tab-new-button"
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    const source = e.detail === 0 ? 'keyboard_shortcut' : 'new_tab_button'
+                                    const newTabHref =
+                                        sceneId === Scene.SQLEditor ? `${urls.newTab()}?source=sql_editor` : null
+                                    newTab(newTabHref, { source })
+                                }}
+                                tooltip="New tab"
+                                tooltipCloseDelayMs={0}
+                                buttonProps={{
+                                    iconOnly: true,
+                                    className: 'p-1 flex items-center gap-1 cursor-pointer rounded border-b z-20',
+                                }}
                             >
-                                <IconSearch className="text-secondary size-4" />
+                                <IconPlus className="!ml-0 size-3" />
+                            </Link>
+                        </AppShortcut>
+
+                        {!isSceneTabsOfframpDismissed && (
+                            <ButtonPrimitive
+                                onClick={() => {
+                                    showOfframpModal()
+                                }}
+                                className="ml-auto text-tertiary hover:text-primary"
+                            >
+                                Where's the panel? 🤔
                             </ButtonPrimitive>
-                        </div>
-                        <div
-                            className="scene-tab-row grid min-w-0 gap-1 items-center h-[36px]"
-                            style={{
-                                gridTemplateColumns:
-                                    tabs.length === 1
-                                        ? '250px'
-                                        : tabs.length === 2
-                                          ? 'repeat(2, 250px)'
-                                          : `repeat(${tabs.length}, minmax(40px, 250px))`,
-                            }}
-                        >
-                            {tabs.map((tab) => (
-                                <SortableSceneTab key={tab.id} tab={tab} />
-                            ))}
-                        </div>
-                        <Link
-                            to={urls.newTab()}
-                            data-attr="scene-tab-new-button"
-                            onClick={(e) => {
-                                e.preventDefault()
-                                newTab()
-                            }}
-                            buttonProps={{
-                                size: 'sm',
-                                className:
-                                    'p-1 flex flex-row items-center gap-1 cursor-pointer rounded-lg border-b z-20 ml-px',
-                                iconOnly: true,
-                            }}
-                            tooltip={
-                                <>
-                                    New tab <KeyboardShortcut command b />
-                                </>
-                            }
-                            tooltipPlacement="bottom"
-                        >
-                            <IconPlus className="!ml-0" fontSize={14} />
-                        </Link>
+                        )}
                     </div>
                 </SortableContext>
             </DndContext>
@@ -142,18 +155,56 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     )
 }
 
-function SortableSceneTab({ tab }: { tab: SceneTab }): JSX.Element {
-    const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: tab.id })
+const getSortableId = (tab: SceneTab, index: number): string => `${tab.id}-${index}`
+
+interface SortableSceneTabProps {
+    tab: SceneTab
+    index: number
+    sortableId: string
+    containerClassName?: string
+    onConfigurePinnedTabs: () => void
+}
+
+function SortableSceneTab({
+    tab,
+    index,
+    sortableId,
+    containerClassName,
+    onConfigurePinnedTabs,
+}: SortableSceneTabProps): JSX.Element {
+    const { frozenWidths } = useValues(sceneLogic)
+    const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
+        id: sortableId,
+        data: { index },
+    })
+    const frozenWidth = frozenWidths?.[tab.id]
     const style: React.CSSProperties = {
         transform: CSS.Translate.toString(transform),
         transition,
         opacity: isDragging ? 0.5 : undefined,
+        ...(frozenWidth != null ? { width: frozenWidth, flex: '0 0 auto', minWidth: 0, maxWidth: 'none' } : {}),
     }
 
+    const isPinned = !!tab.pinned
+
     return (
-        <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-            <SceneTabContextMenu tab={tab}>
-                <SceneTabComponent tab={tab} isDragging={isDragging} />
+        <div
+            ref={setNodeRef}
+            style={style}
+            {...attributes}
+            {...listeners}
+            className={cn(
+                isPinned ? 'shrink-0' : frozenWidth != null ? '' : 'w-full flex-1 min-w-[100px] max-w-[250px]'
+            )}
+            data-tab-id={tab.id}
+        >
+            <SceneTabContextMenu tab={tab} onConfigurePinnedTabs={onConfigurePinnedTabs}>
+                <SceneTabComponent
+                    tab={tab}
+                    isDragging={isDragging}
+                    containerClassName={containerClassName}
+                    index={index}
+                />
             </SceneTabContextMenu>
         </div>
     )
@@ -163,16 +214,19 @@ interface SceneTabProps {
     tab: SceneTab
     className?: string
     isDragging?: boolean
+    containerClassName?: string
+    index: number
 }
 
-function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.Element {
+function SceneTabComponent({ tab, className, isDragging, containerClassName, index }: SceneTabProps): JSX.Element {
     const inputRef = useRef<HTMLInputElement>(null)
-    const canRemoveTab = true
-    const { clickOnTab, removeTab, startTabEdit, endTabEdit, saveTabEdit } = useActions(sceneLogic)
-    const { editingTabId } = useValues(sceneLogic)
+    const isPinned = !!tab.pinned
+    const { clickOnTab, removeTab, freezeTabWidths, startTabEdit, endTabEdit, saveTabEdit } = useActions(sceneLogic)
+    const { editingTabId, tabs } = useValues(sceneLogic)
     const [editValue, setEditValue] = useState('')
-
     const isEditing = editingTabId === tab.id
+    const canRemoveTab = !isPinned && tabs.length !== 1
+    const firstTabActive = index === 0 && tab.active
 
     useEffect(() => {
         if (isEditing && editValue === '') {
@@ -190,41 +244,40 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
     }, [isEditing])
 
     return (
-        <div className="relative">
-            <div
-                className={cn({
-                    'scene-tab-active-indicator': tab.active,
-                })}
-            />
-
+        <div className={cn('relative w-full', containerClassName)}>
             <ButtonGroupPrimitive
-                groupVariant="default"
                 fullWidth
-                className="border-0 rounded-none group/colorful-product-icons colorful-product-icons-true"
+                size="sm"
+                className="group border-0 rounded-none group/colorful-product-icons colorful-product-icons-true"
             >
                 {canRemoveTab && (
-                    <ButtonPrimitive
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            e.preventDefault()
-                            removeTab(tab)
-                        }}
-                        isSideActionRight
-                        iconOnly
-                        size="xs"
-                        className="order-last group z-20 size-5 rounded top-1/2 -translate-y-1/2 right-[5px] hover:[&~.button-primitive:not(.tab-active)]:bg-surface-primary"
-                        tooltip={
-                            tab.active ? (
-                                <>
-                                    Close active tab <KeyboardShortcut shift command b />
-                                </>
-                            ) : (
-                                'Close tab'
-                            )
-                        }
+                    <AppShortcut
+                        name="CloseActiveTab"
+                        keybind={[keyBinds.closeActiveTab]}
+                        intent="Close active tab"
+                        interaction="click"
+                        disabled={!tab.active}
                     >
-                        <IconX className="text-tertiary size-3 group-hover:text-primary z-10" />
-                    </ButtonPrimitive>
+                        <ButtonPrimitive
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                e.preventDefault()
+                                const source = e.detail === 0 ? 'keyboard_shortcut' : 'close_button'
+                                if (e.detail !== 0) {
+                                    freezeTabWidths()
+                                }
+                                removeTab(tab, { source })
+                            }}
+                            tooltip={!tab.active ? 'Close tab' : 'Close active tab'}
+                            tooltipCloseDelayMs={0}
+                            isSideActionRight
+                            iconOnly
+                            size="xs"
+                            className="order-last group z-20 size-5 rounded top-1/2 -translate-y-1/2 right-[5px] hover:[&~.button-primitive:not(.tab-active)]:bg-surface-primary"
+                        >
+                            <IconX className="text-tertiary size-3 group-hover:text-primary z-10" />
+                        </ButtonPrimitive>
+                    </AppShortcut>
                 )}
                 <ButtonPrimitive
                     onClick={(e) => {
@@ -238,8 +291,9 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                     onAuxClick={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
-                        if (e.button === 1 && !isDragging) {
-                            removeTab(tab)
+                        if (e.button === 1 && !isDragging && canRemoveTab) {
+                            freezeTabWidths()
+                            removeTab(tab, { source: 'middle_click' })
                         }
                     }}
                     onDoubleClick={(e) => {
@@ -250,22 +304,27 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                             setEditValue(tab.customTitle || tab.title)
                         }
                     }}
+                    forceVariant={true}
+                    variant="default"
                     hasSideActionRight
                     className={cn(
-                        'w-full order-first',
-                        'relative pb-0.5 pt-[2px] pl-2 pr-5 flex flex-row items-center gap-1 rounded-lg border border-transparent',
+                        'w-full order-first min-w-0',
+                        'relative pb-0.5 pt-[2px] pl-2 pr-5 flex flex-row items-center gap-1 border border-transparent text-tertiary',
                         tab.active
-                            ? 'tab-active rounded-bl-none rounded-br-none cursor-default text-primary bg-primary border-primary'
-                            : 'cursor-pointer text-secondary bg-transparent hover:bg-surface-primary hover:text-primary-hover z-20',
+                            ? 'tab-active bg-[var(--scene-layout-background)] cursor-default text-primary border-primary lg:rounded-b-none'
+                            : 'cursor-pointer hover:text-primary z-20',
+                        firstTabActive && 'lg:rounded-bl-none',
                         'focus:outline-none',
+                        isPinned && 'scene-tab--pinned justify-center px-3 gap-0',
                         className
                     )}
                     tooltip={
-                        tab.customTitle && tab.customTitle !== 'New tab'
+                        tab.customTitle && tab.customTitle !== 'Search'
                             ? `${tab.customTitle} (${tab.title})`
                             : tab.title
                     }
                     tooltipPlacement="bottom"
+                    aria-label={isPinned ? tab.customTitle || tab.title : undefined}
                 >
                     {tab.iconType === 'blank' ? (
                         <></>
@@ -274,10 +333,13 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                     ) : (
                         iconForType(tab.iconType as FileSystemIconType)
                     )}
-                    {isEditing ? (
+
+                    {isPinned ? (
+                        <span className="sr-only">{tab.customTitle || tab.title}</span>
+                    ) : isEditing ? (
                         <input
                             ref={inputRef}
-                            className="scene-tab-title grow text-left bg-primary border-none outline-1 text-primary z-30 max-w-full"
+                            className="scene-tab-title grow text-left bg-primary outline-1 text-primary z-30 max-w-full input-like"
                             value={editValue}
                             onChange={(e) => setEditValue(e.target.value)}
                             onBlur={() => {
@@ -298,14 +360,21 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                             onFocus={(e) => e.target.select()}
                         />
                     ) : (
-                        <div
-                            className={cn('scene-tab-title flex-grow text-left truncate', tab.customTitle && 'italic')}
-                        >
+                        <div className={cn('scene-tab-title text-left truncate min-w-0', tab.customTitle && 'italic')}>
                             {tab.customTitle || tab.title}
                         </div>
                     )}
                 </ButtonPrimitive>
             </ButtonGroupPrimitive>
+            {tab.active && (
+                <div
+                    className={cn(
+                        'scene-tab-active-indicator hidden lg:block',
+                        index === 0 && 'scene-tab-active-indicator--first',
+                        firstTabActive && 'scene-tab-indicator--active-first'
+                    )}
+                />
+            )}
         </div>
     )
 }

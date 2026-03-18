@@ -22,6 +22,12 @@ class UnspecifiedCompressionFallbackParsingError(Exception):
     pass
 
 
+class QuotaLimitExceeded(APIException):
+    status_code = status.HTTP_402_PAYMENT_REQUIRED
+    default_code = "quota_limit_exceeded"
+    default_detail = "Your organization reached its billing limit for this resource. Increase the limits in Billing settings, or ask an org admin to do so."
+
+
 class EnterpriseFeatureException(APIException):
     status_code = status.HTTP_402_PAYMENT_REQUIRED
     default_code = "payment_required"
@@ -29,7 +35,7 @@ class EnterpriseFeatureException(APIException):
     def __init__(self, feature: Optional[str] = None) -> None:
         super().__init__(
             detail=(
-                f"{feature.capitalize() if feature else 'This feature'} is part of the premium PostHog offering. "
+                f"{feature.capitalize().replace('_', ' ') if feature else 'This feature'} is part of the premium PostHog offering. "
                 + (
                     "To use it, subscribe to PostHog Cloud with a generous free tier."
                     if is_cloud()
@@ -37,6 +43,15 @@ class EnterpriseFeatureException(APIException):
                 )
             )
         )
+
+
+class PaidFeatureException(APIException):
+    status_code = status.HTTP_402_PAYMENT_REQUIRED
+    default_code = "payment_required"
+
+    def __init__(self, feature: Optional[str] = None) -> None:
+        feature_name = feature.capitalize().replace("_", " ") if feature else "This feature"
+        super().__init__(detail=f"{feature_name} requires a paid PostHog plan. Please upgrade to access this feature.")
 
 
 class Conflict(APIException):
@@ -51,12 +66,12 @@ class ClickHouseAtCapacity(APIException):
     )
 
 
-class EstimatedQueryExecutionTimeTooLong(APIException):
+class ClickHouseEstimatedQueryExecutionTimeTooLong(APIException):
     status_code = 512  # Custom error code
     default_detail = "Estimated query execution time is too long. Try reducing its scope by changing the time range."
 
 
-class QuerySizeExceeded(APIException):
+class ClickHouseQuerySizeExceeded(APIException):
     default_detail = "Query size exceeded."
 
 

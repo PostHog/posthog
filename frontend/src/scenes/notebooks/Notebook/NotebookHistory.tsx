@@ -63,7 +63,8 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
                                     size="md"
                                 />
                                 <span className="flex-1">
-                                    <b>{name}</b> {changedContent ? 'made changes' : 'created this'}
+                                    <b className="ph-no-capture">{name}</b>{' '}
+                                    {changedContent ? 'made changes' : 'created this'}
                                 </span>
                                 <span className="text-secondary">
                                     <TZLabel time={logItem.created_at} />

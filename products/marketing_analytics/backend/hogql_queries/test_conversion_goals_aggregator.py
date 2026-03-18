@@ -3,7 +3,14 @@ from datetime import datetime
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
-from posthog.schema import BaseMathType, ConversionGoalFilter1, ConversionGoalFilter2, DateRange, NodeKind
+from posthog.schema import (
+    BaseMathType,
+    ConversionGoalFilter1,
+    ConversionGoalFilter2,
+    DateRange,
+    MarketingAnalyticsBaseColumns,
+    NodeKind,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -124,13 +131,15 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
 
         final_query = cte.expr
         assert isinstance(final_query, ast.SelectQuery)
-        assert len(final_query.select) == 3
-        assert final_query.group_by is not None
-        assert len(final_query.group_by) == 2
+        assert len(final_query.select) == 5  # campaign, id, source, match_key, conversion
 
-        conversion_column = final_query.select[2]
+        conversion_column = final_query.select[
+            4
+        ]  # Index 4 is the first conversion column (after campaign, id, source, match_key)
         assert isinstance(conversion_column, ast.Alias)
         assert conversion_column.alias == self.config.get_conversion_goal_column_name(0)
+        assert isinstance(conversion_column.expr, ast.Call)
+        assert conversion_column.expr.name == "sum"
 
     def test_unified_cte_multiple_processors(self):
         goal1 = self._create_test_conversion_goal("multi_goal1", "Goal 1")
@@ -149,11 +158,9 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
 
         final_query = cte.expr
         assert isinstance(final_query, ast.SelectQuery)
-        assert len(final_query.select) == 5
-        assert final_query.group_by is not None
-        assert len(final_query.group_by) == 2
+        assert len(final_query.select) == 7  # campaign, id, source, match_key, 3 conversions
 
-        conversion_columns = final_query.select[2:]
+        conversion_columns = final_query.select[4:]  # Skip campaign, id, source, match_key
         assert len(conversion_columns) == 3
 
         for i, column in enumerate(conversion_columns):
@@ -192,11 +199,10 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
 
         final_query = cte.expr
         assert isinstance(final_query, ast.SelectQuery)
-        assert len(final_query.select) == 4
-        assert final_query.group_by is not None
-        assert len(final_query.group_by) == 2
+        assert len(final_query.select) == 6  # campaign, id, source, match_key, 2 conversions
         assert isinstance(final_query.select_from, ast.JoinExpr)
-        assert isinstance(final_query.select_from.table, ast.SelectSetQuery)
+        # The table can be either SelectQuery (single processor) or SelectSetQuery (UNION ALL for multiple processors)
+        assert isinstance(final_query.select_from.table, ast.SelectQuery | ast.SelectSetQuery)
 
     def test_conversion_goal_columns_single(self):
         goal = self._create_test_conversion_goal("columns_test", "Columns Test")
@@ -255,8 +261,9 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         aggregator = ConversionGoalsAggregator(processors=[processor], config=self.config)
 
         fallback_columns = aggregator.get_coalesce_fallback_columns()
-        assert len(fallback_columns) == 2
+        assert len(fallback_columns) == 3  # campaign, id, source
         assert self.config.campaign_column_alias in fallback_columns
+        assert MarketingAnalyticsBaseColumns.ID in fallback_columns
         assert self.config.source_column_alias in fallback_columns
 
         campaign_column = fallback_columns[self.config.campaign_column_alias]
@@ -334,7 +341,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
 
         final_query = cte.expr
         assert isinstance(final_query, ast.SelectQuery)
-        assert len(final_query.select) == 5
+        assert len(final_query.select) == 7  # campaign, id, source, match_key, 3 conversions
 
         columns = aggregator.get_conversion_goal_columns()
         assert len(columns) == 6
@@ -372,11 +379,9 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
 
         final_query = cte.expr
         assert isinstance(final_query, ast.SelectQuery)
-        assert len(final_query.select) == 5
-        assert final_query.group_by is not None
-        assert len(final_query.group_by) == 2
+        assert len(final_query.select) == 7  # campaign, id, source, match_key, 3 conversions
 
-        conversion_columns = final_query.select[2:]
+        conversion_columns = final_query.select[4:]  # Skip campaign, id, source, match_key
         expected_names = [
             self.config.get_conversion_goal_column_name(0),
             self.config.get_conversion_goal_column_name(1),
@@ -412,9 +417,13 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
 
         final_query = cte.expr
         assert isinstance(final_query, ast.SelectQuery)
-        conversion_column = final_query.select[2]
+        conversion_column = final_query.select[
+            4
+        ]  # Index 4 is the first conversion column (after campaign, id, source, match_key)
         assert isinstance(conversion_column, ast.Alias)
         assert conversion_column.alias == self.config.get_conversion_goal_column_name(999)
+        assert isinstance(conversion_column.expr, ast.Call)
+        assert conversion_column.expr.name == "sum"
 
     def test_duplicate_goal_names(self):
         goal1 = self._create_test_conversion_goal("dup1", "Duplicate Goal")
@@ -441,13 +450,15 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
 
         final_query = cte.expr
         assert isinstance(final_query, ast.SelectQuery)
-        assert len(final_query.select) == 12
+        assert (
+            len(final_query.select) == 14
+        )  # 4 grouping fields (campaign, id, source, match_key) + 10 conversion goals
 
         columns = aggregator.get_conversion_goal_columns()
         assert len(columns) == 20
 
         fallback_columns = aggregator.get_coalesce_fallback_columns()
-        assert len(fallback_columns) == 2
+        assert len(fallback_columns) == 3  # campaign, id, source
 
     def test_attribution_compatibility(self):
         goal = self._create_test_conversion_goal("attribution_test", "Attribution Test", "purchase")
@@ -459,3 +470,105 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
 
         assert isinstance(cte, ast.CTE)
         assert cte.name == "ucg"
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_campaign_name_mapping_sql_generation(self):
+        """Test that campaign name mappings generate correct SQL with nested CASE statements"""
+        # Configure campaign name mappings for multiple sources
+        self.team.marketing_analytics_config.campaign_name_mappings = {
+            "GoogleAds": {
+                "Spring Sale 2024": ["spring_sale_2024", "spring-sale-2024", "SPRING_SALE"],
+                "Black Friday": ["bf_2024", "blackfriday", "BF-PROMO"],
+            },
+            "MetaAds": {
+                "Spring Sale 2024": ["spring_sale_fb", "SpringSaleFB"],
+                "Summer Campaign": ["summer_2024", "SUMMER_PROMO"],
+            },
+        }
+        self.team.marketing_analytics_config.save()
+
+        goal = self._create_test_conversion_goal("mapping_sql_test", "Mapping SQL Test", "purchase")
+        processor = self._create_test_processor(goal, 0)
+        aggregator = ConversionGoalsAggregator(processors=[processor], config=self.config)
+
+        additional_conditions_getter = self._create_mock_additional_conditions_getter()
+        cte = aggregator.generate_unified_cte(self.date_range, additional_conditions_getter)
+
+        # Execute to get the SQL string
+        response = execute_hogql_query(query=cte.expr, team=self.team)
+
+        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_campaign_name_mapping_single_source_sql(self):
+        """Test campaign name mapping for a single data source"""
+        self.team.marketing_analytics_config.campaign_name_mappings = {
+            "GoogleAds": {
+                "Clean Campaign Name": ["messy_campaign_1", "messy_campaign_2", "MESSY_CAMPAIGN_3"],
+            }
+        }
+        self.team.marketing_analytics_config.save()
+
+        goal = self._create_test_conversion_goal("single_source_mapping", "Single Source Mapping", "conversion")
+        processor = self._create_test_processor(goal, 0)
+        aggregator = ConversionGoalsAggregator(processors=[processor], config=self.config)
+
+        additional_conditions_getter = self._create_mock_additional_conditions_getter()
+        cte = aggregator.generate_unified_cte(self.date_range, additional_conditions_getter)
+
+        response = execute_hogql_query(query=cte.expr, team=self.team)
+
+        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_campaign_name_mapping_no_mappings(self):
+        """Test that when no mappings are configured, the query uses original campaign names"""
+        self.team.marketing_analytics_config.campaign_name_mappings = {}
+        self.team.marketing_analytics_config.save()
+
+        goal = self._create_test_conversion_goal("no_mapping_test", "No Mapping Test", "purchase")
+        processor = self._create_test_processor(goal, 0)
+        aggregator = ConversionGoalsAggregator(processors=[processor], config=self.config)
+
+        additional_conditions_getter = self._create_mock_additional_conditions_getter()
+        cte = aggregator.generate_unified_cte(self.date_range, additional_conditions_getter)
+
+        response = execute_hogql_query(query=cte.expr, team=self.team)
+
+        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_campaign_name_mapping_integration_with_events(self):
+        """Test campaign name mapping SQL generation with actual events to verify mapping works end-to-end"""
+        # Configure campaign name mappings for GoogleAds
+        self.team.marketing_analytics_config.campaign_name_mappings = {
+            "GoogleAds": {
+                "Spring Sale 2024": ["spring_sale_2024", "spring-sale-2024"],
+                "Holiday Promo": ["holiday_campaign", "holiday_promo"],
+            }
+        }
+        self.team.marketing_analytics_config.save()
+
+        # Create conversion goal
+        goal = self._create_test_conversion_goal("integration_test", "Integration Test", "purchase")
+        processor = self._create_test_processor(goal, 0)
+        aggregator = ConversionGoalsAggregator(processors=[processor], config=self.config)
+
+        additional_conditions_getter = self._create_mock_additional_conditions_getter()
+        cte = aggregator.generate_unified_cte(self.date_range, additional_conditions_getter)
+
+        # Execute the query to get the SQL (but don't worry about results due to memory limits)
+        response = execute_hogql_query(query=cte.expr, team=self.team)
+
+        # Verify the SQL contains campaign name mapping logic
+        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+
+        # Verify that the SQL contains the expected campaign name mapping logic
+        sql_string = pretty_print_in_tests(response.hogql, self.team.pk)
+
+        # Check that the SQL contains multiIf with campaign name mapping
+        assert "multiIf" in sql_string, "SQL should contain multiIf for campaign name mapping"
+        assert "Spring Sale 2024" in sql_string, "SQL should contain mapped campaign name"
+        assert "Holiday Promo" in sql_string, "SQL should contain mapped campaign name"
+        assert "spring_sale_2024" in sql_string, "SQL should contain original campaign name in mapping"
+        assert "holiday_campaign" in sql_string, "SQL should contain original campaign name in mapping"

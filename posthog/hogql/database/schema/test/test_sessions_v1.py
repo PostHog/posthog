@@ -16,9 +16,10 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import Organization, Team
-from posthog.models.property_definition import PropertyType
 from posthog.models.sessions.sql import ALLOWED_TEAM_IDS
 from posthog.models.utils import uuid7
+
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 
 class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseTest):

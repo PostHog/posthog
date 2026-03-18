@@ -240,3 +240,75 @@ class TestTypeConversionIntegration(BaseTest):
         result_ids = set(filtered.values_list("id", flat=True))
         expected_ids = {log1.id, log2.id}
         self.assertEqual(result_ids, expected_ids)
+
+
+class TestOptionalBooleanFilters(BaseTest):
+    """
+    Tests for was_impersonated and is_system optional boolean filters.
+
+    These tests prevent regression of a bug where selecting "All" in the UI
+    behaved the same as selecting "No" because:
+    1. DRF's BooleanField has default_empty_html=False, causing missing params to become False
+    2. The filter logic applied filtering even when the value was None
+
+    The fix involved:
+    1. OptionalBooleanField with default_empty_html=None
+    2. Filter logic that skips filtering when value is None
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.filter_manager = AdvancedActivityLogFilterManager()
+
+    def test_missing_boolean_params_serialize_to_none_not_false(self):
+        """
+        When was_impersonated/is_system params are omitted from query string,
+        the serializer should return None (not False).
+
+        This catches the DRF default_empty_html=False bug.
+        """
+        from django.http import QueryDict
+
+        from posthog.api.advanced_activity_logs.viewset import AdvancedActivityLogFiltersSerializer
+
+        query_params = QueryDict("start_date=2024-01-01")
+        serializer = AdvancedActivityLogFiltersSerializer(data=query_params)
+        serializer.is_valid(raise_exception=True)
+
+        self.assertIsNone(serializer.validated_data.get("was_impersonated"))
+        self.assertIsNone(serializer.validated_data.get("is_system"))
+
+    def test_none_filter_values_return_all_records(self):
+        """
+        When filter dict contains None values (from missing query params),
+        no filtering should be applied - all records should be returned.
+
+        This is the "All" option in the UI dropdown.
+        """
+        log_impersonated = ActivityLog.objects.create(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            scope="TestScope",
+            activity="updated",
+            item_id="test",
+            detail={},
+            was_impersonated=True,
+            is_system=True,
+        )
+        log_normal = ActivityLog.objects.create(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            scope="TestScope",
+            activity="updated",
+            item_id="test",
+            detail={},
+            was_impersonated=False,
+            is_system=False,
+        )
+
+        queryset = ActivityLog.objects.filter(id__in=[log_impersonated.id, log_normal.id])
+
+        filtered = self.filter_manager.apply_filters(queryset, {"was_impersonated": None, "is_system": None})
+        self.assertEqual(filtered.count(), 2)

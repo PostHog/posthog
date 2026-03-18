@@ -1,0 +1,123 @@
+import math
+
+from django import forms
+from django.contrib import admin, messages
+from django.core.exceptions import PermissionDenied
+from django.core.management import call_command
+from django.shortcuts import redirect, render
+
+
+class RealtimeCohortCalculationForm(forms.Form):
+    parallelism = forms.IntegerField(
+        initial=10,
+        min_value=1,
+        max_value=50,
+        help_text="Number of parallel child workflows to spawn",
+        label="Parallelism",
+    )
+    workflows_per_batch = forms.IntegerField(
+        initial=5,
+        min_value=1,
+        max_value=20,
+        help_text="Number of workflows to start per batch for jittered scheduling",
+        label="Workflows per batch",
+    )
+    batch_delay_minutes = forms.IntegerField(
+        initial=5,
+        min_value=1,
+        max_value=60,
+        help_text="Delay between batches in minutes",
+        label="Batch delay (minutes)",
+    )
+    team_ids = forms.CharField(
+        required=False,
+        help_text="Comma-separated list of team IDs that should process all cohorts (optional)",
+        label="Team IDs",
+    )
+
+    def clean_team_ids(self):
+        """Validate team_ids format."""
+        team_ids_str = self.cleaned_data.get("team_ids")
+        if not team_ids_str:
+            return None
+
+        team_ids_str = team_ids_str.strip()
+        if not team_ids_str:
+            return None
+
+        try:
+            team_ids = {int(tid.strip()) for tid in team_ids_str.split(",") if tid.strip()}
+            if not team_ids:
+                raise forms.ValidationError("At least one valid team ID is required.")
+            return team_ids_str
+        except ValueError:
+            raise forms.ValidationError("Team IDs must be comma-separated integers (e.g., '2,42,100').")
+
+    global_percentage = forms.FloatField(
+        required=False,
+        min_value=0.0,
+        max_value=1.0,
+        help_text="Global percentage for teams not in team-ids list (0.0 to 1.0, optional)",
+        label="Global Percentage",
+    )
+    cohort_id = forms.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Filter to a specific cohort_id (optional)",
+        label="Cohort ID",
+    )
+
+
+def analyze_realtime_cohort_calculation_view(request):
+    """
+    Custom admin view for realtime cohort calculation.
+    No model needed - just a form that triggers a management command.
+    """
+    if not request.user.is_staff:
+        raise PermissionDenied
+
+    if request.method == "POST":
+        form = RealtimeCohortCalculationForm(request.POST)
+        if form.is_valid():
+            command_args = []
+            command_args.extend(["--parallelism", str(form.cleaned_data["parallelism"])])
+            command_args.extend(["--workflows-per-batch", str(form.cleaned_data["workflows_per_batch"])])
+            command_args.extend(["--batch-delay-minutes", str(form.cleaned_data["batch_delay_minutes"])])
+            if form.cleaned_data.get("team_ids"):
+                command_args.extend(["--team-ids", form.cleaned_data["team_ids"]])
+            if form.cleaned_data.get("global_percentage") is not None:
+                command_args.extend(["--global-percentage", str(form.cleaned_data["global_percentage"])])
+            if form.cleaned_data.get("cohort_id"):
+                command_args.extend(["--cohort-id", str(form.cleaned_data["cohort_id"])])
+
+            try:
+                call_command("analyze_realtime_cohort_calculation", *command_args)
+
+                total_batches = math.ceil(form.cleaned_data["parallelism"] / form.cleaned_data["workflows_per_batch"])
+                total_time_minutes = (total_batches - 1) * form.cleaned_data["batch_delay_minutes"]
+
+                messages.success(
+                    request,
+                    f"Realtime cohort calculation started successfully with {form.cleaned_data['parallelism']} workflows "
+                    f"in {total_batches} batches ({form.cleaned_data['workflows_per_batch']} per batch, "
+                    f"{form.cleaned_data['batch_delay_minutes']}min delays). "
+                    f"All workflows will be scheduled over ~{total_time_minutes} minutes. "
+                    f"Check Temporal UI for progress.",
+                )
+            except Exception as e:
+                messages.error(request, f"Failed to start realtime cohort calculation: {str(e)}")
+
+            return redirect("realtime-cohorts-calculation")
+    else:
+        form = RealtimeCohortCalculationForm()
+
+    context = {
+        "form": form,
+        "title": "Realtime Cohort Calculation",
+        "has_view_permission": True,
+        "site_title": admin.site.site_title,
+        "site_header": admin.site.site_header,
+        "site_url": admin.site.site_url,
+        "has_permission": True,
+    }
+    return render(request, "admin/realtime_cohort_calculation.html", context)

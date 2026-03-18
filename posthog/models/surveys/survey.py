@@ -4,9 +4,9 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from django.contrib.postgres.fields import ArrayField
-from django.db import models
+from django.db import models, transaction
 from django.db.models import QuerySet
-from django.db.models.signals import pre_save
+from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
 from dateutil.rrule import DAILY, rrule
@@ -16,6 +16,7 @@ from posthog.models import Action
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.utils import RootTeamMixin, UUIDTModel
+from posthog.storage.hypercache import HyperCache
 
 # we have seen users accidentally set a huge value for iteration count
 # and cause performance issues, so we are extra careful with this value
@@ -69,6 +70,16 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         on_delete=models.SET_NULL,
         related_name="surveys_targeting_flag",
         related_query_name="survey_targeting_flag",
+    )
+    linked_insight = models.ForeignKey(
+        "posthog.Insight",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="surveys_linked_insight",
+        related_query_name="survey_linked_insight",
+        db_index=True,
+        db_constraint=True,
     )
     internal_targeting_flag = models.ForeignKey(
         "posthog.FeatureFlag",
@@ -127,6 +138,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         - `scale`: The scale of the rating (`number`).
         - `lowerBoundLabel`: Label for the lower bound of the scale.
         - `upperBoundLabel`: Label for the upper bound of the scale.
+        - `isNpsQuestion`: Whether the question is an NPS rating.
         - `branching`: Branching logic for the question. See branching types below for details.
 
         Multiple choice
@@ -175,6 +187,32 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
             "index": 2
         }
         ```
+
+        Translations: Each question can include inline translations.
+        - `translations`: Object mapping language codes to translated fields.
+        - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+        - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
+
+        Example with translations:
+        ```json
+        {
+            "id": "uuid",
+            "type": "rating",
+            "question": "How satisfied are you?",
+            "lowerBoundLabel": "Not satisfied",
+            "upperBoundLabel": "Very satisfied",
+            "translations": {
+                "es": {
+                    "question": "¿Qué tan satisfecho estás?",
+                    "lowerBoundLabel": "No satisfecho",
+                    "upperBoundLabel": "Muy satisfecho"
+                },
+                "fr": {
+                    "question": "Dans quelle mesure êtes-vous satisfait?"
+                }
+            }
+        }
+        ```
         """,
     )
     appearance = models.JSONField(blank=True, null=True)
@@ -201,11 +239,11 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         choices=SurveySamplingIntervalType.choices,
         default=SurveySamplingIntervalType.WEEK,
     )
-    response_sampling_interval = models.PositiveIntegerField(null=True)
+    response_sampling_interval = models.PositiveIntegerField(null=True, blank=True)
     # Upper limit of responses that should be accepted in a given response sampling interval.
-    response_sampling_limit = models.PositiveIntegerField(null=True)
+    response_sampling_limit = models.PositiveIntegerField(null=True, blank=True)
     # { 'daily_limits' : [{'date': <Date> , 'limit': <number of expected responses by this day>'}]
-    response_sampling_daily_limits = models.JSONField(null=True)
+    response_sampling_daily_limits = models.JSONField(null=True, blank=True)
 
     iteration_count = models.PositiveIntegerField(null=True)
     iteration_frequency_days = models.PositiveIntegerField(null=True)
@@ -226,6 +264,25 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         blank=True,
     )
     enable_partial_responses = models.BooleanField(default=False, null=True)
+
+    # Allow hosted surveys to be embedded in iframes (removes X-Frame-Options header)
+    enable_iframe_embedding = models.BooleanField(default=False)
+
+    # AI-generated headline summary
+    headline_summary = models.TextField(blank=True, null=True)
+    headline_response_count = models.PositiveIntegerField(null=True, blank=True)
+
+    # AI-generated per-question summaries
+    # Format: { [questionId]: { summary: string, responseCount: number, generatedAt: string } }
+    question_summaries = models.JSONField(blank=True, null=True)
+
+    # TipTap editor layout for form-builder surveys
+    form_content = models.JSONField(blank=True, null=True)
+    # Translations for multi-language support
+    # Format: { [languageCode]: { name: string, description: string, thankYouMessageHeader: string, thankYouMessageDescription: string, thankYouMessageCloseButtonText: string, ... } }
+    # Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+    translations = models.JSONField(blank=True, null=True)
+
     # Use the survey_type instead. If it's external_survey, it's publicly shareable.
     is_publicly_shareable = deprecate_field(
         models.BooleanField(
@@ -241,6 +298,50 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Survey"]:
         base_qs = cls.objects.filter(team=team)
         return cls._filter_unfiled_queryset(base_qs, team, type="survey", ref_field="id")
+
+    @classmethod
+    def get_internal_flag_ids(
+        cls,
+        *,
+        team_id: int | None = None,
+        project_id: int | None = None,
+        using: str = "default",
+    ) -> set[int]:
+        """
+        Get IDs of all internally-managed survey flags.
+
+        These flags (targeting_flag, internal_targeting_flag, internal_response_sampling_flag)
+        are auto-generated for surveys and use operators not supported by local evaluation.
+        They should be excluded from certain operations like local evaluation and flag lists.
+        See GitHub issue #43631.
+
+        Note: The user-created `linked_flag` is NOT included since it's user-managed.
+
+        Args:
+            team_id: Filter by team ID (use for team-scoped queries)
+            project_id: Filter by project ID (use for project-scoped queries)
+            using: Database alias to use (e.g., "default" or "replica")
+
+        Returns:
+            Set of feature flag IDs linked to surveys
+        """
+        if team_id is not None:
+            queryset = cls.objects.db_manager(using).filter(team_id=team_id)
+        elif project_id is not None:
+            queryset = cls.objects.db_manager(using).filter(team__project_id=project_id)
+        else:
+            raise ValueError("Either team_id or project_id must be provided")
+
+        return {
+            flag_id
+            for row in queryset.values_list(
+                "targeting_flag_id",
+                "internal_targeting_flag_id",
+                "internal_response_sampling_flag_id",
+            )
+            for flag_id in row
+            if flag_id is not None
+        }
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
@@ -356,3 +457,30 @@ def update_survey_iterations(sender, instance, *args, **kwargs):
     if iteration_count > 0 and (instance.current_iteration is None or instance.current_iteration == 0):
         instance.current_iteration = 1
         instance.current_iteration_start_date = instance.start_date
+
+
+def _get_surveys_response(team: "Team") -> dict:
+    from posthog.api.survey import get_surveys_response
+
+    return get_surveys_response(team)
+
+
+surveys_hypercache = HyperCache(
+    namespace="surveys",
+    value="surveys.json",
+    load_fn=lambda key: _get_surveys_response(HyperCache.team_from_key(key)),
+    token_based=True,
+)
+
+
+@receiver(post_save, sender=Survey)
+@receiver(post_delete, sender=Survey)
+def survey_changed(sender, instance: "Survey", **kwargs):
+    from posthog.tasks.feature_flags import update_team_flags_cache
+    from posthog.tasks.surveys import update_team_surveys_cache
+
+    # Defer task execution until after the transaction commits
+    # Update both survey cache and flag cache since survey-linked flags are
+    # excluded from local evaluation (GitHub issue #43631)
+    transaction.on_commit(lambda: update_team_surveys_cache.delay(instance.team_id))
+    transaction.on_commit(lambda: update_team_flags_cache.delay(instance.team_id))

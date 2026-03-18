@@ -1,17 +1,17 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonDivider, LemonTabs } from '@posthog/lemon-ui'
+import { LemonTabs } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { apiHostOrigin } from 'lib/utils/apiHost'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { SDK_DEFAULTS_DATE } from '~/loadPostHogJS'
+
 import SetupWizardBanner from './components/SetupWizardBanner'
-import { SDK_DEFAULTS_DATE } from './constants'
 import { JSInstallSnippet } from './js-web'
 import { type NextJSRouter, nextJsInstructionsLogic } from './nextJsInstructionsLogic'
 
@@ -147,25 +147,16 @@ posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY, {
 export function SDKInstallNextJSInstructions({ hideWizard }: { hideWizard?: boolean }): JSX.Element {
     const { nextJsRouter } = useValues(nextJsInstructionsLogic)
     const { setNextJsRouter } = useActions(nextJsInstructionsLogic)
-    const { isCloudOrDev } = useValues(preflightLogic)
-    const showSetupWizard = !hideWizard && isCloudOrDev
 
     return (
         <>
-            {showSetupWizard && (
-                <>
-                    <h2>Automated Installation</h2>
-                    <SetupWizardBanner integrationName="Next.js" />
-                    <LemonDivider label="OR" />
-                    <h2>Manual Installation</h2>
-                </>
-            )}
+            <SetupWizardBanner integrationName="Next.js" hide={hideWizard} />
             <h3>Install posthog-js using your package manager</h3>
             <JSInstallSnippet />
             <h3>Add environment variables</h3>
             <p>
                 Add your environment variables to your .env.local file and to your hosting provider (e.g. Vercel,
-                Netlify, AWS). You can find your project API key in your project settings.
+                Netlify, AWS). You can find your project token in your project settings.
             </p>
             <p>
                 These values need to start with <code>NEXT_PUBLIC_</code> to be accessible on the client-side.

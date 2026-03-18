@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -11,11 +11,12 @@ from posthog.schema import (
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 from .linkedin_ads import (
     get_incremental_fields as get_linkedin_ads_incremental_fields,
@@ -25,10 +26,16 @@ from .linkedin_ads import (
 
 
 @SourceRegistry.register
-class LinkedInAdsSource(BaseSource[LinkedinAdsSourceConfig]):
+class LinkedInAdsSource(SimpleSource[LinkedinAdsSourceConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.LINKEDINADS
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "REVOKED_ACCESS_TOKEN": None,
+            "The token used in the request has expired": "Failed to refresh token for LinkedIn Ads integration. Please re-authorize the integration.",
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -59,7 +66,9 @@ class LinkedInAdsSource(BaseSource[LinkedinAdsSourceConfig]):
             ),
         )
 
-    def validate_credentials(self, config: LinkedinAdsSourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: LinkedinAdsSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         if not config.account_id or not config.linkedin_ads_integration_id:
             return False, "Account ID and LinkedIn Ads integration are required"
 
@@ -73,12 +82,16 @@ class LinkedInAdsSource(BaseSource[LinkedinAdsSourceConfig]):
             return False, f"Failed to validate LinkedIn Ads credentials: {str(e)}"
 
     def get_schemas(
-        self, config: LinkedinAdsSourceConfig, team_id: int, with_counts: bool = False
+        self,
+        config: LinkedinAdsSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
     ) -> list[SourceSchema]:
         linkedin_ads_schemas = get_linkedin_ads_schemas()
         ads_incremental_fields = get_linkedin_ads_incremental_fields()
 
-        return [
+        schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=ads_incremental_fields.get(endpoint, None) is not None,
@@ -90,6 +103,12 @@ class LinkedInAdsSource(BaseSource[LinkedinAdsSourceConfig]):
             )
             for endpoint in linkedin_ads_schemas.keys()
         ]
+
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+
+        return schemas
 
     def source_for_pipeline(self, config: LinkedinAdsSourceConfig, inputs: SourceInputs) -> SourceResponse:
         return linkedin_ads_source(

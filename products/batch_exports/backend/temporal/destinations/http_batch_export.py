@@ -11,12 +11,13 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import BatchExportField, BatchExportInsertInputs, HttpBatchExportInputs
 from posthog.models import BatchExportRun
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_logger
 
+from products.batch_exports.backend.service import BatchExportField, BatchExportInsertInputs, HttpBatchExportInputs
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
     StartBatchExportRunInputs,
@@ -27,32 +28,46 @@ from products.batch_exports.backend.temporal.batch_exports import (
 )
 from products.batch_exports.backend.temporal.metrics import get_bytes_exported_metric, get_rows_exported_metric
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
+from products.batch_exports.backend.temporal.spmc import compose_filters_clause
 from products.batch_exports.backend.temporal.temporary_file import BatchExportTemporaryFile, json_dumps_bytes
 from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
 
-NON_RETRYABLE_ERROR_TYPES = ("NonRetryableResponseError",)
+NON_RETRYABLE_ERROR_TYPES = ("NonRetryableResponseError", "InvalidDestinationURLError")
 LOGGER = get_logger(__name__)
 
 
 class RetryableResponseError(Exception):
-    """Error for HTTP status >=500 (plus 429)."""
+    """Error for HTTP status >=500 (plus 429 and 408)."""
 
     def __init__(self, status):
         super().__init__(f"RetryableResponseError status: {status}")
 
 
 class NonRetryableResponseError(Exception):
-    """Error for HTTP status >= 400 and < 500 (excluding 429)."""
+    """Error for HTTP status >= 400 and < 500 (excluding 429 and 408)."""
 
     def __init__(self, status, content):
         super().__init__(f"NonRetryableResponseError (status: {status}): {content}")
 
 
+class InvalidDestinationURLError(Exception):
+    """Error for invalid destination URL."""
+
+    def __init__(self, url):
+        super().__init__(f"Invalid destination URL: {url}")
+
+
 async def raise_for_status(response: aiohttp.ClientResponse):
     """Like aiohttp raise_for_status, but it distinguishes between retryable and non-retryable
     errors."""
+    # Redirect responses (3xx) indicate endpoint misconfiguration when redirects are disabled
+    if 300 <= response.status < 400:
+        raise NonRetryableResponseError(
+            response.status, f"Unexpected redirect to: {response.headers.get('Location', 'unknown')}"
+        )
+
     if not response.ok:
-        if response.status >= 500 or response.status == 429:
+        if response.status >= 500 or response.status == 429 or response.status == 408:
             raise RetryableResponseError(response.status)
         else:
             text = await response.text()
@@ -140,7 +155,13 @@ async def post_json_file_to_url(url, batch_file, session: aiohttp.ClientSession)
     # See: https://github.com/aio-libs/aiohttp/issues/1907
     data_reader.close = lambda: None  # type: ignore
 
-    async with session.post(url, data=data_reader, headers=headers) as response:
+    # be strict about which URLs we allow
+    # (we do have this validation now at the API level, but we'll be extra careful here)
+    if url not in ("https://us.i.posthog.com/batch/", "https://eu.i.posthog.com/batch/"):
+        raise InvalidDestinationURLError(url)
+
+    # Disable redirects to prevent SSRF via redirect bypass
+    async with session.post(url, data=data_reader, headers=headers, allow_redirects=False) as response:
         await raise_for_status(response)
 
     data_reader.detach()
@@ -173,12 +194,27 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
         if inputs.batch_export_schema is not None:
             raise NotImplementedError("Batch export schema is not supported for HTTP export")
 
+        if inputs.batch_export_model is not None:
+            if inputs.batch_export_model.name != "events":
+                raise NotImplementedError("HTTP export only supports the events model")
+            if inputs.batch_export_model.schema is not None:
+                raise NotImplementedError("HTTP export does not support schemas")
+
         fields = http_default_fields()
         columns = [field["alias"] for field in fields]
 
         interval_start = await maybe_resume_from_heartbeat(inputs)
 
         is_backfill = inputs.get_is_backfill()
+
+        filters = inputs.batch_export_model.filters if inputs.batch_export_model is not None else None
+        if filters is not None and len(filters) > 0:
+            filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
+                filters, team_id=inputs.team_id, values=None
+            )
+        else:
+            filters_str = ""
+            extra_query_parameters = None
 
         record_iterator = iter_records(
             client=client,
@@ -188,7 +224,8 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             fields=fields,
-            extra_query_parameters=None,
+            extra_query_parameters=extra_query_parameters,
+            filters_str=filters_str,
             backfill_details=inputs.backfill_details,
             is_backfill=is_backfill,
         )
@@ -210,8 +247,8 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
 
         asyncio.create_task(worker_shutdown_handler())
 
-        rows_exported = get_rows_exported_metric()
-        bytes_exported = get_bytes_exported_metric()
+        rows_exported = get_rows_exported_metric(model="events")
+        bytes_exported = get_bytes_exported_metric(model="events")
 
         # The HTTP destination currently only supports the PostHog batch capture endpoint. In the
         # future we may support other endpoints, but we'll need a way to template the request body,
@@ -257,7 +294,7 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
 
                 activity.heartbeat(last_uploaded_timestamp)
 
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(trust_env=True) as session:
                 for record_batch in record_iterator:
                     for row in record_batch.select(columns).to_pylist():
                         # Format result row as PostHog event, write JSON to the batch file.
@@ -317,7 +354,9 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to an HTTP Endpoint."""
         is_backfill = inputs.get_is_backfill()
         is_earliest_backfill = inputs.get_is_earliest_backfill()
-        data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
+        data_interval_start, data_interval_end = get_data_interval(
+            inputs.interval, inputs.data_interval_end, inputs.timezone
+        )
         should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(

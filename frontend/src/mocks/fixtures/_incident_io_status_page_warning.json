@@ -1,0 +1,25 @@
+{
+  "page_title": "PostHog",
+  "page_url": "https://www.posthogstatus.com/",
+  "ongoing_incidents": [
+    {
+      "name": "Degraded query performance",
+      "status": "investigating",
+      "url": "https://www.posthogstatus.com//incidents/01KA9JH0ZB14TFA8VD4CFC3AYN",
+      "id": "01KA9JH0ZB14TFA8VD4CFC3AYN",
+      "current_worst_impact": "degraded_performance",
+      "affected_components": [
+        {
+          "id": "01K71VKZT2KGM8GT11MP0ZQ0YF",
+          "name": "API /query Endpoint",
+          "group_name": "US Cloud \ud83c\uddfa\ud83c\uddf8",
+          "current_status": "degraded_performance"
+        }
+      ],
+      "last_update_at": "2025-11-17T18:51:36.404Z",
+      "last_update_message": "We are investigating reports of slow query performance affecting some users."
+    }
+  ],
+  "in_progress_maintenances": [],
+  "scheduled_maintenances": []
+}

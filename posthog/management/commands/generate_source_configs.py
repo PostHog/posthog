@@ -19,7 +19,8 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.sources import SourceRegistry
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 logger = get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -66,7 +67,7 @@ class SourceConfigGenerator:
         self.imports.update(
             [
                 "from posthog.temporal.data_imports.sources.common import config",
-                "from posthog.warehouse.types import ExternalDataSourceType",
+                "from products.data_warehouse.backend.types import ExternalDataSourceType",
             ]
         )
 
@@ -128,7 +129,7 @@ class SourceConfigGenerator:
 
         field_parts = []
 
-        converter = self._get_input_converter(field.type)
+        converter = self._get_input_converter(field.type, is_optional=is_optional)
         if converter:
             field_parts.append(f"converter={converter}")
 
@@ -317,7 +318,7 @@ class SourceConfigGenerator:
     def _process_ssh_tunnel_field(self, field: SourceFieldSSHTunnelConfig) -> str:
         """Process a SSH tunnel field by referencing the existing SSHTunnelConfig."""
 
-        self.imports.add("from posthog.warehouse.models.ssh_tunnel import SSHTunnelConfig")
+        self.imports.add("from products.data_warehouse.backend.models.ssh_tunnel import SSHTunnelConfig")
 
         python_field_name, should_alias = self._make_python_identifier(field.name)
 
@@ -338,12 +339,12 @@ class SourceConfigGenerator:
 
         return type_mapping.get(field_type, "str")
 
-    def _get_input_converter(self, field_type: SourceFieldInputConfigType) -> Optional[str]:
-        converter_mapping = {
-            SourceFieldInputConfigType.NUMBER: "int",
-        }
+    def _get_input_converter(self, field_type: SourceFieldInputConfigType, is_optional: bool = False) -> Optional[str]:
+        if field_type == SourceFieldInputConfigType.NUMBER:
+            # Use str_to_optional_int for optional NUMBER fields to handle empty strings from the frontend
+            return "config.str_to_optional_int" if is_optional else "int"
 
-        return converter_mapping.get(field_type)
+        return None
 
     def _get_select_literal_type(self, field: SourceFieldSelectConfig) -> str:
         if not field.converter:

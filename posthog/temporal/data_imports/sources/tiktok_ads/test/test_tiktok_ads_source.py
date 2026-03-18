@@ -13,7 +13,8 @@ from posthog.models.integration import Integration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.generated_configs import TikTokAdsSourceConfig
 from posthog.temporal.data_imports.sources.tiktok_ads.source import TikTokAdsSource
-from posthog.warehouse.types import ExternalDataSourceType, IncrementalFieldType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalFieldType
 
 
 class TestTikTokAdsSource:
@@ -115,6 +116,7 @@ class TestTikTokAdsSource:
             incremental_field_type=IncrementalFieldType.DateTime,
             job_id=self.job_id,
             logger=structlog.get_logger(),
+            reset_pipeline=False,
         )
 
         mock_response = Mock()
@@ -149,6 +151,7 @@ class TestTikTokAdsSource:
             incremental_field_type=None,
             job_id=self.job_id,
             logger=structlog.get_logger(),
+            reset_pipeline=False,
         )
 
         self.mock_integration.access_token = None

@@ -541,6 +541,7 @@ def sanitize_property_key(key: Any) -> str:
     # :TRICKY: We also want to prevent clashes between key1_ and key1, or key1 and key2 so we add
     #  a salt based on hash of the key
     # This is because we don't want to overwrite the value of key1 when we're trying to read key2
+    # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
     hash_value = hashlib.sha1(string_key.encode("utf-8")).hexdigest()[:15]
     return f"{substitute}_{hash_value}"
 

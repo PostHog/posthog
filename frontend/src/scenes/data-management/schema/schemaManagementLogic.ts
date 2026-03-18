@@ -8,7 +8,17 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { schemaManagementLogicType } from './schemaManagementLogicType'
 
-export type PropertyType = 'String' | 'Numeric' | 'Boolean' | 'DateTime' | 'Duration'
+export type PropertyType = 'String' | 'Numeric' | 'Boolean' | 'DateTime' | 'Object'
+
+export const MAX_PROPERTY_NAME_LENGTH = 200
+
+export const PROPERTY_TYPE_OPTIONS: { value: PropertyType; label: string }[] = [
+    { value: 'String', label: 'String' },
+    { value: 'Numeric', label: 'Numeric' },
+    { value: 'Boolean', label: 'Boolean' },
+    { value: 'DateTime', label: 'DateTime' },
+    { value: 'Object', label: 'Object' },
+]
 
 function getErrorMessage(error: any, defaultMessage: string): string {
     // Handle field-specific errors from DRF serializer
@@ -59,6 +69,7 @@ export interface SchemaPropertyGroupProperty {
     name: string
     property_type: PropertyType
     is_required: boolean
+    is_optional_in_types: boolean
     description: string
 }
 
@@ -91,9 +102,9 @@ export const schemaManagementLogic = kea<schemaManagementLogicType>([
     path(['scenes', 'data-management', 'schema', 'schemaManagementLogic']),
     props({} as SchemaManagementLogicProps),
     key((props) => props.key || 'default'),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeamId']],
-    }),
+    })),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setPropertyGroupModalOpen: (open: boolean) => ({ open }),
@@ -203,6 +214,7 @@ export const schemaManagementLogic = kea<schemaManagementLogicType>([
                             name: '',
                             property_type: 'String' as PropertyType,
                             is_required: false,
+                            is_optional_in_types: false,
                             description: '',
                         },
                     ],
@@ -253,11 +265,11 @@ export const schemaManagementLogic = kea<schemaManagementLogicType>([
                     return 'All properties must have a name'
                 }
 
-                const invalidProperties = form.properties.filter(
-                    (prop) => prop.name && prop.name.trim() && !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(prop.name.trim())
+                const tooLongProperties = form.properties.filter(
+                    (prop) => prop.name && prop.name.trim().length > MAX_PROPERTY_NAME_LENGTH
                 )
-                if (invalidProperties.length > 0) {
-                    return 'Property names must start with a letter or underscore and contain only letters, numbers, and underscores'
+                if (tooLongProperties.length > 0) {
+                    return `Property names must be ${MAX_PROPERTY_NAME_LENGTH} characters or less`
                 }
 
                 return null

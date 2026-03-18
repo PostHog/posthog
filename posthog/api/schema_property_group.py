@@ -1,4 +1,3 @@
-import re
 import logging
 
 from django.db import IntegrityError, transaction
@@ -9,7 +8,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import SchemaPropertyGroup, SchemaPropertyGroupProperty
 
-PROPERTY_NAME_REGEX = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+MAX_PROPERTY_NAME_LENGTH = 200
 
 
 class SchemaPropertyGroupPropertySerializer(serializers.ModelSerializer):
@@ -20,6 +19,7 @@ class SchemaPropertyGroupPropertySerializer(serializers.ModelSerializer):
             "name",
             "property_type",
             "is_required",
+            "is_optional_in_types",
             "description",
             "created_at",
             "updated_at",
@@ -31,10 +31,8 @@ class SchemaPropertyGroupPropertySerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Property name is required")
 
         cleaned_value = value.strip()
-        if not PROPERTY_NAME_REGEX.match(cleaned_value):
-            raise serializers.ValidationError(
-                "Property name must start with a letter or underscore and contain only letters, numbers, and underscores"
-            )
+        if len(cleaned_value) > MAX_PROPERTY_NAME_LENGTH:
+            raise serializers.ValidationError(f"Property name must be {MAX_PROPERTY_NAME_LENGTH} characters or less")
 
         return cleaned_value
 
@@ -160,7 +158,7 @@ class SchemaPropertyGroupViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    scope_object = "INTERNAL"
+    scope_object = "event_definition"
     serializer_class = SchemaPropertyGroupSerializer
     queryset = SchemaPropertyGroup.objects.all()
     lookup_field = "id"

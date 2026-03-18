@@ -1,10 +1,10 @@
-import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
     ActivityLogItem,
     HumanizedChange,
     defaultDescriber,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 
 export function dataWarehouseSavedQueryActivityDescriber(
     logItem: ActivityLogItem,
@@ -22,7 +22,7 @@ export function dataWarehouseSavedQueryActivityDescriber(
                     listParts={[<>created a new view</>]}
                     prefix={
                         <>
-                            <strong>{userNameForLogItem(logItem)}</strong>
+                            <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
                         </>
                     }
                 />
@@ -37,7 +37,7 @@ export function dataWarehouseSavedQueryActivityDescriber(
                     listParts={[<>updated the view</>]}
                     prefix={
                         <>
-                            <strong>{userNameForLogItem(logItem)}</strong>
+                            <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
                         </>
                     }
                 />

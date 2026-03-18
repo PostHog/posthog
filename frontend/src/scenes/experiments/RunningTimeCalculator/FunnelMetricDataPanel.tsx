@@ -16,12 +16,12 @@ export const FunnelMetricDataPanel = ({
 }: {
     onChangeType: (type: ConversionRateInputType) => void
 }): JSX.Element => {
-    const { experimentId } = useValues(experimentLogic)
+    const { experiment } = useValues(experimentLogic)
     const { conversionRateInputType, uniqueUsers, automaticConversionRateDecimal, manualConversionRate } = useValues(
-        runningTimeCalculatorLogic({ experimentId })
+        runningTimeCalculatorLogic({ experiment })
     )
     const { setConversionRateInputType, setManualConversionRate } = useActions(
-        runningTimeCalculatorLogic({ experimentId })
+        runningTimeCalculatorLogic({ experiment })
     )
 
     return (

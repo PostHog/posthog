@@ -1,0 +1,157 @@
+use std::sync::Arc;
+use std::time::Duration;
+
+use envconfig::Envconfig;
+
+use crate::strategy::{AssignmentStrategy, StickyBalancedStrategy};
+
+#[derive(Envconfig, Clone, Debug)]
+pub struct Config {
+    // ── etcd ────────────────────────────────────────────────────────
+    #[envconfig(default = "http://localhost:2379")]
+    pub etcd_endpoints: String,
+
+    #[envconfig(default = "/kafka-assigner/")]
+    pub etcd_prefix: String,
+
+    // ── gRPC server ─────────────────────────────────────────────────
+    #[envconfig(from = "BIND_HOST", default = "0.0.0.0")]
+    pub host: String,
+
+    #[envconfig(from = "BIND_PORT", default = "50051")]
+    pub port: u16,
+
+    #[envconfig(default = "1024")]
+    pub stream_channel_size: usize,
+
+    #[envconfig(default = "30")]
+    pub consumer_lease_ttl_secs: i64,
+
+    #[envconfig(default = "5")]
+    pub consumer_keepalive_interval_secs: u64,
+
+    // ── Assigner / leader election ──────────────────────────────────
+    #[envconfig(default = "assigner-0")]
+    pub assigner_name: String,
+
+    #[envconfig(default = "15")]
+    pub leader_lease_ttl_secs: i64,
+
+    #[envconfig(default = "5")]
+    pub leader_keepalive_interval_secs: u64,
+
+    #[envconfig(default = "5")]
+    pub election_retry_interval_secs: u64,
+
+    #[envconfig(default = "1")]
+    pub rebalance_debounce_interval_secs: u64,
+
+    #[envconfig(default = "300")]
+    pub handoff_timeout_secs: u64,
+
+    // ── Kafka (for admin metadata lookups) ─────────────────────────
+    #[envconfig(default = "localhost:9092")]
+    pub kafka_hosts: String,
+
+    #[envconfig(default = "false")]
+    pub kafka_tls: bool,
+
+    #[envconfig(default = "15")]
+    pub kafka_metadata_timeout_secs: u64,
+
+    // ── Strategy ────────────────────────────────────────────────────
+    #[envconfig(default = "sticky-balanced")]
+    pub assignment_strategy: String,
+}
+
+impl Config {
+    pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
+        Config::init_from_env()
+    }
+
+    pub fn bind_address(&self) -> String {
+        format!("{}:{}", self.host, self.port)
+    }
+
+    pub fn etcd_endpoint_list(&self) -> Vec<String> {
+        self.etcd_endpoints
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    }
+
+    pub fn consumer_keepalive_interval(&self) -> Duration {
+        Duration::from_secs(self.consumer_keepalive_interval_secs)
+    }
+
+    pub fn leader_keepalive_interval(&self) -> Duration {
+        Duration::from_secs(self.leader_keepalive_interval_secs)
+    }
+
+    pub fn election_retry_interval(&self) -> Duration {
+        Duration::from_secs(self.election_retry_interval_secs)
+    }
+
+    pub fn rebalance_debounce_interval(&self) -> Duration {
+        Duration::from_secs(self.rebalance_debounce_interval_secs)
+    }
+
+    pub fn handoff_timeout(&self) -> Duration {
+        Duration::from_secs(self.handoff_timeout_secs)
+    }
+
+    pub fn kafka_metadata_timeout(&self) -> Duration {
+        Duration::from_secs(self.kafka_metadata_timeout_secs)
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if self.consumer_keepalive_interval_secs as i64 >= self.consumer_lease_ttl_secs {
+            return Err(format!(
+                "consumer_keepalive_interval_secs ({}) must be less than consumer_lease_ttl_secs ({})",
+                self.consumer_keepalive_interval_secs, self.consumer_lease_ttl_secs
+            ));
+        }
+        if self.handoff_timeout_secs == 0 {
+            return Err("handoff_timeout_secs must be greater than 0".to_string());
+        }
+        Ok(())
+    }
+
+    pub fn build_strategy(&self) -> Result<Arc<dyn AssignmentStrategy>, String> {
+        match self.assignment_strategy.as_str() {
+            "sticky-balanced" => Ok(Arc::new(StickyBalancedStrategy)),
+            other => Err(format!("unknown assignment strategy: {other}")),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_parses() {
+        let config = Config::init_with_defaults().expect("default config should parse");
+        assert_eq!(config.stream_channel_size, 1024);
+        assert_eq!(config.consumer_lease_ttl_secs, 30);
+        assert_eq!(config.leader_lease_ttl_secs, 15);
+        assert_eq!(config.handoff_timeout_secs, 300);
+    }
+
+    #[test]
+    fn etcd_endpoint_list_splits_comma_separated() {
+        let mut config = Config::init_with_defaults().unwrap();
+        config.etcd_endpoints = "http://a:2379, http://b:2379".to_string();
+        assert_eq!(
+            config.etcd_endpoint_list(),
+            vec!["http://a:2379", "http://b:2379"]
+        );
+    }
+
+    #[test]
+    fn etcd_endpoint_list_single() {
+        let config = Config::init_with_defaults().unwrap();
+        assert_eq!(config.etcd_endpoint_list(), vec!["http://localhost:2379"]);
+    }
+}

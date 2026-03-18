@@ -7,6 +7,9 @@ import { InsightDetails as InsightDetailsComponent } from './InsightDetails'
 const meta: Meta = {
     title: 'Components/Cards/Insight Details',
     component: InsightDetailsComponent,
+    parameters: {
+        mockDate: '2025-12-10',
+    },
 }
 export default meta
 

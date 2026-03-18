@@ -5,11 +5,8 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { Scene } from 'scenes/sceneTypes'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { urls } from 'scenes/urls'
-
-import { FileSystemIconType } from '~/queries/schema/schema-general'
-import { Breadcrumb } from '~/types'
 
 import { NEW_TEMPLATE } from './constants'
 import type { messageTemplateLogicType } from './messageTemplateLogicType'
@@ -22,42 +19,18 @@ export interface MessageTemplateLogicProps {
 
 export const messageTemplateLogic = kea<messageTemplateLogicType>([
     path(['products', 'workflows', 'frontend', 'messageTemplateLogic']),
-    key(({ id }) => id ?? 'unknown'),
     props({} as MessageTemplateLogicProps),
+    key(({ id }) => id ?? 'new'),
     actions({
         setTemplate: (template: MessageTemplate) => ({ template }),
         setOriginalTemplate: (template: MessageTemplate) => ({ template }),
+        duplicateTemplate: true,
+        deleteTemplate: true,
     }),
     selectors({
-        breadcrumbs: [
-            (_, p) => [p.id],
-            (id): Breadcrumb[] => {
-                return [
-                    {
-                        key: [Scene.Workflows, 'library'],
-                        name: 'Library',
-                        path: urls.workflows('library'),
-                        iconType: 'workflows',
-                    },
-                    ...(id === 'new'
-                        ? [
-                              {
-                                  key: 'new-template',
-                                  name: 'New template',
-                                  path: urls.workflowsLibraryTemplateNew(),
-                                  iconType: 'workflows' as FileSystemIconType,
-                              },
-                          ]
-                        : [
-                              {
-                                  key: 'edit-template',
-                                  name: 'Manage template',
-                                  path: urls.workflowsLibraryTemplate(id),
-                                  iconType: 'workflows' as FileSystemIconType,
-                              },
-                          ]),
-                ]
-            },
+        logicProps: [
+            () => [(_, props: MessageTemplateLogicProps) => props],
+            (props: MessageTemplateLogicProps): MessageTemplateLogicProps => props,
         ],
     }),
     forms(({ actions }) => ({
@@ -122,7 +95,13 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             },
         },
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
+        submitTemplateFailure: () => {
+            const errors = values.templateAllErrors
+            if (errors?.content?.email?.subject) {
+                lemonToast.error('Subject is required')
+            }
+        },
         saveTemplateSuccess: async ({ template }) => {
             lemonToast.success('Template saved')
             template.id && router.actions.replace(urls.workflowsLibraryTemplate(template.id))
@@ -138,6 +117,42 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 description: message.description,
                 content: {
                     email: message.inputs?.email?.value,
+                },
+            })
+        },
+        duplicateTemplate: async () => {
+            if (values.templateChanged) {
+                lemonToast.error('Please save your changes before duplicating')
+                return
+            }
+            const template = values.template
+            try {
+                const duplicatedTemplate = await api.messaging.createTemplate({
+                    name: `${template.name} (copy)`,
+                    description: template.description,
+                    content: template.content,
+                })
+                lemonToast.success('Template duplicated successfully')
+                router.actions.push(urls.workflowsLibraryTemplate(duplicatedTemplate.id))
+            } catch {
+                lemonToast.error('Failed to duplicate template')
+            }
+        },
+        deleteTemplate: async () => {
+            const template = values.template
+            if (!template || template.id === 'new') {
+                return
+            }
+            await deleteWithUndo({
+                endpoint: `environments/@current/messaging_templates`,
+                object: {
+                    id: template.id,
+                    name: template.name,
+                },
+                callback: (undo) => {
+                    if (!undo) {
+                        router.actions.push(urls.workflows('library'))
+                    }
                 },
             })
         },

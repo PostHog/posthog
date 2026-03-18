@@ -48,6 +48,10 @@
         transition: all 150ms linear 1000ms;
     }
 
+    .InsightCard__viz {
+        height: 100%;
+    }
+
     &--editable:hover,
     &--selected {
         .NotebookNode__gap {

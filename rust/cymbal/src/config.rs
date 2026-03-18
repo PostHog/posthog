@@ -4,6 +4,7 @@ use std::{
 };
 
 use aws_config::{BehaviorVersion, Region};
+use common_continuous_profiling::ContinuousProfilingConfig;
 use common_kafka::config::{ConsumerConfig, KafkaConfig};
 use envconfig::Envconfig;
 use tracing::{info, warn};
@@ -13,6 +14,9 @@ pub static FRAME_CONTEXT_LINES: AtomicUsize = AtomicUsize::new(15);
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
+    #[envconfig(nested = true)]
+    pub continuous_profiling: ContinuousProfilingConfig,
+
     #[envconfig(from = "BIND_HOST", default = "::")]
     pub host: String,
 
@@ -89,6 +93,9 @@ pub struct Config {
     #[envconfig(default = "symbolsets")]
     pub ss_prefix: String,
 
+    #[envconfig(default = "600")]
+    pub issue_cache_ttl_seconds: u64,
+
     #[envconfig(default = "100000")]
     pub frame_cache_size: u64,
 
@@ -133,11 +140,27 @@ pub struct Config {
     // The maximum number of bytecode operations we'll store in the cache, across all rules, across all teams
     pub max_grouping_rule_cache_size: u64,
 
+    #[envconfig(default = "300")]
+    pub suppression_rule_cache_ttl_secs: u64,
+
+    #[envconfig(default = "100000")]
+    // The maximum number of bytecode operations we'll store in the cache, across all rules, across all teams
+    pub max_suppression_rule_cache_size: u64,
+
     #[envconfig(from = "MAXMIND_DB_PATH")]
     pub maxmind_db_path: PathBuf,
 
     #[envconfig(default = "redis://localhost:6379/")]
     pub redis_url: String,
+
+    #[envconfig(from = "ISSUE_BUCKETS_REDIS_URL", default = "redis://localhost:6379/")]
+    pub issue_buckets_redis_url: String,
+
+    #[envconfig(default = "100")]
+    pub redis_response_timeout_ms: u64,
+
+    #[envconfig(default = "5000")]
+    pub redis_connection_timeout_ms: u64,
 
     #[envconfig(default = "")]
     pub filtered_teams: String, // Comma seperated list of teams to either filter in (process) or filter out (ignore)
@@ -147,6 +170,11 @@ pub struct Config {
 
     #[envconfig(default = "false")]
     pub auto_assignment_enabled: bool, // Comma seperated list of users to either filter in (process) or filter out (ignore)
+
+    // Comma separated list of team IDs that can receive spike alerts.
+    // If empty, all teams can receive alerts
+    #[envconfig(default = "")]
+    pub spike_alert_enabled_team_ids: String,
 }
 
 impl Config {

@@ -22,6 +22,10 @@ This document describes the Rust integration test suite for the LLM Analytics ca
 - **Integration Tests**: Capture service tests from HTTP request through parsing and validation
 - **Parameterized Tests**: Test variations across different event types, blob sizes, and configurations
 - **Async Testing**: Support for testing concurrent requests and large payload processing
+- **Test Utilities**:
+  - `CapturingSink`: Mock event sink that stores events in memory for Kafka output verification
+  - `FixedTime`: Deterministic time source for reproducible tests
+  - `TestSink`: Simple no-op sink for HTTP endpoint tests
 
 ### Test Data
 
@@ -87,6 +91,16 @@ This document describes the Rust integration test suite for the LLM Analytics ca
 - **Tests Implemented**:
   - `test_ai_endpoint_wrong_content_type_returns_400`: Non-multipart type
   - `test_ai_endpoint_empty_body_returns_400`: Empty body
+
+#### Scenario 1.6: Kafka Publishing and S3 Placeholders
+
+- **Test**: Verify events are correctly published to Kafka with S3 placeholder URLs
+- **Validation**: Events contain S3 placeholders with sequential byte ranges pointing to same file
+- **Tests Implemented**:
+  - `test_ai_event_published_to_kafka`: Basic event publishing verification
+  - `test_ai_event_with_blobs_published_with_s3_placeholders`: S3 placeholder URL format and sequential ranges
+  - `test_ai_event_with_multiple_blobs_sequential_ranges`: Multiple blobs with correct sequential byte ranges
+  - `test_ai_event_metadata_preserved_in_kafka`: Event metadata preservation in Kafka
 
 ### Phase 5: Authorization
 

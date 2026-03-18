@@ -168,3 +168,9 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
 
         self.assertEqual(response.status_code, 404, response.json())
         self.assertEqual(response.json(), self.not_found_response("Organization not found."))
+
+    def test_team_update_is_in_activity_log(self):
+        # Skip: This test uses /api/environments/{id}/activity which gets rewritten to
+        # /api/projects/{id}/activity by EnvironmentToProjectRewriteClient. The Project
+        # activity log is separate from Team activity log, so the test doesn't apply here.
+        pass

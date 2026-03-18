@@ -1,3 +1,4 @@
+mod parsing;
 mod steps;
 mod trends;
 mod unordered_steps;

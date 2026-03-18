@@ -21,6 +21,15 @@ async fn main() -> Result<(), WorkerError> {
 
     let config = Config::init_from_env().expect("Invalid configuration:");
 
+    // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
+    let _profiling_agent = match config.continuous_profiling.start_agent() {
+        Ok(agent) => agent,
+        Err(e) => {
+            tracing::error!("Failed to start continuous profiling agent: {e}");
+            None
+        }
+    };
+
     let liveness = HealthRegistry::new("liveness");
     let worker_liveness = liveness
         .register("worker".to_string(), time::Duration::seconds(60)) // TODO: compute the value from worker params

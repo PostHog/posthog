@@ -1,10 +1,8 @@
-import json
 import dataclasses
 from functools import cached_property
-from typing import Any, Optional, Union, cast
+from typing import Any, Union, cast
 
 from django.db.models import Model, QuerySet
-from django.dispatch import receiver
 from django.shortcuts import get_object_or_404
 
 import posthoganalytics
@@ -16,32 +14,31 @@ from rest_framework.response import Response
 
 from posthog import settings
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import OrgScopedPrimaryKeyRelatedField
 from posthog.api.shared import ProjectBasicSerializer, TeamBasicSerializer
-from posthog.auth import PersonalAPIKeyAuthentication
-from posthog.cloud_utils import is_cloud
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
 from posthog.event_usage import groups, report_organization_action, report_organization_deleted
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Organization, Team, User
+from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
-from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
-from posthog.models.signals import model_activity_signal, mute_selected_signals
-from posthog.models.team.util import delete_bulky_postgres_data
+from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.permissions import (
     CREATE_ACTIONS,
     APIScopePermission,
     OrganizationAdminWritePermissions,
-    OrganizationMemberPermissions,
     TimeSensitiveActionPermission,
     extract_organization,
 )
 from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
 from posthog.rbac.migrations.rbac_team_migration import rbac_team_access_control_migration
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.tasks.tasks import delete_organization_data_and_notify_task
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 
 
@@ -79,16 +76,6 @@ class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
         )
 
 
-class OrganizationPermissionsWithEnvRollback(OrganizationAdminWritePermissions):
-    def has_object_permission(self, request: Request, view, object: Model) -> bool:
-        organization = extract_organization(object, view)
-
-        return (
-            OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization).level
-            >= OrganizationMembership.Level.ADMIN
-        )
-
-
 class OrganizationSerializer(
     serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin
 ):
@@ -97,7 +84,7 @@ class OrganizationSerializer(
     projects = serializers.SerializerMethodField()
     metadata = serializers.SerializerMethodField()
     member_count = serializers.SerializerMethodField()
-    logo_media_id = serializers.PrimaryKeyRelatedField(
+    logo_media_id = OrgScopedPrimaryKeyRelatedField(
         queryset=UploadedMedia.objects.all(), required=False, allow_null=True
     )
     default_role_id = serializers.CharField(
@@ -130,7 +117,10 @@ class OrganizationSerializer(
             "member_count",
             "is_ai_data_processing_approved",
             "default_experiment_stats_method",
+            "default_anonymize_ips",
             "default_role_id",
+            "is_active",
+            "is_not_active_reason",
         ]
         read_only_fields = [
             "id",
@@ -146,6 +136,8 @@ class OrganizationSerializer(
             "customer_id",
             "member_count",
             "default_role_id",
+            "is_active",
+            "is_not_active_reason",
         ]
         extra_kwargs = {
             "slug": {
@@ -153,13 +145,23 @@ class OrganizationSerializer(
             },  # slug is not required here as it's generated automatically for new organizations
         }
 
+    def validate_logo_media_id(self, value: UploadedMedia | None) -> UploadedMedia | None:
+        if value is None:
+            return value
+        if self.instance:
+            if value.team.organization_id != self.instance.id:
+                raise serializers.ValidationError("This media does not belong to this organization.")
+        else:
+            raise serializers.ValidationError("Cannot set logo media when creating an organization.")
+        return value
+
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Organization:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         user = self.context["request"].user
         organization, _, _ = Organization.objects.bootstrap(user, **validated_data)
         return organization
 
-    def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
+    def get_membership_level(self, organization: Organization) -> OrganizationMembership.Level | None:
         membership = self.user_permissions.organization_memberships.get(organization.pk)
         return membership.level if membership is not None else None
 
@@ -171,7 +173,9 @@ class OrganizationSerializer(
             else instance.teams.none()
         )
         # Support old access control system
-        visible_teams = visible_teams.filter(id__in=self.user_permissions.team_ids_visible_for_user)
+        visible_teams = visible_teams.filter(id__in=self.user_permissions.team_ids_visible_for_user).select_related(
+            "project"
+        )
         return TeamBasicSerializer(visible_teams, context=self.context, many=True).data  # type: ignore
 
     def get_projects(self, instance: Organization) -> list[dict[str, Any]]:
@@ -182,6 +186,42 @@ class OrganizationSerializer(
         return {
             "instance_tag": settings.INSTANCE_TAG,
         }
+
+    def validate_members_can_invite(self, value: bool) -> bool:
+        if self.instance and self.instance.members_can_invite != value:
+            if not self.instance.is_feature_available(AvailableFeature.ORGANIZATION_INVITE_SETTINGS):
+                raise serializers.ValidationError(
+                    "You must upgrade your plan to configure who can send invites.",
+                    code="payment_required",
+                )
+        return value
+
+    def validate_enforce_2fa(self, value: bool | None) -> bool | None:
+        if self.instance and self.instance.enforce_2fa != value:
+            if not self.instance.is_feature_available(AvailableFeature.TWO_FACTOR_ENFORCEMENT):
+                raise serializers.ValidationError(
+                    "You must upgrade your plan to enforce 2FA.",
+                    code="payment_required",
+                )
+        return value
+
+    def validate_allow_publicly_shared_resources(self, value: bool) -> bool:
+        if self.instance and self.instance.allow_publicly_shared_resources != value:
+            if not self.instance.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
+                raise serializers.ValidationError(
+                    "You must upgrade your plan to configure public sharing settings.",
+                    code="payment_required",
+                )
+        return value
+
+    def validate_members_can_use_personal_api_keys(self, value: bool) -> bool:
+        if self.instance and self.instance.members_can_use_personal_api_keys != value:
+            if not self.instance.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
+                raise serializers.ValidationError(
+                    "You must upgrade your plan to configure personal API key permissions.",
+                    code="payment_required",
+                )
+        return value
 
     def get_member_count(self, organization: Organization):
         return (
@@ -243,6 +283,10 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication):
             if scoped_organizations := self.request.successful_authenticator.personal_api_key.scoped_organizations:
                 queryset = queryset.filter(id__in=scoped_organizations)
+        if isinstance(self.request.successful_authenticator, OAuthAccessTokenAuthentication):
+            if scoped_organizations := self.request.successful_authenticator.access_token.scoped_organizations:
+                queryset = queryset.filter(id__in=scoped_organizations)
+
         return queryset
 
     def safely_get_object(self, queryset):
@@ -265,6 +309,8 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return get_object_or_404(queryset, **filter_kwargs)
 
     def perform_destroy(self, organization: Organization):
+        from ee.billing.billing_manager import BillingManager
+
         # Check if bulk deletion operations are disabled via environment variable
         # Organizations contain teams, so we need to block organization deletion too
         if settings.DISABLE_BULK_DELETES:
@@ -272,24 +318,37 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "Organization deletion is temporarily disabled during database migration. Please try again later."
             )
 
+        # Check if organization has an active billing subscription
+        if is_cloud():
+            license = get_cached_instance_license()
+            if license:
+                billing_manager = BillingManager(license)
+                billing = billing_manager.get_billing(organization)
+                if billing.get("has_active_subscription"):
+                    raise exceptions.ValidationError(
+                        "Cannot delete organization with an active subscription. "
+                        "Please cancel your subscription first in the billing page."
+                    )
+
         user = cast(User, self.request.user)
         report_organization_deleted(user, organization)
-        team_ids = [team.pk for team in organization.teams.all()]
-        delete_bulky_postgres_data(team_ids=team_ids)
-        with mute_selected_signals():
-            super().perform_destroy(organization)
-        # Once the organization is deleted, queue deletion of associated data
-        AsyncDeletion.objects.bulk_create(
-            [
-                AsyncDeletion(
-                    deletion_type=DeletionType.Team,
-                    team_id=team_id,
-                    key=str(team_id),
-                    created_by=user,
-                )
-                for team_id in team_ids
-            ],
-            ignore_conflicts=True,
+        teams = list(organization.teams.only("id", "name").all())
+        team_ids = [team.pk for team in teams]
+        project_names = [team.name for team in teams]
+        organization_id = organization.pk
+        organization_name = organization.name
+
+        # the memberships need to be deleted synchronously so that the requesting user can delete their account if they want to
+        organization.memberships.all().delete()
+
+        # Queue background task to handle all deletion
+        # bulky postgres, batch exports, org/team records, ClickHouse, email
+        delete_organization_data_and_notify_task.delay(
+            team_ids=team_ids,
+            organization_id=str(organization_id),
+            user_id=user.id,
+            organization_name=organization_name,
+            project_names=project_names,
         )
 
     def get_serializer_context(self) -> dict[str, Any]:
@@ -298,47 +357,43 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "user_permissions": UserPermissions(cast(User, self.request.user)),
         }
 
-    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        if "enforce_2fa" in request.data:
-            enforce_2fa_value = request.data["enforce_2fa"]
-            organization = self.get_object()
-            user = cast(User, request.user)
+    def _capture_organization_setting_events(self, request: Request) -> None:
+        setting_events = [
+            ("enforce_2fa", "organization 2fa enforcement toggled"),
+            ("is_ai_data_processing_approved", "organization ai data processing consent toggled"),
+        ]
 
-            # Add capture event for 2FA enforcement change
-            posthoganalytics.capture(
-                "organization 2fa enforcement toggled",
-                distinct_id=str(user.distinct_id),
-                properties={
-                    "enabled": enforce_2fa_value,
-                    "organization_id": str(organization.id),
-                    "organization_name": organization.name,
-                    "user_role": user.organization_memberships.get(organization=organization).level,
-                },
-                groups=groups(organization),
-            )
+        fields_to_capture = [field for field, _ in setting_events if field in request.data]
+        if not fields_to_capture:
+            return
+
+        organization = self.get_object()
+        user = cast(User, request.user)
+        user_role = user.organization_memberships.get(organization=organization).level
+
+        for field, event_name in setting_events:
+            if field in request.data:
+                posthoganalytics.capture(
+                    event_name,
+                    distinct_id=str(user.distinct_id),
+                    properties={
+                        "enabled": request.data[field],
+                        "organization_id": str(organization.id),
+                        "organization_name": organization.name,
+                        "user_role": user_role,
+                    },
+                    groups=groups(organization),
+                )
+
+    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        self._capture_organization_setting_events(request)
 
         # Set user context for activity logging
         with ImpersonatedContext(request):
             return super().update(request, *args, **kwargs)
 
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        if "enforce_2fa" in request.data:
-            enforce_2fa_value = request.data["enforce_2fa"]
-            organization = self.get_object()
-            user = cast(User, request.user)
-
-            # Add capture event for 2FA enforcement change
-            posthoganalytics.capture(
-                "organization 2fa enforcement toggled",
-                distinct_id=str(user.distinct_id),
-                properties={
-                    "enabled": enforce_2fa_value,
-                    "organization_id": str(organization.id),
-                    "organization_name": organization.name,
-                    "user_role": user.organization_memberships.get(organization=organization).level,
-                },
-                groups=groups(organization),
-            )
+        self._capture_organization_setting_events(request)
 
         # Set user context for activity logging
         with ImpersonatedContext(request):
@@ -373,75 +428,8 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response({"status": True})
 
-    @action(
-        methods=["POST"],
-        detail=True,
-        url_path="environments_rollback",
-        permission_classes=[
-            permissions.IsAuthenticated,
-            OrganizationMemberPermissions,
-            OrganizationPermissionsWithEnvRollback,
-        ],
-    )
-    def environments_rollback(self, request: Request, **kwargs) -> Response:
-        """
-        Trigger environments rollback migration for users previously on multi-environment projects.
-        The request data should be a mapping of source environment IDs to target environment IDs.
-        Example: { "2": 2, "116911": 2, "99346": 99346, "140256": 99346 }
-        """
-        from posthog.storage.environments_rollback_storage import (
-            add_organization_to_rollback_list,
-            is_organization_rollback_triggered,
-        )
-        from posthog.tasks.tasks import environments_rollback_migration
 
-        organization = self.get_object()
-
-        if is_organization_rollback_triggered(organization.id):
-            raise exceptions.ValidationError("Environments rollback has already been requested for this organization.")
-
-        environment_mappings: dict[str, int] = {str(k): int(v) for k, v in request.data.items()}
-        user = cast(User, request.user)
-        membership = user.organization_memberships.get(organization=organization)
-
-        if not environment_mappings:
-            raise exceptions.ValidationError("Environment mappings are required")
-
-        # Verify all environments exist and belong to this organization
-        all_environment_ids = set(map(int, environment_mappings.keys())) | set(environment_mappings.values())
-        teams = Team.objects.filter(id__in=all_environment_ids, organization_id=organization.id)
-        found_team_ids = set(teams.values_list("id", flat=True))
-
-        missing_team_ids = all_environment_ids - found_team_ids
-        if missing_team_ids:
-            raise exceptions.ValidationError(f"Environments not found: {missing_team_ids}")
-
-        # Trigger the async task to perform the migration
-        environments_rollback_migration.delay(
-            organization_id=organization.id,
-            environment_mappings=environment_mappings,
-            user_id=user.id,
-        )
-
-        # Mark organization as having triggered rollback in Redis
-        add_organization_to_rollback_list(organization.id)
-
-        posthoganalytics.capture(
-            "organization environments rollback started",
-            distinct_id=str(user.distinct_id),
-            properties={
-                "environment_mappings": json.dumps(environment_mappings),
-                "organization_id": str(organization.id),
-                "organization_name": organization.name,
-                "user_role": membership.level,
-            },
-            groups=groups(organization),
-        )
-
-        return Response({"success": True, "message": "Migration started"}, status=202)
-
-
-@receiver(model_activity_signal, sender=Organization)
+@mutable_receiver(model_activity_signal, sender=Organization)
 def handle_organization_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
@@ -475,13 +463,13 @@ class OrganizationInviteContext(ActivityContextBase):
     organization_id: str
     organization_name: str
     target_email: str
-    inviter_user_id: Optional[str]
-    inviter_user_email: Optional[str]
-    inviter_user_name: Optional[str]
+    inviter_user_id: str | None
+    inviter_user_email: str | None
+    inviter_user_name: str | None
     level: str
 
 
-@receiver(model_activity_signal, sender=OrganizationMembership)
+@mutable_receiver(model_activity_signal, sender=OrganizationMembership)
 def handle_organization_membership_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
@@ -526,7 +514,7 @@ def handle_organization_membership_change(
     )
 
 
-@receiver(model_activity_signal, sender=OrganizationInvite)
+@mutable_receiver(model_activity_signal, sender=OrganizationInvite)
 def handle_organization_invite_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):

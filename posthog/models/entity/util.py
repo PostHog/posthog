@@ -34,7 +34,7 @@ def get_entity_filtering_params(
             if entity.id in action_ids_already_included or entity.id is None:
                 continue
             action_ids_already_included.add(int(entity.id))
-            action = entity.get_action()
+            action = entity.get_action(team_id)
             action_query, action_params = (
                 format_action_filter(
                     team_id=team_id,

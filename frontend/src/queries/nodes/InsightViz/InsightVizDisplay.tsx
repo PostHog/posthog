@@ -3,11 +3,13 @@ import { useActions, useValues } from 'kea'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import {
+    BoxPlotMissingPropertyState,
     FunnelSingleStepState,
     InsightEmptyState,
     InsightErrorState,
@@ -15,11 +17,14 @@ import {
     InsightTimeoutState,
     InsightValidationError,
 } from 'scenes/insights/EmptyStates'
-import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
+import { InsightAIAnalysis } from 'scenes/insights/InsightAIAnalysis'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { BoxPlotLegend } from 'scenes/insights/views/BoxPlot/BoxPlotLegend'
+import { BoxPlotResultsTable } from 'scenes/insights/views/BoxPlot/BoxPlotResultsTable'
 import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
 import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
@@ -28,12 +33,13 @@ import { Paths } from 'scenes/paths/Paths'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { TrendInsight } from 'scenes/trends/Trends'
+import { WebAnalyticsInsight } from 'scenes/web-analytics/WebAnalyticsInsight'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { InsightVizNode, QuerySchema } from '~/queries/schema/schema-general'
+import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
-import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightLogicProps, InsightType } from '~/types'
+import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightType } from '~/types'
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
@@ -50,7 +56,6 @@ export function InsightVizDisplay({
     embedded,
     inSharedMode,
     editMode,
-    insightProps,
 }: {
     disableHeader?: boolean
     disableTable?: boolean
@@ -62,13 +67,12 @@ export function InsightVizDisplay({
     embedded: boolean
     inSharedMode?: boolean
     editMode?: boolean
-    insightProps: InsightLogicProps<QuerySchema>
 }): JSX.Element | null {
-    const { canEditInsight, isUsingPathsV1, isUsingPathsV2 } = useValues(insightLogic)
+    const { insightProps, canEditInsight, isUsingPathsV1, isUsingPathsV2 } = useValues(insightLogic)
+    const hasAIAnalysis = useFeatureFlag('PRODUCT_ANALYTICS_AI_INSIGHT_ANALYSIS')
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
-    const { hasFunnelResults } = useValues(funnelDataLogic(insightProps))
     const { isFunnelWithEnoughSteps, validationError, theme } = useValues(insightVizDataLogic(insightProps))
     const {
         isFunnels,
@@ -84,10 +88,13 @@ export function InsightVizDisplay({
         timedOutQueryId,
         vizSpecificOptions,
         query,
+        querySource,
         display,
+        series,
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData } = useActions(insightVizDataLogic(insightProps))
     const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
+    const { hasFunnelResults } = useValues(funnelDataLogic(insightProps))
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -102,16 +109,29 @@ export function InsightVizDisplay({
             )
         }
 
-        if (validationError) {
-            return <InsightValidationError query={query} detail={validationError} />
+        // Insight specific empty states - note order is important here
+        if (display === ChartDisplayType.BoxPlot && (!series?.length || series.some((s) => !s?.math_property))) {
+            return <BoxPlotMissingPropertyState />
         }
 
-        // Insight specific empty states - note order is important here
+        if (validationError) {
+            return (
+                <InsightValidationError
+                    query={query}
+                    detail={validationError}
+                    onRetry={() => {
+                        loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
+                    }}
+                />
+            )
+        }
+
         if (activeView === InsightType.FUNNELS) {
-            if (!isFunnelWithEnoughSteps) {
+            const isFlowViz = funnelsFilter?.funnelVizType === FunnelVizType.Flow
+            if (!isFunnelWithEnoughSteps && !isFlowViz) {
                 return <FunnelSingleStepState actionable={!embedded && editMode} />
             }
-            if (!hasFunnelResults && !erroredQueryId && !insightDataLoading) {
+            if (!hasFunnelResults && !erroredQueryId && !insightDataLoading && !isFlowViz) {
                 return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
             }
         }
@@ -175,11 +195,14 @@ export function InsightVizDisplay({
                         context={context}
                         vizSpecificOptions={vizSpecificOptions?.[InsightType.RETENTION]}
                         inCardView={embedded}
+                        embedded={embedded}
                         inSharedMode={inSharedMode}
                     />
                 )
             case InsightType.PATHS:
                 return isUsingPathsV2 ? <PathsV2 /> : <Paths />
+            case InsightType.WEB_ANALYTICS:
+                return <WebAnalyticsInsight context={context} editMode={editMode} />
             default:
                 return null
         }
@@ -192,13 +215,26 @@ export function InsightVizDisplay({
             timedOutQueryId === null &&
             isFunnelWithEnoughSteps &&
             hasFunnelResults &&
-            funnelsFilter?.funnelVizType === FunnelVizType.Steps &&
+            (funnelsFilter?.funnelVizType === FunnelVizType.Steps ||
+                funnelsFilter?.funnelVizType === FunnelVizType.Flow) &&
             !disableTable
         ) {
             return (
-                <SceneSection title="Detailed results">
+                <SceneSection
+                    title={<span className="font-semibold text-lg m-0">Detailed results</span>}
+                    className="mt-4"
+                >
                     <FunnelStepsTable />
                 </SceneSection>
+            )
+        }
+
+        if (display === ChartDisplayType.BoxPlot && !disableTable) {
+            return (
+                <div className="mt-4">
+                    <h2 className="font-semibold text-lg m-0 mb-2">Detailed results</h2>
+                    <BoxPlotResultsTable />
+                </div>
             )
         }
 
@@ -242,9 +278,34 @@ export function InsightVizDisplay({
         return null
     }
 
+    function renderAIAnalysisSection(): JSX.Element | null {
+        // Check feature flag
+        if (!hasAIAnalysis) {
+            return null
+        }
+
+        // Only show in view mode
+        if (editMode) {
+            return null
+        }
+
+        // Don't show in embedded or shared mode
+        if (embedded || inSharedMode) {
+            return null
+        }
+
+        // Only show for insight query nodes (use querySource which is the actual InsightQueryNode)
+        if (!querySource) {
+            return null
+        }
+
+        return <InsightAIAnalysis query={querySource} />
+    }
+
     const showComputationMetadata = !disableLastComputation || !!samplingFactor
 
-    if (!theme) {
+    // Web Analytics insights don't use themes, so allow them to render without waiting for theme to load
+    if (!theme && activeView !== InsightType.WEB_ANALYTICS) {
         return null
     }
 
@@ -261,23 +322,26 @@ export function InsightVizDisplay({
                 {disableHeader ? null : <InsightDisplayConfig />}
                 {showingResults && (
                     <>
-                        {!embedded && (isFunnels || isPaths || showComputationMetadata) && (
-                            <div className="flex items-center justify-between gap-2 p-2 flex-wrap-reverse border-b">
-                                <div className="flex items-center gap-2">
-                                    {showComputationMetadata && (
-                                        <InsightResultMetadata
-                                            disableLastComputation={disableLastComputation}
-                                            disableLastComputationRefresh={disableLastComputationRefresh}
-                                        />
-                                    )}
-                                </div>
+                        {!embedded &&
+                            ((isFunnels && hasFunnelResults) ||
+                                isPaths ||
+                                (showComputationMetadata && !BlockingEmptyState)) && (
+                                <div className="flex items-center justify-between gap-2 p-2 flex-wrap-reverse border-b">
+                                    <div className="flex items-center gap-2">
+                                        {showComputationMetadata && (
+                                            <InsightResultMetadata
+                                                disableLastComputation={disableLastComputation}
+                                                disableLastComputationRefresh={disableLastComputationRefresh}
+                                            />
+                                        )}
+                                    </div>
 
-                                <div className="flex items-center gap-2">
-                                    {isPaths && isUsingPathsV1 && <PathCanvasLabel />}
-                                    {isFunnels && <FunnelCanvasLabel />}
+                                    <div className="flex items-center gap-2">
+                                        {isPaths && isUsingPathsV1 && <PathCanvasLabel />}
+                                        {isFunnels && <FunnelCanvasLabel />}
+                                    </div>
                                 </div>
-                            </div>
-                        )}
+                            )}
 
                         <div
                             className={clsx(
@@ -291,7 +355,7 @@ export function InsightVizDisplay({
                                 <>
                                     <div className="InsightVizDisplay__content__left">{renderActiveView()}</div>
                                     <div className="InsightVizDisplay__content__right">
-                                        <InsightLegend />
+                                        {display === ChartDisplayType.BoxPlot ? <BoxPlotLegend /> : <InsightLegend />}
                                     </div>
                                 </>
                             ) : (
@@ -302,6 +366,7 @@ export function InsightVizDisplay({
                 )}
             </div>
             <ResultCustomizationsModal />
+            {renderAIAnalysisSection()}
             {renderTable()}
             {!disableCorrelationTable && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
         </>

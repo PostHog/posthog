@@ -151,9 +151,9 @@ class TestModifiers(BaseTest):
                 pretty=False,
             ).clickhouse
             assert clickhouse_query is not None
-            assert (
-                f"SELECT {', '.join(test_case.expected_columns)} FROM" in clickhouse_query
-            ), f"PoE mode: {test_case.mode}"
+            assert f"SELECT {', '.join(test_case.expected_columns)} FROM" in clickhouse_query, (
+                f"PoE mode: {test_case.mode}"
+            )
             for value in test_case.other_expected_values:
                 assert value in clickhouse_query
 

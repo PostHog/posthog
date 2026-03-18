@@ -1,5 +1,7 @@
-import { ReactNode } from 'react'
+import { PropsWithChildren } from 'react'
 
-export const ErrorFiltersRoot = ({ children }: { children: ReactNode }): JSX.Element => {
-    return <div className="space-y-2">{children}</div>
+import { cn } from 'lib/utils/css-classes'
+
+export const ErrorFiltersRoot = ({ children, className }: PropsWithChildren<{ className?: string }>): JSX.Element => {
+    return <div className={cn('space-y-2', className)}>{children}</div>
 }

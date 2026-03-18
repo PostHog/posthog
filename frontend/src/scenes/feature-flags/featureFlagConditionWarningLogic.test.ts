@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { cohortsModel } from '~/models/cohortsModel'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, FeatureFlagEvaluationRuntime, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -10,8 +11,8 @@ describe('featureFlagConditionWarningLogic', () => {
         initKeaTests()
     })
 
-    describe('server runtime', () => {
-        it('returns no warning for server evaluation', () => {
+    describe('client runtime', () => {
+        it('returns no warning for client-only evaluation since local eval is server-side only', () => {
             const properties: AnyPropertyFilter[] = [
                 {
                     key: 'email',
@@ -23,7 +24,7 @@ describe('featureFlagConditionWarningLogic', () => {
 
             const logic = featureFlagConditionWarningLogic({
                 properties,
-                evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
+                evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
             })
             logic.mount()
 
@@ -33,7 +34,7 @@ describe('featureFlagConditionWarningLogic', () => {
         })
     })
 
-    describe('client runtime - no unsupported features', () => {
+    describe('server runtime - no unsupported features', () => {
         it('returns no warning when no regex properties exist', () => {
             const properties: AnyPropertyFilter[] = [
                 {
@@ -46,7 +47,7 @@ describe('featureFlagConditionWarningLogic', () => {
 
             const logic = featureFlagConditionWarningLogic({
                 properties,
-                evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
+                evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
             })
             logic.mount()
 
@@ -73,7 +74,7 @@ describe('featureFlagConditionWarningLogic', () => {
 
             const logic = featureFlagConditionWarningLogic({
                 properties,
-                evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
+                evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
             })
             logic.mount()
 
@@ -85,7 +86,7 @@ describe('featureFlagConditionWarningLogic', () => {
         it('returns no warning for empty properties', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties: [],
-                evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
+                evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
             })
             logic.mount()
 
@@ -95,7 +96,7 @@ describe('featureFlagConditionWarningLogic', () => {
         })
     })
 
-    describe('client runtime - lookahead detection', () => {
+    describe('server runtime - lookahead detection', () => {
         it('detects positive lookahead (?=)', () => {
             const properties: AnyPropertyFilter[] = [
                 {
@@ -108,13 +109,12 @@ describe('featureFlagConditionWarningLogic', () => {
 
             const logic = featureFlagConditionWarningLogic({
                 properties,
-                evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
+                evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
             })
             logic.mount()
 
             expectLogic(logic).toMatchValues({
-                warning:
-                    'This flag cannot be evaluated in client environments. Release conditions contain unsupported regex patterns (lookahead).',
+                warning: 'lookahead in regex',
             })
         })
 
@@ -130,18 +130,17 @@ describe('featureFlagConditionWarningLogic', () => {
 
             const logic = featureFlagConditionWarningLogic({
                 properties,
-                evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
+                evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
             })
             logic.mount()
 
             expectLogic(logic).toMatchValues({
-                warning:
-                    'This flag cannot be evaluated in client environments. Release conditions contain unsupported regex patterns (lookahead).',
+                warning: 'lookahead in regex',
             })
         })
     })
 
-    describe('client runtime - lookbehind detection', () => {
+    describe('server runtime - lookbehind detection', () => {
         it('detects positive lookbehind (?<=)', () => {
             const properties: AnyPropertyFilter[] = [
                 {
@@ -154,13 +153,12 @@ describe('featureFlagConditionWarningLogic', () => {
 
             const logic = featureFlagConditionWarningLogic({
                 properties,
-                evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
+                evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
             })
             logic.mount()
 
             expectLogic(logic).toMatchValues({
-                warning:
-                    'This flag cannot be evaluated in client environments. Release conditions contain unsupported regex patterns (lookbehind).',
+                warning: 'lookbehind in regex',
             })
         })
 
@@ -176,18 +174,17 @@ describe('featureFlagConditionWarningLogic', () => {
 
             const logic = featureFlagConditionWarningLogic({
                 properties,
-                evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
+                evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
             })
             logic.mount()
 
             expectLogic(logic).toMatchValues({
-                warning:
-                    'This flag cannot be evaluated in client environments. Release conditions contain unsupported regex patterns (lookbehind).',
+                warning: 'lookbehind in regex',
             })
         })
     })
 
-    describe('client runtime - backreference detection', () => {
+    describe('server runtime - backreference detection', () => {
         it('detects backreferences \\1 through \\9', () => {
             const testCases = ['(\\w+)\\1', '(a)(b)\\2', 'repeat(\\w+)word\\1again', '(x)(y)(z)\\3', 'test\\9']
 
@@ -203,13 +200,12 @@ describe('featureFlagConditionWarningLogic', () => {
 
                 const logic = featureFlagConditionWarningLogic({
                     properties,
-                    evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
+                    evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
                 })
                 logic.mount()
 
                 expectLogic(logic).toMatchValues({
-                    warning:
-                        'This flag cannot be evaluated in client environments. Release conditions contain unsupported regex patterns (backreferences).',
+                    warning: 'backreferences in regex',
                 })
 
                 logic.unmount()
@@ -228,7 +224,7 @@ describe('featureFlagConditionWarningLogic', () => {
 
             const logic = featureFlagConditionWarningLogic({
                 properties,
-                evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
+                evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
             })
             logic.mount()
 
@@ -238,7 +234,7 @@ describe('featureFlagConditionWarningLogic', () => {
         })
     })
 
-    describe('client runtime - multiple unsupported features', () => {
+    describe('server runtime - multiple unsupported features', () => {
         it('reports all unsupported features when multiple exist', () => {
             const properties: AnyPropertyFilter[] = [
                 {
@@ -251,15 +247,14 @@ describe('featureFlagConditionWarningLogic', () => {
 
             const logic = featureFlagConditionWarningLogic({
                 properties,
-                evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
+                evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
             })
             logic.mount()
 
             const warning = logic.values.warning as string
-            expect(warning).toContain('This flag cannot be evaluated in client environments')
-            expect(warning).toContain('lookahead')
-            expect(warning).toContain('lookbehind')
-            expect(warning).toContain('backreferences')
+            expect(warning).toContain('lookahead in regex')
+            expect(warning).toContain('lookbehind in regex')
+            expect(warning).toContain('backreferences in regex')
         })
 
         it('reports features from multiple properties', () => {
@@ -286,18 +281,18 @@ describe('featureFlagConditionWarningLogic', () => {
 
             const logic = featureFlagConditionWarningLogic({
                 properties,
-                evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
+                evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
             })
             logic.mount()
 
             const warning = logic.values.warning as string
-            expect(warning).toContain('lookahead')
-            expect(warning).toContain('lookbehind')
-            expect(warning).toContain('backreferences')
+            expect(warning).toContain('lookahead in regex')
+            expect(warning).toContain('lookbehind in regex')
+            expect(warning).toContain('backreferences in regex')
         })
     })
 
-    describe('client runtime - mixed property operators', () => {
+    describe('server runtime - mixed property operators', () => {
         it('only checks regex operators', () => {
             const properties: AnyPropertyFilter[] = [
                 {
@@ -316,7 +311,7 @@ describe('featureFlagConditionWarningLogic', () => {
 
             const logic = featureFlagConditionWarningLogic({
                 properties,
-                evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
+                evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
             })
             logic.mount()
 
@@ -343,19 +338,18 @@ describe('featureFlagConditionWarningLogic', () => {
 
             const logic = featureFlagConditionWarningLogic({
                 properties,
-                evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
+                evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
             })
             logic.mount()
 
             expectLogic(logic).toMatchValues({
-                warning:
-                    'This flag cannot be evaluated in client environments. Release conditions contain unsupported regex patterns (lookahead).',
+                warning: 'lookahead in regex',
             })
         })
     })
 
     describe('ALL runtime', () => {
-        it('behaves like client runtime', () => {
+        it('shows warning since local eval applies to server-side', () => {
             const properties: AnyPropertyFilter[] = [
                 {
                     key: 'email',
@@ -372,9 +366,110 @@ describe('featureFlagConditionWarningLogic', () => {
             logic.mount()
 
             expectLogic(logic).toMatchValues({
-                warning:
-                    'This flag cannot be evaluated in client environments. Release conditions contain unsupported regex patterns (lookahead).',
+                warning: 'lookahead in regex',
             })
+        })
+    })
+
+    describe('server runtime - is_not_set operator', () => {
+        it('detects is_not_set operator', () => {
+            const properties: AnyPropertyFilter[] = [
+                {
+                    key: 'email',
+                    type: PropertyFilterType.Person,
+                    operator: PropertyOperator.IsNotSet,
+                    value: '',
+                },
+            ]
+
+            const logic = featureFlagConditionWarningLogic({
+                properties,
+                evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
+            })
+            logic.mount()
+
+            expectLogic(logic).toMatchValues({
+                warning: 'is_not_set operator',
+            })
+        })
+    })
+
+    describe('server runtime - static cohorts', () => {
+        it('warns when static cohort is used', async () => {
+            const properties: AnyPropertyFilter[] = [
+                {
+                    key: 'id',
+                    type: PropertyFilterType.Cohort,
+                    value: 1,
+                    operator: PropertyOperator.In,
+                },
+            ]
+
+            // Mount cohortsModel and add a static cohort
+            cohortsModel.mount()
+            cohortsModel.actions.cohortCreated({
+                id: 1,
+                name: 'Test Static Cohort',
+                is_static: true,
+                filters: { properties: { type: 'AND', values: [] } },
+            } as any)
+
+            const logic = featureFlagConditionWarningLogic({
+                properties,
+                evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
+            })
+            logic.mount()
+
+            expect(logic.values.warning).toBe('static cohorts')
+        })
+
+        it('does not warn when cohort is not loaded yet', () => {
+            const properties: AnyPropertyFilter[] = [
+                {
+                    key: 'id',
+                    type: PropertyFilterType.Cohort,
+                    value: 1,
+                    operator: PropertyOperator.In,
+                },
+            ]
+
+            const logic = featureFlagConditionWarningLogic({
+                properties,
+                evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
+            })
+            logic.mount()
+
+            expectLogic(logic).toMatchValues({
+                warning: undefined,
+            })
+        })
+
+        it('does not warn for non-static cohorts', () => {
+            const properties: AnyPropertyFilter[] = [
+                {
+                    key: 'id',
+                    type: PropertyFilterType.Cohort,
+                    value: 1,
+                    operator: PropertyOperator.In,
+                },
+            ]
+
+            // Mount cohortsModel and add a non-static cohort
+            cohortsModel.mount()
+            cohortsModel.actions.cohortCreated({
+                id: 1,
+                name: 'Test Dynamic Cohort',
+                is_static: false,
+                filters: { properties: { type: 'AND', values: [] } },
+            } as any)
+
+            const logic = featureFlagConditionWarningLogic({
+                properties,
+                evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
+            })
+            logic.mount()
+
+            expect(logic.values.warning).toBeUndefined()
         })
     })
 
@@ -391,7 +486,7 @@ describe('featureFlagConditionWarningLogic', () => {
 
             const logic = featureFlagConditionWarningLogic({
                 properties,
-                evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
+                evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
             })
             logic.mount()
 
@@ -412,7 +507,7 @@ describe('featureFlagConditionWarningLogic', () => {
 
             const logic = featureFlagConditionWarningLogic({
                 properties,
-                evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
+                evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
             })
             logic.mount()
 
@@ -433,7 +528,7 @@ describe('featureFlagConditionWarningLogic', () => {
 
             const logic = featureFlagConditionWarningLogic({
                 properties,
-                evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
+                evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
             })
             logic.mount()
 

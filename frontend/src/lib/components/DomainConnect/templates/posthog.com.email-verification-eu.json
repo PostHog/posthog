@@ -1,0 +1,53 @@
+{
+    "providerId": "posthog.com",
+    "providerName": "PostHog",
+    "serviceId": "email-verification-eu",
+    "serviceName": "PostHog Email Sending (EU)",
+    "version": 1,
+    "syncBlock": false,
+    "logoUrl": "https://posthog.com/brand/posthog-logo.svg",
+    "description": "Configures DNS records for PostHog email sending (domain verification, DKIM, SPF, MAIL FROM)",
+    "variableDescription": "verifyToken: SES domain verification token. dkim1/dkim2/dkim3: DKIM selector tokens. mailFromSub: MAIL FROM subdomain. sesRegion: AWS SES region.",
+    "syncPubKeyDomain": "domainconnect.posthog.com",
+    "syncRedirectDomain": "eu.posthog.com",
+    "records": [
+        { "groupId": "verification", "type": "TXT", "host": "_amazonses", "data": "%verifyToken%", "ttl": 3600 },
+        {
+            "groupId": "dkim",
+            "type": "CNAME",
+            "host": "%dkim1%._domainkey",
+            "pointsTo": "%dkim1%.dkim.amazonses.com",
+            "ttl": 3600
+        },
+        {
+            "groupId": "dkim",
+            "type": "CNAME",
+            "host": "%dkim2%._domainkey",
+            "pointsTo": "%dkim2%.dkim.amazonses.com",
+            "ttl": 3600
+        },
+        {
+            "groupId": "dkim",
+            "type": "CNAME",
+            "host": "%dkim3%._domainkey",
+            "pointsTo": "%dkim3%.dkim.amazonses.com",
+            "ttl": 3600
+        },
+        { "groupId": "spf", "type": "SPFM", "host": "@", "spfRules": "include:amazonses.com", "ttl": 3600 },
+        {
+            "groupId": "mailfrom",
+            "type": "MX",
+            "host": "%mailFromSub%",
+            "pointsTo": "feedback-smtp.%sesRegion%.amazonses.com",
+            "priority": 10,
+            "ttl": 3600
+        },
+        {
+            "groupId": "mailfrom",
+            "type": "SPFM",
+            "host": "%mailFromSub%",
+            "spfRules": "include:amazonses.com",
+            "ttl": 3600
+        }
+    ]
+}

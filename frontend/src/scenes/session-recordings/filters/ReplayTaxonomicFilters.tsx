@@ -5,13 +5,9 @@ import { IconInfo, IconPinFilled } from '@posthog/icons'
 import { LemonButton, Popover, Tooltip } from '@posthog/lemon-ui'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
-import {
-    TaxonomicDefinitionTypes,
-    TaxonomicFilterGroupType,
-    TaxonomicFilterRenderProps,
-} from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
+import { TaxonomicFilterGroupType, TaxonomicFilterRenderProps } from 'lib/components/TaxonomicFilter/types'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 
 import { getFilterLabel } from '~/taxonomy/helpers'
@@ -19,8 +15,8 @@ import { PropertyFilterType } from '~/types'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 
-export const isReplayTaxonomicFilterProperty = (x: TaxonomicDefinitionTypes): x is ReplayTaxonomicFilterProperty => {
-    return (x as ReplayTaxonomicFilterProperty).taxonomicFilterGroup !== undefined
+export const isReplayTaxonomicFilterProperty = (x: unknown): x is ReplayTaxonomicFilterProperty => {
+    return typeof x === 'object' && x !== null && 'taxonomicFilterGroup' in x
 }
 
 export type ReplayTaxonomicFiltersProps = Pick<TaxonomicFilterRenderProps, 'onChange' | 'infiniteListLogicProps'>
@@ -66,9 +62,17 @@ export const replayTaxonomicFiltersProperties: ReplayTaxonomicFilterProperty[] =
 ]
 
 export function ReplayTaxonomicFilters({ onChange, infiniteListLogicProps }: ReplayTaxonomicFiltersProps): JSX.Element {
-    const {
-        filterGroup: { values: filters },
-    } = useValues(universalFiltersLogic)
+    // Try to access universalFiltersLogic if it exists (when used in filter contexts)
+    // but handle cases where it's not mounted (like in popover pinned properties)
+    let filters: any[] = []
+    try {
+        const logic = universalFiltersLogic.findMounted()
+        if (logic) {
+            filters = logic.values.filterGroup.values
+        }
+    } catch {
+        // Logic not mounted, ignore - we're in a popover context
+    }
 
     const hasFilter = (key: string): boolean => {
         return !!filters.find((f) => f.type === PropertyFilterType.Recording && f.key === key)

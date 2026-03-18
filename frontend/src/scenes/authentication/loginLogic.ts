@@ -1,3 +1,4 @@
+import type { PublicKeyCredentialDescriptorJSON } from '@simplewebauthn/browser'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -14,6 +15,7 @@ import { urls } from 'scenes/urls'
 import { SSOProvider } from '~/types'
 
 import type { loginLogicType } from './loginLogicType'
+import { twoFactorResetLogic } from './twoFactorResetLogic'
 
 export interface AuthenticateResponseType {
     success: boolean
@@ -25,7 +27,16 @@ export interface PrecheckResponseType {
     sso_enforcement?: SSOProvider | null
     saml_available: boolean
     status: 'pending' | 'completed'
+    webauthn_credentials?: PublicKeyCredentialDescriptorJSON[]
 }
+
+// Routes that should be handled by Django, not the React router
+const BACKEND_ONLY_ROUTES = [
+    '/login/vercel/continue',
+    '/oauth/authorize',
+    '/toolbar_oauth/authorize',
+    '/toolbar_oauth/check',
+]
 
 export function handleLoginRedirect(): void {
     let nextURL = '/'
@@ -41,6 +52,13 @@ export function handleLoginRedirect(): void {
     } catch {
         // do nothing
     }
+
+    // Check if this is a backend-only route that shouldn't go through the React router
+    if (BACKEND_ONLY_ROUTES.some((route) => nextURL.startsWith(route))) {
+        window.location.href = nextURL
+        return
+    }
+
     // A safe way to redirect to a user input URL. Calls history.replaceState() ensuring the URLs origin does not change
     router.actions.replace(nextURL)
 }
@@ -95,6 +113,27 @@ export const loginLogic = kea<loginLogicType>([
                 },
             },
         ],
+        resendResponse: [
+            null as { success: boolean; message: string } | null,
+            {
+                resendEmailMFA: async (_, breakpoint) => {
+                    breakpoint()
+                    try {
+                        const response = await api.create<any>('api/login/email-mfa/resend')
+                        lemonToast.success('Verification email resent')
+                        return response
+                    } catch (e) {
+                        const { code, detail } = e as Record<string, any>
+                        if (code === 'too_soon') {
+                            lemonToast.error(detail || 'Please wait before requesting another email')
+                        } else {
+                            lemonToast.error(detail || 'Failed to resend email')
+                        }
+                        return null
+                    }
+                },
+            },
+        ],
     })),
     selectors(() => ({
         signupUrl: [
@@ -114,31 +153,65 @@ export const loginLogic = kea<loginLogicType>([
             }),
             submit: async ({ email, password }, breakpoint) => {
                 breakpoint()
+                // Clear any previous passkey errors when submitting with password
+                actions.clearGeneralError()
                 try {
                     return await api.create<any>('api/login', { email, password })
                 } catch (e) {
-                    const { code } = e as Record<string, any>
-                    let { detail } = e as Record<string, any>
+                    const { code, detail } = e as Record<string, any>
                     if (code === '2fa_required') {
-                        router.actions.push(urls.login2FA())
+                        const next: string | undefined = router.values.searchParams.next
+                        const searchParams: Record<string, any> = next ? { next } : {}
+                        if (next && next.startsWith('/reset_2fa')) {
+                            // Reset the cached validation state so it re-validates after redirect
+                            twoFactorResetLogic.actions.resetState()
+                            router.actions.push(next, searchParams)
+                        } else {
+                            router.actions.push(urls.login2FA(), searchParams)
+                        }
                         throw e
                     }
-                    if (code === 'invalid_credentials' && values.preflight?.cloud) {
-                        detail += ' Make sure you have selected the right data region.'
+                    if (code === 'email_mfa_required') {
+                        const emailAddress = detail?.email || email
+                        actions.setGeneralError(
+                            'email_verification_sent',
+                            `For your security, we've sent a verification link to ${emailAddress}. Please check your inbox and click the link to complete
+  your login.`
+                        )
+                        throw e
                     }
-                    actions.setGeneralError(code, detail)
+                    let errorDetail = detail
+                    if (code === 'invalid_credentials' && values.preflight?.cloud) {
+                        errorDetail = detail + ' Make sure you have selected the right data region.'
+                    }
+                    actions.setGeneralError(code, errorDetail)
                     throw e
                 }
             },
         },
     })),
-    listeners({
+    listeners(({ values }) => ({
         submitLoginSuccess: () => {
             handleLoginRedirect()
             // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
             window.location.reload()
         },
-    }),
+        precheckSuccess: async (_, breakpoint) => {
+            const { precheckResponse } = values
+            // Auto-trigger passkey prompt if user has passkeys and SSO is not enforced
+            if (
+                precheckResponse.webauthn_credentials &&
+                precheckResponse.webauthn_credentials.length > 0 &&
+                !precheckResponse.sso_enforcement
+            ) {
+                breakpoint()
+                // Dynamic import to avoid circular dependency
+                const { passkeyLogic } = await import('./passkeyLogic')
+                breakpoint()
+                passkeyLogic.actions.beginPasskeyLogin(precheckResponse.webauthn_credentials)
+            }
+        },
+    })),
     urlToAction(({ actions }) => ({
         '/login': (_, { error_code, error_detail, email, message }) => {
             if (error_code) {

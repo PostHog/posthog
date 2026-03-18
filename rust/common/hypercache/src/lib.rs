@@ -30,7 +30,6 @@
 use anyhow::Result;
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::Client as AwsS3SdkClient;
-use common_compression::{decompress_zstd, CompressionError};
 use common_metrics::inc;
 use common_redis::Client as RedisClient;
 #[cfg(all(test, feature = "mock-client"))]
@@ -40,6 +39,7 @@ use common_types::{TeamId, TeamIdentifier};
 #[cfg(all(test, feature = "mock-client"))]
 use mockall::predicate;
 use serde_json::Value;
+use std::fmt::{self, Display};
 use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
@@ -49,8 +49,17 @@ use tracing::debug;
 /// Metric name for tracking hypercache operations in Prometheus (same one used in Django's HyperCache)
 const HYPERCACHE_COUNTER_NAME: &str = "posthog_hypercache_get_from_cache";
 
-/// Sentinel value used in Redis to indicate that a cache key exists but has no data
-const HYPER_CACHE_EMPTY_VALUE: &str = "__missing__";
+/// Metric name for tracking Redis failure reasons (timeout, get_error, pickle_error, json_error)
+const HYPERCACHE_REDIS_MISS_REASON_COUNTER_NAME: &str = "posthog_hypercache_redis_miss_reason";
+
+/// Tombstone metric for tracking "impossible" failures that should never happen in production.
+/// This is duplicated from feature_flags::metrics::consts::TOMBSTONE_COUNTER because hypercache
+/// is a standalone crate that shouldn't depend on feature-flags.
+const TOMBSTONE_COUNTER_NAME: &str = "posthog_tombstone_total";
+
+/// Sentinel value used in Redis to indicate that a cache key exists but has no data.
+/// This value is written by Django's HyperCache when a team has no flags.
+pub const HYPER_CACHE_EMPTY_VALUE: &str = "__missing__";
 
 /// Cache key type matching Django's KeyType = Team | str | int
 #[derive(Debug)]
@@ -99,6 +108,21 @@ impl From<common_types::Team> for KeyType {
     }
 }
 
+impl Display for KeyType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            KeyType::Team(team) => write!(
+                f,
+                "Team(id: {}, token: {})",
+                team.team_id(),
+                team.api_token()
+            ),
+            KeyType::String(s) => write!(f, "String({s})"),
+            KeyType::Int(i) => write!(f, "Int({i})"),
+        }
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum HyperCacheError {
     #[error("Redis error: {0}")]
@@ -109,9 +133,6 @@ pub enum HyperCacheError {
 
     #[error("JSON parsing error: {0}")]
     Json(#[from] serde_json::Error),
-
-    #[error("Compression error: {0}")]
-    Compression(#[from] CompressionError),
 
     #[error("Cache miss - data not found in any tier")]
     CacheMiss,
@@ -124,6 +145,18 @@ pub enum HyperCacheError {
 pub enum CacheSource {
     Redis,
     S3,
+    Fallback,
+}
+
+impl CacheSource {
+    /// Returns a consistent string representation for canonical logging.
+    pub fn as_log_str(&self) -> &'static str {
+        match self {
+            CacheSource::Redis => "redis",
+            CacheSource::S3 => "s3",
+            CacheSource::Fallback => "fallback",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -276,6 +309,11 @@ impl HyperCacheReader {
         .await
         {
             Ok(Ok(data)) => {
+                debug!(
+                    cache_key = %redis_cache_key,
+                    namespace = %self.config.namespace,
+                    "HyperCache hit: Redis"
+                );
                 inc(
                     HYPERCACHE_COUNTER_NAME,
                     &[
@@ -293,8 +331,29 @@ impl HyperCacheReader {
                 }
                 return Ok((data, CacheSource::Redis));
             }
-            Ok(Err(_)) | Err(_) => {
-                // Continue to S3 fallback
+            Ok(Err(e)) => {
+                debug!(
+                    cache_key = %redis_cache_key,
+                    error = %e,
+                    "HyperCache Redis miss, trying S3"
+                );
+                // Note: granular reason metrics (get_error, pickle_error, json_error)
+                // are emitted inside try_get_from_redis
+            }
+            Err(_) => {
+                debug!(
+                    cache_key = %redis_cache_key,
+                    "HyperCache Redis timeout, trying S3"
+                );
+                inc(
+                    HYPERCACHE_REDIS_MISS_REASON_COUNTER_NAME,
+                    &[
+                        ("reason".to_string(), "timeout".to_string()),
+                        ("namespace".to_string(), self.config.namespace.clone()),
+                        ("value".to_string(), self.config.value.clone()),
+                    ],
+                    1,
+                );
             }
         }
 
@@ -302,6 +361,11 @@ impl HyperCacheReader {
         let s3_cache_key = self.config.get_s3_cache_key(key);
         match timeout(self.config.s3_timeout, self.try_get_from_s3(&s3_cache_key)).await {
             Ok(Ok(data)) => {
+                debug!(
+                    cache_key = %s3_cache_key,
+                    namespace = %self.config.namespace,
+                    "HyperCache hit: S3"
+                );
                 inc(
                     HYPERCACHE_COUNTER_NAME,
                     &[
@@ -313,10 +377,27 @@ impl HyperCacheReader {
                 );
                 return Ok((data, CacheSource::S3));
             }
-            Ok(Err(_)) | Err(_) => {
-                // Both sources failed
+            Ok(Err(e)) => {
+                debug!(
+                    cache_key = %s3_cache_key,
+                    error = %e,
+                    "HyperCache S3 miss"
+                );
+            }
+            Err(_) => {
+                debug!(
+                    cache_key = %s3_cache_key,
+                    "HyperCache S3 timeout"
+                );
             }
         }
+
+        debug!(
+            redis_key = %redis_cache_key,
+            s3_key = %s3_cache_key,
+            namespace = %self.config.namespace,
+            "HyperCache miss: both Redis and S3 failed"
+        );
 
         inc(
             HYPERCACHE_COUNTER_NAME,
@@ -336,47 +417,94 @@ impl HyperCacheReader {
         Ok(data)
     }
 
+    /// Get a value from cache with fallback support
+    ///
+    /// This method tries to get data from cache (Redis first, then S3), and if both
+    /// cache tiers miss, calls the provided fallback function to retrieve the data
+    /// from an alternative source (e.g., database, API, computation, etc.).
+    ///
+    /// Unlike a read-through cache pattern, this method does NOT write the fallback
+    /// result back to the cache. This is intentional to handle catastrophic cache
+    /// miss scenarios without potentially corrupting the cache with data that may
+    /// not match the expected format or freshness requirements.
+    ///
+    /// # Arguments
+    /// * `key` - The key to look up
+    /// * `fallback` - Function to call if both cache tiers miss
+    ///
+    /// # Returns
+    /// * `Ok((Value, CacheSource))` - The value and its source (Redis, S3, or Fallback)
+    /// * `Err(E)` - Error from the fallback function, or HyperCacheError if fallback returns None
+    pub async fn get_with_source_or_fallback<F, Fut, E>(
+        &self,
+        key: &KeyType,
+        fallback: F,
+    ) -> Result<(Value, CacheSource), E>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<Option<Value>, E>>,
+        E: From<HyperCacheError>,
+    {
+        // First try to get from cache (Redis then S3)
+        match self.get_with_source(key).await {
+            Ok((data, source)) => {
+                // Cache hit - return the cached data
+                Ok((data, source))
+            }
+            Err(HyperCacheError::CacheMiss) => {
+                // Both cache tiers missed - try the fallback
+                debug!("Cache miss for key {}, trying fallback", key);
+
+                match fallback().await? {
+                    Some(value) => {
+                        inc(
+                            HYPERCACHE_COUNTER_NAME,
+                            &[
+                                ("result".to_string(), "hit_fallback".to_string()),
+                                ("namespace".to_string(), self.config.namespace.clone()),
+                                ("value".to_string(), self.config.value.clone()),
+                            ],
+                            1,
+                        );
+                        Ok((value, CacheSource::Fallback))
+                    }
+                    None => {
+                        // Tombstone metric - cache and database both miss is really unusual
+                        inc(
+                            TOMBSTONE_COUNTER_NAME,
+                            &[
+                                ("namespace".to_string(), self.config.namespace.clone()),
+                                (
+                                    "operation".to_string(),
+                                    "hypercache_fallback_miss".to_string(),
+                                ),
+                                ("component".to_string(), self.config.value.clone()),
+                            ],
+                            1,
+                        );
+
+                        Err(HyperCacheError::CacheMiss.into())
+                    }
+                }
+            }
+            Err(e) => {
+                // Other cache errors - propagate them
+                Err(e.into())
+            }
+        }
+    }
+
     /// Get access to the configuration (useful for testing)
     pub fn config(&self) -> &HyperCacheConfig {
         &self.config
     }
 
     async fn try_get_from_redis(&self, cache_key: &str) -> Result<Value, HyperCacheError> {
-        // Try raw bytes (Django compresses data > 512 bytes with Zstd)
+        // The Redis client's get_raw_bytes already handles zstd decompression,
+        // so we receive Pickle(JSON) data directly.
         match self.redis_client.get_raw_bytes(cache_key.to_string()).await {
             Ok(raw_bytes) => {
-                // Try Zstd(Pickle(JSON)) decompression pipeline
-                match decompress_zstd(&raw_bytes) {
-                    Ok(decompressed_bytes) => {
-                        match serde_pickle::from_slice::<String>(
-                            &decompressed_bytes,
-                            Default::default(),
-                        ) {
-                            Ok(json_string) => {
-                                if json_string == HYPER_CACHE_EMPTY_VALUE {
-                                    return Ok(Value::String(json_string));
-                                }
-                                match serde_json::from_str(&json_string) {
-                                    Ok(value) => return Ok(value),
-                                    Err(e) => {
-                                        debug!("Failed to parse JSON from compressed Redis data for key '{}': {}", cache_key, e);
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                debug!("Failed to deserialize pickle from compressed Redis data for key '{}': {}", cache_key, e);
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        debug!(
-                            "Failed to decompress Redis data for key '{}': {}",
-                            cache_key, e
-                        );
-                    }
-                }
-
-                // Try Pickle(JSON) without compression
+                // Deserialize Pickle(JSON) - the Redis client already decompressed zstd
                 match serde_pickle::from_slice::<String>(&raw_bytes, Default::default()) {
                     Ok(json_string) => {
                         if json_string == HYPER_CACHE_EMPTY_VALUE {
@@ -385,12 +513,36 @@ impl HyperCacheReader {
                         match serde_json::from_str(&json_string) {
                             Ok(value) => return Ok(value),
                             Err(e) => {
-                                debug!("Failed to parse JSON from uncompressed Redis data for key '{}': {}", cache_key, e);
+                                debug!(
+                                    "Failed to parse JSON from Redis data for key '{}': {}",
+                                    cache_key, e
+                                );
+                                inc(
+                                    HYPERCACHE_REDIS_MISS_REASON_COUNTER_NAME,
+                                    &[
+                                        ("reason".to_string(), "json_error".to_string()),
+                                        ("namespace".to_string(), self.config.namespace.clone()),
+                                        ("value".to_string(), self.config.value.clone()),
+                                    ],
+                                    1,
+                                );
                             }
                         }
                     }
                     Err(e) => {
-                        debug!("Failed to deserialize pickle from uncompressed Redis data for key '{}': {}", cache_key, e);
+                        debug!(
+                            "Failed to deserialize pickle from Redis data for key '{}': {}",
+                            cache_key, e
+                        );
+                        inc(
+                            HYPERCACHE_REDIS_MISS_REASON_COUNTER_NAME,
+                            &[
+                                ("reason".to_string(), "pickle_error".to_string()),
+                                ("namespace".to_string(), self.config.namespace.clone()),
+                                ("value".to_string(), self.config.value.clone()),
+                            ],
+                            1,
+                        );
                     }
                 }
             }
@@ -398,6 +550,15 @@ impl HyperCacheReader {
                 debug!(
                     "Failed to get raw bytes from Redis for key '{}': {}",
                     cache_key, e
+                );
+                inc(
+                    HYPERCACHE_REDIS_MISS_REASON_COUNTER_NAME,
+                    &[
+                        ("reason".to_string(), "get_error".to_string()),
+                        ("namespace".to_string(), self.config.namespace.clone()),
+                        ("value".to_string(), self.config.value.clone()),
+                    ],
+                    1,
                 );
             }
         }
@@ -664,17 +825,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_try_get_from_redis_compressed_data() {
-        use common_compression::compress_zstd;
-
+        // The real RedisClient auto-decompresses zstd data in get_raw_bytes,
+        // so HyperCache receives already-decompressed pickled bytes.
+        // This test verifies HyperCache handles pickled data correctly
+        // (which is what it receives after Redis client decompression).
         let mut mock_redis = MockRedisClient::new();
         let test_data = json!({"flags": [], "group_type_mapping": {}});
         let test_data_str = serde_json::to_string(&test_data).unwrap();
 
-        // Simulate Django's compression pipeline: JSON string -> Pickle -> Zstd
+        // Simulate what the real Redis client returns after auto-decompression:
+        // Pickle(JSON) - the zstd layer is already removed by the Redis client
         let pickled_bytes = serde_pickle::to_vec(&test_data_str, Default::default()).unwrap();
-        let compressed_bytes = compress_zstd(&pickled_bytes).unwrap();
 
-        mock_redis = mock_redis.get_raw_bytes_ret("test_key", Ok(compressed_bytes));
+        mock_redis = mock_redis.get_raw_bytes_ret("test_key", Ok(pickled_bytes));
 
         let config = HyperCacheConfig::new(
             "test".to_string(),
@@ -891,16 +1054,272 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_compression_error_handling() {
+    async fn test_invalid_data_handling() {
         let mut mock_redis = MockRedisClient::new();
-        // Provide invalid compressed data that will fail decompression
-        let invalid_compressed_bytes = vec![0xFF, 0xFE, 0xFD, 0xFC]; // Invalid zstd data
-        mock_redis = mock_redis.get_raw_bytes_ret("test_key", Ok(invalid_compressed_bytes));
+        // Provide invalid data that can't be deserialized as pickle
+        let invalid_bytes = vec![0xFF, 0xFE, 0xFD, 0xFC];
+        mock_redis = mock_redis.get_raw_bytes_ret("test_key", Ok(invalid_bytes));
 
         let reader = create_test_reader_with_mocks(mock_redis, create_dummy_s3_client());
 
         let result = reader.try_get_from_redis("test_key").await;
-        // Should fail gracefully and return CacheMiss since we try multiple decompression approaches
+        // Should fail gracefully and return CacheMiss when pickle deserialization fails
         assert!(matches!(result, Err(HyperCacheError::CacheMiss)));
+    }
+
+    #[tokio::test]
+    async fn test_get_with_source_or_fallback_cache_hit_redis() {
+        // Test that fallback is not called when Redis cache hits
+        let team_key = KeyType::string("123");
+        let test_data = json!({"key": "value", "nested": {"data": "test"}});
+        let test_data_str = serde_json::to_string(&test_data).unwrap();
+
+        let config = HyperCacheConfig::new(
+            "test".to_string(),
+            "test".to_string(),
+            "us-east-1".to_string(),
+            "test-bucket".to_string(),
+        );
+        let expected_cache_key = config.get_redis_cache_key(&team_key);
+
+        let mut mock_redis = MockRedisClient::new();
+        // Simulate Django's pickle format (uncompressed)
+        let pickled_bytes = serde_pickle::to_vec(&test_data_str, Default::default()).unwrap();
+        mock_redis = mock_redis.get_raw_bytes_ret(&expected_cache_key, Ok(pickled_bytes));
+
+        let reader = HyperCacheReader {
+            redis_client: Arc::new(mock_redis) as Arc<dyn RedisClient + Send + Sync>,
+            s3_client: create_dummy_s3_client(),
+            config,
+        };
+
+        let result: Result<(Value, CacheSource), HyperCacheError> = reader
+            .get_with_source_or_fallback(&team_key, || async {
+                // If this is called, the test should fail because we expect cache hit
+                panic!("Fallback should not be called when cache hits!");
+            })
+            .await;
+
+        assert!(result.is_ok());
+        let (data, source) = result.unwrap();
+        assert_eq!(source, CacheSource::Redis);
+        assert_eq!(data, test_data);
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "mock-client")]
+    async fn test_get_with_source_or_fallback_cache_hit_s3() {
+        // Test that fallback is not called when S3 cache hits (after Redis miss)
+        let team_key = KeyType::string("123");
+        let test_data = json!({"key": "value", "nested": {"data": "test"}});
+        let test_data_str = serde_json::to_string(&test_data).unwrap();
+
+        let config = HyperCacheConfig::new(
+            "test".to_string(),
+            "test".to_string(),
+            "us-east-1".to_string(),
+            "test-bucket".to_string(),
+        );
+        let expected_cache_key = config.get_redis_cache_key(&team_key);
+        let expected_s3_key = config.get_s3_cache_key(&team_key);
+
+        // Redis returns NotFound
+        let mut mock_redis = MockRedisClient::new();
+        mock_redis = mock_redis.get_ret(&expected_cache_key, Err(CustomRedisError::NotFound));
+
+        // S3 returns data
+        let mut mock_s3 = MockS3Client::new();
+        mock_s3
+            .expect_get_string()
+            .with(
+                predicate::eq("test-bucket"),
+                predicate::eq(expected_s3_key.clone()),
+            )
+            .returning({
+                let test_data_str = test_data_str.clone();
+                move |_, _| {
+                    let data = test_data_str.clone();
+                    Box::pin(async move { Ok(data) })
+                }
+            });
+        let mock_s3 = Arc::new(mock_s3);
+
+        let reader = HyperCacheReader {
+            redis_client: Arc::new(mock_redis) as Arc<dyn RedisClient + Send + Sync>,
+            s3_client: mock_s3,
+            config,
+        };
+
+        let result: Result<(Value, CacheSource), HyperCacheError> = reader
+            .get_with_source_or_fallback(&team_key, || async {
+                // If this is called, the test should fail because we expect cache hit
+                panic!("Fallback should not be called when S3 cache hits!");
+            })
+            .await;
+
+        assert!(result.is_ok());
+        let (data, source) = result.unwrap();
+        assert_eq!(source, CacheSource::S3);
+        assert_eq!(data, test_data);
+    }
+
+    #[tokio::test]
+    async fn test_get_with_source_or_fallback_uses_fallback() {
+        // Test that fallback is called when both cache tiers miss
+        let team_key = KeyType::string("123");
+        let fallback_data = json!({"fallback": "data", "from": "database"});
+
+        let config = HyperCacheConfig::new(
+            "test".to_string(),
+            "test".to_string(),
+            "us-east-1".to_string(),
+            "test-bucket".to_string(),
+        );
+        let expected_cache_key = config.get_redis_cache_key(&team_key);
+
+        // Redis returns NotFound
+        let mut mock_redis = MockRedisClient::new();
+        mock_redis = mock_redis.get_ret(&expected_cache_key, Err(CustomRedisError::NotFound));
+
+        let reader = HyperCacheReader {
+            redis_client: Arc::new(mock_redis) as Arc<dyn RedisClient + Send + Sync>,
+            s3_client: create_dummy_s3_client(), // S3 will also return NotFound
+            config,
+        };
+
+        let fallback_data_clone = fallback_data.clone();
+        let result = reader
+            .get_with_source_or_fallback(&team_key, || {
+                let data = fallback_data_clone.clone();
+                async move { Ok::<Option<Value>, HyperCacheError>(Some(data)) }
+            })
+            .await;
+
+        assert!(result.is_ok());
+        let (data, source) = result.unwrap();
+        assert_eq!(source, CacheSource::Fallback);
+        assert_eq!(data, fallback_data);
+    }
+
+    #[tokio::test]
+    async fn test_get_with_source_or_fallback_fallback_returns_none() {
+        // Test when fallback returns None (data doesn't exist in database either)
+        let team_key = KeyType::string("123");
+
+        let config = HyperCacheConfig::new(
+            "test".to_string(),
+            "test".to_string(),
+            "us-east-1".to_string(),
+            "test-bucket".to_string(),
+        );
+        let expected_cache_key = config.get_redis_cache_key(&team_key);
+
+        // Redis returns NotFound
+        let mut mock_redis = MockRedisClient::new();
+        mock_redis = mock_redis.get_ret(&expected_cache_key, Err(CustomRedisError::NotFound));
+
+        let reader = HyperCacheReader {
+            redis_client: Arc::new(mock_redis) as Arc<dyn RedisClient + Send + Sync>,
+            s3_client: create_dummy_s3_client(),
+            config,
+        };
+
+        let result = reader
+            .get_with_source_or_fallback(&team_key, || async {
+                Ok::<Option<Value>, HyperCacheError>(None)
+            })
+            .await;
+
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), HyperCacheError::CacheMiss));
+    }
+
+    #[tokio::test]
+    async fn test_get_with_source_or_fallback_fallback_error() {
+        // Test when fallback returns an error
+        let team_key = KeyType::string("123");
+
+        let config = HyperCacheConfig::new(
+            "test".to_string(),
+            "test".to_string(),
+            "us-east-1".to_string(),
+            "test-bucket".to_string(),
+        );
+        let expected_cache_key = config.get_redis_cache_key(&team_key);
+
+        // Redis returns NotFound
+        let mut mock_redis = MockRedisClient::new();
+        mock_redis = mock_redis.get_ret(&expected_cache_key, Err(CustomRedisError::NotFound));
+
+        let reader = HyperCacheReader {
+            redis_client: Arc::new(mock_redis) as Arc<dyn RedisClient + Send + Sync>,
+            s3_client: create_dummy_s3_client(),
+            config,
+        };
+
+        #[derive(Debug)]
+        struct CustomError(String);
+        impl From<HyperCacheError> for CustomError {
+            fn from(e: HyperCacheError) -> Self {
+                CustomError(format!("Cache error: {e}"))
+            }
+        }
+
+        let result = reader
+            .get_with_source_or_fallback(&team_key, || async {
+                Err::<Option<Value>, CustomError>(CustomError(
+                    "Database connection failed".to_string(),
+                ))
+            })
+            .await;
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            CustomError(msg) => assert!(msg.contains("Database connection failed")),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_with_source_or_fallback_no_cache_write() {
+        // Verify that fallback data is NOT written to cache
+        let team_key = KeyType::string("123");
+        let fallback_data = json!({"fallback": "data"});
+
+        let config = HyperCacheConfig::new(
+            "test".to_string(),
+            "test".to_string(),
+            "us-east-1".to_string(),
+            "test-bucket".to_string(),
+        );
+        let expected_cache_key = config.get_redis_cache_key(&team_key);
+
+        // Redis returns NotFound initially
+        let mut mock_redis = MockRedisClient::new();
+        mock_redis = mock_redis.get_ret(&expected_cache_key, Err(CustomRedisError::NotFound));
+
+        // Important: mock_redis should NOT receive any set/setex calls
+        // If it did, the test would panic due to unexpected method calls
+
+        let reader = HyperCacheReader {
+            redis_client: Arc::new(mock_redis) as Arc<dyn RedisClient + Send + Sync>,
+            s3_client: create_dummy_s3_client(),
+            config,
+        };
+
+        let fallback_data_clone = fallback_data.clone();
+        let result = reader
+            .get_with_source_or_fallback(&team_key, || {
+                let data = fallback_data_clone.clone();
+                async move { Ok::<Option<Value>, HyperCacheError>(Some(data)) }
+            })
+            .await;
+
+        assert!(result.is_ok());
+        let (data, source) = result.unwrap();
+        assert_eq!(source, CacheSource::Fallback);
+        assert_eq!(data, fallback_data);
+
+        // If we got here without panicking, it means no cache write was attempted
+        // (MockRedisClient would panic on unexpected method calls)
     }
 }

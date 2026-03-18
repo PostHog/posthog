@@ -1,12 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonInputSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonInputSelect, LemonSelect } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 import { dayjs } from 'lib/dayjs'
 import { formatDateRange } from 'lib/utils'
 
+import { EndpointsUsageBreakdown } from '~/queries/schema/schema-general'
+import { IntervalType } from '~/types'
 import { DateMappingOption } from '~/types'
 
 import { endpointsUsageLogic } from './endpointsUsageLogic'
@@ -56,67 +58,108 @@ const endpointsUsageDateMapping: DateMappingOption[] = [
     },
 ]
 
-const RequestNameBreakdownToggle = ({ tabId }: { tabId: string }): JSX.Element => {
-    const { requestNameBreakdownEnabled } = useValues(endpointsUsageLogic({ tabId }))
-    const { setRequestNameBreakdownEnabled } = useActions(endpointsUsageLogic({ tabId }))
+const EndpointNameFilter = ({ tabId }: { tabId: string }): JSX.Element => {
+    const { endpointNames, endpointNamesLoading, endpointFilter } = useValues(endpointsUsageLogic({ tabId }))
+    const { setEndpointFilter } = useActions(endpointsUsageLogic({ tabId }))
 
-    return (
-        <LemonButton
-            onClick={() => setRequestNameBreakdownEnabled(!requestNameBreakdownEnabled)}
-            type="secondary"
-            size="small"
-        >
-            Breakdown by request name <LemonSwitch checked={requestNameBreakdownEnabled} className="ml-1" />
-        </LemonButton>
-    )
-}
-
-type RequestNameSelectProps = {
-    value: string[]
-    onChange: (values: string[]) => void
-    tabId: string
-}
-
-const RequestNameFilter = ({ value, onChange, tabId }: RequestNameSelectProps): JSX.Element => {
-    const { requestNames, requestNamesLoading } = useValues(endpointsUsageLogic({ tabId }))
-
-    const options = requestNames.map((requestName: string) => ({
-        key: requestName,
-        label: requestName,
-        value: requestName,
+    const options = endpointNames.map((name: string) => ({
+        key: name,
+        label: name,
+        value: name,
     }))
 
     return (
         <LemonInputSelect
-            title="Request names"
+            title="Endpoints"
             autoWidth={false}
             popoverClassName="max-h-60 max-w-s overflow-y-auto"
             className="max-h-30 max-w-s overflow-y-auto"
-            value={value.map((v) => v.toString())}
-            loading={requestNamesLoading}
+            value={endpointFilter.map((v) => v.toString())}
+            loading={endpointNamesLoading}
             onChange={(newValues: string[]) => {
-                const selectedRequestNames = requestNames.filter((requestName: string) =>
-                    newValues.includes(requestName)
-                )
-                onChange(selectedRequestNames)
+                const selectedEndpoints = endpointNames.filter((name: string) => newValues.includes(name))
+                setEndpointFilter(selectedEndpoints)
             }}
             mode="multiple"
             options={options}
-            data-attr="request-names"
+            data-attr="endpoint-names-filter"
             bulkActions="select-and-clear-all"
             displayMode="count"
+            placeholder="All endpoints"
         />
     )
 }
 
-export const EndpointsUsageFilters = ({ tabs, tabId }: { tabs?: JSX.Element; tabId: string }): JSX.Element => {
-    const { dateFilter, activeTab, requestNameFilter } = useValues(endpointsUsageLogic({ tabId }))
-    const { setDates, setRequestNameFilter } = useActions(endpointsUsageLogic({ tabId }))
+const MaterializationTypeFilter = ({ tabId }: { tabId: string }): JSX.Element => {
+    const { materializationType } = useValues(endpointsUsageLogic({ tabId }))
+    const { setMaterializationType } = useActions(endpointsUsageLogic({ tabId }))
 
-    return activeTab === 'usage' ? (
+    return (
+        <LemonSelect
+            value={materializationType}
+            onChange={setMaterializationType}
+            options={[
+                { value: null, label: 'All execution types' },
+                { value: 'materialized', label: 'Materialized executions' },
+                { value: 'inline', label: 'Direct executions' },
+            ]}
+            data-attr="materialization-type-filter"
+            size="small"
+            dropdownPlacement="bottom-end"
+        />
+    )
+}
+
+const IntervalFilter = ({ tabId }: { tabId: string }): JSX.Element => {
+    const { interval } = useValues(endpointsUsageLogic({ tabId }))
+    const { setInterval } = useActions(endpointsUsageLogic({ tabId }))
+
+    return (
+        <LemonSelect
+            value={interval}
+            onChange={setInterval}
+            options={[
+                { value: 'hour' as IntervalType, label: 'Hourly' },
+                { value: 'day' as IntervalType, label: 'Daily' },
+                { value: 'week' as IntervalType, label: 'Weekly' },
+                { value: 'month' as IntervalType, label: 'Monthly' },
+            ]}
+            data-attr="interval-filter"
+            size="small"
+            dropdownPlacement="bottom-end"
+        />
+    )
+}
+
+const BreakdownFilter = ({ tabId }: { tabId: string }): JSX.Element => {
+    const { breakdownBy } = useValues(endpointsUsageLogic({ tabId }))
+    const { setBreakdownBy } = useActions(endpointsUsageLogic({ tabId }))
+
+    return (
+        <LemonSelect
+            value={breakdownBy}
+            onChange={setBreakdownBy}
+            options={[
+                { value: null, label: 'No breakdown' },
+                { value: EndpointsUsageBreakdown.Endpoint, label: 'By endpoint' },
+                { value: EndpointsUsageBreakdown.MaterializationType, label: 'By execution type' },
+                { value: EndpointsUsageBreakdown.ApiKey, label: 'By API key' },
+                { value: EndpointsUsageBreakdown.Status, label: 'By status' },
+            ]}
+            data-attr="breakdown-filter"
+            size="small"
+            dropdownPlacement="bottom-end"
+        />
+    )
+}
+
+export const EndpointsUsageFilters = ({ tabId }: { tabId: string }): JSX.Element => {
+    const { dateFilter } = useValues(endpointsUsageLogic({ tabId }))
+    const { setDates } = useActions(endpointsUsageLogic({ tabId }))
+
+    return (
         <FilterBar
             className="m-0 px-0 rounded-none"
-            top={tabs}
             left={
                 <>
                     <DateFilter
@@ -126,12 +169,16 @@ export const EndpointsUsageFilters = ({ tabs, tabId }: { tabs?: JSX.Element; tab
                         forceGranularity="day"
                         dateOptions={endpointsUsageDateMapping}
                     />
-                    <RequestNameBreakdownToggle tabId={tabId} />
-                    <RequestNameFilter value={requestNameFilter} onChange={setRequestNameFilter} tabId={tabId} />
+                    <EndpointNameFilter tabId={tabId} />
+                </>
+            }
+            right={
+                <>
+                    <MaterializationTypeFilter tabId={tabId} />
+                    <IntervalFilter tabId={tabId} />
+                    <BreakdownFilter tabId={tabId} />
                 </>
             }
         />
-    ) : (
-        <></>
     )
 }

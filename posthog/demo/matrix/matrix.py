@@ -269,8 +269,8 @@ class Matrix(ABC):
         team.name = self.PRODUCT_NAME
         FeatureFlag.objects.create(
             team=team,
-            key="llm-observability",
-            name="Breaking the fourth wall: PostHog's LLM analytics flag.",
+            key="hog",
+            name="Breaking the fourth wall: PostHog's Hog flag.",
             filters={"groups": [{"variant": None, "properties": [], "rollout_percentage": 100}]},
             created_by=user,
             created_at=dt.datetime.fromtimestamp(0),  # Epoch

@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { ReactNode } from 'react'
 
+import { IconFilter } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 interface OverviewItemBase {
@@ -40,6 +41,10 @@ export function OverviewGridItem({
     icon,
     fadeLabel,
     itemKeyTooltip,
+    onFilterClick,
+    showFilter,
+    filterDisabledReason,
+    filterState,
 }: {
     children?: ReactNode
     description: ReactNode
@@ -47,17 +52,66 @@ export function OverviewGridItem({
     icon?: ReactNode
     fadeLabel?: boolean
     itemKeyTooltip?: ReactNode
+    onFilterClick?: () => void
+    showFilter?: boolean
+    filterDisabledReason?: string
+    filterState?: 'active' | 'replace' | 'inactive'
 }): JSX.Element {
+    const getFilterTooltip = (): string => {
+        if (filterDisabledReason) {
+            return filterDisabledReason
+        }
+        if (filterState === 'active') {
+            return 'Remove this filter'
+        }
+        if (filterState === 'replace') {
+            return 'Replace existing filter with this value'
+        }
+        return 'Filter for recordings matching this'
+    }
+
     return (
-        <div className="flex flex-1 w-full justify-between items-center deprecated-space-x-4">
+        <div className="group flex flex-1 w-full justify-between items-center deprecated-space-x-4">
             <div className={clsx('text-sm', fadeLabel && 'font-light')}>
                 <Tooltip title={itemKeyTooltip}>
                     {icon} {label}
                 </Tooltip>
             </div>
-            <Tooltip title={description}>
-                <div className="overflow-x-auto">{children}</div>
-            </Tooltip>
+            <div className="flex items-center deprecated-space-x-2 min-w-0">
+                <div className="truncate min-w-0">
+                    <Tooltip title={description}>{children}</Tooltip>
+                </div>
+                {showFilter && onFilterClick && (
+                    <Tooltip title={getFilterTooltip()}>
+                        <div
+                            className={clsx(
+                                'inline-flex shrink-0 transition-all',
+                                filterState === 'active' &&
+                                    !filterDisabledReason &&
+                                    'bg-primary-highlight rounded p-0.5'
+                            )}
+                        >
+                            <IconFilter
+                                data-testid="filter-button"
+                                className={clsx(
+                                    'transition-colors',
+                                    filterDisabledReason
+                                        ? 'text-muted cursor-not-allowed'
+                                        : filterState === 'active'
+                                          ? 'cursor-pointer text-link'
+                                          : 'cursor-pointer text-secondary hover:text-primary'
+                                )}
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    if (!filterDisabledReason) {
+                                        onFilterClick()
+                                    }
+                                }}
+                            />
+                        </div>
+                    </Tooltip>
+                )}
+            </div>
         </div>
     )
 }

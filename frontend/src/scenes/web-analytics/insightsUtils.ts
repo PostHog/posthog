@@ -1,6 +1,7 @@
 import { urls } from 'scenes/urls'
 
-import { NodeKind, QuerySchema } from '~/queries/schema/schema-general'
+import { InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
+import { isWebAnalyticsInsightQuery } from '~/queries/utils'
 
 import { TileId, WebAnalyticsTile } from './common'
 
@@ -17,6 +18,24 @@ export const getNewInsightUrlFactory = (tiles: WebAnalyticsTile[]) => {
                     embedded: undefined,
                     hidePersonsModal: undefined,
                 }
+            }
+            // Extract source from DataTableNode if present
+            if (query.kind === NodeKind.DataTableNode && 'source' in query) {
+                const source = query.source
+                if (isWebAnalyticsInsightQuery(source)) {
+                    return {
+                        kind: NodeKind.InsightVizNode,
+                        source: source,
+                    } as InsightVizNode
+                }
+                return source
+            }
+            // Wrap Web Analytics queries in InsightVizNode so they can be used as insights
+            if (isWebAnalyticsInsightQuery(query)) {
+                return {
+                    kind: NodeKind.InsightVizNode,
+                    source: query,
+                } as InsightVizNode
             }
             return query
         }

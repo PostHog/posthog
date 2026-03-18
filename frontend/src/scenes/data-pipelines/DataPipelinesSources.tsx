@@ -11,7 +11,7 @@ import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
 
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 export function DataPipelinesSources({ action }: { action: JSX.Element }): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(dataWarehouseSettingsLogic)

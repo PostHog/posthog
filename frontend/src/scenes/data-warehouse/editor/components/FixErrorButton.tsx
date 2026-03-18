@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useMemo } from 'react'
 
-import { IconMagicWand, IconWarning } from '@posthog/icons'
+import { IconSparkles, IconWarning } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
@@ -10,7 +10,7 @@ import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 import { fixSQLErrorsLogic } from '../fixSQLErrorsLogic'
-import { multitabEditorLogic } from '../multitabEditorLogic'
+import { sqlEditorLogic } from '../sqlEditorLogic'
 
 interface FixErrorButtonProps {
     type: LemonButtonProps['type']
@@ -20,8 +20,8 @@ interface FixErrorButtonProps {
 }
 
 export function FixErrorButton({ type, size, contentOverride, source }: FixErrorButtonProps): JSX.Element {
-    const { queryInput, fixErrorsError, metadata } = useValues(multitabEditorLogic)
-    const { fixErrors: fixHogQLErrors } = useActions(multitabEditorLogic)
+    const { queryInput, fixErrorsError, metadata } = useValues(sqlEditorLogic)
+    const { fixErrors: fixHogQLErrors } = useActions(sqlEditorLogic)
     const { responseError } = useValues(dataNodeLogic)
     const { responseLoading: fixHogQLErrorsLoading } = useValues(fixSQLErrorsLogic)
 
@@ -36,7 +36,7 @@ export function FixErrorButton({ type, size, contentOverride, source }: FixError
             return <IconWarning className="text-warning" />
         }
 
-        return <IconMagicWand />
+        return <IconSparkles />
     }, [fixHogQLErrorsLoading, fixErrorsError])
 
     const disabledReason = useMemo(() => {
@@ -60,7 +60,7 @@ export function FixErrorButton({ type, size, contentOverride, source }: FixError
             return "Can't fix"
         }
 
-        return contentOverride ?? 'Fix errors'
+        return contentOverride ?? 'Fix errors with AI'
     }, [fixErrorsError, fixHogQLErrorsLoading, contentOverride])
 
     return (

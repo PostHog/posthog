@@ -13,18 +13,21 @@ export interface AuthorizedUrlFormProps {
     type: AuthorizedUrlListType
     actionId?: number
     experimentId?: ExperimentIdType
+    productTourId?: string | null
     allowWildCards?: boolean
 }
 
 export function AuthorizedUrlForm({
     actionId,
     experimentId,
+    productTourId,
     type,
     allowWildCards,
 }: AuthorizedUrlFormProps): JSX.Element {
     const logic = authorizedUrlListLogic({
         actionId: actionId ?? null,
         experimentId: experimentId ?? null,
+        productTourId: productTourId ?? null,
         type,
         allowWildCards,
     })
@@ -34,7 +37,13 @@ export function AuthorizedUrlForm({
     return (
         <Form
             logic={authorizedUrlListLogic}
-            props={{ actionId: actionId ?? null, experimentId: experimentId ?? null, type, allowWildCards }}
+            props={{
+                actionId: actionId ?? null,
+                experimentId: experimentId ?? null,
+                productTourId: productTourId ?? null,
+                type,
+                allowWildCards,
+            }}
             formKey="proposedUrl"
             enableFormOnSubmit
             className="w-full deprecated-space-y-2"

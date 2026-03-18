@@ -31,19 +31,17 @@ class TestTemplateBraze(BaseHogFunctionTemplateTest):
                     "Content-Type": "application/json",
                     "Authorization": "Bearer my_secret_key",
                 },
-                "body": [
-                    {
-                        "attributes": {"email": "{person.properties.email}"},
-                        "events": [
-                            {
-                                "external_id": "{event.distinct_id}",
-                                "name": "{event.event}",
-                                "properties": "{event.properties}",
-                                "time": "{event.timestamp}",
-                            },
-                        ],
-                    }
-                ],
+                "body": {
+                    "attributes": [{"email": "{person.properties.email}"}],
+                    "events": [
+                        {
+                            "external_id": "{event.distinct_id}",
+                            "name": "{event.event}",
+                            "properties": "{event.properties}",
+                            "time": "{event.timestamp}",
+                        },
+                    ],
+                },
                 "method": "POST",
             },
         )

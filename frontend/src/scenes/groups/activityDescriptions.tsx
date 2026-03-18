@@ -15,8 +15,9 @@ export function groupActivityDescriber(logItem: ActivityLogItem, asNotification?
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> {logItem.detail?.changes?.[0]?.action || 'changed'}{' '}
-                    the <code>{logItem.detail?.name}</code> property.
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>{' '}
+                    {logItem.detail?.changes?.[0]?.action || 'changed'} the <code>{logItem.detail?.name}</code>{' '}
+                    property.
                 </>
             ),
         }

@@ -22,39 +22,39 @@
 # ---
 # name: TestChargeStripeBuilder.test_build_with_charge_schema_but_no_table
   '''
-  SELECT NULL AS id,
-         NULL AS source_label,
-         NULL AS timestamp,
-         NULL AS customer_id,
-         NULL AS invoice_id,
-         NULL AS session_id,
-         NULL AS event_name,
-         NULL AS original_currency,
-         NULL AS original_amount,
-         NULL AS enable_currency_aware_divider,
-         NULL AS currency_aware_divider,
-         NULL AS currency_aware_amount,
-         NULL AS currency,
-         NULL AS amount
+  SELECT '' AS id,
+         '' AS source_label,
+         toDateTime('1970-01-01 00:00:00.000000') AS timestamp,
+         '' AS customer_id,
+         '' AS invoice_id,
+         '' AS session_id,
+         '' AS event_name,
+         '' AS original_currency,
+         0 AS original_amount,
+         false AS enable_currency_aware_divider,
+                  0 AS currency_aware_divider,
+                  0 AS currency_aware_amount,
+                  '' AS currency,
+                  0 AS amount
   WHERE false
   '''
 # ---
 # name: TestChargeStripeBuilder.test_build_with_no_charge_schema
   '''
-  SELECT NULL AS id,
-         NULL AS source_label,
-         NULL AS timestamp,
-         NULL AS customer_id,
-         NULL AS invoice_id,
-         NULL AS session_id,
-         NULL AS event_name,
-         NULL AS original_currency,
-         NULL AS original_amount,
-         NULL AS enable_currency_aware_divider,
-         NULL AS currency_aware_divider,
-         NULL AS currency_aware_amount,
-         NULL AS currency,
-         NULL AS amount
+  SELECT '' AS id,
+         '' AS source_label,
+         toDateTime('1970-01-01 00:00:00.000000') AS timestamp,
+         '' AS customer_id,
+         '' AS invoice_id,
+         '' AS session_id,
+         '' AS event_name,
+         '' AS original_currency,
+         0 AS original_amount,
+         false AS enable_currency_aware_divider,
+                  0 AS currency_aware_divider,
+                  0 AS currency_aware_amount,
+                  '' AS currency,
+                  0 AS amount
   WHERE false
   '''
 # ---

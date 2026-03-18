@@ -6,9 +6,9 @@ import { useEffect } from 'react'
 import { IconInfo, IconOpenSidebar, IconUnlock } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { getProductIcon } from 'scenes/products/Products'
+import { getProductIcon } from 'scenes/onboarding/utils'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, BillingFeatureType, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
@@ -191,9 +191,7 @@ function PayGateContent({
                 'PayGateMini rounded flex flex-col items-center p-4 text-center'
             )}
         >
-            <div className="flex mb-2 text-4xl text-warning">
-                {getProductIcon(productWithFeature.name, featureInfo.icon_key)}
-            </div>
+            <div className="flex mb-2 text-4xl text-warning">{getProductIcon(featureInfo.icon_key)}</div>
             <h2>{featureInfo.name}</h2>
             {renderUsageLimitMessage(
                 featureAvailableOnOrg,

@@ -14,6 +14,7 @@ from posthog.hogql.ast import (
 from ..core import HogQLFunctionMeta
 
 # arrays and strings common
+# Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 ARRAY_STRING_COMMON_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "empty": HogQLFunctionMeta(
         "empty",
@@ -49,6 +50,7 @@ ARRAY_STRING_COMMON_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
 }
 
 # arrays
+# Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 ARRAY_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "array": HogQLFunctionMeta("array", 0, None),
     "range": HogQLFunctionMeta("range", 1, 3),

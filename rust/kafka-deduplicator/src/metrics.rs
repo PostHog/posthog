@@ -149,15 +149,9 @@ mod tests {
 
     #[test]
     fn test_metrics_helper_with_additional_label() {
-        let helper = MetricsHelper::with_partition("test_topic", 0)
-            .with_label("service", "kafka-deduplicator")
-            .with_label("version", "1.0.0");
+        let helper = MetricsHelper::with_partition("test_topic", 0).with_label("version", "1.0.0");
 
-        assert_eq!(helper.baseline_labels.len(), 2);
-        assert_eq!(
-            helper.baseline_labels.get("service"),
-            Some(&"kafka-deduplicator".to_string())
-        );
+        assert_eq!(helper.baseline_labels.len(), 1);
         assert_eq!(
             helper.baseline_labels.get("version"),
             Some(&"1.0.0".to_string())

@@ -24,6 +24,7 @@ from posthog.schema import (
     DataWarehouseNode,
     DayItem,
     EventsNode,
+    GroupNode,
     HogQLQueryModifiers,
     HogQLQueryResponse,
     InCohortVia,
@@ -41,7 +42,6 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
-from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
@@ -63,6 +63,7 @@ from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
 from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
+from posthog.hogql_queries.insights.utils.utils import get_response_hogql
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
@@ -73,10 +74,11 @@ from posthog.models import Team
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.property_definition import PropertyDefinition
 from posthog.queries.util import correct_result_for_sampling
 from posthog.utils import multisort
-from posthog.warehouse.models.util import get_view_or_table_by_name
+
+from products.data_warehouse.backend.models.util import get_view_or_table_by_name
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 
 class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
@@ -145,11 +147,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     def to_queries(self) -> list[ast.SelectQuery | ast.SelectSetQuery]:
         queries = []
         with self.timings.measure("trends_to_query"):
-            # If user requests 'all' time, determine the true earliest timestamp
-            earliest_timestamp = None
-            if self.query.dateRange and self.query.dateRange.date_from == "all":
-                earliest_timestamp = self._earliest_timestamp
-
+            earliest_timestamp = self._earliest_timestamp
             for series in self.series:
                 if not series.is_previous_period_series:
                     query_date_range = self.query_date_range
@@ -341,17 +339,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
     def _calculate(self):
         queries = self.to_queries()
-
-        if len(queries) == 0:
-            response_hogql = ""
-        else:
-            if len(queries) == 1:
-                response_hogql_query = queries[0]
-            else:
-                response_hogql_query = ast.SelectSetQuery.create_from_queries(queries, "UNION ALL")
-
-            with self.timings.measure("printing_hogql_for_response"):
-                response_hogql = to_printed_hogql(response_hogql_query, self.team, self.modifiers)
+        response_hogql = get_response_hogql(queries, team=self.team, timings=self.timings, modifiers=self.modifiers)
 
         res_matrix: list[list[Any] | Any | None] = [None] * len(queries)
         timings_matrix: list[list[QueryTiming] | None] = [None] * (2 + len(queries))
@@ -489,6 +477,18 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 final_result = [item for item in final_result if not self._is_other_breakdown(item["breakdown_value"])]
             has_more = True
 
+        # Weekend filtering is two layers: the WHERE clause (in trends_query_builder) excludes
+        # weekend events from aggregation, and this post-processor removes weekend date buckets
+        # from the response so the chart x-axis shows only weekdays.
+        # For week/month intervals we keep all buckets since they span multiple days.
+        # For hour/minute intervals we skip bucket removal to avoid discarding all data on weekends.
+        if (
+            self.query.trendsFilter
+            and self.query.trendsFilter.hideWeekends
+            and self.query_date_range.interval_name not in ("hour", "minute", "week", "month")
+        ):
+            final_result = self._filter_weekend_buckets(final_result)
+
         return TrendsQueryResponse(
             results=final_result,
             hasMore=has_more,
@@ -624,7 +624,11 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     series_object["breakdown_value"] = remapped_label
                 elif self.query.breakdownFilter.breakdown_type == "cohort":
                     cohort_id = get_value("breakdown_value", val)
-                    cohort_name = "all users" if str(cohort_id) == "0" else Cohort.objects.get(pk=cohort_id).name
+                    cohort_name = (
+                        "all users"
+                        if str(cohort_id) == "0"
+                        else Cohort.objects.get(pk=cohort_id, team__project_id=self.team.project_id).name
+                    )
 
                     if real_series_count > 1:
                         series_object["label"] = "{} - {}".format(series_object["label"], cohort_name)
@@ -666,16 +670,68 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             res.append(series_object)
         return res
 
-    @property
-    def exact_timerange(self):
-        return self.query.trendsFilter and self.query.trendsFilter.display == ChartDisplayType.BOLD_NUMBER
+    def _filter_weekend_buckets(self, results: list[dict]) -> list[dict]:
+        filtered = []
+        for series_result in results:
+            days = series_result.get("days")
+            if not days:
+                filtered.append(series_result)
+                continue
+
+            # Build weekday mask — parse date string and check day of week
+            weekday_indices = []
+            for i, day_str in enumerate(days):
+                try:
+                    dt = datetime.strptime(day_str[:10], "%Y-%m-%d")
+                    if dt.weekday() < 5:  # Mon=0..Fri=4
+                        weekday_indices.append(i)
+                except (ValueError, TypeError):
+                    weekday_indices.append(i)  # Keep unparseable entries
+
+            if len(weekday_indices) == len(days):
+                # No weekends found, nothing to filter
+                filtered.append(series_result)
+                continue
+
+            new_result = {**series_result}
+            new_result["days"] = [days[i] for i in weekday_indices]
+
+            if "data" in new_result and isinstance(new_result["data"], list):
+                new_result["data"] = [new_result["data"][i] for i in weekday_indices]
+
+            if "labels" in new_result and isinstance(new_result["labels"], list):
+                new_result["labels"] = [new_result["labels"][i] for i in weekday_indices]
+
+            # Recompute count from filtered data
+            if "data" in new_result and new_result.get("count") is not None:
+                if (
+                    self._trends_display.display_type == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE
+                    and new_result["data"]
+                ):
+                    new_result["count"] = new_result["data"][-1]
+                else:
+                    new_result["count"] = float(sum(new_result["data"]))
+
+            # Filter action.days too
+            if "action" in new_result and "days" in new_result["action"]:
+                action_days = new_result["action"]["days"]
+                new_result["action"] = {**new_result["action"]}
+                new_result["action"]["days"] = [d for d in action_days if d.weekday() < 5]
+
+            filtered.append(new_result)
+        return filtered
 
     @cached_property
-    def _earliest_timestamp(self) -> datetime:
-        return get_earliest_timestamp_from_series(
-            team=self.team,
-            series=[series.series for series in self.series],
-        )
+    def _earliest_timestamp(self) -> datetime | None:
+        if self.query.dateRange and self.query.dateRange.date_from == "all":
+            # Get earliest timestamp across all series in this insight
+            return get_earliest_timestamp_from_series(team=self.team, series=[series.series for series in self.series])
+
+        return None
+
+    @property
+    def exact_timerange(self):
+        return self.query.dateRange and self.query.dateRange.explicitDate
 
     @cached_property
     def query_date_range(self):
@@ -709,7 +765,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             exact_timerange=self.exact_timerange,
         )
 
-    def series_event(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> str | None:
+    def series_event(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode, GroupNode]) -> str | None:
         if isinstance(series, EventsNode):
             return series.event
         if isinstance(series, ActionsNode):
@@ -719,6 +775,24 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
         if isinstance(series, DataWarehouseNode):
             return series.table_name
+
+        if isinstance(series, GroupNode):
+            # Batch fetch all actions to avoid N+1 queries
+            action_ids = [int(node.id) for node in series.nodes if isinstance(node, ActionsNode)]
+            actions_by_id = {}
+            if action_ids:
+                actions = Action.objects.filter(pk__in=action_ids, team__project_id=self.team.project_id)
+                actions_by_id = {action.pk: action.name or "Unnamed action" for action in actions}
+
+            events = []
+            for node in series.nodes:
+                if isinstance(node, EventsNode):
+                    events.append(node.event if node.event is not None else "All events")
+                elif isinstance(node, ActionsNode):
+                    events.append(actions_by_id.get(int(node.id), "Unnamed action"))
+                elif isinstance(node, DataWarehouseNode):
+                    events.append(node.table_name)
+            return ", ".join(events)
 
         return None  # type: ignore [unreachable]
 
@@ -892,10 +966,12 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                         # Create a deep copy of the matching result to avoid modifying shared data
                         row_results.append(deepcopy(matching_result[0]))
                     else:
+                        data_source = results[0][0] if results and results[0] else {}
+                        data_length = len(data_source.get("data") or any_result.get("data") or [])
                         row_results.append(
                             {
                                 "label": f"filler for {breakdown_value}",
-                                "data": [0] * len(results[0][0].get("data") or any_result.get("data") or []),
+                                "data": [0] * data_length,
                                 "count": 0,
                                 "aggregated_value": 0,
                                 "action": None,

@@ -25,8 +25,8 @@ following the format below:
 Your output schema looks like this:
 ```ts
 export interface ErrorTrackingSceneToolOutput {
-    // REPLACES the existing order key
-    orderBy?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
+    // REQUIRED: REPLACES the existing order key
+    orderBy: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions' | 'revenue'
     // REPLACES the existing order direction
     orderDirection?: 'ASC' | 'DESC'
     // REPLACE the existing status filter
@@ -89,7 +89,9 @@ export enum PropertyOperator {
 }
 ```
 
-Remember, all items marked optional are optional - only include a new value if:
+**Important**: `orderBy` is REQUIRED and must always be included in your response. If the user doesn't specify a sort order, use the current value from the existing filters.
+
+All other items marked optional are optional - only include a new value if:
 - It's relevant to the user's query.
 - It's not already present in the existing filterGroup
 

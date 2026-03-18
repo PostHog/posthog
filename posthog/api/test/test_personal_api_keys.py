@@ -1,6 +1,8 @@
 from datetime import timedelta
 
+import pytest
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -11,7 +13,7 @@ from posthog.api.personal_api_key import PersonalAPIKeySerializer
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.insight import Insight
 from posthog.models.organization import Organization
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.personal_api_key import SHA256_HASH_PREFIX, PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
 
@@ -35,6 +37,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "last_used_at": None,
             "last_rolled_at": None,
             "user_id": self.user.id,
+            "is_legacy_hashing": False,
             "scopes": ["insight:read"],
             "scoped_organizations": [],
             "scoped_teams": [],
@@ -125,11 +128,46 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             label="Test",
             user=self.user,
             secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["*"],
         )
         assert PersonalAPIKey.objects.count() == 1
         response = self.client.delete(f"/api/personal_api_keys/{key.id}/")
         assert response.status_code == 204
         assert PersonalAPIKey.objects.count() == 0
+
+    @parameterized.expand(
+        [
+            ("pbkdf2_260000", "pbkdf2_sha256$260000$posthog_personal_api_key$somehashvalue=", True),
+            ("pbkdf2_390000", "pbkdf2_sha256$390000$posthog_personal_api_key$otherhashvalue=", True),
+            ("sha256", "sha256$" + "a" * 64, False),
+        ]
+    )
+    def test_list_is_legacy_hashing(self, _, secure_value, expected):
+        PersonalAPIKey.objects.create(
+            label="Test key",
+            user=self.user,
+            secure_value=secure_value,
+            scopes=["insight:read"],
+        )
+        response = self.client.get("/api/personal_api_keys")
+        assert response.status_code == 200
+        key_data = next(k for k in response.json() if k["label"] == "Test key")
+        assert key_data["is_legacy_hashing"] is expected
+
+    def test_roll_clears_legacy_hashing(self):
+        key = PersonalAPIKey.objects.create(
+            label="Legacy key",
+            user=self.user,
+            secure_value="pbkdf2_sha256$260000$posthog_personal_api_key$somehashvalue=",
+            scopes=["insight:read"],
+            scoped_organizations=[],
+            scoped_teams=[],
+        )
+        response = self.client.post(f"/api/personal_api_keys/{key.id}/roll/")
+        assert response.status_code == 200
+        assert response.json()["is_legacy_hashing"] is False
+        key.refresh_from_db()
+        assert key.secure_value is not None and key.secure_value.startswith(SHA256_HASH_PREFIX)
 
     def test_list_only_user_personal_api_keys(self):
         my_label = "Test"
@@ -137,12 +175,14 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             label=my_label,
             user=self.user,
             secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["*"],
         )
         other_user = self._create_user("abc@def.xyz")
         PersonalAPIKey.objects.create(
             label="Other test",
             user=other_user,
             secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["*"],
         )
         assert PersonalAPIKey.objects.count() == 2
         response = self.client.get("/api/personal_api_keys")
@@ -156,6 +196,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "last_used_at": None,
             "last_rolled_at": None,
             "user_id": self.user.id,
+            "is_legacy_hashing": False,
             "scopes": ["*"],
             "scoped_organizations": None,
             "scoped_teams": None,
@@ -169,6 +210,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             label=my_label,
             user=self.user,
             secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["*"],
         )
         response = self.client.get(f"/api/personal_api_keys/{my_key.id}/")
         assert response.status_code == 200
@@ -180,6 +222,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             label="Other test",
             user=other_user,
             secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["*"],
         )
         response = self.client.get(f"/api/personal_api_keys/{other_key.id}/")
         assert response.status_code == 404
@@ -265,6 +308,25 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         assert data["mask_value"] != original_key.mask_value
 
 
+class TestPersonalAPIKeysAPIValidation(APIBaseTest):
+    def test_cannot_create_key_with_empty_scopes(self):
+        response = self.client.post(
+            "/api/personal_api_keys/",
+            {"label": "empty", "scopes": [], "scoped_organizations": [], "scoped_teams": []},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_cannot_update_key_to_empty_scopes(self):
+        key = PersonalAPIKey.objects.create(
+            label="Test",
+            user=self.user,
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["insight:read"],
+        )
+        response = self.client.patch(f"/api/personal_api_keys/{key.id}", {"scopes": []})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
 class PersonalAPIKeysBaseTest(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
 
@@ -272,7 +334,7 @@ class PersonalAPIKeysBaseTest(APIBaseTest):
     key: PersonalAPIKey
 
     def _do_request(self, url: str):
-        return self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {self.value}")
+        return self.client.get(url, headers={"authorization": f"Bearer {self.value}"})
 
     def setUp(self):
         other_organization, _, other_team = Organization.objects.bootstrap(self.user)
@@ -284,7 +346,7 @@ class PersonalAPIKeysBaseTest(APIBaseTest):
             label="Test",
             user=self.user,
             secure_value=hash_key_value(self.value),
-            scopes=[],
+            scopes=["*"],
             scoped_teams=[],
             scoped_organizations=[],
         )
@@ -296,13 +358,17 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
         super().setUp()
         self.value_390000 = generate_random_token_personal()
         self.key_390000 = PersonalAPIKey.objects.create(
-            label="Test", user=self.user, secure_value=hash_key_value(self.value_390000, "pbkdf2", iterations=390000)
+            label="Test",
+            user=self.user,
+            secure_value=hash_key_value(self.value_390000, "pbkdf2", iterations=390000),
+            scopes=["*"],
         )
         self.value_hardcoded = "phx_0a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p"
         self.key_hardcoded = PersonalAPIKey.objects.create(
             label="Test",
             user=self.user,
             secure_value="pbkdf2_sha256$260000$posthog_personal_api_key$dUOOjl6bYdigHd+QfhYzN6P2vM01ZbFROS8dm9KRK7Y=",
+            scopes=["*"],
         )
 
     @parameterized.expand(
@@ -335,8 +401,7 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
         self.assertTrue(key_before.startswith("sha256$"))
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/dashboards/",
-            HTTP_AUTHORIZATION=f"Bearer  {self.value}  ",
+            f"/api/projects/{self.team.id}/dashboards/", headers={"authorization": f"Bearer  {self.value}  "}
         )
         assert response.status_code == 200
 
@@ -349,8 +414,7 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
         self.assertTrue(key_before.startswith("pbkdf2_sha256$390000$"))
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/dashboards/",
-            HTTP_AUTHORIZATION=f"Bearer {self.value_390000}",
+            f"/api/projects/{self.team.id}/dashboards/", headers={"authorization": f"Bearer {self.value_390000}"}
         )
         assert response.status_code == 200
 
@@ -361,8 +425,7 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
 
     def test_header_hardcoded(self):
         response = self.client.get(
-            f"/api/projects/{self.team.id}/dashboards/",
-            HTTP_AUTHORIZATION=f"Bearer {self.value_hardcoded}",
+            f"/api/projects/{self.team.id}/dashboards/", headers={"authorization": f"Bearer {self.value_hardcoded}"}
         )
         assert response.status_code == 200
 
@@ -381,22 +444,30 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
         self.user.is_active = False
         self.user.save()
         response = self.client.get(
-            f"/api/projects/{self.team.id}/dashboards", HTTP_AUTHORIZATION=f"Bearer {self.value}"
+            f"/api/projects/{self.team.id}/dashboards", headers={"authorization": f"Bearer {self.value}"}
         )
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_user_endpoint(self):
         # NOTE: This is not actually supported currently by new scopes but needs to work for pre-scoped api keys
-        response = self.client.get("/api/users/@me/", HTTP_AUTHORIZATION=f"Bearer {self.value}")
+        response = self.client.get("/api/users/@me/", headers={"authorization": f"Bearer {self.value}"})
         assert response.status_code == status.HTTP_200_OK
 
-    def test_does_not_interfere_with_temporary_token_auth(self):
+    @pytest.mark.requires_secrets
+    def test_does_not_interfere_with_other_auth_methods(self):
+        from django.utils import timezone
+
+        from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+
+        self.client.logout()
+
+        # Personal API key works
         response = self.client.get(
-            f"/api/projects/{self.team.id}/dashboards/",
-            HTTP_AUTHORIZATION=f"Bearer {self.value}",
+            f"/api/projects/{self.team.id}/dashboards/", headers={"authorization": f"Bearer {self.value}"}
         )
         assert response.status_code == status.HTTP_200_OK
 
+        # JWT auth works
         impersonated_access_token = encode_jwt(
             {"id": self.user.id},
             timedelta(minutes=15),
@@ -405,7 +476,30 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/dashboards/",
-            HTTP_AUTHORIZATION=f"Bearer {impersonated_access_token}",
+            headers={"authorization": f"Bearer {impersonated_access_token}"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        # OAuth token works
+        oauth_app = OAuthApplication.objects.create(
+            name="Test App",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        oauth_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=oauth_app,
+            token="pha_test_oauth_token",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="*",
+        )
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/",
+            headers={"authorization": f"Bearer {oauth_token.token}"},
         )
         assert response.status_code == status.HTTP_200_OK
 
@@ -413,7 +507,7 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
         response = self.client.post(
             "/api/personal_api_keys",
             {"label": "test", "scopes": ["insight:read"], "scoped_organizations": [], "scoped_teams": []},
-            HTTP_AUTHORIZATION=f"Bearer {self.value}",
+            headers={"authorization": f"Bearer {self.value}"},
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
@@ -422,7 +516,7 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
         response = self.client.post(
             f"/api/personal_api_keys/{self.key.id}/",
             {"scopes": ["*"]},
-            HTTP_AUTHORIZATION=f"Bearer {self.value}",
+            headers={"authorization": f"Bearer {self.value}"},
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
@@ -433,14 +527,13 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
             label="Test last_updated_at",
             user=self.user,
             secure_value=hash_key_value(value),
-            scopes=[],
+            scopes=["*"],
         )
         assert key.last_used_at is None
 
         # use key
         response = self.client.get(
-            f"/api/projects/{self.team.id}/dashboards/",
-            HTTP_AUTHORIZATION=f"Bearer {value}",
+            f"/api/projects/{self.team.id}/dashboards/", headers={"authorization": f"Bearer {value}"}
         )
         assert response.status_code == status.HTTP_200_OK
 
@@ -457,11 +550,17 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         self.key.scopes = ["feature_flag:read"]
         self.key.save()
 
-    def test_allows_legacy_api_key_to_access_all(self):
+    def test_rejects_null_scopes_as_no_access(self):
         self.key.scopes = None
         self.key.save()
-        response = self._do_request("/api/users/@me/")
-        assert response.status_code == status.HTTP_200_OK
+        response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_rejects_empty_scopes_list_as_no_access(self):
+        self.key.scopes = []
+        self.key.save()
+        response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_forbids_scoped_access_for_unsupported_endpoint(self):
         # Even * scope isn't allowed for unsupported endpoints
@@ -481,9 +580,7 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
 
     def test_denies_derived_scope_for_write(self):
         response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            data={},
-            HTTP_AUTHORIZATION=f"Bearer {self.value}",
+            f"/api/projects/{self.team.id}/feature_flags/", data={}, headers={"authorization": f"Bearer {self.value}"}
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json()["detail"] == "API key missing required scope 'feature_flag:write'"
@@ -516,7 +613,7 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         assert response.status_code == status.HTTP_200_OK
 
     def test_errors_for_action_without_required_scopes(self):
-        response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/evaluation_reasons")
+        response = self._do_request(f"/api/projects/{self.team.id}/insights/my_last_viewed")
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json()["detail"] == "This action does not support Personal API Key access"
 
@@ -537,7 +634,9 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
 
         query = EventsQuery(select=["event", "distinct_id"])
         response = self.client.post(
-            f"/api/projects/{self.team.id}/query/", {"query": query.dict()}, HTTP_AUTHORIZATION=f"Bearer {self.value}"
+            f"/api/projects/{self.team.id}/query/",
+            {"query": query.dict()},
+            headers={"authorization": f"Bearer {self.value}"},
         )
         assert response.status_code == status.HTTP_200_OK
 
@@ -567,7 +666,7 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/insights/{insight.id}/sharing",
             {"enabled": True},
-            HTTP_AUTHORIZATION=f"Bearer {self.value}",
+            headers={"authorization": f"Bearer {self.value}"},
         )
         assert response.status_code == status.HTTP_200_OK
         initial_token = response.json()["access_token"]
@@ -577,7 +676,7 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         self.key.save()
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/{insight.id}/sharing/refresh/",
-            HTTP_AUTHORIZATION=f"Bearer {self.value}",
+            headers={"authorization": f"Bearer {self.value}"},
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json()["detail"] == "API key missing required scope 'sharing_configuration:write'"
@@ -587,7 +686,7 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         self.key.save()
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/{insight.id}/sharing/refresh/",
-            HTTP_AUTHORIZATION=f"Bearer {self.value}",
+            headers={"authorization": f"Bearer {self.value}"},
         )
         assert response.status_code == status.HTTP_200_OK
         new_token = response.json()["access_token"]
@@ -632,6 +731,18 @@ class TestPersonalAPIKeysWithOrganizationScopeAPIAuthentication(PersonalAPIKeysB
         # The /users/@me/ endpoint is not team-based, but it's useful as a way of checking whether the key works
         # (e.g. in our Zapier integration), hence it's exempt from org/team scoping
         response = self._do_request(f"/api/users/@me/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_allows_access_when_user_current_organization_differs_from_scoped_org(self):
+        # When user's current_organization_id differs from the API key's scoped org,
+        # the request should still succeed for projects in the scoped org
+        self.user.current_organization = self.other_organization
+        self.user.save()
+
+        response = self._do_request(f"/api/projects/{self.team.id}/insights/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        response = self._do_request(f"/api/projects/{self.team.id}/events/")
         assert response.status_code == status.HTTP_200_OK, response.json()
 
 
@@ -738,3 +849,88 @@ class TestPersonalAPIKeyAPIAccess(APIBaseTest):
     def test_invalid_bearer_token(self):
         response = self.client.get(f"/api/personal_api_keys/@current/", **self._get_auth_headers("invalid_key"))
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+class TestPersonalAPIKeyLLMGatewayFeatureFlag(APIBaseTest):
+    @patch("posthog.api.personal_api_key.posthoganalytics.feature_enabled")
+    def test_create_llm_gateway_scope_blocked_when_flag_disabled(self, mock_feature_enabled):
+        mock_feature_enabled.return_value = False
+
+        response = self.client.post(
+            "/api/personal_api_keys",
+            {"label": "test key", "scopes": ["llm_gateway:read"], "scoped_organizations": [], "scoped_teams": []},
+        )
+        assert response.status_code == 400
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "LLM gateway scope is not available. Contact support to enable this feature.",
+            "attr": "scopes",
+        }
+        mock_feature_enabled.assert_called_once()
+
+    @patch("posthog.api.personal_api_key.posthoganalytics.feature_enabled")
+    def test_create_llm_gateway_scope_allowed_when_flag_enabled(self, mock_feature_enabled):
+        mock_feature_enabled.return_value = True
+
+        response = self.client.post(
+            "/api/personal_api_keys",
+            {"label": "test key", "scopes": ["llm_gateway:read"], "scoped_organizations": [], "scoped_teams": []},
+        )
+        assert response.status_code == 201
+        assert response.json()["scopes"] == ["llm_gateway:read"]
+        mock_feature_enabled.assert_called_once()
+
+    @patch("posthog.api.personal_api_key.posthoganalytics.feature_enabled")
+    def test_update_existing_key_with_llm_gateway_scope_allowed_when_flag_disabled(self, mock_feature_enabled):
+        mock_feature_enabled.return_value = False
+
+        key = PersonalAPIKey.objects.create(
+            label="Test",
+            user=self.user,
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["llm_gateway:read"],
+        )
+
+        response = self.client.patch(
+            f"/api/personal_api_keys/{key.id}",
+            {"label": "updated label", "scopes": ["llm_gateway:read"]},
+        )
+        assert response.status_code == 200
+        assert response.json()["label"] == "updated label"
+        assert response.json()["scopes"] == ["llm_gateway:read"]
+        mock_feature_enabled.assert_not_called()
+
+    @patch("posthog.api.personal_api_key.posthoganalytics.feature_enabled")
+    def test_update_adding_llm_gateway_scope_blocked_when_flag_disabled(self, mock_feature_enabled):
+        mock_feature_enabled.return_value = False
+
+        key = PersonalAPIKey.objects.create(
+            label="Test",
+            user=self.user,
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["insight:read"],
+        )
+
+        response = self.client.patch(
+            f"/api/personal_api_keys/{key.id}",
+            {"scopes": ["insight:read", "llm_gateway:read"]},
+        )
+        assert response.status_code == 400
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "LLM gateway scope is not available. Contact support to enable this feature.",
+            "attr": "scopes",
+        }
+        mock_feature_enabled.assert_called_once()
+
+    @patch("posthog.api.personal_api_key.posthoganalytics.feature_enabled")
+    def test_create_other_scopes_unaffected_by_flag(self, mock_feature_enabled):
+        response = self.client.post(
+            "/api/personal_api_keys",
+            {"label": "test key", "scopes": ["insight:read"], "scoped_organizations": [], "scoped_teams": []},
+        )
+        assert response.status_code == 201
+        assert response.json()["scopes"] == ["insight:read"]
+        mock_feature_enabled.assert_not_called()

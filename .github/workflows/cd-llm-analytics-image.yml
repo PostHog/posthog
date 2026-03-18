@@ -1,0 +1,111 @@
+#
+# Build and push LLM Analytics Temporal worker container image to AWS ECR.
+#
+# This image includes ML dependencies (transformers, ONNX Runtime, torch) for
+# sentiment classification that are too large for the shared PostHog image.
+#
+name: LLM Analytics Container Image CD
+
+on:
+    push:
+        branches:
+            - master
+        paths:
+            - 'posthog/temporal/llm_analytics/**'
+            - 'products/llm_analytics/**'
+            - 'posthog/temporal/common/**'
+            - 'posthog/management/commands/start_temporal_worker.py'
+            - 'Dockerfile.llm-analytics'
+            - '.github/workflows/cd-llm-analytics-image.yml'
+            - 'pyproject.toml'
+            - 'bin/temporal-django-worker'
+    pull_request:
+        types: [opened, synchronize, reopened, labeled]
+    workflow_dispatch:
+
+jobs:
+    posthog_llm_analytics_build:
+        name: Build and push container image
+        if: |
+            github.repository == 'PostHog/posthog' && (
+                github.event_name == 'push' ||
+                github.event_name == 'workflow_dispatch' ||
+                contains(github.event.pull_request.labels.*.name, 'build-llm-analytics-image')
+            )
+        runs-on: depot-ubuntu-latest
+        permissions:
+            id-token: write
+            contents: read
+
+        steps:
+            - name: Check out
+              uses: actions/checkout@v6
+              with:
+                  fetch-depth: 2
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+
+            - name: Set up Depot CLI
+              uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1.6.0
+
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
+              with:
+                  role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
+                  aws-region: us-east-1
+
+            - name: Login to Amazon ECR
+              id: aws-ecr
+              uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
+
+            - name: Build and push container image
+              id: build
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              with:
+                  project: c1f2m5s6zd
+                  file: ./Dockerfile.llm-analytics
+                  buildx-fallback: false
+                  push: true
+                  tags: ${{ github.ref == 'refs/heads/master' && format('{0}/posthog-llm-analytics:master,{0}/posthog-llm-analytics:{1}', steps.aws-ecr.outputs.registry, github.sha) || format('{0}/posthog-llm-analytics:{1}', steps.aws-ecr.outputs.registry, github.sha) }}
+                  platforms: linux/arm64,linux/amd64
+                  build-args: COMMIT_HASH=${{ github.sha }}
+
+            - name: Get deployer token
+              if: github.ref == 'refs/heads/master'
+              id: deployer
+              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              with:
+                  app_id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
+
+            - name: Get PR labels
+              if: github.ref == 'refs/heads/master'
+              id: labels
+              uses: ./.github/actions/get-pr-labels
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Trigger LLM Analytics Temporal Worker deployment
+              if: github.ref == 'refs/heads/master'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-llm-analytics",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }

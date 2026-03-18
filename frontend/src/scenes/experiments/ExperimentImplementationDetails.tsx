@@ -1,19 +1,10 @@
 import { useState } from 'react'
 
 import { IconServer } from '@posthog/icons'
+import { IconFlutter, IconGo, IconJavascript, IconPHP, IconPython, IconRuby } from '@posthog/icons'
 import { LemonSelect, Link } from '@posthog/lemon-ui'
 
-import {
-    IconAndroidOS,
-    IconAppleIOS,
-    IconFlutter,
-    IconGolang,
-    IconJavascript,
-    IconNodeJS,
-    IconPHP,
-    IconPython,
-    IconRuby,
-} from 'lib/lemon-ui/icons'
+import { IconAndroidOS, IconAppleIOS, IconNodeJS } from 'lib/lemon-ui/icons'
 
 import { Experiment, MultivariateFlagVariant, SDKKey } from '~/types'
 
@@ -66,7 +57,7 @@ export const OPTIONS = [
         value: 'Go',
         key: SDKKey.GO,
         documentationLink: `${DOC_BASE_URL}libraries/go${UTM_TAGS}${FF_ANCHOR}`,
-        Icon: IconGolang,
+        Icon: IconGo,
         Snippet: GolangSnippet,
         type: LibraryType.Server,
     },

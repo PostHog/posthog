@@ -1,0 +1,64 @@
+{
+    "results": [
+        {
+            "uuid": "test-log-1",
+            "trace_id": "trace-abc123",
+            "span_id": "span-def456",
+            "body": "User authentication successful",
+            "attributes": {
+                "user_id": "user-123"
+            },
+            "timestamp": "2024-01-15T10:00:00.000Z",
+            "observed_timestamp": "2024-01-15T10:00:00.100Z",
+            "severity_text": "info",
+            "severity_number": 9,
+            "level": "info",
+            "resource_attributes": {
+                "service.name": "api-service"
+            },
+            "instrumentation_scope": "posthog.api",
+            "event_name": "log"
+        },
+        {
+            "uuid": "test-log-2",
+            "trace_id": "trace-xyz789",
+            "span_id": "span-uvw012",
+            "body": "Database connection failed: timeout after 30s",
+            "attributes": {
+                "db_host": "postgres-primary",
+                "error_code": "ETIMEDOUT"
+            },
+            "timestamp": "2024-01-15T10:01:00.000Z",
+            "observed_timestamp": "2024-01-15T10:01:00.050Z",
+            "severity_text": "error",
+            "severity_number": 17,
+            "level": "error",
+            "resource_attributes": {
+                "service.name": "api-service"
+            },
+            "instrumentation_scope": "posthog.db",
+            "event_name": "log"
+        },
+        {
+            "uuid": "test-log-3",
+            "trace_id": "trace-lmn345",
+            "span_id": "span-opq678",
+            "body": "Page view event processed",
+            "attributes": {
+                "event_type": "$pageview"
+            },
+            "timestamp": "2024-01-15T10:02:00.000Z",
+            "observed_timestamp": "2024-01-15T10:02:00.025Z",
+            "severity_text": "debug",
+            "severity_number": 5,
+            "level": "debug",
+            "resource_attributes": {
+                "service.name": "web-frontend"
+            },
+            "instrumentation_scope": "posthog.events",
+            "event_name": "log"
+        }
+    ],
+    "hasMore": false,
+    "nextCursor": null
+}

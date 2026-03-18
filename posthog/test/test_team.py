@@ -3,12 +3,15 @@ from unittest import mock
 from django.core.cache import cache
 from django.test import TestCase
 
+from parameterized import parameterized
+
 from posthog.schema import PersonsOnEventsMode
 
 from posthog.models import Dashboard, DashboardTile, Organization, Team, User
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.project import Project
 from posthog.models.team import get_team_in_cache, util
+from posthog.models.team.team import SessionRecordingRetentionPeriod
 
 from .base import BaseTest
 
@@ -190,3 +193,27 @@ class TestTeam(BaseTest):
         subsequent = Team.objects.increment_id_sequence()
 
         self.assertEqual(subsequent, initial + 1)
+
+    @parameterized.expand(
+        [
+            (None, {"recorder_script": "posthog-recorder"}),
+            ({"other_setting": "value"}, {"other_setting": "value", "recorder_script": "posthog-recorder"}),
+            ({"recorder_script": "custom-recorder"}, {"recorder_script": "custom-recorder"}),
+        ]
+    )
+    def test_create_team_sets_recorder_script_in_extra_settings(self, input_extra_settings, expected_extra_settings):
+        team = Team.objects.create_with_data(
+            initiating_user=self.user, organization=self.organization, extra_settings=input_extra_settings
+        )
+        self.assertEqual(team.extra_settings, expected_extra_settings)
+
+    @parameterized.expand(
+        [
+            ("self_hosted", False, "session_recording_retention_period", SessionRecordingRetentionPeriod.FIVE_YEARS),
+            ("cloud", True, "session_recording_retention_period", SessionRecordingRetentionPeriod.THIRTY_DAYS),
+        ]
+    )
+    def test_create_team_session_recording_defaults(self, _label, is_cloud, field, expected):
+        with self.is_cloud(is_cloud):
+            team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+            assert getattr(team, field) == expected

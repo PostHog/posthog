@@ -1,69 +1,21 @@
+from typing import TypeGuard
+
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import FunnelConversionWindowTimeUnit, FunnelsFilter, FunnelVizType, StepOrderValue
+from posthog.schema import (
+    ActionsNode,
+    DataWarehouseNode,
+    EventsNode,
+    FunnelConversionWindowTimeUnit,
+    FunnelExclusionActionsNode,
+    FunnelExclusionEventsNode,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
 from posthog.constants import FUNNEL_WINDOW_INTERVAL_TYPES
-from posthog.hogql_queries.legacy_compatibility.feature_flag import (
-    insight_funnels_use_udf,
-    insight_funnels_use_udf_time_to_convert,
-    insight_funnels_use_udf_trends,
-)
-from posthog.models import Team
-
-
-def use_udf(funnelsFilter: FunnelsFilter, team: Team):
-    if funnelsFilter.useUdf:
-        return True
-    funnelVizType = funnelsFilter.funnelVizType
-    if funnelVizType == FunnelVizType.TRENDS and insight_funnels_use_udf_trends(team):
-        return True
-    if funnelVizType == FunnelVizType.STEPS and insight_funnels_use_udf(team):
-        return True
-    if funnelVizType == FunnelVizType.TIME_TO_CONVERT and insight_funnels_use_udf_time_to_convert(team):
-        return True
-    return False
-
-
-def get_funnel_order_class(funnelsFilter: FunnelsFilter, use_udf=False):
-    from posthog.hogql_queries.insights.funnels import Funnel, FunnelStrict, FunnelUDF, FunnelUnordered
-
-    if use_udf:
-        return FunnelUDF
-    elif funnelsFilter.funnelOrderType == StepOrderValue.STRICT:
-        return FunnelStrict
-    elif funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
-        return FunnelUnordered
-    return Funnel
-
-
-def get_funnel_actor_class(funnelsFilter: FunnelsFilter, use_udf=False):
-    from posthog.hogql_queries.insights.funnels import (
-        FunnelActors,
-        FunnelStrictActors,
-        FunnelTrendsActors,
-        FunnelTrendsUDF,
-        FunnelUDF,
-        FunnelUnorderedActors,
-    )
-
-    if funnelsFilter.funnelVizType == FunnelVizType.TRENDS:
-        if use_udf:
-            return FunnelTrendsUDF
-        return FunnelTrendsActors
-
-    if use_udf:
-        return FunnelUDF
-
-    if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
-        return FunnelUnorderedActors
-
-    if funnelsFilter.funnelOrderType == StepOrderValue.STRICT:
-        return FunnelStrictActors
-
-    return FunnelActors
+from posthog.types import EntityNode, ExclusionEntityNode
 
 
 def funnel_window_interval_unit_to_sql(
@@ -88,13 +40,20 @@ def funnel_window_interval_unit_to_sql(
 
 
 def get_breakdown_expr(
-    breakdowns: list[str | int] | str | int, properties_column: str, normalize_url: bool | None = False
+    breakdowns: list[str | int] | str | int, properties_column: str | None, normalize_url: bool | None = False
 ) -> ast.Expr:
+    def make_field(breakdown: str | int) -> ast.Expr:
+        if properties_column is None:
+            # breakdown already refers to a top-level field
+            return ast.Field(chain=[breakdown])
+        else:
+            return ast.Field(chain=[*properties_column.split("."), breakdown])
+
     if isinstance(breakdowns, str) or isinstance(breakdowns, int) or breakdowns is None:
         return ast.Call(
             name="ifNull",
             args=[
-                ast.Call(name="toString", args=[ast.Field(chain=[*properties_column.split("."), breakdowns])]),
+                ast.Call(name="toString", args=[make_field(breakdowns)]),
                 ast.Constant(value=""),
             ],
         )
@@ -104,7 +63,7 @@ def get_breakdown_expr(
             expr: ast.Expr = ast.Call(
                 name="ifNull",
                 args=[
-                    ast.Call(name="toString", args=[ast.Field(chain=[*properties_column.split("."), breakdown])]),
+                    ast.Call(name="toString", args=[make_field(breakdown)]),
                     ast.Constant(value=""),
                 ],
             )
@@ -118,3 +77,55 @@ def get_breakdown_expr(
         expression = ast.Array(exprs=exprs)
 
     return expression
+
+
+def is_events_entity(entity: EntityNode | ExclusionEntityNode) -> TypeGuard[EventsNode | FunnelExclusionEventsNode]:
+    return (
+        isinstance(entity, EventsNode)
+        or isinstance(entity, FunnelExclusionEventsNode)
+        or isinstance(entity, ActionsNode)
+        or isinstance(entity, FunnelExclusionActionsNode)
+    )
+
+
+def is_data_warehouse_entity(entity: EntityNode | ExclusionEntityNode) -> TypeGuard[DataWarehouseNode]:
+    return isinstance(entity, DataWarehouseNode)
+
+
+def data_warehouse_config_key(node: DataWarehouseNode) -> tuple[str, str, str, str]:
+    return (
+        node.table_name,
+        node.id_field,
+        node.distinct_id_field,
+        node.timestamp_field,
+    )
+
+
+def entity_config_mismatch(step_entity: EntityNode, table_entity: EntityNode | None) -> bool:
+    if isinstance(step_entity, DataWarehouseNode) != isinstance(table_entity, DataWarehouseNode):
+        return True
+
+    if not isinstance(step_entity, DataWarehouseNode):
+        return False
+
+    assert isinstance(table_entity, DataWarehouseNode)
+    return data_warehouse_config_key(step_entity) != data_warehouse_config_key(table_entity)
+
+
+def alias_columns_in_select(columns: list[ast.Expr], table_alias: str) -> list[ast.Expr]:
+    """
+    Returns a list of `column_or_alias_name AS table_alias.column_or_alias_name`, from a given list of `columns`.
+    """
+    result: list[ast.Expr] = []
+    for col in columns:
+        if isinstance(col, ast.Alias):
+            result.append(ast.Alias(alias=col.alias, expr=ast.Field(chain=[table_alias, col.alias])))
+        elif isinstance(col, ast.Field):
+            # assumes the last chain part is the column name
+            column_name = col.chain[-1]
+            if not isinstance(column_name, str):
+                raise ValueError(f"Cannot alias field with chain {col.chain!r}")
+            result.append(ast.Alias(alias=column_name, expr=ast.Field(chain=[table_alias, column_name])))
+        else:
+            raise ValueError(f"Unexpected select expression {col!r}")
+    return result

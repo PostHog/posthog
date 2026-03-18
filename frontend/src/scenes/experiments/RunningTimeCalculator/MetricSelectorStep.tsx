@@ -9,12 +9,12 @@ import {
     isExperimentMeanMetric,
 } from '~/queries/schema/schema-general'
 
-import { MetricTitle } from '../MetricsView/shared/MetricTitle'
 import { experimentLogic } from '../experimentLogic'
+import { MetricTitle } from '../MetricsView/shared/MetricTitle'
 import { FunnelMetricDataPanel } from './FunnelMetricDataPanel'
 import { MeanMetricDataPanel } from './MeanMetricDataPanel'
-import { RunningTimeCalculatorModalStep } from './RunningTimeCalculatorModalStep'
 import { ConversionRateInputType, runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
+import { RunningTimeCalculatorModalStep } from './RunningTimeCalculatorModalStep'
 
 type MetricOption = {
     metric: ExperimentMetric
@@ -30,12 +30,10 @@ export const MetricSelectorStep = ({
     onChangeMetric: (metric: ExperimentMetric) => void
     onChangeFunnelConversionRateType: (type: ConversionRateInputType) => void
 }): JSX.Element => {
-    const { experimentId } = useValues(experimentLogic)
+    const { experiment } = useValues(experimentLogic)
 
-    const { experiment, metric, metricUuid, metricResultLoading } = useValues(
-        runningTimeCalculatorLogic({ experimentId })
-    )
-    const { setMetricUuid } = useActions(runningTimeCalculatorLogic({ experimentId }))
+    const { metric, metricUuid, metricResultLoading } = useValues(runningTimeCalculatorLogic({ experiment }))
+    const { setMetricUuid } = useActions(runningTimeCalculatorLogic({ experiment }))
 
     // Create combined array of metrics and saved metrics
     const metricOptions: MetricOption[] = [

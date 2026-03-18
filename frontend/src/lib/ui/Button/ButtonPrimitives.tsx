@@ -47,7 +47,8 @@ type ButtonBaseProps = {
     tooltipDocLink?: TooltipProps['docLink']
     tooltipPlacement?: TooltipProps['placement']
     tooltipCloseDelayMs?: TooltipProps['closeDelayMs']
-    tooltipVisible?: boolean
+    tooltipVisible?: TooltipProps['visible']
+    tooltipInteractive?: TooltipProps['interactive']
     buttonWrapper?: (button: JSX.Element) => JSX.Element
     // Like disabled but doesn't show the disabled state or focus state (still shows tooltip)
     inert?: boolean
@@ -125,6 +126,7 @@ ButtonGroupPrimitive.displayName = 'ButtonGroupPrimitive'
 
 export interface ButtonPrimitiveProps extends ButtonBaseProps, React.ButtonHTMLAttributes<HTMLButtonElement> {
     'data-attr'?: string
+    forceVariant?: boolean
 }
 
 export const buttonPrimitiveVariants = cva({
@@ -227,17 +229,23 @@ export const buttonPrimitiveVariants = cva({
 
 // Renders the list of disabled reasons if value is true, otherwise returns null
 function renderDisabledReasons(disabledReasons: DisabledReasonsObject): JSX.Element | null {
-    const reasons = Object.entries(disabledReasons).filter(([_, value]) => value)
+    const reasons = Object.entries(disabledReasons)
+        .filter(([_, value]) => value)
+        .map(([reason]) => reason)
 
     if (!reasons.length) {
         return null
+    }
+
+    if (reasons.length === 1) {
+        return <span>{reasons[0]}</span>
     }
 
     return (
         <>
             Disabled reasons:
             <ul className="pl-3 list-disc">
-                {reasons.map(([reason]) => (
+                {reasons.map((reason) => (
                     <li key={reason}>{reason}</li>
                 ))}
             </ul>
@@ -265,16 +273,18 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
         tooltipPlacement,
         tooltipDocLink,
         tooltipVisible,
+        tooltipInteractive,
         autoHeight,
         inert,
+        forceVariant = false,
+        truncate,
         ...rest
     } = props
     // If inside a ButtonGroup, use the context values, otherwise use props
     const context = useButtonGroupContext()
     const effectiveSize = context?.sizeContext || size
-    const effectiveVariant = context?.variantContext || variant
+    const effectiveVariant = forceVariant ? variant : context?.variantContext || variant
     let effectiveDisabled = disabledReasons ? Object.values(disabledReasons).some((value) => value) : disabled
-
     let buttonComponent: JSX.Element = React.createElement(
         'button',
         {
@@ -290,6 +300,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
                     isSideActionRight,
                     autoHeight,
                     inert,
+                    truncate,
                     className,
                 })
             ),
@@ -305,21 +316,29 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
         children
     )
 
-    if (tooltip || tooltipDocLink || disabledReasons) {
+    // If there are disabled reasons which are true, render them, otherwise render the tooltip
+    const tooltipTitle =
+        disabledReasons && Object.values(disabledReasons).some(Boolean)
+            ? renderDisabledReasons(disabledReasons)
+            : tooltip
+
+    if (tooltipTitle || tooltipDocLink) {
+        const tooltipChild = effectiveDisabled ? (
+            <span className="inline-flex w-fit">{buttonComponent}</span>
+        ) : (
+            buttonComponent
+        )
+
         buttonComponent = (
             <Tooltip
-                // If there are disabled reasons which are true, render them, otherwise render the tooltip
-                title={
-                    disabledReasons && Object.values(disabledReasons).some(Boolean)
-                        ? renderDisabledReasons(disabledReasons)
-                        : tooltip
-                }
+                title={tooltipTitle}
                 placement={tooltipPlacement}
                 closeDelayMs={tooltipCloseDelayMs}
                 docLink={tooltipDocLink}
                 visible={tooltipVisible}
+                interactive={tooltipInteractive}
             >
-                {buttonComponent}
+                {tooltipChild}
             </Tooltip>
         )
     }

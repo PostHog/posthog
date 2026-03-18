@@ -156,15 +156,17 @@ class AdvancedActivityLogFilterManager:
     def _apply_was_impersonated_filter(
         self, queryset: QuerySet[ActivityLog], filters: dict[str, Any]
     ) -> QuerySet[ActivityLog]:
-        if "was_impersonated" in filters:
-            queryset = queryset.filter(was_impersonated=filters["was_impersonated"])
+        was_impersonated = filters.get("was_impersonated")
+        if was_impersonated is not None:
+            queryset = queryset.filter(was_impersonated=was_impersonated)
         return queryset
 
     def _apply_is_system_filter(
         self, queryset: QuerySet[ActivityLog], filters: dict[str, Any]
     ) -> QuerySet[ActivityLog]:
-        if "is_system" in filters:
-            queryset = queryset.filter(is_system=filters["is_system"])
+        is_system = filters.get("is_system")
+        if is_system is not None:
+            queryset = queryset.filter(is_system=is_system)
         return queryset
 
     def _apply_item_ids_filter(self, queryset: QuerySet[ActivityLog], filters: dict[str, Any]) -> QuerySet[ActivityLog]:

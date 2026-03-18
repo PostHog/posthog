@@ -1,12 +1,15 @@
 from datetime import UTC, date, datetime
-from typing import Optional
+from typing import Any, Optional
 
+import pytest
 from freezegun import freeze_time
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 
-from posthog.hogql.ast import DateType, FloatType, IntegerType
+from posthog.hogql import ast
+from posthog.hogql.ast import DateType, FloatType, IntegerType, StringLiteralType, StringType
 from posthog.hogql.base import UnknownType
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.functions.aggregations import generate_combinator_suffix_combinations
 from posthog.hogql.functions.core import HogQLFunctionMeta, compare_types
 from posthog.hogql.functions.mapping import (
     HOGQL_CLICKHOUSE_FUNCTIONS,
@@ -19,7 +22,10 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
 
-class TestMappings(BaseTest):
+@pytest.mark.usefixtures("unittest_snapshot")
+class TestMappings(ClickhouseTestMixin, BaseTest):
+    snapshot: Any
+
     def _return_present_function(self, function: Optional[HogQLFunctionMeta]) -> HogQLFunctionMeta:
         assert function is not None
         return function
@@ -69,6 +75,31 @@ class TestMappings(BaseTest):
     def test_compare_types_mismatch_differing_order(self):
         res = compare_types([IntegerType(), FloatType()], (FloatType(), IntegerType()))
         assert res is False
+
+    def test_compare_types_string_literal_matching_value(self):
+        sig = (StringLiteralType(values=frozenset({"month", "year"})),)
+        res = compare_types([StringType()], sig, args=[ast.Constant(value="month")])
+        assert res is True
+
+    def test_compare_types_string_literal_non_matching_value(self):
+        sig = (StringLiteralType(values=frozenset({"month", "year"})),)
+        res = compare_types([StringType()], sig, args=[ast.Constant(value="day")])
+        assert res is False
+
+    def test_compare_types_string_literal_non_constant_arg(self):
+        sig = (StringLiteralType(values=frozenset({"month"})),)
+        res = compare_types([StringType()], sig, args=[ast.Field(chain=["unit"])])
+        assert res is False
+
+    def test_compare_types_string_literal_no_args_provided(self):
+        sig = (StringLiteralType(values=frozenset({"month"})),)
+        res = compare_types([StringType()], sig)
+        assert res is False
+
+    def test_compare_types_string_literal_case_insensitive(self):
+        sig = (StringLiteralType(values=frozenset({"month"})),)
+        res = compare_types([StringType()], sig, args=[ast.Constant(value="MONTH")])
+        assert res is True
 
     def test_unknown_type_mapping(self):
         HOGQL_CLICKHOUSE_FUNCTIONS["overloadedFunction"] = HogQLFunctionMeta(
@@ -209,7 +240,7 @@ class TestMappings(BaseTest):
         self.assertEqual(result_dict["date_part_month"], 1)
         self.assertEqual(result_dict["date_part_day"], 1)
         self.assertEqual(result_dict["date_part_hour"], 13)
-        self.assertEqual(result_dict["to_timestamp_result"], datetime(2023, 1, 1, 13, 25, 32))
+        self.assertEqual(result_dict["to_timestamp_result"], datetime(2023, 1, 1, 13, 25, 32, tzinfo=UTC))
         self.assertEqual(result_dict["to_char_result"], "2023-01-01")
         self.assertEqual(result_dict["make_date_result"], date(2023, 1, 1))
         self.assertEqual(result_dict["date_add_result"], datetime(2023, 1, 1, 14, 45, 32, tzinfo=UTC))
@@ -389,3 +420,11 @@ class TestMappings(BaseTest):
         self.assertEqual(result_dict["array_length"], 5)  # 5 elements in array
         self.assertEqual(result_dict["string_type"], "String")  # type of "value"
         self.assertEqual(result_dict["extracted_int"], 42)  # extracted integer
+
+    def test_generated_aggregate_combinator_functions_snapshot(self):
+        generated_sigs = [
+            f"{name}: ({sig.min_args}, {sig.max_args})"
+            for (name, sig) in generate_combinator_suffix_combinations().items()
+        ]
+
+        self.assertEqual(generated_sigs, self.snapshot)

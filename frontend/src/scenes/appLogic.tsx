@@ -2,8 +2,8 @@ import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
 import { urlToAction } from 'kea-router'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -14,6 +14,7 @@ export const appLogic = kea<appLogicType>([
 
     connect([teamLogic, organizationLogic, preflightLogic]),
     actions({
+        exitAIOnlyMode: true,
         enableDelayedSpinner: true,
         ignoreFeatureFlags: true,
         showDevTools: true,
@@ -22,6 +23,7 @@ export const appLogic = kea<appLogicType>([
         showingDelayedSpinner: [false, { enableDelayedSpinner: () => true }],
         featureFlagsTimedOut: [false, { ignoreFeatureFlags: () => true }],
         showingDevTools: [false, { showDevTools: () => true }],
+        hasExitedAIOnlyMode: [false, { exitAIOnlyMode: () => true }],
     }),
     selectors({
         showApp: [

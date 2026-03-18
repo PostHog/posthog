@@ -2,12 +2,12 @@ import logging
 
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models.signals import post_save
-from django.dispatch import receiver
 
 from posthog.schema import AttributionMode, NodeKind, SourceMap
 
 from posthog.models.team import Team
+from posthog.models.team.extensions import register_team_extension_signal
+from posthog.rbac.decorators import field_access_control
 
 # ruff: noqa: DJ012  # Properties act as field accessors for mangled DB fields, so they need to come before save()
 
@@ -54,6 +54,141 @@ def validate_attribution_mode(mode: str) -> None:
     valid_modes = [attr_mode.value for attr_mode in AttributionMode]
     if mode not in valid_modes:
         raise ValidationError(f"attribution_mode must be one of {valid_modes}")
+
+
+def validate_campaign_name_mappings(mappings: dict) -> None:
+    """
+    Validate campaign_name_mappings structure: dict of source_id -> dict of clean_name -> list of raw utm values.
+
+    Structure: {
+        "GoogleAds": {
+            "Spring Sale 2024": ["spring_sale_2024", "spring-sale-2024"],
+            "Black Friday": ["bf_2024", "blackfriday"]
+        },
+        "MetaAds": {...}
+    }
+    """
+    if not isinstance(mappings, dict):
+        raise ValidationError("campaign_name_mappings must be a dictionary")
+
+    for source_id, campaign_mappings in mappings.items():
+        if not isinstance(source_id, str):
+            raise ValidationError(f"Source ID '{source_id}' must be a string")
+
+        if not isinstance(campaign_mappings, dict):
+            raise ValidationError(f"Campaign mappings for source '{source_id}' must be a dictionary")
+
+        for clean_name, raw_values in campaign_mappings.items():
+            if not isinstance(clean_name, str):
+                raise ValidationError(f"Clean campaign name '{clean_name}' in source '{source_id}' must be a string")
+
+            if not isinstance(raw_values, list):
+                raise ValidationError(f"Raw values for campaign '{clean_name}' in source '{source_id}' must be a list")
+
+            for raw_value in raw_values:
+                if not isinstance(raw_value, str):
+                    raise ValidationError(
+                        f"Raw value '{raw_value}' for campaign '{clean_name}' in source '{source_id}' must be a string"
+                    )
+
+
+def validate_custom_source_mappings(mappings: dict) -> None:
+    """
+    Validate custom_source_mappings structure: dict of integration type -> list of custom UTM sources.
+
+    Structure: {
+        "GoogleAds": ["partner_a", "custom_source_1"],
+        "MetaAds": ["influencer_campaign", "partner_b"]
+    }
+
+    The integration type (e.g., "GoogleAds") should match the keys in the adapter registry.
+
+    Important: Custom UTM sources must be unique across all integrations. You cannot map
+    the same UTM source value to multiple integrations (e.g., mapping "partner_a" to both
+    GoogleAds and MetaAds will cause conflicts in attribution).
+    """
+    if not isinstance(mappings, dict):
+        raise ValidationError("custom_source_mappings must be a dictionary")
+
+    # Track all custom sources across integrations to detect duplicates
+    seen_sources: dict[str, str] = {}  # lowercase source -> integration type
+
+    for integration_type, utm_sources in mappings.items():
+        if not isinstance(integration_type, str):
+            raise ValidationError(f"Integration type '{integration_type}' must be a string")
+
+        if not isinstance(utm_sources, list):
+            raise ValidationError(f"UTM sources for integration '{integration_type}' must be a list")
+
+        # Check for duplicates within the same integration
+        seen_within_integration: set[str] = set()
+
+        for utm_source in utm_sources:
+            if not isinstance(utm_source, str):
+                raise ValidationError(
+                    f"UTM source '{utm_source}' for integration '{integration_type}' must be a string"
+                )
+
+            source_lower = utm_source.lower()
+
+            # Check for duplicates within the same integration
+            if source_lower in seen_within_integration:
+                raise ValidationError(
+                    f"Custom UTM source '{utm_source}' appears multiple times in {integration_type}. "
+                    f"Each source should only be listed once per integration."
+                )
+            seen_within_integration.add(source_lower)
+
+            # Check for duplicates across integrations
+            if source_lower in seen_sources:
+                raise ValidationError(
+                    f"Custom UTM source '{utm_source}' cannot be mapped to multiple integrations. "
+                    f"It is already used in {seen_sources[source_lower]}, cannot also add to {integration_type}. "
+                    f"Each custom UTM source must be unique across all integrations."
+                )
+            seen_sources[source_lower] = integration_type
+
+
+def validate_campaign_field_preferences(preferences: dict) -> None:
+    """
+    Validate campaign_field_preferences structure: dict of integration type -> field matching config.
+
+    Structure: {
+        "GoogleAds": {
+            "match_field": "campaign_name"      # or "campaign_id"
+        },
+        "MetaAds": {
+            "match_field": "campaign_id"
+        }
+    }
+
+    Valid match_field values: "campaign_name", "campaign_id"
+
+    Note: Manual mappings (campaign_name_mappings) always take precedence over automatic matching.
+    The match_field controls which field to match against after manual mapping is applied.
+    """
+    if not isinstance(preferences, dict):
+        raise ValidationError("campaign_field_preferences must be a dictionary")
+
+    valid_match_fields = ["campaign_name", "campaign_id"]
+
+    for integration_type, config in preferences.items():
+        if not isinstance(integration_type, str):
+            raise ValidationError(f"Integration type '{integration_type}' must be a string")
+
+        if not isinstance(config, dict):
+            raise ValidationError(f"Config for integration '{integration_type}' must be a dictionary")
+
+        # Validate match_field
+        match_field = config.get("match_field")
+        if match_field is None:
+            raise ValidationError(f"Integration '{integration_type}' must have a 'match_field'")
+
+        if match_field not in valid_match_fields:
+            raise ValidationError(
+                f"Invalid match_field '{match_field}' for integration '{integration_type}'. "
+                f"Must be one of: {valid_match_fields}"
+            )
 
 
 def validate_conversion_goals(conversion_goals: list) -> None:
@@ -130,19 +265,62 @@ class TeamMarketingAnalyticsConfig(models.Model):
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
 
     # Attribution settings
-    attribution_window_days = models.IntegerField(default=90, help_text="Attribution window in days (1-90)")
-    attribution_mode = models.CharField(
-        max_length=20,
-        default=AttributionMode.LAST_TOUCH,
-        choices=[(mode.value, mode.value.replace("_", " ").title()) for mode in AttributionMode],
-        help_text="Attribution mode: first_touch or last_touch",
+    attribution_window_days = field_access_control(
+        models.IntegerField(default=90, help_text="Attribution window in days (1-90)"), "project", "admin"
+    )
+    attribution_mode = field_access_control(
+        models.CharField(
+            max_length=20,
+            default=AttributionMode.LAST_TOUCH,
+            choices=[(mode.value, mode.value.replace("_", " ").title()) for mode in AttributionMode],
+            help_text="Attribution mode: first_touch or last_touch",
+        ),
+        "project",
+        "admin",
     )
 
     # Mangled fields incoming:
     # Because we want to validate the schema for these fields, we'll have mangled DB fields/columns
     # that are then wrapped by schema-validation getters/setters
-    _sources_map = models.JSONField(default=dict, db_column="sources_map", null=False, blank=True)
-    _conversion_goals = models.JSONField(default=list, db_column="conversion_goals", null=True, blank=True)
+    _sources_map = field_access_control(
+        models.JSONField(default=dict, db_column="sources_map", null=False, blank=True), "project", "admin"
+    )
+    _conversion_goals = field_access_control(
+        models.JSONField(default=list, db_column="conversion_goals", null=True, blank=True), "project", "admin"
+    )
+    _campaign_name_mappings = field_access_control(
+        models.JSONField(
+            default=dict,
+            db_column="campaign_name_mappings",
+            null=False,
+            blank=True,
+            help_text="Maps campaign names to lists of raw UTM values per data source",
+        ),
+        "project",
+        "admin",
+    )
+    _custom_source_mappings = field_access_control(
+        models.JSONField(
+            default=dict,
+            db_column="custom_source_mappings",
+            null=False,
+            blank=True,
+            help_text="Custom UTM source mappings: maps integration types to lists of custom UTM source values",
+        ),
+        "project",
+        "admin",
+    )
+    _campaign_field_preferences = field_access_control(
+        models.JSONField(
+            default=dict,
+            db_column="campaign_field_preferences",
+            null=False,
+            blank=True,
+            help_text="Campaign field matching preferences: defines which field (campaign_name or campaign_id) to match utm_campaign against per integration. Manual mappings always take precedence.",
+        ),
+        "project",
+        "admin",
+    )
 
     def clean(self):
         """Validate model fields"""
@@ -192,6 +370,45 @@ class TeamMarketingAnalyticsConfig(models.Model):
         except ValidationError as e:
             raise ValidationError(f"Invalid conversion goals: {str(e)}")
 
+    @property
+    def campaign_name_mappings(self) -> dict[str, dict[str, list[str]]]:
+        return self._campaign_name_mappings or {}
+
+    @campaign_name_mappings.setter
+    def campaign_name_mappings(self, value: dict) -> None:
+        value = value or {}
+        try:
+            validate_campaign_name_mappings(value)
+            self._campaign_name_mappings = value
+        except ValidationError as e:
+            raise ValidationError(f"Invalid campaign name mappings: {str(e)}")
+
+    @property
+    def custom_source_mappings(self) -> dict[str, list[str]]:
+        return self._custom_source_mappings or {}
+
+    @custom_source_mappings.setter
+    def custom_source_mappings(self, value: dict) -> None:
+        value = value or {}
+        try:
+            validate_custom_source_mappings(value)
+            self._custom_source_mappings = value
+        except ValidationError as e:
+            raise ValidationError(f"Invalid custom source mappings: {str(e)}")
+
+    @property
+    def campaign_field_preferences(self) -> dict[str, dict]:
+        return self._campaign_field_preferences or {}
+
+    @campaign_field_preferences.setter
+    def campaign_field_preferences(self, value: dict) -> None:
+        value = value or {}
+        try:
+            validate_campaign_field_preferences(value)
+            self._campaign_field_preferences = value
+        except ValidationError as e:
+            raise ValidationError(f"Invalid campaign field preferences: {str(e)}")
+
     def update_source_mapping(self, source_id: str, field_mapping: dict) -> None:
         """Update or add a single source mapping while preserving existing sources."""
 
@@ -234,17 +451,10 @@ class TeamMarketingAnalyticsConfig(models.Model):
             "sources_map": self.sources_map,
             "attribution_window_days": self.attribution_window_days,
             "attribution_mode": self.attribution_mode,
+            "campaign_name_mappings": self.campaign_name_mappings,
+            "custom_source_mappings": self.custom_source_mappings,
+            "campaign_field_preferences": self.campaign_field_preferences,
         }
 
 
-# This is best effort, we always attempt to create the config manually
-# when accessing it via `Team.marketing_analytics_config`.
-# In theory, this shouldn't ever fail, but it does fail in some tests cases
-# so let's make it very forgiving
-@receiver(post_save, sender=Team)
-def create_team_marketing_analytics_config(sender, instance, created, **kwargs):
-    try:
-        if created:
-            TeamMarketingAnalyticsConfig.objects.get_or_create(team=instance)
-    except Exception as e:
-        logger.warning(f"Error creating team marketing analytics config: {e}")
+register_team_extension_signal(TeamMarketingAnalyticsConfig, logger=logger)

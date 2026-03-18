@@ -34,11 +34,21 @@ class UserBasicSerializer(serializers.ModelSerializer):
 
     def get_hedgehog_config(self, user: User) -> Optional[dict]:
         if user.hedgehog_config:
-            return {
-                "use_as_profile": user.hedgehog_config.get("use_as_profile"),
-                "color": user.hedgehog_config.get("color"),
-                "accessories": user.hedgehog_config.get("accessories"),
-            }
+            if user.hedgehog_config.get("version") == 2:
+                actor_options = user.hedgehog_config.get("actor_options", {})
+                return {
+                    "use_as_profile": user.hedgehog_config.get("use_as_profile"),
+                    "color": actor_options.get("color"),
+                    "accessories": actor_options.get("accessories"),
+                    "skin": actor_options.get("skin"),
+                }
+            else:
+                return {
+                    "use_as_profile": user.hedgehog_config.get("use_as_profile"),
+                    "color": user.hedgehog_config.get("color"),
+                    "accessories": user.hedgehog_config.get("accessories"),
+                    "skin": user.hedgehog_config.get("skin"),
+                }
         return None
 
 
@@ -214,7 +224,16 @@ class OrganizationBasicSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Organization
-        fields = ["id", "name", "slug", "logo_media_id", "membership_level", "members_can_use_personal_api_keys"]
+        fields = [
+            "id",
+            "name",
+            "slug",
+            "logo_media_id",
+            "membership_level",
+            "members_can_use_personal_api_keys",
+            "is_active",
+            "is_not_active_reason",
+        ]
 
     def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
         membership = OrganizationMembership.objects.filter(

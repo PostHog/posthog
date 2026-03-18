@@ -63,6 +63,7 @@ export function SceneTextInput({
                     data-attr={`${dataAttrKey}-${name}-input`}
                     autoFocus
                     error={!!error}
+                    className="input-like"
                 />
             </ScenePanelLabel>
 

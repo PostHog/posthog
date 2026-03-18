@@ -4,7 +4,7 @@ import { Form } from 'kea-forms'
 import posthog from 'posthog-js'
 
 import { IconCopy } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 
 import { SharingModalContent } from 'lib/components/Sharing/SharingModal'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -67,11 +67,13 @@ function PrivateLink(props: PlayerShareLogicProps): JSX.Element {
     const { privateLinkUrl, privateLinkFormHasErrors } = useValues(logic)
 
     return (
-        <>
-            <p>
-                <b>Click the button below</b> to copy a direct link to this recording. Make sure the person you share it
-                with has access to this PostHog project.
-            </p>
+        <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1">
+                <div>
+                    <b>Click the button below</b> to copy a direct link to this recording.
+                </div>
+                <div>Make sure the person you share it with has access to this PostHog project.</div>
+            </div>
             <LemonButton
                 type="secondary"
                 fullWidth
@@ -83,86 +85,35 @@ function PrivateLink(props: PlayerShareLogicProps): JSX.Element {
                 title={privateLinkUrl}
                 disabledReason={privateLinkFormHasErrors ? 'Fix all errors before continuing' : undefined}
             >
-                <span className="truncate">{privateLinkUrl}</span>
+                <span className="break-all">{privateLinkUrl}</span>
             </LemonButton>
             <TimestampForm {...props} />
-        </>
-    )
-}
-
-function LinearLink(props: PlayerShareLogicProps): JSX.Element {
-    const logic = playerShareLogic(props)
-
-    const { linearLinkForm, linearUrl, linearLinkFormHasErrors } = useValues(logic)
-    const { setLinearLinkFormValue } = useActions(logic)
-
-    return (
-        <>
-            <p>Add an issue to your Linear workspace with a link to this recording.</p>
-
-            <Form logic={playerShareLogic} props={props} formKey="linearLinkForm" className="flex flex-col gap-2">
-                <LemonField className="gap-1" name="issueTitle" label="Issue title">
-                    <LemonInput fullWidth />
-                </LemonField>
-                <LemonField
-                    className="gap-1"
-                    name="issueDescription"
-                    label="Issue description"
-                    help={<span>We'll include a link to the recording in the description.</span>}
-                >
-                    <LemonTextArea />
-                </LemonField>
-                <div className="flex gap-1 items-center">
-                    <LemonField name="includeTime">
-                        <LemonCheckbox label="Start at" checked={linearLinkForm.includeTime} />
-                    </LemonField>
-                    <LemonField name="time" inline>
-                        <LemonInput
-                            className={clsx('w-20', { 'opacity-50': !linearLinkForm.includeTime })}
-                            onFocus={() => setLinearLinkFormValue('includeTime', true)}
-                            placeholder="00:00"
-                            fullWidth={false}
-                            size="small"
-                        />
-                    </LemonField>
-                </div>
-                <div className="flex justify-end">
-                    <LemonButton
-                        type="primary"
-                        to={linearUrl}
-                        targetBlank={true}
-                        disabledReason={linearLinkFormHasErrors ? 'Fix all errors before continuing' : undefined}
-                    >
-                        Create issue
-                    </LemonButton>
-                </div>
-            </Form>
-        </>
-    )
-}
-
-export function PlayerShareRecording(props: PlayerShareLogicProps): JSX.Element {
-    return (
-        <div className="deprecated-space-y-2">
-            {props.shareType === 'private' && <PrivateLink {...props} />}
-
-            {props.shareType === 'public' && <PublicLink {...props} />}
-
-            {props.shareType === 'linear' && <LinearLink {...props} />}
         </div>
     )
 }
 
+export function PlayerShareRecording({
+    ...props
+}: PlayerShareLogicProps & { onCloseDialog?: () => void }): JSX.Element {
+    return (
+        <div className="gap-y-2">
+            {props.shareType === 'private' && <PrivateLink {...props} />}
+
+            {props.shareType === 'public' && <PublicLink {...props} />}
+        </div>
+    )
+}
+
+const shareTitleMapping = {
+    private: 'Share private link',
+    public: 'Share public link',
+}
+
 export function openPlayerShareDialog(props: PlayerShareLogicProps): void {
     LemonDialog.open({
-        title:
-            props.shareType === 'private'
-                ? 'Share private link'
-                : props.shareType === 'public'
-                  ? 'Share public link'
-                  : 'Share to Linear',
-        content: <PlayerShareRecording {...props} />,
-        width: 600,
+        title: props.shareType ? shareTitleMapping[props.shareType] : '',
+        content: (closeDialog) => <PlayerShareRecording {...props} onCloseDialog={closeDialog} />,
+        maxWidth: '85vw',
         zIndex: '1162',
         primaryButton: null,
     })

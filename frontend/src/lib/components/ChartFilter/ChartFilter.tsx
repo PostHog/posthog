@@ -26,10 +26,10 @@ export function ChartFilter(): JSX.Element {
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { isTrends, isSingleSeries, formula, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
+    const { isTrends, isSingleSeriesOutput, formula, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
 
     const trendsOnlyDisabledReason = !isTrends ? 'This type is only available in Trends.' : undefined
-    const singleSeriesOnlyDisabledReason = !isSingleSeries
+    const singleSeriesOnlyDisabledReason = !isSingleSeriesOutput
         ? 'This type currently only supports insights with one series, and this insight has multiple series.'
         : undefined
 
@@ -60,24 +60,43 @@ export function ChartFilter(): JSX.Element {
                     ),
                 },
                 {
-                    value: ChartDisplayType.ActionsBar,
+                    value: ChartDisplayType.ActionsUnstackedBar,
                     icon: <IconGraph />,
                     label: 'Bar chart',
                     labelInMenu: (
-                        <ChartFilterOptionLabel label="Bar chart" description="Trends over time as vertical bars." />
-                    ),
-                },
-                {
-                    value: ChartDisplayType.ActionsUnstackedBar,
-                    icon: <IconGraph />,
-                    label: 'Unstacked bar chart',
-                    labelInMenu: (
                         <ChartFilterOptionLabel
-                            label="Unstacked bar chart"
+                            label="Bar chart"
                             description="Trends over time as vertical bars side-by-side."
                         />
                     ),
                 },
+                {
+                    value: ChartDisplayType.ActionsBar,
+                    icon: <IconGraph />,
+                    label: 'Stacked bar chart',
+                    labelInMenu: (
+                        <ChartFilterOptionLabel
+                            label="Stacked bar chart"
+                            description="Trends over time as vertical bars."
+                        />
+                    ),
+                },
+                ...(featureFlags[FEATURE_FLAGS.BOX_PLOT_INSIGHT]
+                    ? [
+                          {
+                              value: ChartDisplayType.BoxPlot,
+                              icon: <IconGraph />,
+                              label: 'Box plot',
+                              disabledReason: trendsOnlyDisabledReason,
+                              labelInMenu: (
+                                  <ChartFilterOptionLabel
+                                      label="Box plot"
+                                      description="Distribution of a property over time showing quartiles."
+                                  />
+                              ),
+                          },
+                      ]
+                    : []),
             ],
         },
         {

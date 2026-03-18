@@ -1,3 +1,4 @@
+from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 
 from posthog.models import User
@@ -41,6 +42,7 @@ class DetailSerializer(serializers.Serializer):
     type = serializers.CharField(read_only=True)
 
 
+@extend_schema_serializer(component_name="ActivityLogEntry")
 class ActivityLogSerializer(serializers.Serializer):
     class Meta:
         exclude = ["team_id, organization_id"]

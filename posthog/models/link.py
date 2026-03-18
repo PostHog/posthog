@@ -72,7 +72,7 @@ class Link(FileSystemSyncMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel
             type="link",  # sync with APIScopeObject in scopes.py
             ref=str(self.id),
             name=self.short_code or "Untitled",
-            href=f"/links/{self.id}",
+            href=f"/link/{self.id}",
             meta={
                 "created_at": str(self.created_at),
                 "created_by": self.created_by_id,

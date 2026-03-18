@@ -13,7 +13,7 @@ from posthog.schema import (
     NodeKind,
 )
 
-from ee.hogai.graph.funnels.toolkit import FUNNEL_SCHEMA
+from ee.hogai.chat_agent.funnels.toolkit import FUNNEL_SCHEMA
 
 from ..base import MaxPublicEval
 from ..scorers import PlanAndQueryOutput, PlanCorrectness, QueryAndPlanAlignment, QueryKindSelection, TimeRangeRelevancy

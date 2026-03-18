@@ -1,9 +1,20 @@
-from posthog.hogql.ast import DateTimeType, DateType, FloatType, IntegerType, IntervalType, StringType
+from posthog.hogql.ast import (
+    DateTimeType,
+    DateType,
+    FloatType,
+    IntegerType,
+    IntervalType,
+    StringLiteralType,
+    StringType,
+)
 from posthog.hogql.base import UnknownType
 
 from ..core import HogQLFunctionMeta
 
+DATE_TRUNCATION_UNITS = frozenset({"year", "quarter", "month", "week"})
+
 # dates and times
+# Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 DATETIME_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "timeZoneOf": HogQLFunctionMeta("timeZoneOf", 1, 1),
     "timeZoneOffset": HogQLFunctionMeta("timeZoneOffset", 1, 1),
@@ -202,6 +213,7 @@ DATETIME_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "fromModifiedJulianDay": HogQLFunctionMeta("fromModifiedJulianDayOrNull", 1, 1),
 }
 
+# Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 DATE_GENERATOR_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "now": HogQLFunctionMeta(
         "now64",
@@ -245,6 +257,7 @@ DATE_GENERATOR_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
 }
 
 # Interval functions
+# Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 INTERVAL_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toIntervalSecond": HogQLFunctionMeta(
         "toIntervalSecond",
@@ -312,10 +325,11 @@ INTERVAL_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     ),
 }
 
+# Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 POSTGRESQL_DATETIME_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     # PostgreSQL-style date/time functions
     "date_part": HogQLFunctionMeta(
-        "if({0} = 'year', toYear({1}), if({0} = 'month', toMonth({1}), if({0} = 'day', toDayOfMonth({1}), if({0} = 'hour', toHour({1}), if({0} = 'minute', toMinute({1}), if({0} = 'second', toSecond({1}), if({0} = 'dow', toDayOfWeek({1}), if({0} = 'doy', toDayOfYear({1}), if({0} = 'quarter', toQuarter({1}), null)))))))))",
+        "arrayElement(arrayMap((part, dt) -> multiIf(part = 'year', toYear(dt), part = 'month', toMonth(dt), part = 'day', toDayOfMonth(dt), part = 'hour', toHour(dt), part = 'minute', toMinute(dt), part = 'second', toSecond(dt), part = 'dow', toDayOfWeek(dt), part = 'doy', toDayOfYear(dt), part = 'quarter', toQuarter(dt), null), [{0}], [{1}]), 1)",
         # Maps to same implementation as extract
         2,
         2,
@@ -332,8 +346,16 @@ POSTGRESQL_DATETIME_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             2,
             3,  # Allow optional timezone parameter
             signatures=[
+                # Units that return Date (year/quarter/month/week)
+                ((StringLiteralType(values=DATE_TRUNCATION_UNITS), DateTimeType()), DateType()),
+                ((StringLiteralType(values=DATE_TRUNCATION_UNITS), DateTimeType(), StringType()), DateType()),
+                ((StringLiteralType(values=DATE_TRUNCATION_UNITS), DateType()), DateType()),
+                ((StringLiteralType(values=DATE_TRUNCATION_UNITS), DateType(), StringType()), DateType()),
+                # All other units (day/hour/minute/second) return DateTime
                 ((StringType(), DateTimeType()), DateTimeType()),
                 ((StringType(), DateTimeType(), StringType()), DateTimeType()),
+                ((StringType(), DateType()), DateType()),
+                ((StringType(), DateType(), StringType()), DateType()),
             ],
         )
         for name in ["date_trunc", "dateTrunc"]

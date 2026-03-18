@@ -1,7 +1,7 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 template: HogFunctionTemplateDC = HogFunctionTemplateDC(
-    status="beta",
+    status="deprecated",
     free=False,
     type="destination",
     id="template-mailchimp",
@@ -58,7 +58,7 @@ if (userStatus.status == 404 or userStatus.status == 200) {
         }
     })
     if (res.status >= 400) {
-        throw Error(f'Error from api.mailchimp.com (status {userStatus.status}): {userStatus.body}')
+        throw Error(f'Error from api.mailchimp.com (status {res.status}): {res.body}')
     }
 } else if (userStatus.status >= 400) {
     throw Error(f'Error from api.mailchimp.com (status {userStatus.status}): {userStatus.body}')

@@ -1,28 +1,38 @@
-import clsx from 'clsx'
+import './LiveEventsTable.scss'
+
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
-import { IconPauseFilled, IconPlayFilled } from '@posthog/icons'
-import { LemonButton, LemonTabs, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconPauseFilled, IconPlayFilled, IconRefresh, IconTerminal } from '@posthog/icons'
+import { LemonButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { LiveRecordingsCount, LiveUserCount } from 'lib/components/LiveUserCount'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TZLabel } from 'lib/components/TZLabel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { IconRefresh } from 'lib/lemon-ui/icons'
-import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ActivitySceneTabs } from 'scenes/activity/ActivitySceneTabs'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
-import { urls } from 'scenes/urls'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { EventCopyLinkButton } from '~/queries/nodes/DataTable/EventRowActions'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityTab, LiveEvent } from '~/types'
 
 import { EventName } from 'products/actions/frontend/components/EventName'
+
+import { liveEventsLogic } from './liveEventsLogic'
+import { liveEventsTableSceneLogic } from './liveEventsTableSceneLogic'
+
+const LIVE_EVENTS_POLL_INTERVAL_MS = 1500
 
 const columns: LemonTableColumns<LiveEvent> = [
     {
@@ -76,59 +86,48 @@ const columns: LemonTableColumns<LiveEvent> = [
     },
 ]
 
+export const scene: SceneExport = {
+    component: LiveEventsTable,
+    logic: liveEventsTableSceneLogic,
+    productKey: ProductKey.PRODUCT_ANALYTICS,
+}
+
 export function LiveEventsTable(): JSX.Element {
-    const { events, stats, streamPaused, filters } = useValues(liveEventsTableLogic)
-    const { pauseStream, resumeStream, setFilters, clearEvents } = useActions(liveEventsTableLogic)
+    const { events, streamPaused, filters } = useValues(liveEventsLogic)
+    const { pauseStream, resumeStream, setFilters, clearEvents } = useActions(liveEventsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const { isVisible } = usePageVisibility()
+    useEffect(() => {
+        if (isVisible) {
+            resumeStream()
+        } else {
+            pauseStream()
+        }
+    }, [isVisible, resumeStream, pauseStream])
 
     return (
         <SceneContent data-attr="manage-events-table">
-            <LemonTabs
-                activeKey={ActivityTab.LiveEvents}
-                tabs={[
-                    {
-                        key: ActivityTab.ExploreEvents,
-                        label: 'Explore',
-                        link: urls.activity(ActivityTab.ExploreEvents),
-                    },
-                    {
-                        key: ActivityTab.LiveEvents,
-                        label: 'Live',
-                        link: urls.activity(ActivityTab.LiveEvents),
-                    },
-                ]}
-                sceneInset
-            />
+            <ActivitySceneTabs activeKey={ActivityTab.LiveEvents} />
+            {featureFlags[FEATURE_FLAGS.LIVESTREAM_TUI] && (
+                <LemonBanner type="info" className="mb-4" icon={<IconTerminal />} dismissKey="livestream-tui-banner">
+                    Stream live events directly in your terminal with <code>posthog-live</code>.{' '}
+                    <Link to="https://posthog.com/docs/live-events/cli" target="_blank">
+                        Learn more
+                    </Link>
+                </LemonBanner>
+            )}
             <SceneTitleSection
-                name={sceneConfigurations[Scene.LiveEvents].name}
-                description={sceneConfigurations[Scene.LiveEvents].description}
+                name={sceneConfigurations[Scene.Activity].name}
+                description={sceneConfigurations[Scene.Activity].description}
                 resourceType={{
                     type: sceneConfigurations[Scene.LiveEvents].iconType || 'default_icon_type',
                 }}
             />
-            <SceneDivider />
             <div className="mb-4 flex w-full justify-between items-center">
-                <div className="flex justify-center">
-                    <Tooltip title="Estimate of users active in the last 30 seconds." placement="right">
-                        <div className="flex justify-center items-center bg-surface-primary px-3 py-2 rounded border border-primary text-xs font-medium text-secondary gap-x-2.5">
-                            <span className="relative flex h-2.5 w-2.5">
-                                <span
-                                    className={clsx(
-                                        'absolute inline-flex h-full w-full rounded-full bg-danger',
-                                        stats?.users_on_product != null && 'animate-ping'
-                                    )}
-                                    // Unfortunately we can't use the `opacity-50` class, because we use Tailwind's
-                                    // `important: true` and because of that Tailwind's `opacity` completely overrides
-                                    // the animation (see https://github.com/tailwindlabs/tailwindcss/issues/9225)
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ opacity: 0.75 }}
-                                />
-                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-danger" />
-                            </span>
-                            <span className="text-sm cursor-default">
-                                Users active right now: <b>{stats?.users_on_product ?? '0'}</b>
-                            </span>
-                        </div>
-                    </Tooltip>
+                <div className="flex gap-2">
+                    <LiveUserCount pollIntervalMs={LIVE_EVENTS_POLL_INTERVAL_MS} showUpdatedTimeInTooltip={false} />
+                    <LiveRecordingsCount pollIntervalMs={LIVE_EVENTS_POLL_INTERVAL_MS} />
                 </div>
 
                 <div className="flex gap-2">
@@ -162,6 +161,7 @@ export function LiveEventsTable(): JSX.Element {
                 </div>
             </div>
             <LemonTable
+                className="LiveEventsTable__table"
                 columns={columns}
                 data-attr="live-events-table"
                 rowKey="uuid"
@@ -183,10 +183,4 @@ export function LiveEventsTable(): JSX.Element {
             />
         </SceneContent>
     )
-}
-
-export const scene: SceneExport = {
-    component: LiveEventsTable,
-    logic: liveEventsTableLogic,
-    settingSectionId: 'environment-autocapture',
 }

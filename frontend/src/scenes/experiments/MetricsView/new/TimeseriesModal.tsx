@@ -1,16 +1,20 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonModal, Link } from '@posthog/lemon-ui'
+import { IconClock, IconInfo } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonModal, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { urls } from 'scenes/urls'
 
-import { ExperimentMetric } from '~/queries/schema/schema-general'
+import { ExperimentMetric, isExperimentRatioMetric } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
-import { VariantTag } from '../../ExperimentView/components'
+import { hasEnded, isLaunched } from '../../experimentsLogic'
 import { experimentTimeseriesLogic } from '../../experimentTimeseriesLogic'
+import { VariantTag } from '../../ExperimentView/components'
 import { MetricTitle } from '../shared/MetricTitle'
 import { ExperimentVariantResult } from '../shared/utils'
 import { ElapsedTime } from './ElapsedTime'
@@ -31,7 +35,7 @@ export function TimeseriesModal({
     variantResult,
     experiment,
 }: TimeseriesModalProps): JSX.Element {
-    const logic = experimentTimeseriesLogic({ experimentId: experiment.id, metric: isOpen ? metric : undefined })
+    const logic = experimentTimeseriesLogic({ experiment, metric: isOpen ? metric : undefined })
     const { chartData, progressMessage, hasTimeseriesData, timeseriesLoading, isRecalculating, timeseries } =
         useValues(logic)
     const { recalculateTimeseries, loadTimeseries } = useActions(logic)
@@ -39,6 +43,11 @@ export function TimeseriesModal({
     const processedChartData = useMemo(() => {
         return chartData(variantResult.key)
     }, [chartData, variantResult.key])
+
+    const isStaleExperiment =
+        isLaunched(experiment) && !hasEnded(experiment)
+            ? dayjs(experiment.start_date).isBefore(dayjs().subtract(30, 'days'))
+            : false
 
     const handleRecalculate = (): void => {
         LemonDialog.open({
@@ -78,7 +87,7 @@ export function TimeseriesModal({
                     </div>
                     <LemonDivider vertical className="h-4 self-stretch" />
                     <div className="flex items-center">
-                        <VariantTag experimentId={experiment.id} variantKey={variantResult.key} />
+                        <VariantTag variantKey={variantResult.key} />
                     </div>
                 </div>
             }
@@ -99,6 +108,29 @@ export function TimeseriesModal({
                     </div>
                 ) : (
                     <div>
+                        {isStaleExperiment && !isRecalculating && (
+                            <div className="mb-2">
+                                <LemonBanner type="warning">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex-1">
+                                            <div className="text-sm">
+                                                This experiment has been running for more than 30 days. Automatic
+                                                timeseries updates are disabled. You can still manually recalculate the
+                                                data.
+                                            </div>
+                                        </div>
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            onClick={handleRecalculate}
+                                            className="ml-4"
+                                        >
+                                            Recalculate
+                                        </LemonButton>
+                                    </div>
+                                </LemonBanner>
+                            </div>
+                        )}
                         {isRecalculating && (
                             <div className="mb-4">
                                 <LemonBanner type="info">
@@ -117,7 +149,14 @@ export function TimeseriesModal({
                             </div>
                         )}
                         <div className="flex justify-between items-center mt-2 mb-4">
-                            <div className="text-xs text-muted">{progressMessage || ''}</div>
+                            <div className="flex items-center gap-1">
+                                <div className="text-xs text-muted">{progressMessage || ''}</div>
+                                {progressMessage && (
+                                    <Tooltip title="The chart displays data starting from the first day with meaningful results. Earlier days without sufficient data are excluded from the visualization.">
+                                        <IconInfo className="text-muted text-base" />
+                                    </Tooltip>
+                                )}
+                            </div>
                             <More
                                 overlay={
                                     <>
@@ -126,17 +165,21 @@ export function TimeseriesModal({
                                 }
                             />
                         </div>
-                        {hasTimeseriesData ? (
-                            processedChartData ? (
-                                <VariantTimeseriesChart chartData={processedChartData} />
-                            ) : (
-                                <div className="p-10 text-center text-muted">
-                                    No timeseries data available for this variant
-                                </div>
-                            )
+                        {hasTimeseriesData && processedChartData ? (
+                            <VariantTimeseriesChart
+                                chartData={processedChartData}
+                                isRatioMetric={isExperimentRatioMetric(metric)}
+                            />
                         ) : (
-                            <div className="p-10 text-center text-muted -translate-y-6">
-                                No timeseries data available
+                            <div className="py-10 text-center text-muted flex flex-col items-center gap-2 max-w-80 mx-auto">
+                                <IconClock className="text-2xl" />
+                                <div>
+                                    Timeseries data is calculated once per day. Check your calculation time in{' '}
+                                    <Link to={`${urls.experiments()}?tab=settings`} target="_blank">
+                                        settings
+                                    </Link>
+                                    .
+                                </div>
                             </div>
                         )}
                     </div>

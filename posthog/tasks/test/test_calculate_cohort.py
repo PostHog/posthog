@@ -9,12 +9,11 @@ from django.utils import timezone
 from dateutil.relativedelta import relativedelta
 
 from posthog.models.cohort import Cohort
-from posthog.models.cohort.calculation_history import CohortCalculationHistory
-from posthog.models.cohort.util import _recalculate_cohortpeople_chunked, _recalculate_cohortpeople_standard
 from posthog.models.person import Person
 from posthog.tasks.calculate_cohort import (
     COHORT_STUCK_COUNT_GAUGE,
     COHORTS_STALE_COUNT_GAUGE,
+    COHORTS_TOTAL_GAUGE,
     MAX_AGE_MINUTES,
     MAX_ERRORS_CALCULATING,
     MAX_STUCK_COHORTS_TO_RESET,
@@ -49,7 +48,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             _calculate_cohort_from_list.assert_called_once_with(cohort_id, ["blabla"])
             calculate_cohort_from_list(cohort_id, ["blabla"], team_id=self.team.id, id_type="distinct_id")
             cohort = Cohort.objects.get(pk=cohort_id)
-            people = Person.objects.filter(cohort__id=cohort.pk)
+            people = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
             self.assertEqual(people.count(), 1)
 
         @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
@@ -81,7 +80,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             _calculate_cohort_from_list.assert_called_once_with(cohort_id, ["blabla"])
             calculate_cohort_from_list(cohort_id, ["blabla"], team_id=self.team.id, id_type="distinct_id")
             cohort = Cohort.objects.get(pk=cohort_id)
-            people = Person.objects.filter(cohort__id=cohort.pk)
+            people = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
             self.assertEqual(people.count(), 1)
 
         def test_calculate_cohort_from_list_with_person_id_type(self) -> None:
@@ -98,7 +97,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
             # Verify persons were added to cohort
             cohort.refresh_from_db()
-            people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+            people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
             self.assertEqual(people_in_cohort.count(), 2)
 
             # Verify specific persons are in the cohort
@@ -118,7 +117,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
             # Verify persons were added to cohort
             cohort.refresh_from_db()
-            people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+            people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
             self.assertEqual(people_in_cohort.count(), 2)
 
             # Verify specific persons are in the cohort
@@ -150,8 +149,9 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             enqueue_cohorts_to_calculate(5)
             self.assertEqual(patch_increment_version_and_enqueue_calculate_cohort.call_count, 2)
 
+        @patch.object(COHORTS_TOTAL_GAUGE, "set")
         @patch.object(COHORTS_STALE_COUNT_GAUGE, "labels")
-        def test_update_stale_cohort_metrics(self, mock_labels: MagicMock) -> None:
+        def test_update_stale_cohort_metrics(self, mock_labels: MagicMock, mock_total_set: MagicMock) -> None:
             mock_gauge = MagicMock()
             mock_labels.return_value = mock_gauge
 
@@ -251,6 +251,10 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             self.assertEqual(set_calls[0][0][0], 3)  # 24h: stale_24h, stale_36h, stale_48h
             self.assertEqual(set_calls[1][0][0], 2)  # 36h: stale_36h, stale_48h
             self.assertEqual(set_calls[2][0][0], 1)  # 48h: stale_48h
+
+            # 4 eligible cohorts: fresh_cohort, stale_24h, stale_36h, stale_48h
+            # Excluded: null_last_calc (no last_calculation), deleted_cohort, static_cohort, high_errors
+            mock_total_set.assert_called_once_with(4)
 
         @patch.object(COHORT_STUCK_COUNT_GAUGE, "set")
         def test_stuck_cohort_metrics(self, mock_set: MagicMock) -> None:
@@ -583,8 +587,37 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             self.assertLess(b_index, c_index, "Cohort B must be processed before C (dependency)")
             self.assertLess(c_index, d_index, "Cohort C must be processed before D (dependency)")
 
-            mock_chain.assert_called_once_with(mock_task, mock_task, mock_task, mock_task)
+            # Verify countdown: first task has no countdown, all subsequent have countdown=2
+            # mock_calculate_cohort_ch_si returns mock_task, and .set() is called on it for non-first tasks
+            set_calls = mock_task.set.call_args_list
+            self.assertEqual(len(set_calls), 3, "3 of 4 tasks should have .set(countdown=2) called")
+            for call in set_calls:
+                self.assertEqual(call, ((), {"countdown": 2}))
+
+            mock_chain.assert_called_once()
             mock_chain_instance.apply_async.assert_called_once()
+
+        @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+        def test_increment_version_and_enqueue_single_cohort_has_no_countdown(
+            self, mock_calculate_cohort_ch_delay: MagicMock
+        ) -> None:
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="Standalone Cohort",
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [{"key": "$some_prop", "value": "something", "type": "person"}],
+                    }
+                },
+                is_static=False,
+            )
+
+            increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=None)
+
+            mock_calculate_cohort_ch_delay.assert_called_once()
+            call_args = mock_calculate_cohort_ch_delay.call_args[0]
+            self.assertEqual(len(call_args), 3, "Single cohort path should use .delay() with no countdown")
 
         @patch("posthog.tasks.calculate_cohort.chain")
         @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
@@ -924,34 +957,5 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
             mock_chain.assert_called_once()
             mock_chain_instance.apply_async.assert_called_once()
-
-        def test_chunked_calculation_matches_standard(self) -> None:
-            for i in range(50):
-                person_factory(
-                    team_id=self.team.pk, distinct_ids=[f"person_{i}"], properties={"email": f"user{i}@example.com"}
-                )
-
-            cohort = Cohort.objects.create(
-                team=self.team,
-                name="Test Cohort",
-                filters={
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {"key": "email", "type": "person", "value": "@example.com", "operator": "icontains"}
-                        ],
-                    }
-                },
-            )
-
-            history_standard = CohortCalculationHistory.objects.create(team=self.team, cohort=cohort, filters={})
-            result_standard = _recalculate_cohortpeople_standard(cohort, 1, self.team, history_standard)
-
-            history_chunked = CohortCalculationHistory.objects.create(team=self.team, cohort=cohort, filters={})
-            result_chunked = _recalculate_cohortpeople_chunked(
-                cohort, 2, self.team, total_chunks=3, history=history_chunked
-            )
-
-            self.assertEqual(result_standard, result_chunked)
 
     return TestCalculateCohort

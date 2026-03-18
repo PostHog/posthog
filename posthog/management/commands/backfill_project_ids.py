@@ -129,7 +129,7 @@ class Command(BaseCommand):
             if not options["dry_run"]:
                 self.stdout.write(
                     f"Batch {batch_count}: Updated {update_count} records in {batch_duration:.2f}s "
-                    f"({update_count/batch_duration:.1f} rows/sec)"
+                    f"({update_count / batch_duration:.1f} rows/sec)"
                 )
             else:
                 self.stdout.write(f"Batch {batch_count}: Would have updated {update_count} records (dry run)")

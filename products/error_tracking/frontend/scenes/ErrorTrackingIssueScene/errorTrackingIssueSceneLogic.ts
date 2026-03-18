@@ -1,13 +1,17 @@
 import { actions, connect, defaults, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { ErrorEventProperties, ErrorEventType, ErrorTrackingFingerprint } from 'lib/components/Errors/types'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils'
+import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { Scene } from 'scenes/sceneTypes'
+import { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
@@ -16,13 +20,25 @@ import {
     ErrorTrackingIssue,
     ErrorTrackingIssueAggregations,
     ErrorTrackingRelationalIssue,
+    SimilarIssue,
 } from '~/queries/schema/schema-general'
-import { ActivityScope, Breadcrumb, IntegrationType } from '~/types'
+import { ActivityScope, Breadcrumb, IntegrationType, UniversalFiltersGroup } from '~/types'
 
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
-import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
-import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from '../../queries'
+import {
+    issueFiltersLogic,
+    triggerFilterActions,
+    updateFilterSearchParams,
+} from '../../components/IssueFilters/issueFiltersLogic'
+import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery, errorTrackingSimilarIssuesQuery } from '../../queries'
+import { syncSearchParams } from '../../utils'
 import { ERROR_TRACKING_DETAILS_RESOLUTION } from '../../utils'
+import {
+    DEFAULT_CATEGORY,
+    ErrorTrackingIssueSceneCategory,
+    VALID_CATEGORIES,
+    errorTrackingIssueSceneConfigurationLogic,
+} from './errorTrackingIssueSceneConfigurationLogic'
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
 
 export interface ErrorTrackingIssueSceneLogicProps {
@@ -32,8 +48,6 @@ export interface ErrorTrackingIssueSceneLogicProps {
 }
 
 export type ErrorTrackingIssueStatus = ErrorTrackingIssue['status']
-export type ErrorTrackingIssueSceneCategory = 'exceptions' | 'breakdowns'
-export type ErrorTrackingIssueSceneExceptionsCategory = 'all' | 'exception'
 
 export const ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY = 'ErrorTrackingIssueScene'
 
@@ -53,12 +67,16 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         values: [
             issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }),
             ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery'],
+            errorTrackingIssueSceneConfigurationLogic,
+            ['category'],
         ],
         actions: [
             issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }),
             ['setDateRange', 'setFilterTestAccounts', 'setFilterGroup', 'setSearchQuery'],
             issueActionsLogic,
             ['updateIssueAssignee', 'updateIssueStatus', 'updateIssueName', 'updateIssueDescription'],
+            errorTrackingIssueSceneConfigurationLogic,
+            ['setCategory'],
         ],
     })),
 
@@ -80,8 +98,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         updateStatus: (status: ErrorTrackingIssue['status']) => ({ status }),
         updateName: (name: string) => ({ name }),
         updateDescription: (description: string) => ({ description }),
-        setCategory: (category: ErrorTrackingIssueSceneCategory) => ({ category }),
-        setExceptionsCategory: (category: ErrorTrackingIssueSceneExceptionsCategory) => ({ category }),
+        setSimilarIssuesMaxDistance: (distance: number) => ({ distance }),
     }),
 
     defaults({
@@ -93,8 +110,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         selectedEvent: null as ErrorEventType | null,
         initialEventTimestamp: null as string | null,
         initialEventLoading: true as boolean,
-        category: 'exceptions' as ErrorTrackingIssueSceneCategory,
-        exceptionsCategory: 'exception' as ErrorTrackingIssueSceneExceptionsCategory,
+        similarIssuesMaxDistance: 0.2 as number,
+        similarIssuesError: null as string | null,
     }),
 
     reducers(({ values }) => ({
@@ -107,6 +124,14 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 }
                 return prevLastSeen
             },
+        },
+        similarIssuesMaxDistance: {
+            setSimilarIssuesMaxDistance: (_, { distance }) => distance,
+        },
+        similarIssuesError: {
+            loadSimilarIssues: () => null,
+            loadSimilarIssuesSuccess: () => null,
+            loadSimilarIssuesFailure: (_, { error }) => error,
         },
         initialEventTimestamp: {
             setInitialEventTimestamp: (state, { timestamp }) => {
@@ -124,12 +149,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 return event
             },
         },
-        category: {
-            setCategory: (_, { category }) => category,
-        },
-        exceptionsCategory: {
-            setExceptionsCategory: (_, { category }) => category,
-        },
     })),
 
     loaders(({ values, actions, props }) => ({
@@ -139,6 +158,10 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             createExternalReference: async ({ integrationId, config }) => {
                 if (values.issue) {
                     const response = await api.errorTracking.createExternalReference(props.id, integrationId, config)
+                    posthog.capture('error_tracking_issue_pushed', {
+                        issue_id: props.id,
+                        destination: response.integration.kind,
+                    })
                     const externalIssues = values.issue.external_issues ?? []
                     return { ...values.issue, external_issues: [...externalIssues, response] }
                 }
@@ -190,7 +213,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     return null
                 }
                 const initialEvent: ErrorEventType = {
+                    event: '$exception',
                     uuid: positionEvent.uuid,
+                    distinct_id: positionEvent.distinct_id,
                     timestamp: positionEvent.timestamp,
                     person: { distinct_ids: [], properties: {} },
                     properties: JSON.parse(positionEvent.properties),
@@ -234,27 +259,54 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         issueFingerprints: [
             [] as ErrorTrackingFingerprint[],
             {
-                loadIssueFingerprints: async () => (await api.errorTracking.fingerprints.list(props.id)).results,
+                loadIssueFingerprints: async () => await api.errorTracking.fingerprints.list(props.id),
             },
         ],
         similarIssues: [
-            [],
+            [] as SimilarIssue[],
             {
-                loadSimilarIssues: async () => await api.errorTracking.getSimilarIssues(props.id),
+                loadSimilarIssues: async (refresh: boolean = false) => {
+                    const query = errorTrackingSimilarIssuesQuery({
+                        issueId: props.id,
+                        limit: 10,
+                        maxDistance: values.similarIssuesMaxDistance,
+                    })
+                    const response = await api.query(query, {
+                        refresh: refresh ? 'force_blocking' : 'blocking',
+                    })
+                    return response.results
+                },
             },
         ],
     })),
 
     selectors(({ actions }) => ({
         breadcrumbs: [
-            (s) => [s.issue],
-            (issue: ErrorTrackingRelationalIssue | null): Breadcrumb[] => {
+            (s) => [s.issue, s.dateRange, s.filterTestAccounts, s.filterGroup, s.searchQuery],
+            (
+                issue: ErrorTrackingRelationalIssue | null,
+                dateRange: DateRange,
+                filterTestAccounts: boolean,
+                filterGroup: UniversalFiltersGroup,
+                searchQuery: string
+            ): Breadcrumb[] => {
                 const exceptionType: string = issue?.name || 'Issue'
+                // We want to keep params in sync between listing and details views
+                const urlParams = updateFilterSearchParams(
+                    {},
+                    {
+                        dateRange,
+                        filterTestAccounts,
+                        filterGroup,
+                        searchQuery,
+                    }
+                )
+
                 return [
                     {
                         key: Scene.ErrorTracking,
                         name: 'Error tracking',
-                        path: urls.errorTracking(),
+                        path: urls.errorTracking(urlParams),
                         iconType: 'error_tracking',
                     },
                     {
@@ -302,6 +354,21 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             (s) => [s.eventsQuery],
             () => {
                 return uuid()
+            },
+        ],
+
+        maxContext: [
+            (s) => [s.issue, s.issueId],
+            (issue: ErrorTrackingRelationalIssue | null, issueId: string): MaxContextInput[] => {
+                if (!issueId) {
+                    return []
+                }
+                return [
+                    createMaxContextHelpers.errorTrackingIssue({
+                        id: issueId,
+                        name: issue?.name ?? null,
+                    }),
+                ]
             },
         ],
     })),
@@ -355,6 +422,12 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     actions.loadSummary()
                     actions.loadIssueFingerprints()
                 }
+                if (mutationName === 'createIssueCohort') {
+                    actions.loadIssue()
+                }
+            },
+            setSimilarIssuesMaxDistance: () => {
+                actions.loadSimilarIssues(true)
             },
         }
     }),
@@ -365,8 +438,43 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             actions.setInitialEventTimestamp(props.timestamp ?? null)
             actions.loadSummary()
             actions.loadIssueFingerprints()
+            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ViewFirstError)
         },
     })),
+
+    urlToAction(({ actions, values }) => {
+        return {
+            '**/error_tracking/:id': (_, params) => {
+                triggerFilterActions(params, values, actions)
+                const tab = params.tab as ErrorTrackingIssueSceneCategory | undefined
+                const category = tab && VALID_CATEGORIES.includes(tab) ? tab : DEFAULT_CATEGORY
+                if (category !== values.category) {
+                    actions.setCategory(category)
+                }
+            },
+        }
+    }),
+
+    actionToUrl(({ values }) => {
+        const buildURL = (): ReturnType<typeof syncSearchParams> =>
+            syncSearchParams(router, (params: Params) => {
+                updateFilterSearchParams(params, values)
+                if (values.category === DEFAULT_CATEGORY) {
+                    delete params.tab
+                } else {
+                    params.tab = values.category
+                }
+                return params
+            })
+
+        return {
+            setDateRange: buildURL,
+            setFilterGroup: buildURL,
+            setSearchQuery: buildURL,
+            setFilterTestAccounts: buildURL,
+            setCategory: buildURL,
+        }
+    }),
 ])
 
 function getNarrowDateRange(timestamp: Dayjs | string): DateRange {

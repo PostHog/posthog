@@ -4,6 +4,7 @@ import { Dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { colonDelimitedDuration } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { formatLocalizedDate } from 'lib/utils/dateTimeUtils'
 
 import { playerInspectorLogic } from '../player/inspector/playerInspectorLogic'
 import { TimestampFormat } from '../player/playerSettingsLogic'
@@ -30,7 +31,9 @@ export function ItemTimeDisplay({
     return (
         <div className={cn('px-2 py-1 text-xs min-w-18 text-center', className)}>
             {timestampFormat !== TimestampFormat.Relative ? (
-                (timestampFormat === TimestampFormat.UTC ? timestamp.tz('UTC') : timestamp).format('DD, MMM HH:mm:ss')
+                (timestampFormat === TimestampFormat.UTC ? timestamp.tz('UTC') : timestamp).format(
+                    `${formatLocalizedDate()}, HH:mm:ss`
+                )
             ) : (
                 <>
                     {timeInRecording < 0 ? (

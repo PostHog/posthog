@@ -1,20 +1,29 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
-import { LemonButton, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
 
+import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { Dayjs, dayjs, dayjsLocalToTimezone } from 'lib/dayjs'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { IconOpenInNew, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SessionData } from '~/queries/schema/schema-general'
 import { ActivityTab, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { sampledSessionsModalLogic } from './sampledSessionsModalLogic'
+
+/** Bare datetime strings (no Z or offset) are assumed to be in the project timezone. */
+export const parseTimestamp = (timestamp: string, timezone: string): Dayjs => {
+    if (/([Zz]|[+-]\d{2}:?\d{2})\s*$/.test(timestamp)) {
+        return dayjs(timestamp)
+    }
+    return dayjsLocalToTimezone(timestamp, timezone)
+}
 
 const getEventsUrl = (key: string, value: string): string => {
     const eventsQuery = getDefaultEventsSceneQuery([
@@ -54,25 +63,13 @@ export function SampledSessionsModal(): JSX.Element {
     const { isOpen, modalData, recordingAvailability, recordingAvailabilityLoading } =
         useValues(sampledSessionsModalLogic)
     const { closeModal } = useActions(sampledSessionsModalLogic)
-    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
+    const { timezone } = useValues(teamLogic)
 
     if (!modalData) {
         return <></>
     }
 
     const { sessionData, stepName, variant } = modalData
-
-    const openSessionRecording = (sessionId: string, eventUuid: string): void => {
-        openSessionPlayer({
-            id: sessionId,
-            matching_events: [
-                {
-                    session_id: sessionId,
-                    events: [{ uuid: eventUuid }],
-                },
-            ],
-        })
-    }
 
     const columns: LemonTableColumns<SessionData> = [
         {
@@ -106,22 +103,23 @@ export function SampledSessionsModal(): JSX.Element {
                 const sessionInfo = recordingAvailability.get(session.session_id)
                 const hasRecording = sessionInfo?.hasRecording || false
 
-                if (recordingAvailabilityLoading) {
-                    return <Spinner className="text-sm" />
-                }
-
-                if (hasRecording) {
-                    return (
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            icon={<IconPlayCircle />}
-                            onClick={() => openSessionRecording(session.session_id, session.event_uuid)}
-                        >
-                            View recording
-                        </LemonButton>
-                    )
-                }
+                return (
+                    <ViewRecordingButton
+                        sessionId={session.session_id}
+                        timestamp={parseTimestamp(session.timestamp, timezone)}
+                        matchingEvents={[
+                            {
+                                session_id: session.session_id,
+                                events: [{ uuid: session.event_uuid, timestamp: session.timestamp }],
+                            },
+                        ]}
+                        size="small"
+                        type="secondary"
+                        openPlayerIn={RecordingPlayerType.Modal}
+                        loading={recordingAvailabilityLoading}
+                        hasRecording={hasRecording}
+                    />
+                )
             },
             width: '60%',
         },

@@ -1,4 +1,17 @@
-import { BuiltLogic, actions, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    BuiltLogic,
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -15,9 +28,31 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { SCRATCHPAD_NOTEBOOK, notebooksModel, openNotebook } from '~/models/notebooksModel'
-import { AccessControlLevel, AccessControlResourceType, ActivityScope, CommentType, SidePanelTab } from '~/types'
+import {
+    SCRATCHPAD_NOTEBOOK,
+    drainPendingNotebookOperations,
+    notebooksModel,
+    openNotebook,
+} from '~/models/notebooksModel'
+import { NodeKind } from '~/queries/schema/schema-general'
+import { isHogQLQuery, isSavedInsightNode } from '~/queries/utils'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ActivityScope,
+    AnyPropertyFilter,
+    CommentType,
+    InsightShortId,
+    SidePanelTab,
+} from '~/types'
 
+import {
+    buildNotebookDependencyGraph,
+    collectDuckSqlNodes,
+    collectHogqlSqlNodes,
+    collectNodeIndices,
+    collectPythonNodes,
+} from '../Nodes/notebookNodeContent'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 // NOTE: Annoyingly, if we import this then kea logic type-gen generates
 // two imports and fails so, we reimport it from the types file
@@ -29,7 +64,9 @@ import {
     NotebookType,
     TableOfContentData,
 } from '../types'
+import { updateContentHeading } from '../utils'
 import { NOTEBOOKS_VERSION, migrate } from './migrations/migrate'
+import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import type { notebookLogicType } from './notebookLogicType'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 
@@ -42,24 +79,20 @@ export type NotebookLogicProps = {
     shortId: string
     mode?: NotebookLogicMode
     target?: NotebookTarget
+    canvasFiltersOverride?: AnyPropertyFilter[]
 }
 
-async function runWhenEditorIsReady(waitForEditor: () => boolean, fn: () => any): Promise<any> {
-    // TRICKY: external code doesn't know how to wait for the editor to be ready
-    // so, we have to poll until it is, then run the function
-    // the use-case is that we have opened a notebook, mounted this logic,
-    // and then want to run commands against the editor
-    // but, we are racing against it being ready
-
-    // throw an error after 2 seconds
-    const timeout = setTimeout(() => {
-        throw new Error('Notebook editor not ready')
-    }, 2000)
+async function runWhenEditorIsReady(waitForEditor: () => boolean, fn: () => any): Promise<any | null> {
+    const maxWaitMs = 5000
+    const startTime = Date.now()
 
     while (!waitForEditor()) {
+        if (Date.now() - startTime > maxWaitMs) {
+            console.warn('Notebook editor not ready after timeout')
+            return null
+        }
         await new Promise((resolve) => setTimeout(resolve, 10))
     }
-    clearTimeout(timeout)
 
     return fn()
 }
@@ -78,8 +111,10 @@ export const notebookLogic = kea<notebookLogicType>([
                 item_id: props.shortId,
             }),
             ['comments', 'itemContext'],
+            notebookKernelInfoLogic({ shortId: props.shortId }),
+            ['kernelInfo'],
             notebookSettingsLogic,
-            ['showTableOfContents'],
+            ['showKernelInfo', 'showTableOfContents'],
         ],
         actions: [
             notebooksModel,
@@ -110,7 +145,7 @@ export const notebookLogic = kea<notebookLogicType>([
         scheduleNotebookRefresh: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
         renameNotebook: (title: string) => ({ title }),
-        setEditingNodeId: (editingNodeId: string | null) => ({ editingNodeId }),
+        setEditingNodeEditing: (nodeId: string, editing: boolean) => ({ nodeId, editing }),
         exportJSON: true,
         showConflictWarning: true,
         onUpdateEditor: true,
@@ -129,6 +164,10 @@ export const notebookLogic = kea<notebookLogicType>([
             content,
             nodeType,
             knownStartingPosition,
+        }),
+        addSavedInsightToNotebook: (insightShortId: InsightShortId, insertionPosition: number | null = null) => ({
+            insightShortId,
+            insertionPosition,
         }),
         setShowHistory: (showHistory: boolean) => ({ showHistory }),
         setTableOfContents: (tableOfContents: TableOfContentData) => ({ tableOfContents }),
@@ -183,10 +222,29 @@ export const notebookLogic = kea<notebookLogicType>([
                 loadNotebookSuccess: () => false,
             },
         ],
-        editingNodeId: [
-            null as string | null,
+        editingNodeIds: [
+            {} as Record<string, true>,
             {
-                setEditingNodeId: (_, { editingNodeId }) => editingNodeId,
+                setEditingNodeEditing: (state, { nodeId, editing }) => {
+                    if (editing) {
+                        return {
+                            ...state,
+                            [nodeId]: true,
+                        }
+                    }
+                    if (!state[nodeId]) {
+                        return state
+                    }
+                    const { [nodeId]: _, ...rest } = state
+                    return rest
+                },
+                unregisterNodeLogic: (state, { nodeId }) => {
+                    if (!state[nodeId]) {
+                        return state
+                    }
+                    const { [nodeId]: _, ...rest } = state
+                    return rest
+                },
             },
         ],
         nodeLogics: [
@@ -301,6 +359,20 @@ export const notebookLogic = kea<notebookLogicType>([
                             title: notebook.title,
                         })
 
+                        if (
+                            response.content &&
+                            values.editor &&
+                            values.localContent &&
+                            notebook.content === values.localContent
+                        ) {
+                            const currentEditorContent = values.editor.getJSON()
+                            if (JSON.stringify(response.content) !== JSON.stringify(currentEditorContent)) {
+                                const currentPosition = values.editor.getCurrentPosition()
+                                values.editor.setContent(response.content)
+                                values.editor.setTextSelection(currentPosition)
+                            }
+                        }
+
                         // If the object is identical then no edits were made, so we can safely clear the local changes
                         if (notebook.content === values.localContent) {
                             actions.clearLocalContent()
@@ -309,6 +381,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         return response
                     } catch (error: any) {
                         if (error.code === 'conflict') {
+                            actions.clearLocalContent()
                             actions.showConflictWarning()
                             return null
                         }
@@ -334,24 +407,40 @@ export const notebookLogic = kea<notebookLogicType>([
                         return null
                     }
 
-                    // We use the local content if set otherwise the notebook content. That way it supports templates, scratchpad etc.
+                    const duplicationSource =
+                        values.mode === 'canvas'
+                            ? 'Canvas'
+                            : values.notebook?.short_id === 'scratchpad'
+                              ? 'Scratchpad'
+                              : values.isTemplate
+                                ? 'Template'
+                                : null
+                    const isRegularNotebookDuplication = duplicationSource === null
+
+                    const title = isRegularNotebookDuplication ? `${values.title} (duplicate)` : values.title
+
+                    const content = isRegularNotebookDuplication
+                        ? updateContentHeading(values.content, title)
+                        : values.content
+
+                    let textContent = values.editor?.getText() || ''
+                    if (isRegularNotebookDuplication && textContent.startsWith(values.title)) {
+                        textContent = title + textContent.slice(values.title.length)
+                    }
+
                     const response = await api.notebooks.create({
-                        content: values.content,
-                        text_content: values.editor?.getText() || '',
-                        title: values.title,
+                        content,
+                        text_content: textContent,
+                        title,
                     })
 
                     posthog.capture(`notebook duplicated`, {
                         short_id: response.short_id,
                     })
 
-                    const source =
-                        values.mode === 'canvas'
-                            ? 'Canvas'
-                            : values.notebook?.short_id === 'scratchpad'
-                              ? 'Scratchpad'
-                              : 'Template'
-                    lemonToast.success(`Notebook created from ${source}!`)
+                    lemonToast.success(
+                        duplicationSource ? `Notebook created from ${duplicationSource}!` : 'Notebook duplicated!'
+                    )
 
                     if (values.notebook?.short_id === 'scratchpad') {
                         // If duplicating the scratchpad, we assume they don't want the scratchpad content anymore
@@ -366,6 +455,7 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
     })),
     selectors({
+        canvasFiltersOverride: [() => [(_, props) => props], (props) => props.canvasFiltersOverride || []],
         shortId: [(_, p) => [p.shortId], (shortId) => shortId],
         mode: [() => [(_, props) => props], (props): NotebookLogicMode => props.mode ?? 'notebook'],
         isTemplate: [(s) => [s.shortId], (shortId): boolean => shortId.startsWith('template-')],
@@ -416,10 +506,17 @@ export const notebookLogic = kea<notebookLogicType>([
                 return 'unsaved'
             },
         ],
-        editingNodeLogic: [
-            (s) => [s.editingNodeId, s.nodeLogics],
-            (editingNodeId, nodeLogics) =>
-                Object.values(nodeLogics).find((nodeLogic) => nodeLogic.values.nodeId === editingNodeId),
+        editingNodeLogics: [
+            (s) => [s.editingNodeIds, s.nodeLogics],
+            (editingNodeIds, nodeLogics) =>
+                Object.values(nodeLogics).filter((nodeLogic) => editingNodeIds[nodeLogic.values.nodeId]),
+        ],
+        editingNodeLogicsForLeft: [
+            (s) => [s.editingNodeLogics, s.containerSize],
+            (editingNodeLogics, containerSize) =>
+                containerSize === 'small'
+                    ? []
+                    : editingNodeLogics.filter((nodeLogic) => nodeLogic.values.settingsPlacement !== 'inline'),
         ],
         findNodeLogic: [
             (s) => [s.nodeLogics],
@@ -457,31 +554,93 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
 
+        pythonNodeSummaries: [(s) => [s.content], (content) => collectPythonNodes(content)],
+        duckSqlNodeSummaries: [(s) => [s.content], (content) => collectDuckSqlNodes(content)],
+        hogqlSqlNodeSummaries: [(s) => [s.content], (content) => collectHogqlSqlNodes(content)],
+        dependencyGraph: [(s) => [s.content], (content) => buildNotebookDependencyGraph(content)],
+
+        pythonNodeIndices: [
+            (s) => [s.content],
+            (content) => collectNodeIndices(content, (node) => node.type === NotebookNodeType.Python),
+        ],
+
+        sqlNodeIndices: [
+            (s) => [s.content],
+            (content) =>
+                collectNodeIndices(
+                    content,
+                    (node) =>
+                        node.type === NotebookNodeType.Query &&
+                        (isHogQLQuery(node.attrs?.query) ||
+                            (node.attrs?.query?.source && isHogQLQuery(node.attrs.query.source)))
+                ),
+        ],
+        duckSqlNodeIndices: [
+            (s) => [s.content],
+            (content) => collectNodeIndices(content, (node) => node.type === NotebookNodeType.DuckSQL),
+        ],
+        hogqlSqlNodeIndices: [
+            (s) => [s.content],
+            (content) => collectNodeIndices(content, (node) => node.type === NotebookNodeType.HogQLSQL),
+        ],
+
         isShowingLeftColumn: [
-            (s) => [s.editingNodeId, s.showHistory, s.showTableOfContents, s.containerSize],
-            (editingNodeId, showHistory, showTableOfContents, containerSize) => {
-                return showHistory || showTableOfContents || (!!editingNodeId && containerSize !== 'small')
+            (s) => [
+                s.editingNodeLogicsForLeft,
+                s.showHistory,
+                s.showTableOfContents,
+                s.showKernelInfo,
+                s.containerSize,
+            ],
+            (editingNodeLogicsForLeft, showHistory, showTableOfContents, showKernelInfo, containerSize) => {
+                const shouldShowSettings = editingNodeLogicsForLeft.length > 0 && containerSize !== 'small'
+
+                return showHistory || showTableOfContents || showKernelInfo || shouldShowSettings
             },
         ],
 
         isEditable: [
             (s) => [s.shouldBeEditable, s.previewContent, s.notebook, s.mode],
             (shouldBeEditable, previewContent, notebook, mode) =>
-                mode === 'canvas' ||
-                (shouldBeEditable &&
-                    !previewContent &&
-                    !!notebook?.user_access_level &&
-                    accessLevelSatisfied(
-                        AccessControlResourceType.Notebook,
-                        notebook.user_access_level,
-                        AccessControlLevel.Editor
-                    )),
+                shouldBeEditable &&
+                (mode === 'canvas' ||
+                    (!previewContent &&
+                        !!notebook?.user_access_level &&
+                        accessLevelSatisfied(
+                            AccessControlResourceType.Notebook,
+                            notebook.user_access_level,
+                            AccessControlLevel.Editor
+                        ))),
+        ],
+
+        insightShortIdsInNotebook: [
+            (s) => [s.content],
+            (content) => {
+                if (!content) {
+                    return []
+                }
+                const insightNodes = content?.content?.filter(
+                    (node) => node.type === NotebookNodeType.Query && isSavedInsightNode(node?.attrs?.query)
+                )
+                return insightNodes?.map((node) => node?.attrs?.query?.shortId)
+            },
+        ],
+
+        personUUIDFromCanvasOverride: [
+            () => [(_, props) => props],
+            (props: NotebookLogicProps): string | null => {
+                if (!props.canvasFiltersOverride || props.canvasFiltersOverride.length === 0) {
+                    return null
+                }
+                return props.canvasFiltersOverride.find((filter: AnyPropertyFilter) => filter.key === 'person_id')
+                    ?.value as string
+            },
         ],
     }),
     listeners(({ values, actions, cache }) => ({
         insertAfterLastNode: async ({ content }) => {
             await runWhenEditorIsReady(
-                () => !!values.editor,
+                () => !!values.editor && (values.isLocalOnly || !!values.notebook),
                 () => {
                     let insertionPosition = 0
                     let nextNode = values.editor?.nextNode(insertionPosition)
@@ -496,7 +655,7 @@ export const notebookLogic = kea<notebookLogicType>([
         },
         pasteAfterLastNode: async ({ content }) => {
             await runWhenEditorIsReady(
-                () => !!values.editor,
+                () => !!values.editor && (values.isLocalOnly || !!values.notebook),
                 () => {
                     const endPosition = values.editor?.getEndPosition() || 0
                     values.editor?.pasteContent(endPosition, content)
@@ -505,7 +664,7 @@ export const notebookLogic = kea<notebookLogicType>([
         },
         insertAfterLastNodeOfType: async ({ content, nodeType, knownStartingPosition }) => {
             await runWhenEditorIsReady(
-                () => !!values.editor,
+                () => !!values.editor && (values.isLocalOnly || !!values.notebook),
                 () => {
                     let insertionPosition = knownStartingPosition
                     let nextNode = values.editor?.nextNode(insertionPosition)
@@ -517,6 +676,51 @@ export const notebookLogic = kea<notebookLogicType>([
                     values.editor?.insertContentAfterNode(insertionPosition, content)
                 }
             )
+        },
+        addSavedInsightToNotebook: async ({ insightShortId, insertionPosition }) => {
+            const content = {
+                type: NotebookNodeType.Query,
+                attrs: {
+                    query: {
+                        kind: NodeKind.SavedInsightNode,
+                        shortId: insightShortId,
+                    },
+                },
+            }
+
+            let inserted = false
+
+            if (insertionPosition !== null && values.editor) {
+                try {
+                    values.editor.insertContentAt(insertionPosition, content)
+                    inserted = true
+                } catch (e) {
+                    console.warn('Failed to insert at position, appending to end instead', e)
+                }
+            }
+
+            if (!inserted) {
+                const result = await runWhenEditorIsReady(
+                    () => !!values.editor && (values.isLocalOnly || !!values.notebook),
+                    () => {
+                        let pos = 0
+                        let nextNode = values.editor?.nextNode(pos)
+                        while (nextNode) {
+                            pos = nextNode.position
+                            nextNode = values.editor?.nextNode(pos)
+                        }
+                        values.editor?.insertContentAfterNode(pos, content)
+                        return true
+                    }
+                )
+                inserted = result === true
+            }
+
+            if (inserted) {
+                lemonToast.success('Insight added to notebook')
+            } else {
+                lemonToast.warning('Could not add insight to notebook')
+            }
         },
         setLocalContent: async ({ updateEditor, jsonContent, skipCapture }, breakpoint) => {
             if (
@@ -634,8 +838,11 @@ export const notebookLogic = kea<notebookLogicType>([
                 values.editor.scrollToSelection()
             }
         },
-        setEditingNodeId: () => {
-            values.editingNodeLogic?.actions.selectNode()
+        setEditingNodeEditing: ({ nodeId, editing }) => {
+            if (!editing) {
+                return
+            }
+            values.findNodeLogicById(nodeId)?.actions.selectNode(false)
         },
 
         setTextSelection: ({ selection }) => {
@@ -723,6 +930,10 @@ export const notebookLogic = kea<notebookLogicType>([
             }
         },
     })),
+
+    afterMount(({ props }) => {
+        drainPendingNotebookOperations(props.shortId)
+    }),
 
     beforeUnmount(() => {
         const hashParams = router.values.currentLocation.hashParams

@@ -1,0 +1,49 @@
+# serializer version: 1
+# name: TestOrderByPushdown.test_no_pushdown_without_limit
+  dict({
+    'after': 'SELECT team_id FROM (SELECT team_id FROM events) AS inner ORDER BY team_id ASC',
+    'before': 'SELECT team_id FROM (SELECT team_id FROM events) AS inner ORDER BY team_id ASC',
+  })
+# ---
+# name: TestOrderByPushdown.test_pushdown_function_call
+  dict({
+    'after': 'SELECT count(team_id) FROM (SELECT team_id FROM events ORDER BY count(events.team_id) ASC LIMIT 10) AS inner ORDER BY count(team_id) ASC LIMIT 10',
+    'before': 'SELECT count(team_id) FROM (SELECT team_id FROM events) AS inner ORDER BY count(team_id) ASC LIMIT 10',
+  })
+# ---
+# name: TestOrderByPushdown.test_pushdown_inner_alias
+  dict({
+    'after': 'SELECT t_id FROM (SELECT team_id AS t_id FROM events ORDER BY events.team_id ASC LIMIT 10) AS inner ORDER BY t_id ASC LIMIT 10',
+    'before': 'SELECT t_id FROM (SELECT team_id AS t_id FROM events) AS inner ORDER BY t_id ASC LIMIT 10',
+  })
+# ---
+# name: TestOrderByPushdown.test_pushdown_outer_alias
+  dict({
+    'after': 'SELECT team_id AS t_id FROM (SELECT team_id FROM events ORDER BY events.team_id ASC LIMIT 10) AS inner ORDER BY t_id ASC LIMIT 10',
+    'before': 'SELECT team_id AS t_id FROM (SELECT team_id FROM events) AS inner ORDER BY t_id ASC LIMIT 10',
+  })
+# ---
+# name: TestOrderByPushdown.test_pushdown_preserves_existing_inner_order_by
+  dict({
+    'after': 'SELECT team_id FROM (SELECT team_id FROM events ORDER BY events.team_id ASC, event ASC LIMIT 10) AS inner ORDER BY team_id ASC LIMIT 10',
+    'before': 'SELECT team_id FROM (SELECT team_id FROM events ORDER BY event ASC) AS inner ORDER BY team_id ASC LIMIT 10',
+  })
+# ---
+# name: TestOrderByPushdown.test_pushdown_qualified_inner_alias
+  dict({
+    'after': 'SELECT inner.t_id FROM (SELECT team_id AS t_id FROM events ORDER BY events.team_id ASC LIMIT 10) AS inner ORDER BY inner.t_id ASC LIMIT 10',
+    'before': 'SELECT inner.t_id FROM (SELECT team_id AS t_id FROM events) AS inner ORDER BY inner.t_id ASC LIMIT 10',
+  })
+# ---
+# name: TestOrderByPushdown.test_pushdown_qualified_reference
+  dict({
+    'after': 'SELECT inner.team_id FROM (SELECT team_id FROM events ORDER BY events.team_id ASC LIMIT 10) AS inner ORDER BY inner.team_id ASC LIMIT 10',
+    'before': 'SELECT inner.team_id FROM (SELECT team_id FROM events) AS inner ORDER BY inner.team_id ASC LIMIT 10',
+  })
+# ---
+# name: TestOrderByPushdown.test_pushdown_simple_field
+  dict({
+    'after': 'SELECT team_id FROM (SELECT team_id FROM events ORDER BY events.team_id ASC LIMIT 10) AS inner ORDER BY team_id ASC LIMIT 10',
+    'before': 'SELECT team_id FROM (SELECT team_id FROM events) AS inner ORDER BY team_id ASC LIMIT 10',
+  })
+# ---

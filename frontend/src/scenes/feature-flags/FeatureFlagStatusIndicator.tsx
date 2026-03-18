@@ -8,15 +8,7 @@ export function FeatureFlagStatusIndicator({
 }: {
     flagStatus: FeatureFlagStatusResponse | null
 }): JSX.Element | null {
-    if (
-        !flagStatus ||
-        [
-            FeatureFlagStatus.ACTIVE,
-            FeatureFlagStatus.INACTIVE,
-            FeatureFlagStatus.DELETED,
-            FeatureFlagStatus.UNKNOWN,
-        ].includes(flagStatus.status)
-    ) {
+    if (!flagStatus || flagStatus.status !== FeatureFlagStatus.STALE) {
         return null
     }
 
@@ -26,10 +18,7 @@ export function FeatureFlagStatusIndicator({
                 <>
                     <div className="text-sm">{flagStatus.reason}</div>
                     <div className="text-xs">
-                        {flagStatus.status === FeatureFlagStatus.STALE &&
-                            'Make sure to remove any references to this flag in your code before deleting it.'}
-                        {flagStatus.status === FeatureFlagStatus.INACTIVE &&
-                            'It is probably not being used in your code, but be sure to remove any references to this flag before deleting it.'}
+                        Make sure to remove any references to this flag in your code before deleting it.
                     </div>
                 </>
             }

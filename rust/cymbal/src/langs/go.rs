@@ -26,7 +26,7 @@ impl RawGoFrame {
 impl From<&RawGoFrame> for Frame {
     fn from(frame: &RawGoFrame) -> Self {
         Frame {
-            raw_id: FrameId::placeholder(),
+            frame_id: FrameId::placeholder(),
             mangled_name: frame.function.clone(),
             line: Some(frame.lineno),
             column: None,
@@ -42,6 +42,7 @@ impl From<&RawGoFrame> for Frame {
             release: None,
             suspicious: false,
             module: None,
+            code_variables: None,
         }
     }
 }

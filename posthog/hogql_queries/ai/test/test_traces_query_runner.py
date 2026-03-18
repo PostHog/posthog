@@ -17,9 +17,12 @@ from posthog.schema import (
     TracesQuery,
 )
 
+from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT, LimitContext
+
 from posthog.hogql_queries.ai.traces_query_runner import TracesQueryRunner
 from posthog.models import PropertyDefinition, Team
-from posthog.models.property_definition import PropertyType
+
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 
 class InputMessage(TypedDict):
@@ -278,7 +281,8 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 "totalCost": 12.0,
             },
         )
-        self.assertEqual(trace.person.distinct_id, "person1")
+        self.assertIsNone(trace.person)
+        self.assertEqual(trace.distinctId, "person1")
         # Since these generation events don't have parent_id = trace_id, they are not root-level
         self.assertEqual(len(trace.events), 0)
 
@@ -296,7 +300,8 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 "totalCost": 6,
             },
         )
-        self.assertEqual(trace.person.distinct_id, "person2")
+        self.assertIsNone(trace.person)
+        self.assertEqual(trace.distinctId, "person2")
         # List view only returns summary events (metrics, feedback, and root-level events)
         # Since these generation events don't have parent_id = trace_id, they are not root-level
         self.assertEqual(len(trace.events), 0)
@@ -339,6 +344,55 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(response.results[0].id, "trace_0")
 
     @freeze_time("2025-01-16T00:00:00Z")
+    def test_pagination_with_multi_event_traces(self):
+        """
+        Regression test: pagination must not produce overlapping results when traces
+        have multiple events. The subquery orders trace IDs by min(timestamp) DESC to
+        match the main query's ORDER BY first_timestamp DESC. If these orderings
+        diverge (e.g. using max(timestamp) in the subquery), offset-based pagination
+        breaks because trace positions shift between pages.
+
+        Setup: 5 traces where max(timestamp) and min(timestamp) give reversed orderings.
+          trace_0: events at hour 0 and hour 10 → min=0, max=10
+          trace_1: events at hour 1 and hour 9  → min=1, max=9
+          trace_2: events at hour 2 and hour 8  → min=2, max=8
+          trace_3: events at hour 3 and hour 7  → min=3, max=7
+          trace_4: events at hour 4 and hour 6  → min=4, max=6
+
+        By min(timestamp) DESC: trace_4, trace_3, trace_2, trace_1, trace_0
+        By max(timestamp) DESC: trace_0, trace_1, trace_2, trace_3, trace_4
+        """
+        _create_person(distinct_ids=["person1"], team=self.team)
+        for i in range(5):
+            _create_ai_generation_event(
+                distinct_id="person1",
+                team=self.team,
+                trace_id=f"trace_{i}",
+                timestamp=datetime(2025, 1, 15, i),
+            )
+            _create_ai_generation_event(
+                distinct_id="person1",
+                team=self.team,
+                trace_id=f"trace_{i}",
+                timestamp=datetime(2025, 1, 15, 10 - i),
+            )
+
+        # Page 1 (limit=2, offset=0): returns limit+1=3 results, hasMore=True
+        response = TracesQueryRunner(team=self.team, query=TracesQuery(limit=2, offset=0)).calculate()
+        self.assertEqual(response.hasMore, True)
+        page1_ids = [t.id for t in response.results]
+        self.assertEqual(page1_ids, ["trace_4", "trace_3", "trace_2"])
+
+        # Page 2 (limit=2, offset=3): returns remaining 2 traces, hasMore=False
+        response = TracesQueryRunner(team=self.team, query=TracesQuery(limit=2, offset=3)).calculate()
+        self.assertEqual(response.hasMore, False)
+        page2_ids = [t.id for t in response.results]
+        self.assertEqual(page2_ids, ["trace_1", "trace_0"])
+
+        # No trace ID appears on both pages
+        self.assertEqual(len(set(page1_ids) & set(page2_ids)), 0)
+
+    @freeze_time("2025-01-16T00:00:00Z")
     def test_maps_all_fields(self):
         _create_person(distinct_ids=["person1"], team=self.team)
         _create_ai_generation_event(
@@ -373,7 +427,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         )
 
     @freeze_time("2025-01-01T00:00:00Z")
-    def test_person_properties(self):
+    def test_distinct_id_returned(self):
         _create_person(distinct_ids=["person1"], team=self.team, properties={"email": "test@posthog.com"})
         _create_ai_generation_event(
             distinct_id="person1",
@@ -382,9 +436,57 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         )
         response = TracesQueryRunner(team=self.team, query=TracesQuery()).calculate()
         self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].person.created_at, "2025-01-01T00:00:00+00:00")
-        self.assertEqual(response.results[0].person.properties, {"email": "test@posthog.com"})
-        self.assertEqual(response.results[0].person.distinct_id, "person1")
+        self.assertIsNone(response.results[0].person)
+        self.assertEqual(response.results[0].distinctId, "person1")
+
+    @freeze_time("2025-01-01T00:00:00Z")
+    def test_distinct_id_prefers_trace_event(self):
+        """When a $ai_trace event exists, its distinct_id should be used even if
+        other events in the trace have an earlier timestamp with a different distinct_id."""
+        _create_person(distinct_ids=["server-internal-id"], team=self.team)
+        _create_person(distinct_ids=["real-user-id"], team=self.team)
+
+        _create_ai_generation_event(
+            distinct_id="server-internal-id",
+            trace_id="trace1",
+            team=self.team,
+            timestamp=datetime(2024, 12, 31, 23, 59, 0),
+        )
+        _create_ai_trace_event(
+            trace_id="trace1",
+            trace_name="my-trace",
+            input_state={},
+            output_state={},
+            distinct_id="real-user-id",
+            team=self.team,
+            timestamp=datetime(2024, 12, 31, 23, 59, 30),
+        )
+
+        response = TracesQueryRunner(team=self.team, query=TracesQuery()).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].distinctId, "real-user-id")
+
+    @freeze_time("2025-01-01T00:00:00Z")
+    def test_distinct_id_falls_back_without_trace_event(self):
+        """When no $ai_trace event exists, the distinct_id from the earliest event should be used."""
+        _create_person(distinct_ids=["person1"], team=self.team)
+
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            team=self.team,
+            timestamp=datetime(2024, 12, 31, 23, 59, 0),
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            team=self.team,
+            timestamp=datetime(2024, 12, 31, 23, 59, 30),
+        )
+
+        response = TracesQueryRunner(team=self.team, query=TracesQuery()).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].distinctId, "person1")
 
     @freeze_time("2025-01-16T00:00:00Z")
     def test_date_range(self):
@@ -1440,14 +1542,75 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         response = TracesQueryRunner(team=self.team, query=TracesQuery(personId=str(person1.uuid))).calculate()
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, "trace1")
-        self.assertEqual(response.results[0].person.uuid, str(person1.uuid))
+        self.assertEqual(response.results[0].distinctId, "user1")
 
         response = TracesQueryRunner(team=self.team, query=TracesQuery(personId=str(person2.uuid))).calculate()
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, "trace2")
-        self.assertEqual(response.results[0].person.uuid, str(person2.uuid))
+        self.assertEqual(response.results[0].distinctId, "user2")
 
         response = TracesQueryRunner(team=self.team, query=TracesQuery(personId=str(uuid.uuid4()))).calculate()
+        self.assertEqual(len(response.results), 0)
+
+    @freeze_time("2025-01-16T00:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_group_key_filter(self):
+        """Test that groupKey and groupTypeIndex parameters filter traces by group."""
+        _create_person(distinct_ids=["user1"], team=self.team)
+        _create_person(distinct_ids=["user2"], team=self.team)
+
+        group_org_a = "org:acme"
+        group_org_b = "org:widgets"
+        group_project_1 = "project:alpha"
+
+        _create_ai_generation_event(
+            distinct_id="user1",
+            trace_id="trace_org_a",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 0, 0),
+            properties={"$group_0": group_org_a},
+        )
+
+        _create_ai_generation_event(
+            distinct_id="user2",
+            trace_id="trace_org_b",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 1, 0),
+            properties={"$group_0": group_org_b},
+        )
+
+        _create_ai_generation_event(
+            distinct_id="user1",
+            trace_id="trace_project_1",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 2, 0),
+            properties={"$group_1": group_project_1},
+        )
+
+        response = TracesQueryRunner(team=self.team, query=TracesQuery()).calculate()
+        self.assertEqual(len(response.results), 3)
+
+        response = TracesQueryRunner(
+            team=self.team, query=TracesQuery(groupKey=group_org_a, groupTypeIndex=0)
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].id, "trace_org_a")
+
+        response = TracesQueryRunner(
+            team=self.team, query=TracesQuery(groupKey=group_org_b, groupTypeIndex=0)
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].id, "trace_org_b")
+
+        response = TracesQueryRunner(
+            team=self.team, query=TracesQuery(groupKey=group_project_1, groupTypeIndex=1)
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].id, "trace_project_1")
+
+        response = TracesQueryRunner(
+            team=self.team, query=TracesQuery(groupKey="nonexistent", groupTypeIndex=0)
+        ).calculate()
         self.assertEqual(len(response.results), 0)
 
     def test_embedding_only_trace_cost_aggregation(self):
@@ -1494,3 +1657,110 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         expected_input_tokens = 39
         self.assertIsNotNone(trace.inputTokens)
         self.assertEqual(trace.inputTokens, expected_input_tokens)
+
+    def test_export_limit_caps_at_max_traces_limit(self):
+        """Test that export context caps limit at MAX_SELECT_TRACES_LIMIT_EXPORT."""
+        runner = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(limit=50000),
+            limit_context=LimitContext.EXPORT,
+        )
+        self.assertEqual(runner.paginator.limit, MAX_SELECT_TRACES_LIMIT_EXPORT)
+
+    def test_export_limit_respects_smaller_explicit_limit(self):
+        """Test that export context respects explicit limits smaller than MAX_SELECT_TRACES_LIMIT_EXPORT."""
+        runner = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(limit=100),
+            limit_context=LimitContext.EXPORT,
+        )
+        self.assertEqual(runner.paginator.limit, 100)
+
+    def test_export_limit_defaults_to_max_when_no_limit_specified(self):
+        """Test that export context defaults to MAX_SELECT_TRACES_LIMIT_EXPORT when no limit is specified."""
+        runner = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(),
+            limit_context=LimitContext.EXPORT,
+        )
+        self.assertEqual(runner.paginator.limit, MAX_SELECT_TRACES_LIMIT_EXPORT)
+
+    def test_query_limit_uses_default_when_no_limit_specified(self):
+        """Test that query context uses default (100) when no limit is specified."""
+        runner = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(),
+            limit_context=LimitContext.QUERY,
+        )
+        self.assertEqual(runner.paginator.limit, 100)
+
+    def test_query_limit_respects_explicit_limit(self):
+        """Test that query context respects explicit limits."""
+        runner = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(limit=50),
+            limit_context=LimitContext.QUERY,
+        )
+        self.assertEqual(runner.paginator.limit, 50)
+
+    @freeze_time("2025-01-16T00:00:00Z")
+    def test_export_returns_more_than_default_limit(self):
+        """Test that export context returns more than 100 traces (the old hardcoded default)."""
+        _create_person(distinct_ids=["person1"], team=self.team)
+
+        # Create 110 traces (more than the old hardcoded 100 limit)
+        for i in range(110):
+            _create_ai_generation_event(
+                distinct_id="person1",
+                team=self.team,
+                trace_id=f"trace_{i}",
+                timestamp=datetime(2025, 1, 15, i % 24, i % 60),
+            )
+
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(),
+            limit_context=LimitContext.EXPORT,
+        ).calculate()
+
+        self.assertEqual(len(response.results), 110)
+
+    @freeze_time("2025-01-16T00:00:00Z")
+    def test_random_order(self):
+        """Test that randomOrder parameter returns traces in random order instead of timestamp DESC."""
+        _create_person(distinct_ids=["person1"], team=self.team)
+
+        # Create 10 traces with different timestamps (most recent will be trace_9)
+        for i in range(10):
+            _create_ai_generation_event(
+                distinct_id="person1",
+                team=self.team,
+                trace_id=f"trace_{i}",
+                timestamp=datetime(2025, 1, 15, i),
+            )
+
+        # Default ordering (timestamp DESC) should return newest first
+        response_default = TracesQueryRunner(team=self.team, query=TracesQuery(limit=5)).calculate()
+        # Paginator returns limit+1 to determine hasMore
+        self.assertGreaterEqual(len(response_default.results), 5)
+        # Should be in descending timestamp order (newest first)
+        self.assertEqual(response_default.results[0].id, "trace_9")
+        self.assertEqual(response_default.results[1].id, "trace_8")
+        self.assertEqual(response_default.results[2].id, "trace_7")
+
+        # Random ordering should return different order
+        response_random = TracesQueryRunner(team=self.team, query=TracesQuery(limit=5, randomOrder=True)).calculate()
+        # Paginator returns limit+1 to determine hasMore
+        self.assertGreaterEqual(len(response_random.results), 5)
+
+        # Get IDs from random ordering
+        random_ids = [trace.id for trace in response_random.results]
+
+        # Random order should likely be different from timestamp DESC order
+        # We can't assert they're definitely different due to randomness,
+        # but we can assert all returned traces are valid
+        for trace_id in random_ids:
+            self.assertTrue(trace_id.startswith("trace_"))
+            trace_num = int(trace_id.split("_")[1])
+            self.assertGreaterEqual(trace_num, 0)
+            self.assertLess(trace_num, 10)

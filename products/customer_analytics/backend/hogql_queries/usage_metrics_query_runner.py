@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 from posthog.schema import CachedUsageMetricsQueryResponse, UsageMetric, UsageMetricsQuery, UsageMetricsQueryResponse
 
 from posthog.hogql import ast
+from posthog.hogql.database.models import UnknownDatabaseField
 from posthog.hogql.parser import parse_select
 
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
@@ -63,9 +64,8 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
         ]
 
         if not metric_queries:
-            return ast.SelectQuery.empty(
-                columns=["id", "name", "format", "display", "interval", "value", "previous", "change_from_previous_pct"]
-            )
+            columns = ["id", "name", "format", "display", "interval", "value", "previous", "change_from_previous_pct"]
+            return ast.SelectQuery.empty(columns={key: UnknownDatabaseField(name=key) for key in columns})
 
         return ast.SelectSetQuery.create_from_queries(queries=metric_queries, set_operator="UNION ALL")
 
@@ -78,7 +78,9 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
         """
         with self.timings.measure("get_usage_metrics"):
             return list(
-                GroupUsageMetric.objects.filter(team=self.team).only("name", "format", "interval", "display", "filters")
+                GroupUsageMetric.objects.filter(team=self.team).only(
+                    "id", "name", "format", "interval", "display", "filters"
+                )
             )
 
     def _get_metric_query(self, metric: GroupUsageMetric) -> ast.SelectQuery | ast.SelectSetQuery | None:
@@ -153,3 +155,13 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
                 right=ast.Constant(value=date_to),
             ),
         ]
+
+    def get_cache_payload(self) -> dict:
+        """
+        Override to include metric IDs in cache key.
+        This ensures cache is invalidated when metrics are created/deleted.
+        """
+        payload = super().get_cache_payload()
+        metric_ids = sorted(str(metric.id) for metric in self._get_usage_metrics())
+        payload["usage_metric_ids"] = metric_ids
+        return payload

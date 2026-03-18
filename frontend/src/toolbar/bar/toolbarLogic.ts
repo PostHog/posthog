@@ -1,20 +1,32 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { windowValues } from 'kea-window-values'
+import { PostHog } from 'posthog-js'
 
-import { HedgehogActor } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
-import { SPRITE_SIZE } from 'lib/components/HedgehogBuddy/sprites/sprites'
+import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
+import { HedgehogActor } from 'lib/components/HedgehogMode/types'
 import { PostHogAppToolbarEvent } from 'lib/components/IframedToolbarBrowser/utils'
 
+import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
+import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
+import { flagsToolbarLogic } from '~/toolbar/flags/flagsToolbarLogic'
+import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarLogger } from '~/toolbar/toolbarLogger'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID, inBounds, makeNavigateWrapper } from '~/toolbar/utils'
+import { webVitalsToolbarLogic } from '~/toolbar/web-vitals/webVitalsToolbarLogic'
 
+import { generatePiiMaskingCSS } from './piiMaskingStyles'
 import type { toolbarLogicType } from './toolbarLogicType'
 
 const MARGIN = 2
+const HEDGEHOG_OFFSET = 80
+
+const PII_MASKING_STYLESHEET_ID = 'posthog-pii-masking-styles'
 
 export type MenuState =
     | 'none'
@@ -26,6 +38,7 @@ export type MenuState =
     | 'debugger'
     | 'experiments'
     | 'web-vitals'
+    | 'product-tours'
 
 export type ToolbarPositionType =
     | 'top-left'
@@ -43,8 +56,25 @@ export const toolbarLogic = kea<toolbarLogicType>([
     path(['toolbar', 'bar', 'toolbarLogic']),
 
     connect(() => ({
-        values: [toolbarConfigLogic, ['posthog']],
+        values: [
+            toolbarConfigLogic,
+            ['posthog'],
+            heatmapToolbarMenuLogic,
+            ['elementStatsLoading', 'rawHeatmapLoading', 'isRefreshing'],
+            actionsLogic,
+            ['allActionsLoading'],
+            flagsToolbarLogic,
+            ['userFlagsLoading'],
+            experimentsLogic,
+            ['allExperimentsLoading'],
+            webVitalsToolbarLogic,
+            ['remoteWebVitalsLoading'],
+            hedgehogModeLogic,
+            ['hedgehogMode'],
+        ],
         actions: [
+            toolbarConfigLogic,
+            ['logout', 'setOAuthTokens'],
             actionsTabLogic,
             [
                 'showButtonActions',
@@ -57,6 +87,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
             ['showButtonExperiments'],
             elementsLogic,
             ['enableInspect', 'disableInspect', 'createAction'],
+            productToursLogic,
+            ['showButtonProductTours', 'hideButtonProductTours'],
             heatmapToolbarMenuLogic,
             [
                 'enableHeatmap',
@@ -66,19 +98,16 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 'setHeatmapColorPalette',
                 'setCommonFilters',
                 'toggleClickmapsEnabled',
-                'loadHeatmap',
-                'loadHeatmapSuccess',
-                'loadHeatmapFailure',
             ],
         ],
     })),
     actions(() => ({
         toggleTheme: (theme?: 'light' | 'dark') => ({ theme }),
         toggleMinimized: (minimized?: boolean) => ({ minimized }),
-        setHedgehogMode: (hedgehogMode: boolean) => ({ hedgehogMode }),
+        setHedgehogModeEnabled: (hedgehogModeEnabled: boolean) => ({ hedgehogModeEnabled }),
         setDragPosition: (x: number, y: number) => ({ x, y }),
-        setHedgehogActor: (actor: HedgehogActor | null) => ({ actor }),
         syncWithHedgehog: true,
+        openHedgehogOptions: true,
         setVisibleMenu: (visibleMenu: MenuState) => ({
             visibleMenu,
         }),
@@ -91,6 +120,11 @@ export const toolbarLogic = kea<toolbarLogicType>([
         setFixedPosition: (position: ToolbarPositionType) => ({ position }),
         setCurrentPathname: (pathname: string) => ({ pathname }),
         maybeSendNavigationMessage: true,
+        togglePiiMasking: (enabled?: boolean) => ({ enabled }),
+        setPiiMaskingColor: (color: string) => ({ color }),
+        startGracefulExit: true,
+        completeGracefulExit: true,
+        setCspBlocksNewFunction: (blocked: boolean) => ({ blocked }),
     })),
     windowValues(() => ({
         windowHeight: (window: Window) => window.innerHeight,
@@ -114,8 +148,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
             'none' as MenuState,
             {
                 setVisibleMenu: (_, { visibleMenu }) => visibleMenu,
-                setHedgehogMode: (state, { hedgehogMode }) =>
-                    hedgehogMode ? 'hedgehog' : state === 'hedgehog' ? 'none' : state,
             },
         ],
         minimized: [
@@ -164,17 +196,12 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 setFixedPosition: (_, { position }) => position,
             },
         ],
-        hedgehogMode: [
+        hedgehogModeEnabled: [
             false,
             { persist: true },
             {
-                setHedgehogMode: (_, { hedgehogMode }) => hedgehogMode,
-            },
-        ],
-        hedgehogActor: [
-            null as HedgehogActor | null,
-            {
-                setHedgehogActor: (_, { actor }) => actor,
+                setHedgehogModeEnabled: (_, { hedgehogModeEnabled }) => hedgehogModeEnabled,
+                setCspBlocksNewFunction: (state, { blocked }) => (blocked ? false : state), // if the CSP blocks new Function, disable hedgehod mode
             },
         ],
         isEmbeddedInApp: [
@@ -187,6 +214,33 @@ export const toolbarLogic = kea<toolbarLogicType>([
             '',
             {
                 setCurrentPathname: (_, { pathname }) => pathname,
+            },
+        ],
+        piiMaskingEnabled: [
+            false,
+            { persist: true },
+            {
+                togglePiiMasking: (state, { enabled }) => enabled ?? !state,
+            },
+        ],
+        piiMaskingColor: [
+            '#888888' as string,
+            { persist: true },
+            {
+                setPiiMaskingColor: (_, { color }) => color,
+            },
+        ],
+        isExiting: [
+            false,
+            {
+                startGracefulExit: () => true,
+                completeGracefulExit: () => false,
+            },
+        ],
+        cspBlocksNewFunction: [
+            false,
+            {
+                setCspBlocksNewFunction: (_, { blocked }) => blocked,
             },
         ],
     })),
@@ -299,27 +353,121 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 }
             },
         ],
+
+        getHedgehogActor: [
+            (s) => [s.hedgehogMode],
+            (hedgehogMode): (() => HedgehogActor | null) => {
+                return () => {
+                    const player = hedgehogMode?.stateManager?.getPlayerHedgehogActor()
+                    if (!player || !player.rigidBody) {
+                        return null
+                    }
+
+                    return player
+                }
+            },
+        ],
+        piiWarning: [
+            (s) => [s.posthog, s.piiMaskingEnabled],
+            (posthog: PostHog | null, piiMaskingEnabled: boolean) => {
+                if (!posthog || !piiMaskingEnabled) {
+                    return null
+                }
+
+                const warnings: string[] = []
+                if (posthog.sessionRecording?.status === 'active') {
+                    if (
+                        posthog.config.session_recording?.blockClass !== undefined &&
+                        typeof posthog.config.session_recording?.blockClass !== 'string'
+                    ) {
+                        warnings.push(
+                            "The toolbar's PII masking tool doesn't support non-string `session_recording.blockClass`. If you want to use PII masking, please set it to a string. Or, reach out to support@posthog.com to file a feature request."
+                        )
+                    }
+                    if (
+                        posthog.config.session_recording?.maskTextClass !== undefined &&
+                        typeof posthog.config.session_recording?.maskTextClass !== 'string'
+                    ) {
+                        warnings.push(
+                            "The toolbar's PII masking tool doesn't support non-string `session_recording.maskTextClass`. If you want to use PII masking, please set it to a string. Or, reach out to support@posthog.com to file a feature request."
+                        )
+                    }
+                    if (
+                        posthog.config.session_recording?.maskTextSelector !== undefined &&
+                        typeof posthog.config.session_recording?.maskTextSelector !== 'string'
+                    ) {
+                        warnings.push(
+                            "The toolbar's PII masking tool doesn't support non-string `session_recording.maskTextSelector`. If you want to use PII masking, please set it to a string. Or, reach out to support@posthog.com to file a feature request."
+                        )
+                    }
+                }
+
+                return warnings
+            },
+        ],
+        isLoading: [
+            (s) => [
+                s.elementStatsLoading,
+                s.rawHeatmapLoading,
+                s.isRefreshing,
+                s.allActionsLoading,
+                s.userFlagsLoading,
+                s.allExperimentsLoading,
+                s.remoteWebVitalsLoading,
+            ],
+            (
+                elementStatsLoading,
+                rawHeatmapLoading,
+                isRefreshing,
+                allActionsLoading,
+                userFlagsLoading,
+                allExperimentsLoading,
+                remoteWebVitalsLoading
+            ) =>
+                elementStatsLoading ||
+                rawHeatmapLoading ||
+                isRefreshing ||
+                allActionsLoading ||
+                userFlagsLoading ||
+                allExperimentsLoading ||
+                remoteWebVitalsLoading,
+        ],
+        hedgehogModeAvailable: [
+            (s) => [s.cspBlocksNewFunction],
+            (cspBlocksNewFunction: boolean): boolean => !cspBlocksNewFunction,
+        ],
     }),
     listeners(({ actions, values }) => ({
-        setVisibleMenu: ({ visibleMenu }) => {
+        setOAuthTokens: () => {
+            if (values.minimized) {
+                actions.toggleMinimized(false)
+            }
+        },
+        setVisibleMenu: ({ visibleMenu }, _, __, previousState) => {
+            const previousMenu = toolbarLogic.selectors.visibleMenu(previousState)
+            if (visibleMenu !== 'none') {
+                toolbarPosthogJS.capture('toolbar menu opened', { menu: visibleMenu, previous_menu: previousMenu })
+            } else if (previousMenu !== 'none') {
+                toolbarPosthogJS.capture('toolbar menu closed', { menu: previousMenu })
+            }
+
             actions.disableInspect()
             actions.disableHeatmap()
             actions.hideButtonActions()
+            actions.hideButtonProductTours()
 
             if (visibleMenu === 'heatmap') {
                 actions.enableHeatmap()
-                values.hedgehogActor?.setOnFire(1)
+                values.getHedgehogActor()?.setOnFire(1)
             } else if (visibleMenu === 'actions') {
                 actions.showButtonActions()
-                values.hedgehogActor?.setAnimation('action')
             } else if (visibleMenu === 'experiments') {
                 actions.showButtonExperiments()
-                values.hedgehogActor?.setAnimation('action')
             } else if (visibleMenu === 'flags') {
-                values.hedgehogActor?.setAnimation('flag')
             } else if (visibleMenu === 'inspect') {
                 actions.enableInspect()
-                values.hedgehogActor?.setAnimation('inspect')
+            } else if (visibleMenu === 'product-tours') {
+                actions.showButtonProductTours()
             }
         },
 
@@ -378,7 +526,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
                     values.element?.removeEventListener('touchmove', onMove)
                     values.element?.removeEventListener('touchend', onTouchEnd)
                 }
-                values.element.addEventListener('touchmove', onMove)
+                values.element.addEventListener('touchmove', onMove, { passive: true })
                 values.element.addEventListener('touchend', onTouchEnd)
             } else {
                 const onMouseUp = (e: MouseEvent): void => {
@@ -393,21 +541,30 @@ export const toolbarLogic = kea<toolbarLogicType>([
             }
         },
 
-        setDragging: ({ dragging }) => {
-            if (values.hedgehogActor) {
-                values.hedgehogActor.isDragging = dragging
-                values.hedgehogActor.update()
-            }
-        },
-
         syncWithHedgehog: () => {
-            const actor = values.hedgehogActor
-            if (!values.hedgehogMode || !actor) {
+            const player = values.getHedgehogActor()
+
+            if (!values.hedgehogModeEnabled || !player) {
                 return
             }
 
-            const newX = actor.x + SPRITE_SIZE * 0.5
-            const newY = values.windowHeight - actor.y - SPRITE_SIZE - 20
+            if (values.minimized !== values.hedgehogMode?.gameUI?.visible) {
+                actions.toggleMinimized(values.hedgehogMode?.gameUI?.visible)
+            }
+
+            if (values.isDragging) {
+                // Set the hedgehog position instead
+                player.setPosition({
+                    x: values.position.x,
+                    y: values.position.y + HEDGEHOG_OFFSET,
+                })
+
+                return
+            }
+
+            const { x, y } = player.rigidBody.position
+            const newX = x
+            const newY = y - HEDGEHOG_OFFSET
             actions.setDragPosition(newX, newY)
         },
 
@@ -416,26 +573,80 @@ export const toolbarLogic = kea<toolbarLogicType>([
         },
         actionCreatedSuccess: (action) => {
             // if embedded, we need to tell the parent window that a new action was created
+            // it's ok to use we use a wildcard for the origin bc data isn't sensitive
+            // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
             window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_NEW_ACTION_CREATED, payload: action }, '*')
         },
         maybeSendNavigationMessage: () => {
             const currentPath = window.location.pathname
             if (currentPath !== values.currentPathname) {
                 actions.setCurrentPathname(currentPath)
+                // it's ok to use we use a wildcard for the origin bc data isn't sensitive
+                // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
                 window.parent.postMessage(
                     { type: PostHogAppToolbarEvent.PH_TOOLBAR_NAVIGATED, payload: { path: currentPath } },
                     '*'
                 )
             }
         },
+        openHedgehogOptions: () => {
+            values.hedgehogMode?.gameUI?.show({
+                screen: 'configuration',
+                messages: [],
+                actor: values.getHedgehogActor() ?? undefined,
+            })
+        },
+        togglePiiMasking: () => {
+            const styleElement = document.getElementById(PII_MASKING_STYLESHEET_ID) as HTMLStyleElement | null
+
+            if (values.piiMaskingEnabled) {
+                const css = generatePiiMaskingCSS(values.piiMaskingColor, values.posthog)
+                if (!styleElement) {
+                    const newStyleElement = document.createElement('style')
+                    newStyleElement.id = PII_MASKING_STYLESHEET_ID
+                    document.head.appendChild(newStyleElement)
+                    newStyleElement.textContent = css
+                } else {
+                    styleElement.textContent = css
+                }
+            } else {
+                if (styleElement) {
+                    styleElement.remove()
+                }
+            }
+        },
+        setPiiMaskingColor: async ({ color }) => {
+            const styleElement = document.getElementById(PII_MASKING_STYLESHEET_ID) as HTMLStyleElement | null
+
+            if (styleElement && values.piiMaskingEnabled) {
+                styleElement.textContent = generatePiiMaskingCSS(color, values.posthog)
+            }
+        },
+        startGracefulExit: () => {
+            actions.setVisibleMenu('none')
+            actions.toggleMinimized(true)
+        },
+        completeGracefulExit: () => {
+            actions.logout()
+        },
     })),
     afterMount(({ actions, values, cache }) => {
+        // Detect whether the page's CSP blocks new Function() — if so, hedgehog mode
+        // (which relies on pixi.js) cannot work and should be disabled.
+        try {
+            new Function('return true')()
+        } catch {
+            actions.setCspBlocksNewFunction(true)
+        }
+
         // Add window event listeners using disposables
         cache.disposables.add(() => {
             const clickListener = (e: MouseEvent): void => {
                 const target = e.target as HTMLElement
                 const clickIsInToolbar = target?.id === TOOLBAR_ID || !!target.closest?.('.' + TOOLBAR_CONTAINER_CLASS)
-                if (!clickIsInToolbar && !values.isBlurred) {
+                // Don't blur when the debugger is open — it needs to stay pinned
+                // so users can interact with the page while watching events
+                if (!clickIsInToolbar && !values.isBlurred && values.visibleMenu !== 'debugger') {
                     actions.setIsBlurred(true)
                 }
             }
@@ -453,6 +664,37 @@ export const toolbarLogic = kea<toolbarLogicType>([
             makeNavigateWrapper(actions.maybeSendNavigationMessage, '__ph_toolbar_logic_wrapped__'),
             'historyProxy'
         )
+
+        cache.disposables.add(() => {
+            const syncHedgehogLoop = setInterval(() => {
+                if (values.hedgehogModeEnabled && values.getHedgehogActor()) {
+                    actions.syncWithHedgehog()
+                }
+            }, 100)
+
+            return () => clearInterval(syncHedgehogLoop)
+        }, 'syncHedgehogLoop')
+
+        // Initialize PII masking if already enabled
+        // Remove stylesheet on unmount
+        cache.disposables.add(() => {
+            if (values.piiMaskingEnabled) {
+                let styleElement = document.getElementById(PII_MASKING_STYLESHEET_ID) as HTMLStyleElement | null
+                if (!styleElement) {
+                    styleElement = document.createElement('style')
+                    styleElement.id = PII_MASKING_STYLESHEET_ID
+                    document.head.appendChild(styleElement)
+                }
+                styleElement.textContent = generatePiiMaskingCSS(values.piiMaskingColor, values.posthog)
+            }
+
+            return () => {
+                const styleElement = document.getElementById(PII_MASKING_STYLESHEET_ID)
+                if (styleElement) {
+                    styleElement.remove()
+                }
+            }
+        }, 'piiMasking')
 
         // the toolbar can be run within the posthog parent app
         // if it is then it listens to parent messages
@@ -476,6 +718,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
                             actions.setHeatmapFixedPositionMode(e.data.payload.fixedPositionMode)
                             actions.setCommonFilters(e.data.payload.commonFilters)
                             actions.toggleClickmapsEnabled(false)
+                            // it's ok to use we use a wildcard for the origin bc data isn't sensitive
+                            // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
                             window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_READY }, '*')
                             return
                         case PostHogAppToolbarEvent.PH_ELEMENT_SELECTOR:
@@ -490,7 +734,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
                             actions.setAutomaticActionCreationEnabled(true, e.data.payload.name)
                             return
                         default:
-                            console.warn(`[PostHog Toolbar] Received unknown parent window message: ${type}`)
+                            toolbarLogger.warn('iframe', `Received unknown parent window message: ${type}`)
                     }
                 }
                 window.addEventListener('message', iframeEventListener, false)
@@ -500,6 +744,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
             // Post message up to parent in case we are embedded in an app
             // Tell the parent window that we are ready
             // we check if we're in an iframe before this setup to avoid logging warnings to the console
+            // it's ok to use we use a wildcard for the origin bc data isn't sensitive
+            // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
             window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_INIT }, '*')
         }
     }),

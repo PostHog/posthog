@@ -10,6 +10,8 @@ export type ResizerEvent = {
 export type ResizerLogicProps = {
     logicKey: string
     persistent?: boolean
+    /** Optional prefix for localStorage key - change this to invalidate cached values */
+    persistPrefix?: string
     placement: 'left' | 'right' | 'top' | 'bottom'
     containerRef: React.RefObject<HTMLDivElement>
     /** At what size, should this rather be considered a "close" event */
@@ -41,7 +43,7 @@ export const resizerLogic = kea<resizerLogicType>([
         ],
         size: [
             null as number | null,
-            { persist: props.persistent },
+            { persist: props.persistent, prefix: props.persistPrefix },
             {
                 setDesiredSize: (_, { size }) => size,
                 resetDesiredSize: () => null,

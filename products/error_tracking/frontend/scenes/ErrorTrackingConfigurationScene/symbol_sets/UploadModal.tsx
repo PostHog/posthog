@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
+import { IconUpload } from '@posthog/icons'
 import { LemonButton, LemonFileInput, LemonModal } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { IconUploadFile } from 'lib/lemon-ui/icons'
 
 import { symbolSetLogic } from './symbolSetLogic'
 
@@ -28,7 +28,7 @@ export const UploadModal = (): JSX.Element => {
                             callToAction={
                                 <div className="flex flex-col items-center justify-center deprecated-space-y-2 border border-dashed rounded p-4 w-full">
                                     <span className="flex items-center gap-2 font-semibold">
-                                        <IconUploadFile className="text-2xl" /> Add minified source
+                                        <IconUpload className="text-2xl" /> Add minified source
                                     </span>
                                     <div>
                                         Drag and drop your minified source file here or click to open the file browser.
@@ -44,7 +44,7 @@ export const UploadModal = (): JSX.Element => {
                             callToAction={
                                 <div className="flex flex-col items-center justify-center deprecated-space-y-2 border border-dashed rounded p-4 w-full">
                                     <span className="flex items-center gap-2 font-semibold">
-                                        <IconUploadFile className="text-2xl" /> Add source map
+                                        <IconUpload className="text-2xl" /> Add source map
                                     </span>
                                     <div>Drag and drop your source map here or click to open the file browser.</div>
                                 </div>

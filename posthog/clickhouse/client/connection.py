@@ -15,19 +15,9 @@ from clickhouse_connect.driver import (
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
 
+from posthog.clickhouse.workload import Workload
 from posthog.settings import data_stores
 from posthog.utils import patchable
-
-
-class Workload(StrEnum):
-    # Default workload
-    DEFAULT = "DEFAULT"
-    # Analytics queries, other 'lively' queries
-    ONLINE = "ONLINE"
-    # Historical exports, other long-running processes where latency is less critical
-    OFFLINE = "OFFLINE"
-    # Logs queries
-    LOGS = "LOGS"
 
 
 class NodeRole(StrEnum):
@@ -40,6 +30,8 @@ class NodeRole(StrEnum):
     INGESTION_SMALL = "small"
     INGESTION_MEDIUM = "medium"
     SHUFFLEHOG = "shufflehog"
+    ENDPOINTS = "endpoints"
+    LOGS = "logs"
 
 
 _default_workload = Workload.ONLINE
@@ -47,6 +39,9 @@ _default_workload = Workload.ONLINE
 
 class ClickHouseUser(StrEnum):
     # Default, not annotated queries goes here.
+    # Avoid using for new queries. We are progressively constraining the resources for this user.
+    # Only resort to using during experimentation and development.
+    # Once you're past that, create a dedicated user for your product/use-case and use that instead.
     DEFAULT = "default"
     # All /api/ requests called programmatically
     API = "api"
@@ -56,9 +51,11 @@ class ClickHouseUser(StrEnum):
     COHORTS = "cohorts"
     CACHE_WARMUP = "cache_warmup"
     # Whenever the HogQL needs to query CH to get some metadata
-    HOGQL = "hogql"
+    HOGQL = "hogql"  # deprecated, use META
+    META = "meta"
     MESSAGING = "messaging"  # a.k.a. behavioral cohorts
-    MAX_AI = "max_ai"
+    MAX_AI = "max_ai"  # llm/a
+    ENDPOINTS = "endpoints"
 
     # Dev Operations - do not normally use
     OPS = "ops"
@@ -86,6 +83,25 @@ def init_clickhouse_users() -> Mapping[ClickHouseUser, tuple[str, str]]:
 
 
 def get_clickhouse_creds(user: ClickHouseUser) -> tuple[str, str]:
+    """
+    Retrieve ClickHouse credentials for the specified user.
+
+    This function retrieves the credentials associated with a given ClickHouse
+    user. If the specified user is not found, it will fall back to the default
+    user credentials.
+
+    The user and password must be properly passed as ENVs:
+        CLICKHOUSE_<USER_NAME>_USER
+        CLICKHOUSE_<USER_NAME>_PASSWORD
+
+    Args:
+        user (ClickHouseUser): The user whose ClickHouse credentials need
+                               to be retrieved.
+
+    Returns:
+        tuple[str, str]: A tuple containing the username and password associated
+                         with the specified user.
+    """
     global __user_dict
     if not __user_dict:
         __user_dict = init_clickhouse_users()
@@ -165,6 +181,7 @@ def get_kwargs_for_client(
     if workload == Workload.LOGS:
         return {
             "host": settings.CLICKHOUSE_LOGS_CLUSTER_HOST,
+            "port": settings.CLICKHOUSE_LOGS_CLUSTER_PORT,
             "database": settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE,
             "user": settings.CLICKHOUSE_LOGS_CLUSTER_USER,
             "password": settings.CLICKHOUSE_LOGS_CLUSTER_PASSWORD,
@@ -189,6 +206,9 @@ def get_kwargs_for_client(
         workload == Workload.OFFLINE or workload == Workload.DEFAULT and _default_workload == Workload.OFFLINE
     ) and settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST is not None:
         return {**base_kwargs, "host": settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST, "verify": False}
+
+    if workload == Workload.ENDPOINTS:
+        return {**base_kwargs, "host": settings.CLICKHOUSE_ENDPOINTS_HOST}
 
     return base_kwargs
 

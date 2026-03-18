@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use chrono::{DateTime, Duration, Utc};
 use common_types::{
@@ -10,9 +10,10 @@ use serde_json::Value;
 use crate::{
     error::{EventError, PipelineFailure, PipelineResult},
     recursively_sanitize_properties, sanitize_string,
+    types::event::PropertiesContainer,
 };
 
-use super::{exception::add_error_to_event, IncomingEvent};
+use super::IncomingEvent;
 
 // Adds team info, and folds set, set_once and ip address data into the event properties
 pub fn prepare_events(
@@ -64,7 +65,7 @@ pub fn prepare_events(
                 // the raw json object to a RawEvent indicates some pipeline error, and we should fail and
                 // take lag until it's fixed (so we return an UnhandledError here)
                 let raw_event: RawEvent =
-                    serde_json::from_value(raw_event).map_err(|e| (i, e.into()))?;
+                    serde_json::from_value(raw_event).map_err(|e| (i, Arc::new(e.into())))?;
 
                 // Bit of a mouthful, but basically, if the event has a timestamp, try to parse it,
                 // and store an event error if we can't. If the event has no timestamp, use the instant
@@ -179,10 +180,13 @@ fn transform_event(
         group3_created_at: None,
         group4_created_at: None,
         person_mode,
+        captured_at: None,
+        historical_migration: None,
     };
 
     if timestamp_was_invalid {
-        add_error_to_event(&mut event, "Timestamp was future dated")
+        event
+            .attach_error("Timestamp was future dated".into())
             .expect("We can parse the raw event we just serialised")
     }
 

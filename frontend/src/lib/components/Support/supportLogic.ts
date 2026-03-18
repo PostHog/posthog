@@ -7,9 +7,9 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
 import { parseExceptionEvent } from 'lib/utils/exceptionUtils'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -25,8 +25,8 @@ import {
     UserType,
 } from '~/types'
 
-import { openSupportModal } from './SupportModal'
 import type { supportLogicType } from './supportLogicType'
+import { openSupportModal } from './SupportModal'
 
 export function getPublicSupportSnippet(
     cloudRegion: Region | null | undefined,
@@ -99,7 +99,7 @@ function getDjangoAdminLink(
     if (!user || !cloudRegion) {
         return ''
     }
-    const link = `http://go/admin${cloudRegion}/${user.email}`
+    const link = `https://${cloudRegion.toLowerCase()}.posthog.com/admin/posthog/user/${user.id}/change/`
     return `\nAdmin: ${link} (organization ID ${currentOrganization?.id}: ${currentOrganization?.name}, project ID ${currentTeam?.id}: ${currentTeam?.name})`
 }
 
@@ -175,6 +175,11 @@ export const TARGET_AREA_TO_NAME = [
                 'data-attr': `support-form-target-area-onboarding`,
                 label: 'SDK / Implementation',
             },
+            {
+                value: 'setup-wizard',
+                'data-attr': `support-form-target-area-setup-wizard`,
+                label: 'Wizard',
+            },
         ],
     },
     {
@@ -184,6 +189,11 @@ export const TARGET_AREA_TO_NAME = [
                 value: 'data_warehouse',
                 'data-attr': `support-form-target-area-data_warehouse`,
                 label: 'Data warehouse (sources)',
+            },
+            {
+                value: 'data_modeling',
+                'data-attr': `support-form-target-area-data_modeling`,
+                label: 'Data modeling (views, matviews, endpoints)',
             },
             {
                 value: 'batch_exports',
@@ -226,9 +236,19 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'LLM analytics',
             },
             {
+                value: 'logs',
+                'data-attr': `support-form-target-area-logs`,
+                label: 'Logs',
+            },
+            {
                 value: 'max-ai',
                 'data-attr': `support-form-target-area-max-ai`,
                 label: 'PostHog AI',
+            },
+            {
+                value: 'posthog-mcp',
+                'data-attr': `support-form-target-area-posthog-mcp`,
+                label: 'MCP Server',
             },
             {
                 value: 'workflows',
@@ -265,6 +285,11 @@ export const TARGET_AREA_TO_NAME = [
                 'data-attr': `support-form-target-area-web_analytics`,
                 label: 'Web analytics',
             },
+            {
+                value: 'logs',
+                'data-attr': `support-form-target-area-logs`,
+                label: 'Logs',
+            },
         ],
     },
 ]
@@ -292,6 +317,7 @@ export type SupportTicketTargetArea =
     | 'data_management'
     | 'notebooks'
     | 'data_warehouse'
+    | 'data_modeling'
     | 'feature_flags'
     | 'analytics'
     | 'session_replay'
@@ -306,6 +332,7 @@ export type SupportTicketTargetArea =
     | 'platform_addons'
     | 'max-ai'
     | 'customer-analytics'
+    | 'logs'
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
@@ -349,6 +376,7 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     sources: 'data_warehouse',
     workflows: 'workflows',
     billing: 'billing',
+    logs: 'logs',
 }
 
 export const SUPPORT_TICKET_TEMPLATES = {
@@ -388,6 +416,7 @@ export type SupportFormFields = {
     message: string
     exception_event?: SupportTicketExceptionEvent
     isEmailFormOpen?: boolean | 'true' | 'false'
+    tags?: string[]
 }
 
 export const supportLogic = kea<supportLogicType>([
@@ -418,6 +447,7 @@ export const supportLogic = kea<supportLogicType>([
         updateUrlParams: true,
         openEmailForm: true,
         closeEmailForm: true,
+        setLastSubmittedTicketId: (ticketId: string | null) => ({ ticketId }),
     })),
     reducers(() => ({
         isSupportFormOpen: [
@@ -432,6 +462,13 @@ export const supportLogic = kea<supportLogicType>([
             {
                 openEmailForm: () => true,
                 closeEmailForm: () => false,
+            },
+        ],
+        lastSubmittedTicketId: [
+            null as string | null,
+            {
+                setLastSubmittedTicketId: (_, { ticketId }) => ticketId,
+                openSupportForm: () => null, // Reset when opening a new form
             },
         ],
     })),
@@ -542,6 +579,7 @@ export const supportLogic = kea<supportLogicType>([
             severity_level,
             message,
             exception_event,
+            tags,
         }: SupportFormFields) => {
             const zendesk_ticket_uuid = uuid()
             const subject =
@@ -616,7 +654,7 @@ export const supportLogic = kea<supportLogicType>([
                 request: {
                     requester: { name: name, email: email },
                     subject: subject,
-                    tags: [planLevelTag, accountOwnerTag],
+                    tags: [planLevelTag, accountOwnerTag, ...(tags || [])],
                     custom_fields: [
                         {
                             id: 22084126888475,
@@ -765,6 +803,7 @@ export const supportLogic = kea<supportLogicType>([
                 lemonToast.success("Got the message! If we have follow-up information for you, we'll reply via email.")
 
                 actions.ensureZendeskOrganization()
+                actions.setLastSubmittedTicketId(zendesk_ticket_id)
 
                 // Only close and reset the form on success
                 actions.closeSupportForm()

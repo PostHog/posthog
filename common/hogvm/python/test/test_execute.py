@@ -3,7 +3,7 @@ from collections.abc import Callable
 from typing import Any, Optional
 
 from posthog.hogql.compiler.bytecode import create_bytecode
-from posthog.hogql.parser import parse_expr, parse_program
+from posthog.hogql.parser import parse_expr, parse_program, parse_string_template
 
 from common.hogvm.python.execute import execute_bytecode, get_nested_value
 from common.hogvm.python.operation import (
@@ -1033,3 +1033,80 @@ class TestBytecodeExecute:
             }
         )
         assert res.result == "tomato"
+
+    def test_extract_regex(self):
+        # Basic extraction with capture group
+        assert self._run("extractRegex('hello world', '(\\\\w+)')") == "hello"
+        assert self._run("extractRegex('version 1.2.3', '(\\\\d+\\\\.\\\\d+\\\\.\\\\d+)')") == "1.2.3"
+
+        # No capture group - returns whole match
+        assert self._run("extractRegex('hello world', '\\\\w+')") == "hello"
+
+        # No match - returns empty string
+        assert self._run("extractRegex('hello', '\\\\d+')") == ""
+
+        # Null handling
+        assert self._run("extractRegex(null, '\\\\w+')") == ""
+        assert self._run("extractRegex('hello', null)") == ""
+
+        # Complex pattern like ClickHouse sortableSemver uses
+        assert self._run("extractRegex('v1.2.3-alpha', '(\\\\d+(\\\\.\\\\d+)+)')") == "1.2.3"
+        assert self._run("extractRegex('version 10.20.30', '(\\\\d+(\\\\.\\\\d+)+)')") == "10.20.30"
+
+    def test_sortable_semver(self):
+        # Basic semver parsing
+        assert self._run("sortableSemver('1.2.3')") == [1, 2, 3]
+        assert self._run("sortableSemver('10.20.30')") == [10, 20, 30]
+
+        # With v prefix
+        assert self._run("sortableSemver('v1.2.3')") == [1, 2, 3]
+
+        # With prerelease suffix
+        assert self._run("sortableSemver('1.2.3-alpha')") == [1, 2, 3]
+        assert self._run("sortableSemver('v2.0.0-beta.1')") == [2, 0, 0]
+
+        # Version embedded in string
+        assert self._run("sortableSemver('version 1.2.3')") == [1, 2, 3]
+
+        # More components
+        assert self._run("sortableSemver('1.2.3.4')") == [1, 2, 3, 4]
+
+        # Two components
+        assert self._run("sortableSemver('1.2')") == [1, 2]
+
+        # Single component - regex requires at least X.Y format, so this returns empty
+        # This matches ClickHouse behavior
+        assert self._run("sortableSemver('1')") == []
+
+        # Null and empty handling
+        assert self._run("sortableSemver(null)") == []
+        assert self._run("sortableSemver('')") == []
+        assert self._run("sortableSemver('no version here')") == []
+
+        # Comparison use case (what it's designed for)
+        assert self._run("sortableSemver('1.2.3') < sortableSemver('1.2.4')") is True
+        assert self._run("sortableSemver('1.2.3') < sortableSemver('1.3.0')") is True
+        assert self._run("sortableSemver('1.2.3') < sortableSemver('2.0.0')") is True
+        assert self._run("sortableSemver('2.0.0') > sortableSemver('1.9.9')") is True
+        assert self._run("sortableSemver('1.2.3') = sortableSemver('1.2.3')") is True
+
+    def test_boolean_template_preserves_type(self):
+        """Boolean template expressions like {true} or {event.properties.flag} should produce actual booleans, not strings."""
+        cases: list[tuple[str, dict[str, Any], bool | None | str]] = [
+            ("{true}", {}, True),
+            ("{false}", {}, False),
+            ("{event.properties.opt_out}", {"event": {"properties": {"opt_out": True}}}, True),
+            ("{event.properties.opt_out}", {"event": {"properties": {"opt_out": False}}}, False),
+            ("{event.properties.opt_out}", {"event": {"properties": {}}}, None),
+            (
+                "{event.properties.opt_out}",
+                {"event": {"properties": {"opt_out": "a non boolean value"}}},
+                "a non boolean value",
+            ),
+        ]
+        for template, globals, expected in cases:
+            bytecode = create_bytecode(parse_string_template(template)).bytecode
+            result = execute_bytecode(bytecode, globals=globals).result
+            assert result == expected, (
+                f"Template '{template}' should produce {expected!r}, got {result!r} ({type(result).__name__})"
+            )

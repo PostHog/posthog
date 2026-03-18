@@ -164,6 +164,6 @@ class TestLink(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         fs_entry = FileSystem.objects.filter(team=self.team, ref=str(link_id), type="link").first()
         assert fs_entry is not None, "A FileSystem entry was not created for this Link."
-        assert (
-            "Special Folder/Links" in fs_entry.path
-        ), f"Expected path to include 'Special Folder/Links', got '{fs_entry.path}'."
+        assert "Special Folder/Links" in fs_entry.path, (
+            f"Expected path to include 'Special Folder/Links', got '{fs_entry.path}'."
+        )

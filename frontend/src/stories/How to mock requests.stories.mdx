@@ -21,17 +21,17 @@ To specify mocked API calls in a story, use one of these two options:
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 
 export default {
-    title: 'Scenes-App/Some Scene',
-    decorators: [
-        // applies for all stories in file
-        mswDecorator(MOCK_ARGUMENTS),
-    ],
+  title: 'Scenes-App/Some Scene',
+  decorators: [
+    // applies for all stories in file
+    mswDecorator(MOCK_ARGUMENTS),
+  ],
 }
 
 export function Dashboard(): JSX.Element {
-    // applies to just this story
-    useStorybookMocks(MOCK_ARGUMENTS)
-    return <div />
+  // applies to just this story
+  useStorybookMocks(MOCK_ARGUMENTS)
+  return <div />
 }
 ```
 

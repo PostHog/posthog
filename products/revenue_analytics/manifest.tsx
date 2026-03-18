@@ -1,6 +1,7 @@
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconType } from '~/queries/schema/schema-general'
+import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 import { ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
@@ -21,16 +22,6 @@ export const manifest: ProductManifest = {
     urls: {
         revenueAnalytics: (): string => '/revenue_analytics',
     },
-    treeItemsProducts: [
-        {
-            path: 'Revenue analytics',
-            category: 'Analytics',
-            href: urls.revenueAnalytics(),
-            type: 'revenue',
-            tags: ['beta'],
-            sceneKey: 'RevenueAnalytics',
-        },
-    ],
     fileSystemTypes: {
         revenue: {
             name: 'Revenue',
@@ -40,6 +31,18 @@ export const manifest: ProductManifest = {
             filterKey: 'revenue',
         },
     },
+    treeItemsProducts: [
+        {
+            path: 'Revenue analytics',
+            intents: [ProductKey.REVENUE_ANALYTICS],
+            category: 'Analytics',
+            href: urls.revenueAnalytics(),
+            type: 'revenue',
+            flag: FEATURE_FLAGS.REVENUE_ANALYTICS,
+            tags: ['alpha'],
+            sceneKey: 'RevenueAnalytics',
+        },
+    ],
     treeItemsMetadata: [
         {
             path: 'Revenue definitions',

@@ -1,7 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { CyclotronJobInputType } from '~/types'
-
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
@@ -13,7 +11,8 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
 
     const templateId = node.data.config.template_id
     const validationResult = actionValidationErrorsById[node.id]
-    const inputs = node.data.config.inputs as Record<string, CyclotronJobInputType>
+    const inputs = node.data.config.inputs
+    const mappings = 'mappings' in node.data.config ? node.data.config.mappings : undefined
 
     return (
         <>
@@ -22,6 +21,8 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
                 templateId={templateId}
                 inputs={inputs}
                 setInputs={(inputs) => partialSetWorkflowActionConfig(node.id, { inputs })}
+                mappings={mappings}
+                setMappings={(mappings) => partialSetWorkflowActionConfig(node.id, { mappings })}
                 errors={validationResult?.errors}
             />
         </>

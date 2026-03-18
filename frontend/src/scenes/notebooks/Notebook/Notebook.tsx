@@ -4,17 +4,18 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { commandLogic } from 'lib/components/Command/commandLogic'
 import { NotFound } from 'lib/components/NotFound'
 import { EditorFocusPosition, JSONContent } from 'lib/components/RichContentEditor/types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { NotebookLogicProps, notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
 
+import { AddInsightsToNotebookModal } from '../AddInsightsToNotebookModal/AddInsightsToNotebookModal'
 import { Editor } from './Editor'
 import { NotebookColumnLeft } from './NotebookColumnLeft'
 import { NotebookColumnRight } from './NotebookColumnRight'
@@ -27,6 +28,7 @@ export type NotebookProps = NotebookLogicProps & {
     initialAutofocus?: EditorFocusPosition
     initialContent?: JSONContent
     editable?: boolean
+    className?: string
 }
 
 export function Notebook({
@@ -35,6 +37,7 @@ export function Notebook({
     editable = true,
     initialAutofocus = 'start',
     initialContent,
+    className,
 }: NotebookProps): JSX.Element {
     const logicProps: NotebookLogicProps = { shortId, mode }
     const logic = notebookLogic(logicProps)
@@ -42,6 +45,7 @@ export function Notebook({
         useValues(logic)
     const { duplicateNotebook, loadNotebook, setEditable, setLocalContent, setContainerSize } = useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
+    const { isCommandOpen } = useValues(commandLogic)
 
     useEffect(() => {
         if (initialContent && mode === 'canvas') {
@@ -49,16 +53,6 @@ export function Notebook({
         }
         // oxlint-disable-next-line exhaustive-deps
     }, [notebook])
-
-    useWhyDidIRender('Notebook', {
-        notebook,
-        notebookLoading,
-        editor,
-        conflictWarningVisible,
-        isEditable,
-        shortId,
-        initialAutofocus,
-    })
 
     useOnMountEffect(() => {
         if (!notebook && !notebookLoading) {
@@ -75,7 +69,7 @@ export function Notebook({
     }, [isEditable]) // oxlint-disable-line exhaustive-deps
 
     useEffect(() => {
-        if (editor) {
+        if (editor && !isCommandOpen) {
             editor.focus(initialAutofocus)
         }
     }, [editor]) // oxlint-disable-line exhaustive-deps
@@ -104,7 +98,8 @@ export function Notebook({
                         !isExpanded && 'Notebook--compact',
                         mode && `Notebook--${mode}`,
                         size === 'small' && `Notebook--single-column`,
-                        isEditable && 'Notebook--editable'
+                        isEditable && 'Notebook--editable',
+                        className
                     )}
                     ref={ref}
                 >
@@ -144,6 +139,7 @@ export function Notebook({
                     </div>
                 </div>
             )}
+            <AddInsightsToNotebookModal />
         </BindLogic>
     )
 }

@@ -10,6 +10,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, hexToRGBA, midEllipsis } from 'lib/utils'
+import { formatEventName } from 'scenes/insights/utils'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -38,7 +39,7 @@ interface InsightsLabelProps {
     iconStyle?: Record<string, any> // style on series color icon
     seriesStatus?: string // Used by lifecycle chart to display the series name
     fallbackName?: string // Name to display for the series if it can be determined from `action`
-    hasMultipleSeries?: boolean // Whether the graph has multiple discrete series (not breakdown values)
+    hasMultipleSeries?: boolean // Whether the query defines multiple series (not breakdown values). Derived from !isSingleSeriesDefinition.
     showCountedByTag?: boolean // Force 'counted by' tag to show (always shown when action.math is set)
     allowWrap?: boolean // Allow wrapping to multiple lines (useful for long values like URLs)
     onLabelClick?: () => void // Click handler for inner label
@@ -68,13 +69,19 @@ function MathTag({ math, mathProperty, mathHogQL, mathGroupTypeIndex }: MathTagP
     if (math === 'unique_group' && mathGroupTypeIndex != undefined) {
         return <LemonTag>Unique {aggregationLabel(mathGroupTypeIndex).plural}</LemonTag>
     }
+    if (math === 'weekly_active' && mathGroupTypeIndex != undefined) {
+        return <LemonTag>Weekly active {aggregationLabel(mathGroupTypeIndex).plural}</LemonTag>
+    }
+    if (math === 'monthly_active' && mathGroupTypeIndex != undefined) {
+        return <LemonTag>Monthly active {aggregationLabel(mathGroupTypeIndex).plural}</LemonTag>
+    }
     if (math && ['sum', 'avg', 'min', 'max', 'median', 'p75', 'p90', 'p95', 'p99'].includes(math)) {
         return (
             <>
-                <LemonTag>{(mathDefinitions as any)[math]?.name || capitalizeFirstLetter(math)}</LemonTag>
+                <LemonTag>{mathDefinitions[math]?.name || capitalizeFirstLetter(math)}</LemonTag>
                 {mathProperty && (
                     <>
-                        <span>of</span>
+                        <span className="shrink-0">of</span>
                         <PropertyKeyInfo disableIcon value={mathProperty} />
                     </>
                 )}
@@ -85,7 +92,7 @@ function MathTag({ math, mathProperty, mathHogQL, mathGroupTypeIndex }: MathTagP
         return <LemonTag className="max-w-60 text-ellipsis overflow-hidden">{String(mathHogQL) || 'SQL'}</LemonTag>
     }
     // Use mathDefinitions first, then fall back to capitalizing the math string
-    return <LemonTag>{(mathDefinitions as any)[math]?.name || capitalizeFirstLetter(math)}</LemonTag>
+    return <LemonTag>{mathDefinitions[math]?.name || capitalizeFirstLetter(math)}</LemonTag>
 }
 
 export function InsightLabel({
@@ -112,14 +119,25 @@ export function InsightLabel({
     showSingleName = false,
 }: InsightsLabelProps): JSX.Element {
     const showEventName = _showEventName || !breakdownValue || (hasMultipleSeries && !Array.isArray(breakdownValue))
-    const eventName = seriesStatus ? capitalizeFirstLetter(seriesStatus) : action?.name || fallbackName || ''
+
+    const displayAction = action
+        ? {
+              ...action,
+              name: formatEventName(action.name),
+          }
+        : undefined
+
+    const eventName = seriesStatus
+        ? capitalizeFirstLetter(seriesStatus)
+        : displayAction?.name || formatEventName(fallbackName) || ''
+
     const iconSizePx = iconSize === IconSize.Large ? 14 : iconSize === IconSize.Medium ? 12 : 10
     const pillValues = [...(hideBreakdown ? [] : [breakdownValue].flat()), hideCompare ? null : compareValue].filter(
         (pill) => !!pill
     )
 
     return (
-        <div className={clsx('insights-label', className)}>
+        <div className={clsx('insights-label', className)} data-attr="insight-label">
             <div className="flex items-center w-fit">
                 {!(hasMultipleSeries && !breakdownValue) && !hideIcon && (
                     <div
@@ -149,9 +167,9 @@ export function InsightLabel({
                 >
                     {showEventName && (
                         <>
-                            {action ? (
+                            {displayAction ? (
                                 <EntityFilterInfo
-                                    filter={action}
+                                    filter={displayAction}
                                     allowWrap={allowWrap}
                                     showSingleName={showSingleName}
                                 />

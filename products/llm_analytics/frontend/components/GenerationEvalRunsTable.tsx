@@ -1,25 +1,21 @@
-import { BindLogic, useValues } from 'kea'
+import { BuiltLogic, useValues } from 'kea'
 
-import { IconCheck, IconWarning, IconX } from '@posthog/icons'
-import { LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconCheck, IconMinus, IconWarning, IconX } from '@posthog/icons'
+import { LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
 import { EvaluationRun } from '../evaluations/types'
-import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
+import { generationEvaluationRunsLogicType } from '../generationEvaluationRunsLogicType'
 
-export function GenerationEvalRunsTable({ generationEventId }: { generationEventId: string }): JSX.Element {
-    return (
-        <BindLogic logic={generationEvaluationRunsLogic} props={{ generationEventId }}>
-            <GenerationEvalRunsTableContent />
-        </BindLogic>
-    )
-}
-
-function GenerationEvalRunsTableContent(): JSX.Element {
-    const { generationEvaluationRuns, generationEvaluationRunsLoading } = useValues(generationEvaluationRunsLogic)
+export function GenerationEvalRunsTable({
+    generationRunsLogic,
+}: {
+    generationRunsLogic: BuiltLogic<generationEvaluationRunsLogicType>
+}): JSX.Element {
+    const { generationEvaluationRuns, generationEvaluationRunsLoading } = useValues(generationRunsLogic)
 
     const columns: LemonTableColumns<EvaluationRun> = [
         {
@@ -51,6 +47,14 @@ function GenerationEvalRunsTableContent(): JSX.Element {
                 if (run.status === 'running') {
                     return <LemonTag type="primary">Running...</LemonTag>
                 }
+                // Handle N/A case (result is null when not applicable)
+                if (run.result === null) {
+                    return (
+                        <LemonTag type="muted" icon={<IconMinus />}>
+                            N/A
+                        </LemonTag>
+                    )
+                }
                 return (
                     <div className="flex items-center gap-2">
                         {run.result ? (
@@ -65,15 +69,22 @@ function GenerationEvalRunsTableContent(): JSX.Element {
                     </div>
                 )
             },
-            sorter: (a, b) => Number(b.result) - Number(a.result),
+            sorter: (a, b) => {
+                // N/A (null) sorts between pass (1) and fail (0)
+                const valA = a.result === null ? 0.5 : Number(a.result)
+                const valB = b.result === null ? 0.5 : Number(b.result)
+                return valB - valA
+            },
         },
         {
             title: 'Reasoning',
             key: 'reasoning',
             render: (_, run) => (
-                <div className="max-w-md">
-                    <div className="text-sm text-default line-clamp-2">{run.reasoning}</div>
-                </div>
+                <Tooltip title={run.reasoning}>
+                    <div className="max-w-md cursor-default">
+                        <div className="text-sm text-default line-clamp-2">{run.reasoning}</div>
+                    </div>
+                </Tooltip>
             ),
         },
     ]

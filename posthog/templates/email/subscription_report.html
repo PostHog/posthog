@@ -36,14 +36,22 @@
 </p>
 {% endif %}
 
-{% if images|length < total_asset_count  %}
+{% if asset_data|length < total_asset_count  %}
 <p class="text-center muted font-bold">
-    SHOWING {{ images|length }} OF {{ total_asset_count }} DASHBOARD INSIGHTS
+    SHOWING {{ asset_data|length }} OF {{ total_asset_count }} DASHBOARD INSIGHTS
 </p>
 {% endif %}
 
-{% for image in images %}
-<img class="insight-image mb" src="{{ image }}" />
+{% for asset in asset_data %}
+    {% if asset.error %}
+        <div class="insight-error mb" style="padding: 16px; background-color: #fee; border: 1px solid #fcc; border-radius: 4px; margin-bottom: 16px;">
+            <p style="margin: 0; font-weight: bold;">❌ {{ asset.insight_name }}</p>
+            <p style="margin: 8px 0 0 0;">There was an error generating your asset: {{ asset.error_message }}</p>
+            <p style="margin: 8px 0 0 0; font-style: italic; font-size: 0.9em;">If this issue persists, please contact support.</p>
+        </div>
+    {% else %}
+        <img class="insight-image mb" src="{{ asset.image_url }}" />
+    {% endif %}
 {% endfor %}
 
 <div class="mb mt text-center">

@@ -1,0 +1,199 @@
+# serializer version: 1
+# name: TestActorsBaseQuery.test_get_groups
+  '''
+  SELECT "posthog_group"."id",
+         "posthog_group"."team_id",
+         "posthog_group"."group_key",
+         "posthog_group"."group_type_index",
+         "posthog_group"."group_properties",
+         "posthog_group"."created_at",
+         "posthog_group"."properties_last_updated_at",
+         "posthog_group"."properties_last_operation",
+         "posthog_group"."version"
+  FROM "posthog_group"
+  WHERE ("posthog_group"."group_key" IN ('org_1',
+                                         'org_2')
+         AND "posthog_group"."group_type_index" = 99999
+         AND "posthog_group"."team_id" = 99999)
+  '''
+# ---
+# name: TestActorsBaseQuery.test_get_people_with_distinct_id_limit
+  '''
+  SELECT "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid"
+  FROM "posthog_person"
+  WHERE ("posthog_person"."team_id" = 99999
+         AND "posthog_person"."uuid" IN ('00000000000000000000000000000000'::uuid))
+  ORDER BY "posthog_person"."created_at" DESC,
+           "posthog_person"."uuid" ASC
+  '''
+# ---
+# name: TestActorsBaseQuery.test_get_people_with_distinct_id_limit.1
+  '''
+  SELECT "posthog_persondistinctid"."id",
+         "posthog_persondistinctid"."team_id",
+         "posthog_persondistinctid"."person_id",
+         "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."version"
+  FROM "posthog_persondistinctid"
+  WHERE ("posthog_persondistinctid"."id" IN
+           (SELECT U0."id"
+            FROM "posthog_persondistinctid" U0
+            WHERE U0."person_id" = ("posthog_persondistinctid"."person_id")
+            LIMIT 3)
+         AND "posthog_persondistinctid"."person_id" IN (1,
+                                                        2,
+                                                        3,
+                                                        4,
+                                                        5 /* ... */))
+  '''
+# ---
+# name: TestActorsBaseQuery.test_get_people_with_prefetch
+  '''
+  SELECT "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid"
+  FROM "posthog_person"
+  WHERE ("posthog_person"."team_id" = 99999
+         AND "posthog_person"."uuid" IN ('00000000000000000000000000000000'::uuid,
+                                         '00000000000000000000000000000000'::uuid))
+  ORDER BY "posthog_person"."created_at" DESC,
+           "posthog_person"."uuid" ASC
+  '''
+# ---
+# name: TestActorsBaseQuery.test_get_people_with_prefetch.1
+  '''
+  SELECT "posthog_persondistinctid"."id",
+         "posthog_persondistinctid"."team_id",
+         "posthog_persondistinctid"."person_id",
+         "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."version"
+  FROM "posthog_persondistinctid"
+  WHERE ("posthog_persondistinctid"."id" IN
+           (SELECT U0."id"
+            FROM "posthog_persondistinctid" U0
+            WHERE U0."person_id" = ("posthog_persondistinctid"."person_id")
+            LIMIT 1000)
+         AND "posthog_persondistinctid"."person_id" IN (1,
+                                                        2,
+                                                        3,
+                                                        4,
+                                                        5 /* ... */))
+  '''
+# ---
+# name: TestActorsBaseQuery.test_get_people_with_value_per_actor
+  '''
+  SELECT "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid"
+  FROM "posthog_person"
+  WHERE ("posthog_person"."team_id" = 99999
+         AND "posthog_person"."uuid" IN ('00000000000000000000000000000000'::uuid,
+                                         '00000000000000000000000000000000'::uuid))
+  ORDER BY "posthog_person"."created_at" DESC,
+           "posthog_person"."uuid" ASC
+  '''
+# ---
+# name: TestActorsBaseQuery.test_get_people_with_value_per_actor.1
+  '''
+  SELECT "posthog_persondistinctid"."id",
+         "posthog_persondistinctid"."team_id",
+         "posthog_persondistinctid"."person_id",
+         "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."version"
+  FROM "posthog_persondistinctid"
+  WHERE ("posthog_persondistinctid"."id" IN
+           (SELECT U0."id"
+            FROM "posthog_persondistinctid" U0
+            WHERE U0."person_id" = ("posthog_persondistinctid"."person_id")
+            LIMIT 1000)
+         AND "posthog_persondistinctid"."person_id" IN (1,
+                                                        2,
+                                                        3,
+                                                        4,
+                                                        5 /* ... */))
+  '''
+# ---
+# name: TestActorsBaseQuery.test_get_serialized_people_empty
+  '''
+  SELECT posthog_person.id,
+         posthog_person.uuid,
+         posthog_person.properties,
+         posthog_person.is_identified,
+         posthog_person.created_at
+  FROM posthog_person
+  WHERE posthog_person.uuid = ANY('{}')
+    AND posthog_person.team_id = 99999
+  ORDER BY created_at DESC,
+           uuid
+  '''
+# ---
+# name: TestActorsBaseQuery.test_get_serialized_people_empty.1
+  '''
+  SELECT posthog_persondistinctid.person_id,
+         posthog_persondistinctid.distinct_id
+  FROM posthog_persondistinctid
+  WHERE posthog_persondistinctid.person_id = ANY('{}')
+    AND posthog_persondistinctid.team_id = 99999
+  '''
+# ---
+# name: TestActorsBaseQuery.test_serialize_groups_with_values
+  '''
+  SELECT "posthog_group"."id",
+         "posthog_group"."team_id",
+         "posthog_group"."group_key",
+         "posthog_group"."group_type_index",
+         "posthog_group"."group_properties",
+         "posthog_group"."created_at",
+         "posthog_group"."properties_last_updated_at",
+         "posthog_group"."properties_last_operation",
+         "posthog_group"."version"
+  FROM "posthog_group"
+  WHERE "posthog_group"."group_key" IN ('company_a',
+                                        'company_b')
+  '''
+# ---
+# name: TestActorsBaseQuery.test_serialize_people_basic
+  '''
+  SELECT "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
+  FROM "posthog_person"
+  WHERE "posthog_person"."uuid" = '00000000000000000000000000000000'::uuid
+  '''
+# ---
+# name: TestActorsBaseQuery.test_serialize_people_basic.1
+  '''
+  SELECT "posthog_persondistinctid"."distinct_id"
+  FROM "posthog_persondistinctid"
+  WHERE ("posthog_persondistinctid"."person_id" = 99999
+         AND "posthog_persondistinctid"."team_id" = 99999)
+  ORDER BY "posthog_persondistinctid"."id" ASC
+  '''
+# ---
+# name: TestActorsBaseQuery.test_serialize_people_basic.2
+  '''
+  SELECT "posthog_persondistinctid"."distinct_id"
+  FROM "posthog_persondistinctid"
+  WHERE ("posthog_persondistinctid"."person_id" = 99999
+         AND "posthog_persondistinctid"."team_id" = 99999)
+  ORDER BY "posthog_persondistinctid"."id" ASC
+  '''
+# ---

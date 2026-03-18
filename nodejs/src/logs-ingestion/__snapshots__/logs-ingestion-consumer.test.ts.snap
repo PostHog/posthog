@@ -1,0 +1,58 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`LogsIngestionConsumer general should process a valid log message 1`] = `
+[
+  {
+    "json-parse": "false",
+    "retention-days": "15",
+    "team_id": "2",
+    "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+  },
+]
+`;
+
+exports[`LogsIngestionConsumer general should process multiple log messages 1`] = `
+[
+  {
+    "json-parse": "false",
+    "retention-days": "15",
+    "team_id": "2",
+    "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+  },
+  {
+    "json-parse": "false",
+    "retention-days": "15",
+    "team_id": "2",
+    "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+  },
+  {
+    "json-parse": "false",
+    "retention-days": "15",
+    "team_id": "2",
+    "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+  },
+]
+`;
+
+exports[`LogsIngestionConsumer message parsing and validation should overwrite existing headers 1`] = `
+[
+  {
+    "json-parse": "false",
+    "retention-days": "15",
+    "team_id": "2",
+    "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+  },
+]
+`;
+
+exports[`LogsIngestionConsumer message parsing and validation should preserve kafka message headers 1`] = `
+[
+  {
+    "json-parse": "false",
+    "myHeader": "hello",
+    "retention-days": "15",
+    "team_id": "2",
+    "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+  },
+]
+`;

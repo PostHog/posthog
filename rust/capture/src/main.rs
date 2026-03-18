@@ -8,11 +8,13 @@ use opentelemetry_sdk::{runtime, Resource};
 use tokio::signal;
 use tracing::level_filters::LevelFilter;
 use tracing_opentelemetry::OpenTelemetryLayer;
+use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
 use capture::config::Config;
+use capture::error_tracking_sampler;
 use capture::server::serve;
 
 common_alloc::used!();
@@ -29,7 +31,10 @@ async fn shutdown() {
         _ = interrupt.recv() => {},
     };
 
-    tracing::info!("Shutting down gracefully...");
+    capture::metrics_middleware::set_shutdown_status(
+        capture::metrics_middleware::ShutdownStatus::Terminating,
+    );
+    tracing::info!("Shutdown status change: TERMINATING");
 }
 
 fn init_tracer(sink_url: &str, sampling_rate: f64, service_name: &str) -> Tracer {
@@ -61,10 +66,50 @@ fn init_tracer(sink_url: &str, sampling_rate: f64, service_name: &str) -> Tracer
 async fn main() {
     let config = Config::init_from_env().expect("Invalid configuration:");
 
-    // Instantiate tracing outputs:
-    //   - stdout with a level configured by the RUST_LOG envvar (default=ERROR)
-    //   - OpenTelemetry if enabled, for levels INFO and higher
-    let log_layer = tracing_subscriber::fmt::layer().with_filter(EnvFilter::from_default_env());
+    // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
+    // Fails gracefully - logs error but doesn't prevent service from starting
+    let _profiling_agent = match config.continuous_profiling.start_agent() {
+        Ok(agent) => agent,
+        Err(e) => {
+            eprintln!("Failed to start continuous profiling agent: {e:#}");
+            None
+        }
+    };
+
+    let log_layer = {
+        let base = tracing_subscriber::fmt::layer()
+            .with_target(true)
+            .with_thread_ids(true)
+            .with_level(true);
+
+        if config.log_level == tracing::Level::DEBUG {
+            base.with_span_events(
+                FmtSpan::NEW | FmtSpan::CLOSE | FmtSpan::ENTER | FmtSpan::EXIT | FmtSpan::ACTIVE,
+            )
+            .with_ansi(true)
+            .with_filter(
+                EnvFilter::builder()
+                    .with_default_directive(LevelFilter::INFO.into())
+                    .from_env_lossy()
+                    .add_directive("pyroscope=warn".parse().unwrap()),
+            )
+            .boxed()
+        } else {
+            // Production: JSON format so Loki/Grafana can extract useful filter tags
+            base.json()
+                .flatten_event(true)
+                .with_span_list(true)
+                .with_current_span(true)
+                .with_filter(
+                    EnvFilter::builder()
+                        .with_default_directive(LevelFilter::INFO.into())
+                        .from_env_lossy()
+                        .add_directive("pyroscope=warn".parse().unwrap()),
+                )
+                .boxed()
+        }
+    };
+
     let otel_layer = config
         .otel_url
         .clone()
@@ -81,9 +126,30 @@ async fn main() {
         .with(otel_layer)
         .init();
 
+    // Root span with pod hostname for Loki/Grafana filtering
+    let pod = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
+    let _root_span = tracing::info_span!("service", pod = %pod).entered();
+
+    // Initialize feature flag configs
+    error_tracking_sampler::init_dual_write(
+        config.error_tracking_dual_write_enabled,
+        config.error_tracking_dual_write_sample_rate,
+    );
+    if config.error_tracking_dual_write_enabled {
+        tracing::info!(
+            sample_rate = config.error_tracking_dual_write_sample_rate,
+            "Error tracking dual-write enabled"
+        );
+    }
+
     // Open the TCP port and start the server
     let listener = tokio::net::TcpListener::bind(config.address)
         .await
         .expect("could not bind port");
-    serve(config, listener, shutdown()).await
+    serve(config, listener, shutdown()).await;
+
+    capture::metrics_middleware::set_shutdown_status(
+        capture::metrics_middleware::ShutdownStatus::Completed,
+    );
+    tracing::info!("Shutdown status change: COMPLETED");
 }

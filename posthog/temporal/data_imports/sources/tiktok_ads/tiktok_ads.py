@@ -131,7 +131,7 @@ def tiktok_ads_source(
 
     return SourceResponse(
         name=endpoint,
-        items=items,
+        items=lambda: items,
         primary_keys=list(endpoint_config.resource["primary_key"])
         if isinstance(endpoint_config.resource["primary_key"], list | tuple)
         else None,

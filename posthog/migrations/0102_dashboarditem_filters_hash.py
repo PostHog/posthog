@@ -8,6 +8,7 @@ from posthog.models.filters import Filter
 
 
 def generate_cache_key(stringified: str) -> str:
+    # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
     return "cache_" + hashlib.md5(stringified.encode("utf-8")).hexdigest()
 
 

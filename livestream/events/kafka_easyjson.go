@@ -39,13 +39,15 @@ func easyjsonB70d1354DecodeGithubComPosthogPosthogLivestreamEvents(in *jlexer.Le
 		case "uuid":
 			out.Uuid = string(in.String())
 		case "distinct_id":
-			out.DistinctId = string(in.String())
+			(out.DistinctId).UnmarshalEasyJSON(in)
 		case "ip":
 			out.Ip = string(in.String())
 		case "data":
 			out.Data = string(in.String())
 		case "token":
 			out.Token = string(in.String())
+		case "timestamp":
+			out.Timestamp = string(in.String())
 		default:
 			in.SkipRecursive()
 		}
@@ -68,7 +70,7 @@ func easyjsonB70d1354EncodeGithubComPosthogPosthogLivestreamEvents(out *jwriter.
 	{
 		const prefix string = ",\"distinct_id\":"
 		out.RawString(prefix)
-		out.String(string(in.DistinctId))
+		(in.DistinctId).MarshalEasyJSON(out)
 	}
 	{
 		const prefix string = ",\"ip\":"
@@ -84,6 +86,11 @@ func easyjsonB70d1354EncodeGithubComPosthogPosthogLivestreamEvents(out *jwriter.
 		const prefix string = ",\"token\":"
 		out.RawString(prefix)
 		out.String(string(in.Token))
+	}
+	{
+		const prefix string = ",\"timestamp\":"
+		out.RawString(prefix)
+		out.String(string(in.Timestamp))
 	}
 	out.RawByte('}')
 }
@@ -164,14 +171,16 @@ func easyjsonB70d1354DecodeGithubComPosthogPosthogLivestreamEvents1(in *jlexer.L
 			} else {
 				out.Timestamp = in.Interface()
 			}
-		case "uuid":
+		case "Uuid":
 			out.Uuid = string(in.String())
-		case "distinct_id":
+		case "DistinctId":
 			out.DistinctId = string(in.String())
-		case "lat":
+		case "Lat":
 			out.Lat = float64(in.Float64())
-		case "lng":
+		case "Lng":
 			out.Lng = float64(in.Float64())
+		case "CountryCode":
+			out.CountryCode = string(in.String())
 		default:
 			in.SkipRecursive()
 		}
@@ -241,24 +250,29 @@ func easyjsonB70d1354EncodeGithubComPosthogPosthogLivestreamEvents1(out *jwriter
 		}
 	}
 	{
-		const prefix string = ",\"uuid\":"
+		const prefix string = ",\"Uuid\":"
 		out.RawString(prefix)
 		out.String(string(in.Uuid))
 	}
 	{
-		const prefix string = ",\"distinct_id\":"
+		const prefix string = ",\"DistinctId\":"
 		out.RawString(prefix)
 		out.String(string(in.DistinctId))
 	}
 	{
-		const prefix string = ",\"lat\":"
+		const prefix string = ",\"Lat\":"
 		out.RawString(prefix)
 		out.Float64(float64(in.Lat))
 	}
 	{
-		const prefix string = ",\"lng\":"
+		const prefix string = ",\"Lng\":"
 		out.RawString(prefix)
 		out.Float64(float64(in.Lng))
+	}
+	{
+		const prefix string = ",\"CountryCode\":"
+		out.RawString(prefix)
+		out.String(string(in.CountryCode))
 	}
 	out.RawByte('}')
 }

@@ -238,6 +238,20 @@ class JavaScriptCompiler(Visitor):
         else:
             raise QueryError(f"Unsupported comparison operator: {op}")
 
+    def visit_between_expr(self, node: ast.BetweenExpr):
+        self._start_scope()
+        expr = self.visit(node.expr)
+        low = self.visit(node.low)
+        high = self.visit(node.high)
+        if node.negated:
+            comparison = f"expr < {low} || expr > {high}"
+        else:
+            comparison = f"expr >= {low} && expr <= {high}"
+        code = f"(() => {{ const expr=({expr}), low=({low}), high=({high}); return expr !== null && expr !== undefined && low !== null && low !== undefined && high !== null && high !== undefined && !!({comparison}); }})()"
+
+        self._end_scope()
+        return code
+
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
         left_code = self.visit(node.left)
         right_code = self.visit(node.right)
@@ -415,7 +429,7 @@ class JavaScriptCompiler(Visitor):
                 )
             else:
                 has_catch_all = True
-                code += f"if (true) {{ let {_sanitize_identifier(catch_var)} = __error;\n" f"{catch_code}\n" f"}}\n"
+                code += f"if (true) {{ let {_sanitize_identifier(catch_var)} = __error;\n{catch_code}\n}}\n"
             self._end_scope()
         if not has_catch_all:
             code += " else { throw __error; }"
@@ -586,12 +600,12 @@ class JavaScriptCompiler(Visitor):
             attrs = []
             for attr in node.attributes:
                 attrs.append(f'"{attr.name}": {self._visit_hogqlx_value(attr.value)}')
-            return f'{self.visit_field(ast.Field(chain=[node.kind]))}({{{", ".join(attrs)}}})'
+            return f"{self.visit_field(ast.Field(chain=[node.kind]))}({{{', '.join(attrs)}}})"
         else:
             attrs = [f'"__hx_tag": {json.dumps(node.kind)}']
             for attr in node.attributes:
                 attrs.append(f'"{attr.name}": {self._visit_hogqlx_value(attr.value)}')
-            return f'{{{", ".join(attrs)}}}'
+            return f"{{{', '.join(attrs)}}}"
 
     def _visit_hogqlx_value(self, value: Any) -> str:
         if isinstance(value, AST):

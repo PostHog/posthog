@@ -6,6 +6,7 @@ export type ExportedSessionRecordingFileV1 = {
     version: '2022-12-02'
     data: {
         person: PersonType | null
+        // Legacy format used UUID strings as keys
         snapshotsByWindowId: Record<string, eventWithTime[]>
     }
 }

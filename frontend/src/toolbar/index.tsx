@@ -1,5 +1,4 @@
 import '~/styles'
-
 import './styles.scss'
 
 import { KeaPlugin, resetContext } from 'kea'
@@ -15,6 +14,8 @@ import { createRoot } from 'react-dom/client'
 
 import { disposablesPlugin } from '~/kea-disposables'
 import { ToolbarApp } from '~/toolbar/ToolbarApp'
+import { toolbarLogger } from '~/toolbar/toolbarLogger'
+import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
 import { ToolbarParams } from '~/types'
 
 interface InitKeaProps {
@@ -42,7 +43,14 @@ const initKeaInToolbar = ({ routerHistory, routerLocation, beforePlugins }: Init
         formsPlugin,
         loadersPlugin({
             onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
-                console.error('toolbar fetch failed', error, reducerKey, actionKey)
+                toolbarLogger.error('kea_loader', 'Toolbar fetch failed', {
+                    reducer_key: reducerKey,
+                    action_key: actionKey,
+                })
+                captureToolbarException(error, 'kea_loader', {
+                    reducer_key: reducerKey,
+                    action_key: actionKey,
+                })
             },
         }),
         subscriptionsPlugin,
@@ -71,7 +79,35 @@ const initKeaInToolbar = ({ routerHistory, routerLocation, beforePlugins }: Init
 
 const win = window as any
 
-win['ph_load_toolbar'] = function (toolbarParams: ToolbarParams, posthog: PostHog) {
+win['ph_load_toolbar'] = async function (toolbarParams: ToolbarParams, posthog?: PostHog) {
+    // Store the start time so we can measure total load duration in initInstrumentation
+    ;(window as any).__posthog_toolbar_load_start = performance.now()
+
+    // If posthog and toolbarFlagsKey is present, fetch the feature flags from the backend
+    if (posthog && toolbarParams.toolbarFlagsKey) {
+        const apiHost = posthog.config?.api_host || toolbarParams.apiURL || window.location.origin
+        const trimmedHost = apiHost.replace(/\/+$/, '')
+        await fetch(`${trimmedHost}/api/user/get_toolbar_preloaded_flags?key=${toolbarParams.toolbarFlagsKey}`, {
+            credentials: 'include',
+        })
+            .then((response) => response.json())
+            .then((data) => {
+                if (data.featureFlags) {
+                    posthog.featureFlags.overrideFeatureFlags({ flags: data.featureFlags })
+                } else {
+                    toolbarLogger.error('flags', 'Feature flags not found', { response: data })
+                    captureToolbarException(
+                        new Error(`Toolbar feature flags not found: ${JSON.stringify(data)}`),
+                        'preloaded_flags'
+                    )
+                }
+            })
+            .catch((error) => {
+                toolbarLogger.error('flags', 'Error fetching toolbar feature flags')
+                captureToolbarException(error, 'preloaded_flags_fetch')
+            })
+    }
+
     initKeaInToolbar()
     const container = document.createElement('div')
     const root = createRoot(container)
@@ -79,9 +115,7 @@ win['ph_load_toolbar'] = function (toolbarParams: ToolbarParams, posthog: PostHo
     document.body.appendChild(container)
 
     if (!posthog) {
-        console.warn(
-            '⚠️⚠️⚠️ Loaded toolbar via old version of posthog-js that does not support feature flags. Please upgrade! ⚠️⚠️⚠️'
-        )
+        toolbarLogger.warn('init', 'Loaded toolbar via old version of posthog-js that does not support feature flags')
     }
 
     root.render(

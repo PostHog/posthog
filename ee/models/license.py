@@ -56,13 +56,11 @@ class License(models.Model):
     SCALE_FEATURES = [
         AvailableFeature.ZAPIER,
         AvailableFeature.ORGANIZATIONS_PROJECTS,
-        AvailableFeature.ENVIRONMENTS,
         AvailableFeature.SOCIAL_SSO,
         AvailableFeature.INGESTION_TAXONOMY,
         AvailableFeature.PATHS_ADVANCED,
         AvailableFeature.CORRELATION_ANALYSIS,
         AvailableFeature.GROUP_ANALYTICS,
-        AvailableFeature.TAGGING,
         AvailableFeature.BEHAVIORAL_COHORT_FILTERING,
         AvailableFeature.WHITE_LABELLING,
         AvailableFeature.SUBSCRIPTIONS,
@@ -77,6 +75,7 @@ class License(models.Model):
         *SCALE_FEATURES,
         AvailableFeature.ADVANCED_PERMISSIONS,
         AvailableFeature.SAML,
+        AvailableFeature.SCIM,
         AvailableFeature.SSO_ENFORCEMENT,
         AvailableFeature.ROLE_BASED_ACCESS,
     ]

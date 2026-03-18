@@ -165,8 +165,7 @@ def mock_loaded_llm_json_response() -> dict[str, Any]:
     }
 
 
-@pytest.fixture
-def mock_enriched_llm_json_response(mock_session_id: str) -> dict[str, Any]:
+def get_mock_enriched_llm_json_response(session_id: str) -> dict[str, Any]:
     return {
         "segments": [
             {
@@ -221,7 +220,7 @@ def mock_enriched_llm_json_response(mock_session_id: str) -> dict[str, Any]:
                         "event": "$autocapture",
                         "event_type": "click",
                         "event_index": 0,
-                        "session_id": mock_session_id,
+                        "session_id": session_id,
                         "event_uuid": "00000000-0000-0000-0001-000000000001",
                     },
                     {
@@ -237,7 +236,7 @@ def mock_enriched_llm_json_response(mock_session_id: str) -> dict[str, Any]:
                         "event": "$autocapture",
                         "event_type": "submit",
                         "event_index": 1,
-                        "session_id": mock_session_id,
+                        "session_id": session_id,
                         "event_uuid": "00000000-0000-0000-0001-000000000002",
                     },
                 ],
@@ -258,7 +257,7 @@ def mock_enriched_llm_json_response(mock_session_id: str) -> dict[str, Any]:
                         "event": "$autocapture",
                         "event_type": "click",
                         "event_index": 4,
-                        "session_id": mock_session_id,
+                        "session_id": session_id,
                         "event_uuid": "00000000-0000-0000-0001-000000000005",
                     },
                     {
@@ -274,7 +273,7 @@ def mock_enriched_llm_json_response(mock_session_id: str) -> dict[str, Any]:
                         "event": "$autocapture",
                         "event_type": "submit",
                         "event_index": 5,
-                        "session_id": mock_session_id,
+                        "session_id": session_id,
                         "event_uuid": "00000000-0000-0000-0001-000000000006",
                     },
                     {
@@ -290,7 +289,7 @@ def mock_enriched_llm_json_response(mock_session_id: str) -> dict[str, Any]:
                         "event": "$autocapture",
                         "event_type": "click",
                         "event_index": 6,
-                        "session_id": mock_session_id,
+                        "session_id": session_id,
                         "event_uuid": "00000000-0000-0000-0001-000000000007",
                     },
                 ],
@@ -309,6 +308,11 @@ def mock_enriched_llm_json_response(mock_session_id: str) -> dict[str, Any]:
             "success": True,
         },
     }
+
+
+@pytest.fixture
+def mock_enriched_llm_json_response(mock_session_id: str) -> dict[str, Any]:
+    return get_mock_enriched_llm_json_response(mock_session_id)
 
 
 @pytest.fixture
@@ -472,7 +476,21 @@ def mock_chat_completion(mock_valid_llm_yaml_response: str) -> ChatCompletion:
 
 
 @pytest.fixture
-def mock_raw_metadata(mock_session_id: str) -> dict[str, Any]:
+def mock_session_start_time() -> datetime:
+    """Session replay start time - events before this should be filtered out"""
+    return datetime(2025, 3, 31, 18, 40, 32, 302000, tzinfo=UTC)
+
+
+@pytest.fixture
+def mock_session_end_time() -> datetime:
+    """Session replay end time - events after this should be filtered out"""
+    return datetime(2025, 3, 31, 18, 54, 15, 789000, tzinfo=UTC)
+
+
+@pytest.fixture
+def mock_raw_metadata(
+    mock_session_id: str, mock_session_start_time: datetime, mock_session_end_time: datetime
+) -> dict[str, Any]:
     return {
         "id": mock_session_id,
         # Anonymized distinct_id for testing
@@ -482,8 +500,8 @@ def mock_raw_metadata(mock_session_id: str) -> dict[str, Any]:
         "recording_duration": 5323,
         "active_seconds": 1947,
         "inactive_seconds": 3375,
-        "start_time": "2025-03-31T18:40:32.302000Z",
-        "end_time": "2025-03-31T18:54:15.789000Z",
+        "start_time": mock_session_start_time,
+        "end_time": mock_session_end_time,
         "click_count": 679,
         "keypress_count": 668,
         "mouse_activity_count": 6629,
@@ -500,7 +518,9 @@ def mock_raw_metadata(mock_session_id: str) -> dict[str, Any]:
 
 @pytest.fixture
 def mock_session_metadata(mock_raw_metadata: dict[str, Any]) -> SessionSummaryMetadata:
-    return SessionSummaryPromptData()._prepare_metadata(mock_raw_metadata)
+    return SessionSummaryPromptData()._prepare_metadata(
+        raw_session_metadata=mock_raw_metadata, session_id="test_session_id"
+    )
 
 
 @pytest.fixture

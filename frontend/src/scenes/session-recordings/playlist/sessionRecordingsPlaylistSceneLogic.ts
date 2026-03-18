@@ -1,10 +1,11 @@
 import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { beforeUnload, router, urlToAction } from 'kea-router'
+import { beforeUnload, router } from 'kea-router'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -38,12 +39,13 @@ import type { sessionRecordingsPlaylistSceneLogicType } from './sessionRecording
 
 export interface SessionRecordingsPlaylistLogicProps {
     shortId: string
+    tabId?: string
 }
 
 export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylistSceneLogicType>([
     path((key) => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsPlaylistSceneLogic', key]),
     props({} as SessionRecordingsPlaylistLogicProps),
-    key((props) => props.shortId),
+    key((props) => `${props.tabId ? props.tabId + ':' : ''}${props.shortId}`),
     connect(() => ({
         values: [cohortsModel, ['cohortsById'], sceneLogic, ['activeSceneId'], featureFlagLogic, ['featureFlags']],
         actions: [sessionRecordingEventUsageLogic, ['reportRecordingPlaylistCreated']],
@@ -142,8 +144,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
 
     listeners(({ actions, values }) => ({
         getPlaylistSuccess: ({ playlist }) => {
-            if (values.playlist?.derived_name !== values.derivedName) {
-                // This keeps the derived name up to date if the playlist changes
+            if (!values.playlist?.is_synthetic && values.playlist?.derived_name !== values.derivedName) {
                 actions.updatePlaylist({ derived_name: values.derivedName }, true)
             }
 
@@ -231,7 +232,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
         }
     }),
 
-    urlToAction(({ actions }) => ({
+    tabAwareUrlToAction(({ actions }) => ({
         '/replay/playlists/new': () => actions.getPlaylist(),
     })),
 ])

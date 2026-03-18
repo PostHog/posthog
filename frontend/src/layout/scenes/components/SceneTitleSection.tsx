@@ -1,60 +1,124 @@
+import '../../panel-layout/ProjectTree/defaultTree'
+
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconEllipsis, IconPencil, IconX } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import {
+    IconBrackets,
+    IconCollapse,
+    IconExpand,
+    IconPencil,
+    IconSidePanel,
+    IconSparkles,
+    IconWrench,
+} from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 
+import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { ProductSetupButton } from 'lib/components/ProductSetup'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
+import { AnimatedSparkles } from 'scenes/max/components/AnimatedSparkles'
+import { UseMaxToolOptions, useMaxTool } from 'scenes/max/useMaxTool'
 
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
-import { Breadcrumb, FileSystemIconColor } from '~/types'
+import { Breadcrumb, FileSystemIconColor, SidePanelTab } from '~/types'
 
-import '../../panel-layout/ProjectTree/defaultTree'
 import { ProductIconWrapper, iconForType } from '../../panel-layout/ProjectTree/defaultTree'
 import { sceneLayoutLogic } from '../sceneLayoutLogic'
 import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
 
-function SceneTitlePanelButton(): JSX.Element | null {
-    const { scenePanelOpen, scenePanelIsPresent, scenePanelIsRelative, forceScenePanelClosedWhenRelative } =
-        useValues(sceneLayoutLogic)
-    const { setScenePanelOpen, setForceScenePanelClosedWhenRelative } = useActions(sceneLayoutLogic)
+export function SceneTitlePanelButton({
+    maxToolProps,
+    buttonClassName = 'size-[33px]',
+}: {
+    maxToolProps?: Omit<UseMaxToolOptions, 'active'>
+    buttonClassName?: string
+}): JSX.Element | null {
+    const { scenePanelIsPresent } = useValues(sceneLayoutLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { sidePanelOpen } = useValues(sidePanelStateLogic)
 
-    if (!scenePanelIsPresent) {
+    const inactiveMaxToolProps: UseMaxToolOptions = { identifier: 'read_data', active: false }
+    const { openMax, definition } = useMaxTool(maxToolProps ? { ...maxToolProps, active: true } : inactiveMaxToolProps)
+
+    // Open Info tab if scene has panel content, otherwise default to PostHog AI
+    const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max
+
+    if (sidePanelOpen) {
         return null
     }
 
     return (
-        <LemonButton
-            onClick={() =>
-                scenePanelIsRelative
-                    ? setForceScenePanelClosedWhenRelative(!forceScenePanelClosedWhenRelative)
-                    : setScenePanelOpen(!scenePanelOpen)
-            }
-            icon={!scenePanelOpen ? <IconEllipsis className="text-primary" /> : <IconX className="text-primary" />}
-            tooltip={
-                !scenePanelOpen
-                    ? 'Open Info & actions panel'
-                    : scenePanelIsRelative
-                      ? 'Force close Info & actions panel'
-                      : 'Close Info & actions panel'
-            }
-            data-attr="info-actions-panel"
-            aria-label={
-                !scenePanelOpen
-                    ? 'Open Info & actions panel'
-                    : scenePanelIsRelative
-                      ? 'Force close Info & actions panel'
-                      : 'Close Info & actions panel'
-            }
-            active={scenePanelOpen}
-            size="small"
-        />
+        <>
+            <ButtonPrimitive
+                className={buttonClassName}
+                onClick={(e) => {
+                    e.stopPropagation()
+                    e.preventDefault()
+                    if (openMax) {
+                        openMax()
+                    } else {
+                        openSidePanel(SidePanelTab.Max)
+                    }
+                }}
+                tooltip={
+                    definition ? (
+                        <>
+                            Open PostHog AI
+                            <br />
+                            <div className="flex items-center">
+                                {definition.icon || <IconWrench />}
+                                <i className="ml-1.5">{definition.name}</i>
+                            </div>
+                        </>
+                    ) : (
+                        'Open PostHog AI'
+                    )
+                }
+                tooltipPlacement="bottom-end"
+                tooltipCloseDelayMs={0}
+                iconOnly
+                data-attr="open-context-panel-ai-button"
+            >
+                <div className="relative">
+                    <IconSparkles className="text-ai group-hover/button-primitive:animate-hue-rotate" />
+                    {maxToolProps && (
+                        <IconBrackets className="absolute size-2.5 top-0 -right-1 text-black dark:text-white" />
+                    )}
+                </div>
+            </ButtonPrimitive>
+
+            {/* Size to mimic lemon button small */}
+            <ButtonPrimitive
+                className={cn(buttonClassName, 'group -mr-[2px]')}
+                onClick={(e) => {
+                    e.stopPropagation()
+                    e.preventDefault()
+                    openSidePanel(defaultTab)
+                }}
+                tooltip={
+                    <>
+                        Open context panel
+                        <RenderKeybind className="relative -top-px ml-1" keybind={[keyBinds.toggleRightNav]} />
+                    </>
+                }
+                tooltipPlacement="bottom-end"
+                tooltipCloseDelayMs={0}
+                iconOnly
+                data-attr="open-context-panel-button"
+            >
+                <IconSidePanel className="text-primary group-hover:text-primary z-10" />
+            </ButtonPrimitive>
+        </>
     )
 }
 type ResourceType = {
@@ -108,6 +172,14 @@ type SceneMainTitleProps = {
      */
     saveOnBlur?: boolean
     /**
+     * If true, removes the border from the title section
+     * */
+    noBorder?: boolean
+    /**
+     * If true, removes the vertical padding from the title section
+     * */
+    noPadding?: boolean
+    /**
      * If true, the actions from PageHeader will be shown
      * @default false
      */
@@ -117,6 +189,27 @@ type SceneMainTitleProps = {
      * @default undefined
      */
     forceBackTo?: Breadcrumb
+
+    /**
+     * Additional class name for the title section
+     */
+    className?: string
+
+    /**
+     * Optional callback to generate a name using AI
+     */
+    onGenerateName?: () => void
+    /**
+     * Whether name generation is currently in progress
+     */
+    isGeneratingName?: boolean
+    /**
+     * Props for MaxTool registration - when provided,
+     * the AI button in the title section registers the tool with Max
+     */
+    maxToolProps?: Omit<UseMaxToolOptions, 'active'>
+    /** Max character length for the description field */
+    descriptionMaxLength?: number
 }
 
 export function SceneTitleSection({
@@ -131,14 +224,50 @@ export function SceneTitleSection({
     forceEdit = false,
     renameDebounceMs,
     saveOnBlur = false,
+    noBorder = false,
+    noPadding = false,
     actions,
     forceBackTo,
+    className,
+    onGenerateName,
+    isGeneratingName,
+    maxToolProps,
+    descriptionMaxLength,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
-    const { sceneLayoutConfig } = useValues(sceneLayoutLogic)
+    const { zenMode } = useValues(navigation3000Logic)
+    const { showDescription } = useValues(sceneLayoutLogic)
+    const { toggleShowDescription } = useActions(sceneLayoutLogic)
     const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
+    const [isScrolled, setIsScrolled] = useState(false)
+    const effectiveDescription = description
+    const hasDescription = effectiveDescription != null && (effectiveDescription || canEdit)
 
-    const effectiveDescription = description !== undefined ? description : sceneLayoutConfig?.description
+    // Always include ProductSetupButton alongside other actions
+    // Product auto-selection is handled by SceneContent via globalSetupLogic
+    const effectiveActions = (
+        <>
+            <ProductSetupButton />
+            {actions}
+        </>
+    )
+
+    useEffect(() => {
+        const stickyElement = document.querySelector('[data-sticky-sentinel]')
+        if (!stickyElement) {
+            return
+        }
+
+        const observer = new IntersectionObserver(
+            ([entry]) => {
+                setIsScrolled(!entry.isIntersecting)
+            },
+            { threshold: 1 }
+        )
+
+        observer.observe(stickyElement)
+        return () => observer.disconnect()
+    }, [])
 
     const icon = resourceType.forceIcon ? (
         <ProductIconWrapper type={resourceType.type} colorOverride={resourceType.forceIconColorOverride}>
@@ -147,80 +276,122 @@ export function SceneTitleSection({
     ) : (
         iconForType(resourceType.type ? (resourceType.type as FileSystemIconType) : undefined)
     )
+
+    if (zenMode) {
+        return null
+    }
+
     return (
-        <div
-            className="scene-title-section w-full flex flex-col @2xl/main-content:flex-row gap-3 group/colorful-product-icons colorful-product-icons-true items-start group"
-            data-editable={canEdit}
-        >
-            <div className="w-full flex flex-col flex-1 -ml-[var(--button-padding-x-sm)] group/colorful-product-icons colorful-product-icons-true items-start">
-                {/* If we're showing breadcrumbs, we want to show the actions inline with the back button */}
-                {willShowBreadcrumbs && (
-                    <div className="flex justify-between w-full items-center mb-1">
-                        <SceneBreadcrumbBackButton forceBackTo={forceBackTo} />
-                        <div className="pt-1 shrink-0">
-                            {actions && (
-                                <div className="flex gap-2 shrink-0 ml-auto">
-                                    {actions}
-                                    <SceneTitlePanelButton />
-                                </div>
-                            )}
-                        </div>
-                    </div>
+        <>
+            {!noBorder && (
+                // When this element scrolls out of view, the IntersectionObserver sets isScrolled=true to show the border
+                <div data-sticky-sentinel className="h-px w-px pointer-events-none absolute -top-4" aria-hidden />
+            )}
+
+            <div
+                className={cn(
+                    'group/scene-title-section bg-primary @2xl/main-content:sticky -top-[calc(var(--spacing)*4)] z-30 duration-300',
+                    noPadding ? '' : '-mx-4 px-4 -mt-4',
+                    noBorder ? '' : 'border-b border-transparent transition-border',
+                    isScrolled && '@2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent',
+                    'pl-4 pr-2',
+                    className
                 )}
-                <div className="flex w-full justify-between items-start gap-2">
-                    {name !== null && (
-                        <div className="flex gap-1 [&_svg]:size-6 items-center w-full">
-                            <span
-                                className={buttonPrimitiveVariants({
-                                    size: 'base',
-                                    iconOnly: true,
-                                    className: 'rounded-sm',
-                                    inert: true,
-                                })}
-                                aria-hidden
-                            >
-                                {icon}
-                            </span>
-                            <SceneName
-                                name={name}
-                                isLoading={isLoading}
-                                onChange={onNameChange}
-                                canEdit={canEdit}
-                                forceEdit={forceEdit}
-                                renameDebounceMs={renameDebounceMs}
-                                saveOnBlur={saveOnBlur}
-                            />
-                        </div>
+            >
+                <div
+                    className={cn(
+                        'scene-title-section flex-1 flex flex-col @2xl/main-content:flex-row gap-1 lg:gap-3 group/colorful-product-icons colorful-product-icons-true lg:items-start group',
+                        noPadding ? 'py-0.5' : 'py-2'
                     )}
-                    {/* If we're not showing breadcrumbs, we want to show the actions inline with the title */}
-                    {!willShowBreadcrumbs && (
-                        <div className="shrink-0">
-                            {actions && (
-                                <div className="flex gap-2 shrink-0 ml-auto">
-                                    {actions}
-                                    <SceneTitlePanelButton />
-                                </div>
+                    data-editable={canEdit}
+                >
+                    <div
+                        className={cn('flex gap-1 flex-1 min-w-0', {
+                            '-ml-[var(--button-padding-x-base)]': willShowBreadcrumbs,
+                        })}
+                    >
+                        {willShowBreadcrumbs && <SceneBreadcrumbBackButton forceBackTo={forceBackTo} />}
+                        {name !== null && (
+                            <>
+                                <span
+                                    className={buttonPrimitiveVariants({
+                                        size: 'lg',
+                                        iconOnly: true,
+                                        className:
+                                            'hidden @2xl/main-content:flex size-[var(--button-size-base)] max-h-[var(--button-height-base)]',
+                                        inert: true,
+                                    })}
+                                    aria-hidden
+                                >
+                                    {icon}
+                                </span>
+                                <SceneName
+                                    name={name}
+                                    isLoading={isLoading}
+                                    onChange={onNameChange}
+                                    canEdit={canEdit}
+                                    forceEdit={forceEdit}
+                                    renameDebounceMs={renameDebounceMs}
+                                    saveOnBlur={saveOnBlur}
+                                    onGenerateName={onGenerateName}
+                                    isGeneratingName={isGeneratingName}
+                                    suffix={
+                                        hasDescription ? (
+                                            <ButtonPrimitive
+                                                className={cn(
+                                                    'size-[var(--button-height-sm)] shrink-0',
+                                                    isScrolled
+                                                        ? 'animate-fade-out-subtle pointer-events-none'
+                                                        : 'animate-fade-in-subtle group-hover/scene-title-section:opacity-100 opacity-30 transition-opacity duration-200 motion-reduce:transition-none'
+                                                )}
+                                                onClick={toggleShowDescription}
+                                                tooltip={showDescription ? 'Hide description' : 'Show description'}
+                                                tooltipPlacement="bottom"
+                                                iconOnly
+                                                data-attr={
+                                                    showDescription
+                                                        ? 'toggle-description-button-collapse'
+                                                        : 'toggle-description-button-expand'
+                                                }
+                                            >
+                                                {showDescription || forceEdit ? <IconCollapse /> : <IconExpand />}
+                                            </ButtonPrimitive>
+                                        ) : undefined
+                                    }
+                                />
+                            </>
+                        )}
+                    </div>
+                    {effectiveActions && (
+                        <div
+                            className={cn(
+                                'flex gap-1.5 justify-end items-end @2xl/main-content:items-start ml-4 @max-2xl:order-first',
+                                'gap-1 self-start @max-2xl:self-end'
                             )}
+                        >
+                            {effectiveActions}
+                            <SceneTitlePanelButton maxToolProps={maxToolProps} />
                         </div>
                     )}
                 </div>
-
-                {effectiveDescription !== null && (effectiveDescription || canEdit) && (
-                    <div className="flex gap-2 [&_svg]:size-6 items-center w-full group-data-[editable=true]:mt-1">
-                        <SceneDescription
-                            description={effectiveDescription}
-                            markdown={markdown}
-                            isLoading={isLoading}
-                            onChange={onDescriptionChange}
-                            canEdit={canEdit}
-                            forceEdit={forceEdit}
-                            renameDebounceMs={renameDebounceMs}
-                            saveOnBlur={saveOnBlur}
-                        />
-                    </div>
-                )}
+                {/* Border is handled by the outer container's border-b */}
             </div>
-        </div>
+            {hasDescription && (showDescription || forceEdit) && (
+                <div className="[&_svg]:size-6 -mt-4">
+                    <SceneDescription
+                        description={effectiveDescription}
+                        markdown={markdown}
+                        isLoading={isLoading}
+                        onChange={onDescriptionChange}
+                        canEdit={canEdit}
+                        forceEdit={forceEdit}
+                        renameDebounceMs={renameDebounceMs}
+                        saveOnBlur={saveOnBlur}
+                        maxLength={descriptionMaxLength}
+                    />
+                </div>
+            )}
+        </>
     )
 }
 
@@ -232,9 +403,12 @@ type SceneNameProps = {
     forceEdit?: boolean
     renameDebounceMs?: number
     saveOnBlur?: boolean
+    onGenerateName?: () => void
+    isGeneratingName?: boolean
+    suffix?: React.ReactNode
 }
 
-function SceneName({
+export function SceneName({
     name: initialName,
     isLoading = false,
     onChange,
@@ -242,18 +416,22 @@ function SceneName({
     forceEdit = false,
     renameDebounceMs = 100,
     saveOnBlur = false,
+    onGenerateName,
+    isGeneratingName = false,
+    suffix,
 }: SceneNameProps): JSX.Element {
     const [name, setName] = useState(initialName)
+    const [prevInitialName, setPrevInitialName] = useState(initialName)
+    if (initialName !== prevInitialName) {
+        setPrevInitialName(initialName)
+        setName(initialName)
+    }
+
     const [isEditing, setIsEditing] = useState(forceEdit)
+    const containerRef = useRef<HTMLDivElement>(null)
 
     const textClasses =
-        'text-xl font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-base)] group-data-[editable=false]:py-0 leading-[1.4] select-auto'
-
-    useEffect(() => {
-        if (!isLoading) {
-            setName(initialName)
-        }
-    }, [initialName, isLoading])
+        'text-lg font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-sm)] leading-[1.4] select-auto'
 
     useEffect(() => {
         if (!isLoading && forceEdit) {
@@ -264,16 +442,25 @@ function SceneName({
     }, [isLoading, forceEdit])
 
     const debouncedOnBlurSave = useDebouncedCallback((value: string) => {
-        if (onChange) {
-            onChange(value)
-        }
+        onChange?.(value)
     }, renameDebounceMs)
 
     const debouncedOnChange = useDebouncedCallback((value: string) => {
-        if (onChange) {
-            onChange(value)
-        }
+        onChange?.(value)
     }, renameDebounceMs)
+
+    const handleBlur = (e: React.FocusEvent): void => {
+        const relatedTarget = e.relatedTarget as HTMLElement | null
+        if (relatedTarget && containerRef.current && containerRef.current.contains(relatedTarget)) {
+            return
+        }
+        if (saveOnBlur && !forceEdit && name !== initialName) {
+            debouncedOnBlurSave(name || '')
+        }
+        if (!forceEdit) {
+            setIsEditing(false)
+        }
+    }
 
     // If onBlur is provided, we want to show a button that allows the user to edit the name
     // Otherwise, we want to show the name as a text
@@ -281,43 +468,58 @@ function SceneName({
         onChange && canEdit ? (
             <>
                 {isEditing ? (
-                    <TextareaPrimitive
-                        variant="default"
-                        name="name"
-                        value={name || ''}
-                        onChange={(e) => {
-                            setName(e.target.value)
-                            if (!saveOnBlur) {
-                                debouncedOnChange(e.target.value)
-                            }
-                        }}
-                        data-attr="scene-title-textarea"
-                        className={cn(
-                            buttonPrimitiveVariants({
-                                inert: true,
-                                className: `${textClasses} field-sizing-content w-full hover:bg-fill-input`,
-                                autoHeight: true,
-                            }),
-                            '[&_.LemonIcon]:size-4'
+                    <div ref={containerRef} className="flex items-center gap-1 w-full">
+                        <TextareaPrimitive
+                            variant="default"
+                            name="name"
+                            value={name || ''}
+                            onChange={(e) => {
+                                setName(e.target.value)
+                                if (forceEdit) {
+                                    onChange?.(e.target.value)
+                                } else if (!saveOnBlur) {
+                                    debouncedOnChange(e.target.value)
+                                }
+                            }}
+                            data-attr="scene-title-textarea"
+                            className={cn(
+                                buttonPrimitiveVariants({
+                                    inert: true,
+                                    className: `${textClasses} w-full hover:bg-fill-input py-0`,
+                                    autoHeight: true,
+                                }),
+                                '[&_.LemonIcon]:size-4 input-like'
+                            )}
+                            wrapperClassName="flex-1 min-w-0"
+                            placeholder="Enter name"
+                            onBlur={handleBlur}
+                            autoFocus={!forceEdit}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault()
+                                }
+                            }}
+                        />
+                        {onGenerateName && (
+                            <Tooltip title={isGeneratingName ? 'Thinking...' : 'Name this insight'}>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (!isGeneratingName) {
+                                            onGenerateName()
+                                        }
+                                    }}
+                                    disabled={isGeneratingName}
+                                    className="shrink-0 transition duration-50 cursor-pointer hover:scale-110 rounded-md border border-dashed border-accent size-7 backdrop-blur-[2px] bg-[rgba(255,255,255,0.5)] dark:bg-[rgba(0,0,0,0.5)] disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    <AnimatedSparkles
+                                        triggerAnimation={isGeneratingName}
+                                        className="relative size-full pl-0.5 pb-0.5"
+                                    />
+                                </button>
+                            </Tooltip>
                         )}
-                        placeholder="Enter name"
-                        onBlur={() => {
-                            // Save changes when leaving the field (only if saveOnBlur is true)
-                            if (saveOnBlur && name !== initialName) {
-                                debouncedOnBlurSave(name || '')
-                            }
-                            // Exit edit mode if not forced
-                            if (!forceEdit) {
-                                setIsEditing(false)
-                            }
-                        }}
-                        autoFocus={!forceEdit}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                                e.preventDefault()
-                            }
-                        }}
-                    />
+                    </div>
                 ) : (
                     <Tooltip
                         title={canEdit && !forceEdit ? 'Edit name' : undefined}
@@ -327,32 +529,47 @@ function SceneName({
                         <ButtonPrimitive
                             className={cn(
                                 buttonPrimitiveVariants({ size: 'fit', className: textClasses }),
-                                'flex text-left [&_.LemonIcon]:size-4 h-auto pl-[var(--button-padding-x-sm)]'
+                                'flex text-left [&_.LemonIcon]:size-4 focus-visible:z-50'
                             )}
                             onClick={() => setIsEditing(true)}
-                            fullWidth
+                            truncate
                         >
-                            {name || <span className="text-tertiary">Unnamed</span>}
+                            <span className="truncate">{name || <span className="text-tertiary">Unnamed</span>}</span>
                             {canEdit && !forceEdit && <IconPencil />}
                         </ButtonPrimitive>
                     </Tooltip>
                 )}
             </>
         ) : (
-            <h1 className={cn(buttonPrimitiveVariants({ size: 'lg', inert: true, className: textClasses }))}>
-                {name || <span className="text-tertiary">Unnamed</span>}
+            <h1
+                className={cn(
+                    buttonPrimitiveVariants({ size: 'base', inert: true, className: `${textClasses} min-w-0 truncate` })
+                )}
+            >
+                <span className="truncate">{name || <span className="text-tertiary">Unnamed</span>}</span>
             </h1>
         )
 
     if (isLoading) {
         return (
-            <div className="w-full flex-1">
+            <div className="w-full flex-1 focus-within:z-50">
                 <WrappingLoadingSkeleton fullWidth>{Element}</WrappingLoadingSkeleton>
             </div>
         )
     }
 
-    return <div className="scene-name flex flex-col gap-0 flex-1">{Element}</div>
+    return (
+        <div
+            data-attr="scene-name"
+            className={cn(
+                'scene-name flex items-center flex-1 max-w-full',
+                !isEditing && onChange && canEdit && 'truncate'
+            )}
+        >
+            {Element}
+            {!isEditing && suffix}
+        </div>
+    )
 }
 
 type SceneDescriptionProps = {
@@ -364,6 +581,7 @@ type SceneDescriptionProps = {
     forceEdit?: boolean
     renameDebounceMs?: number
     saveOnBlur?: boolean
+    maxLength?: number
 }
 
 function SceneDescription({
@@ -375,19 +593,20 @@ function SceneDescription({
     forceEdit = false,
     renameDebounceMs = 100,
     saveOnBlur = false,
+    maxLength,
 }: SceneDescriptionProps): JSX.Element | null {
     const [description, setDescription] = useState(initialDescription)
+    const [prevInitialDescription, setPrevInitialDescription] = useState(initialDescription)
+    if (initialDescription !== prevInitialDescription) {
+        setPrevInitialDescription(initialDescription)
+        setDescription(initialDescription)
+    }
+
     const [isEditing, setIsEditing] = useState(forceEdit)
 
-    const textClasses = 'text-sm my-0 select-auto group-data-[editable=false]:py-0'
+    const textClasses = 'text-sm my-0 select-auto'
 
     const emptyText = canEdit ? 'Enter description (optional)' : 'No description'
-
-    useEffect(() => {
-        if (!isLoading) {
-            setDescription(initialDescription)
-        }
-    }, [initialDescription, isLoading])
 
     useEffect(() => {
         if (!isLoading && forceEdit) {
@@ -398,16 +617,21 @@ function SceneDescription({
     }, [isLoading, forceEdit])
 
     const debouncedOnBlurSaveDescription = useDebouncedCallback((value: string) => {
-        if (onChange) {
-            onChange(value)
-        }
+        onChange?.(value)
     }, renameDebounceMs)
 
     const debouncedOnDescriptionChange = useDebouncedCallback((value: string) => {
-        if (onChange) {
-            onChange(value)
-        }
+        onChange?.(value)
     }, renameDebounceMs)
+
+    const handleBlur = (): void => {
+        if (saveOnBlur && !forceEdit && description !== initialDescription) {
+            debouncedOnBlurSaveDescription(description || '')
+        }
+        if (!forceEdit) {
+            setIsEditing(false)
+        }
+    }
 
     const Element =
         onChange && canEdit ? (
@@ -417,9 +641,12 @@ function SceneDescription({
                         variant="default"
                         name="description"
                         value={description || ''}
+                        maxLength={maxLength}
                         onChange={(e) => {
                             setDescription(e.target.value)
-                            if (!saveOnBlur) {
+                            if (forceEdit) {
+                                onChange?.(e.target.value)
+                            } else if (!saveOnBlur) {
                                 debouncedOnDescriptionChange(e.target.value)
                             }
                         }}
@@ -427,36 +654,27 @@ function SceneDescription({
                         className={cn(
                             buttonPrimitiveVariants({
                                 inert: true,
-                                className: `${textClasses} field-sizing-content w-full hover:bg-fill-input`,
+                                className: `${textClasses} w-full hover:bg-fill-input px-[var(--button-padding-x-sm)]`,
                                 autoHeight: true,
                             }),
-                            '[&_.LemonIcon]:size-4'
+                            '[&_.LemonIcon]:size-4 input-like'
                         )}
+                        wrapperClassName="w-full"
                         markdown={markdown}
                         placeholder={emptyText}
-                        onBlur={() => {
-                            // Save changes when leaving the field (only if saveOnBlur is true)
-                            if (saveOnBlur && description !== initialDescription) {
-                                debouncedOnBlurSaveDescription(description || '')
-                            }
-                            // Exit edit mode if not forced
-                            if (!forceEdit) {
-                                setIsEditing(false)
-                            }
-                        }}
+                        onBlur={handleBlur}
                         autoFocus={!forceEdit}
                     />
                 ) : (
                     <Tooltip
                         title={canEdit && !forceEdit ? 'Edit description' : undefined}
-                        placement="top-start"
+                        placement="bottom"
                         arrowOffset={10}
                     >
                         <ButtonPrimitive
                             onClick={() => setIsEditing(true)}
-                            className="flex text-start px-[var(--button-padding-x-base)] py-[var(--button-padding-y-base)] [&_.LemonIcon]:size-4"
+                            className="flex text-start px-[var(--button-padding-x-sm)] py-[var(--button-padding-y-base)] [&_.LemonIcon]:size-4 focus-visible:z-50"
                             autoHeight
-                            fullWidth
                             size="base"
                         >
                             <LemonMarkdown lowKeyHeadings>
@@ -474,7 +692,7 @@ function SceneDescription({
                         lowKeyHeadings
                         className={buttonPrimitiveVariants({
                             inert: true,
-                            className: `${textClasses} block`,
+                            className: `${textClasses} block px-[var(--button-padding-x-sm)]`,
                             autoHeight: true,
                         })}
                     >
@@ -484,7 +702,7 @@ function SceneDescription({
                     <p
                         className={buttonPrimitiveVariants({
                             inert: true,
-                            className: `${textClasses}`,
+                            className: `${textClasses} px-[var(--button-padding-x-sm)]`,
                             autoHeight: true,
                         })}
                     >
@@ -502,5 +720,9 @@ function SceneDescription({
         )
     }
 
-    return <div className="scene-description flex flex-col gap-0 flex-1">{Element}</div>
+    return (
+        <div className="scene-description relative focus-within:z-50">
+            <div className="-mx-[var(--button-padding-x-sm)] flex items-center gap-0">{Element}</div>
+        </div>
+    )
 }

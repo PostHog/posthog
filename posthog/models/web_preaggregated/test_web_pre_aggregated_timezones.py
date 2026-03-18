@@ -8,30 +8,13 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
 from posthog.hogql_queries.web_analytics.test.test_web_stats_table import FloatAwareTestCase
 from posthog.hogql_queries.web_analytics.test.web_preaggregated_test_base import WebAnalyticsPreAggregatedTestBase
-from posthog.models import Team
+from posthog.models import Person, Team
 from posthog.models.utils import uuid7
-from posthog.models.web_preaggregated.sql import (
-    WEB_BOUNCES_DAILY_SQL,
-    WEB_BOUNCES_HOURLY_SQL,
-    WEB_BOUNCES_INSERT_SQL,
-    WEB_STATS_DAILY_SQL,
-    WEB_STATS_HOURLY_SQL,
-    WEB_STATS_INSERT_SQL,
-)
+from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL, WEB_STATS_INSERT_SQL
 
 
 @snapshot_clickhouse_queries
 class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, FloatAwareTestCase):
-    def setUp(self):
-        super().setUp()
-        self._create_test_tables()
-
-    def _create_test_tables(self):
-        sync_execute(WEB_STATS_DAILY_SQL())
-        sync_execute(WEB_BOUNCES_DAILY_SQL())
-        sync_execute(WEB_STATS_HOURLY_SQL())
-        sync_execute(WEB_BOUNCES_HOURLY_SQL())
-
     def _setup_test_data(self):
         """Required by WebAnalyticsPreAggregatedTestBase. Each test handles its own data setup."""
         pass
@@ -287,6 +270,7 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, Fl
             assert not comparison["raw_used"]
 
         finally:
+            Person.objects.filter(team=team).delete()
             team.delete()
 
     def test_timezone_boundary_behavior_explicit(self):
@@ -370,11 +354,12 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, Fl
             for team_name, comparison in [("UTC", utc_comparison), ("PT", pt_comparison), ("JST", jst_comparison)]:
                 preagg_results = self._sort_results(comparison["preagg_response"].results)
                 raw_results = self._sort_results(comparison["raw_response"].results)
-                assert (
-                    preagg_results == raw_results
-                ), f"Boundary behavior mismatch in {team_name}: preagg={preagg_results} vs raw={raw_results}"
+                assert preagg_results == raw_results, (
+                    f"Boundary behavior mismatch in {team_name}: preagg={preagg_results} vs raw={raw_results}"
+                )
 
         finally:
+            Person.objects.filter(team__in=[utc_team, pt_team, jst_team]).delete()
             utc_team.delete()
             pt_team.delete()
             jst_team.delete()
@@ -479,4 +464,5 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, Fl
             assert chrome_raw[1][0] == 2.0
 
         finally:
+            Person.objects.filter(team=india_team).delete()
             india_team.delete()

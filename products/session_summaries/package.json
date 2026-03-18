@@ -1,0 +1,13 @@
+{
+    "name": "@posthog/products-session-summaries",
+    "dependencies": {
+        "kea": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:"
+    },
+    "peerDependencies": {
+        "@posthog/icons": "*",
+        "@types/react": "*",
+        "react": "*"
+    }
+}

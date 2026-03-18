@@ -1,27 +1,41 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
+import { IconPlus, IconTrash, IconWarning } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonInput,
+    LemonModal,
+    LemonSelect,
+    LemonTextArea,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
-import { PropertyType, SchemaPropertyGroupProperty, schemaManagementLogic } from './schemaManagementLogic'
+import {
+    MAX_PROPERTY_NAME_LENGTH,
+    PROPERTY_TYPE_OPTIONS,
+    PropertyType,
+    SchemaPropertyGroupProperty,
+    schemaManagementLogic,
+} from './schemaManagementLogic'
 
-const PROPERTY_TYPE_OPTIONS: { value: PropertyType; label: string }[] = [
-    { value: 'String', label: 'String' },
-    { value: 'Numeric', label: 'Numeric' },
-    { value: 'Boolean', label: 'Boolean' },
-    { value: 'DateTime', label: 'DateTime' },
-    { value: 'Duration', label: 'Duration' },
-]
+function hasPropertyName(name: string): boolean {
+    return Boolean(name && name.trim())
+}
 
-function isValidPropertyName(name: string): boolean {
+function isPropertyNameTooLong(name: string): boolean {
+    return Boolean(name && name.trim().length > MAX_PROPERTY_NAME_LENGTH)
+}
+
+function isNonStandardPropertyName(name: string): boolean {
     if (!name || !name.trim()) {
         return false
     }
-    return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name.trim())
+    return !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name.trim())
 }
 
 interface PropertyGroupModalProps {
@@ -59,13 +73,24 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
             title: 'Name',
             key: 'name',
             render: (_, property, index) => (
-                <LemonInput
-                    value={property.name}
-                    onChange={(value) => updatePropertyInForm(index, { name: value })}
-                    placeholder="Property name"
-                    status={!isValidPropertyName(property.name) ? 'danger' : undefined}
-                    fullWidth
-                />
+                <div className="flex items-center gap-1.5">
+                    <LemonInput
+                        value={property.name}
+                        onChange={(value) => updatePropertyInForm(index, { name: value })}
+                        placeholder="Property name"
+                        status={
+                            !hasPropertyName(property.name) || isPropertyNameTooLong(property.name)
+                                ? 'danger'
+                                : undefined
+                        }
+                        fullWidth
+                    />
+                    {isNonStandardPropertyName(property.name) && (
+                        <Tooltip title="Property names should start with a letter or underscore and contain only letters, numbers, and underscores. Non-standard names may not work correctly with type safety features. Only use if already in use.">
+                            <IconWarning className="text-warning text-lg flex-shrink-0" />
+                        </Tooltip>
+                    )}
+                </div>
             ),
         },
         {
@@ -94,6 +119,34 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
                     <LemonCheckbox
                         checked={property.is_required}
                         onChange={(checked) => updatePropertyInForm(index, { is_required: checked })}
+                    />
+                </div>
+            ),
+        },
+        {
+            title: (
+                <Tooltip title="When enabled, this property will be optional in generated SDK types even if required. Use this for properties automatically added to all events (e.g., set globally via posthog.register()).">
+                    <span>Optional in types</span>
+                </Tooltip>
+            ),
+            key: 'is_optional_in_types',
+            width: 130,
+            align: 'center',
+            render: (_, property, index) => (
+                <div
+                    className="flex justify-center items-center cursor-pointer h-full py-2 -my-2"
+                    onClick={() =>
+                        property.is_required
+                            ? updatePropertyInForm(index, {
+                                  is_optional_in_types: !property.is_optional_in_types,
+                              })
+                            : undefined
+                    }
+                >
+                    <LemonCheckbox
+                        checked={property.is_optional_in_types}
+                        onChange={(checked) => updatePropertyInForm(index, { is_optional_in_types: checked })}
+                        disabledReason={!property.is_required ? 'Only applicable to required properties' : undefined}
                     />
                 </div>
             ),

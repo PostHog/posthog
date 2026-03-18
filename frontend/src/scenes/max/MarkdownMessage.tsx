@@ -4,7 +4,9 @@ import { memo, useMemo } from 'react'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 function parseMarkdownIntoBlocks(markdown: string): string[] {
-    const tokens = marked.lexer(markdown)
+    // Convert single newlines to markdown line breaks (two spaces + newline)
+    const withLineBreaks = markdown.replace(/(?<!\n)\n(?!\n)/g, '  \n')
+    const tokens = marked.lexer(withLineBreaks)
     return tokens.map((token) => token.raw)
 }
 

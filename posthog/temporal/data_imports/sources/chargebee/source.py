@@ -1,5 +1,5 @@
 import re
-from typing import cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -14,22 +14,31 @@ from posthog.temporal.data_imports.sources.chargebee.chargebee import (
     validate_credentials as validate_chargebee_credentials,
 )
 from posthog.temporal.data_imports.sources.chargebee.settings import ENDPOINTS, INCREMENTAL_FIELDS
-from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
 from posthog.temporal.data_imports.sources.generated_configs import ChargebeeSourceConfig
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class ChargebeeSource(BaseSource[ChargebeeSourceConfig]):
+class ChargebeeSource(SimpleSource[ChargebeeSourceConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CHARGEBEE
 
-    def get_schemas(self, config: ChargebeeSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
-        return [
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "403 Client Error: Forbidden for url": "Chargebee authentication failed. Please check your API key and site name.",
+            "Unauthorized for url": "Chargebee authentication failed. Please check your API key and site name.",
+        }
+
+    def get_schemas(
+        self, config: ChargebeeSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
+        schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
@@ -39,7 +48,15 @@ class ChargebeeSource(BaseSource[ChargebeeSourceConfig]):
             for endpoint in list(ENDPOINTS)
         ]
 
-    def validate_credentials(self, config: ChargebeeSourceConfig, team_id: int) -> tuple[bool, str | None]:
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+
+        return schemas
+
+    def validate_credentials(
+        self, config: ChargebeeSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         subdomain_regex = re.compile("^[a-zA-Z-]+$")
         if not subdomain_regex.match(config.site_name):
             return False, "Chargebee site name is incorrect"

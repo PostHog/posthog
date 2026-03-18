@@ -96,60 +96,60 @@ If your source uses OAuth (SourceFieldOauthConfig):
 
 1. **Environment Variables**: Add to your environment:
 
-    ```bash
-    YOUR_SOURCE_CLIENT_ID=your_client_id
-    YOUR_SOURCE_CLIENT_SECRET=your_client_secret
-    ```
+   ```bash
+   YOUR_SOURCE_CLIENT_ID=your_client_id
+   YOUR_SOURCE_CLIENT_SECRET=your_client_secret
+   ```
 
-    **If your integration doesn't exist yet**, add it to `posthog/settings/integrations.py`:
+   **If your integration doesn't exist yet**, add it to `posthog/settings/integrations.py`:
 
-    ```python
-    YOUR_SOURCE_CLIENT_ID = get_from_env("YOUR_SOURCE_CLIENT_ID", "")
-    YOUR_SOURCE_CLIENT_SECRET = get_from_env("YOUR_SOURCE_CLIENT_SECRET", "")
-    ```
+   ```python
+   YOUR_SOURCE_CLIENT_ID = get_from_env("YOUR_SOURCE_CLIENT_ID", "")
+   YOUR_SOURCE_CLIENT_SECRET = get_from_env("YOUR_SOURCE_CLIENT_SECRET", "")
+   ```
 
 2. **Integration Kind**: Add your integration to `posthog/models/integration.py`:
 
-    **a) Add to `IntegrationKind` enum:**
+   **a) Add to `IntegrationKind` enum:**
 
-    ```python
-    class IntegrationKind(models.TextChoices):
-        # ... existing integrations ...
-        YOUR_SOURCE = "your-source"
-    ```
+   ```python
+   class IntegrationKind(models.TextChoices):
+       # ... existing integrations ...
+       YOUR_SOURCE = "your-source"
+   ```
 
-    **b) Add to `OauthIntegration.supported_kinds` list:**
+   **b) Add to `OauthIntegration.supported_kinds` list:**
 
-    ```python
-    supported_kinds = [
-        # ... existing kinds ...
-        "your-source",
-    ]
-    ```
+   ```python
+   supported_kinds = [
+       # ... existing kinds ...
+       "your-source",
+   ]
+   ```
 
-    **c) Add OAuth config in `oauth_config_for_kind()` method:**
+   **c) Add OAuth config in `oauth_config_for_kind()` method:**
 
-    ```python
-    elif kind == "your-source":
-        if not settings.YOUR_SOURCE_CLIENT_ID or not settings.YOUR_SOURCE_CLIENT_SECRET:
-            raise NotImplementedError("Your Source app not configured")
+   ```python
+   elif kind == "your-source":
+       if not settings.YOUR_SOURCE_CLIENT_ID or not settings.YOUR_SOURCE_CLIENT_SECRET:
+           raise NotImplementedError("Your Source app not configured")
 
-        return OauthConfig(
-            authorize_url="https://your-service.com/oauth/authorize",
-            token_url="https://your-service.com/oauth/token",
-            client_id=settings.YOUR_SOURCE_CLIENT_ID,
-            client_secret=settings.YOUR_SOURCE_CLIENT_SECRET,
-            scope="your required scopes",
-            id_path="id",
-            name_path="name",
-        )
-    ```
+       return OauthConfig(
+           authorize_url="https://your-service.com/oauth/authorize",
+           token_url="https://your-service.com/oauth/token",
+           client_id=settings.YOUR_SOURCE_CLIENT_ID,
+           client_secret=settings.YOUR_SOURCE_CLIENT_SECRET,
+           scope="your required scopes",
+           id_path="id",
+           name_path="name",
+       )
+   ```
 
 3. **Redirect URI**: Configure in external service:
 
-    ```text
-    https://localhost:8010/integrations/your-kind/callback
-    ```
+   ```text
+   https://localhost:8010/integrations/your-kind/callback
+   ```
 
 ## Testing Your Source Locally
 
@@ -183,3 +183,26 @@ Provides a simple `get_oauth_integration()` method to pull the `Integration` obj
 #### `ValidateDatabaseHostMixin`
 
 Provides `is_database_host_valid()` to validate that the source isn't trying to access local IP addresses in our internal VPC on AWS (unless if the user is using a SSH tunnel).
+
+## Non-Retryable Errors
+
+Sources can define errors that should cause the sync to fail permanently rather than retry. This is useful for authentication errors or permission issues that won't resolve on their own.
+
+Override the `get_non_retryable_errors()` method to return a dictionary where:
+
+- **key**: A partial error message to match against
+- **value**: A user-friendly error message (or `None` to use the key as the message)
+
+```python
+def get_non_retryable_errors(self) -> dict[str, str | None]:
+    return {
+        "401 Client Error: Unauthorized for url: https://api.example.com": "Your API key is invalid or expired. Please generate a new key and reconnect.",
+        "403 Client Error: Forbidden for url: https://api.example.com": "Your API key does not have the required permissions. Please check the key permissions and try again.",
+    }
+```
+
+Common errors to handle:
+
+- **401 Unauthorized**: Invalid or expired API keys
+- **403 Forbidden**: Missing required scopes or permissions
+- **Invalid/Expired tokens**: OAuth tokens that need re-authentication

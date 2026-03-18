@@ -63,8 +63,10 @@ LEFT: L E F T;
 LET: L E T;
 LIKE: L I K E;
 LIMIT: L I M I T;
+MATERIALIZED: M A T E R I A L I Z E D;
 MINUTE: M I N U T E;
 MONTH: M O N T H;
+NAME: N A M E;
 NAN_SQL: N A N; // conflicts with macro NAN
 NOT: N O T;
 NULL_SQL: N U L L; // conflicts with macro NULL
@@ -80,6 +82,7 @@ PRECEDING: P R E C E D I N G;
 PREWHERE: P R E W H E R E;
 QUARTER: Q U A R T E R;
 RANGE: R A N G E;
+RECURSIVE: R E C U R S I V E;
 RETURN: R E T U R N;
 RIGHT: R I G H T;
 ROLLUP: R O L L U P;
@@ -185,6 +188,7 @@ ARROW: '->';
 ASTERISK: '*';
 BACKQUOTE: '`';
 BACKSLASH: '\\';
+DOUBLECOLON: '::';
 COLON: ':';
 COMMA: ',';
 CONCAT: '||';

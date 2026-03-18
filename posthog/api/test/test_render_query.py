@@ -14,7 +14,6 @@ class TestRenderQueryView(APIBaseTest):
 
         assert response.status_code == 200
         assert "X-Frame-Options" not in response.headers
-        assert "frame-ancestors https: http:" in response.headers.get("Content-Security-Policy-Report-Only", "")
 
         mock_render_template.assert_called_once()
         template_name, request = mock_render_template.call_args[0][:2]

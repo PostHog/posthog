@@ -42,13 +42,6 @@ export default meta
 type Story = StoryObj<typeof meta>
 export const ListView: Story = {}
 
-export const CardView: Story = {
-    parameters: {
-        pageUrl: `${urls.insights()}?layoutView=card`,
-        testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
-    },
-}
-
 export const EmptyState: Story = {
     decorators: [
         mswDecorator({

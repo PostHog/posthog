@@ -29,7 +29,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 ],
                 "description": "Test description",
             },
-            HTTP_ORIGIN="http://testserver",
+            headers={"origin": "http://testserver"},
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json() == {
@@ -43,6 +43,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "event": None,
                     "properties": None,
                     "selector": "div > button",
+                    "selector_regex": ANY,
                     "tag_name": None,
                     "text": "sign up",
                     "text_matching": None,
@@ -68,7 +69,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Assert analytics are sent
         patch_capture.assert_called_once_with(
-            self.user,
+            ANY,
             "action created",
             {
                 "post_to_slack": False,
@@ -86,6 +87,8 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "pinned_at": None,
                 "creation_context": None,
             },
+            team=ANY,
+            request=ANY,
         )
 
     def test_create_action_generates_bytecode(self):
@@ -102,7 +105,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 ],
                 "description": "Test description",
             },
-            HTTP_ORIGIN="http://testserver",
+            headers={"origin": "http://testserver"},
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         action = Action.objects.get(pk=response.json()["id"])
@@ -119,7 +122,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/",
             {"name": "user signed up"},
-            HTTP_ORIGIN="http://testserver",
+            headers={"origin": "http://testserver"},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -168,7 +171,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
                 "pinned_at": "2021-12-11T00:00:00Z",
             },
-            HTTP_ORIGIN="http://testserver",
+            headers={"origin": "http://testserver"},
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["name"] == "user signed up 2"
@@ -179,6 +182,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "event": "$autocapture",
                 "properties": [{"key": "$browser", "value": "Chrome"}],
                 "selector": "div > button",
+                "selector_regex": ANY,
                 "tag_name": None,
                 "text": "sign up NOW",
                 "text_matching": None,
@@ -191,6 +195,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "event": "$pageview",
                 "properties": None,
                 "selector": None,
+                "selector_regex": None,
                 "tag_name": None,
                 "text": None,
                 "text_matching": None,
@@ -224,6 +229,8 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "pinned": True,
                 "pinned_at": "2021-12-12T00:00:00+00:00",
             },
+            team=ANY,
+            request=ANY,
         )
 
         # test queries
@@ -238,76 +245,17 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/actions/{action.pk}/",
             data={"name": "user signed up 2", "steps": []},
-            HTTP_ORIGIN="http://testserver",
+            headers={"origin": "http://testserver"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["steps"]), 0)
-
-    # When we send a user to their own site, we give them a token.
-    # Make sure you can only create actions if that token is set,
-    # otherwise evil sites could create actions with a users' session.
-    # NOTE: Origin header is only set on cross domain request
-    def test_create_from_other_domain(self, *args):
-        # FIXME: BaseTest is using Django client to perform calls to a DRF endpoint.
-        # Django HttpResponse does not have an attribute `data`. Better use rest_framework.test.APIClient.
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/actions/",
-            data={"name": "user signed up"},
-            HTTP_ORIGIN="https://evilwebsite.com",
-        )
-        self.assertEqual(response.status_code, 401)
-
-        self.user.temporary_token = "token123"
-        self.user.save()
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/actions/?temporary_token=token123",
-            data={"name": "user signed up"},
-            HTTP_ORIGIN="https://somewebsite.com",
-        )
-        self.assertEqual(response.status_code, 201)
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/actions/?temporary_token=token123",
-            data={"name": "user signed up and post to slack", "post_to_slack": True},
-            HTTP_ORIGIN="https://somewebsite.com",
-        )
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.json()["post_to_slack"], True)
-
-        list_response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/",
-            HTTP_ORIGIN="https://evilwebsite.com",
-        )
-        self.assertEqual(list_response.status_code, 401)
-
-        detail_response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/{response.json()['id']}/",
-            HTTP_ORIGIN="https://evilwebsite.com",
-        )
-        self.assertEqual(detail_response.status_code, 401)
-
-        self.client.logout()
-        list_response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/",
-            data={"temporary_token": "token123"},
-            HTTP_ORIGIN="https://somewebsite.com",
-        )
-        self.assertEqual(list_response.status_code, 200)
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/actions/?temporary_token=token123",
-            data={"name": "user signed up 22"},
-            HTTP_ORIGIN="https://somewebsite.com",
-        )
-        self.assertEqual(response.status_code, 201, response.json())
 
     # This case happens when someone is running behind a proxy, but hasn't set `IS_BEHIND_PROXY`
     def test_http_to_https(self, *args):
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/",
             data={"name": "user signed up again"},
-            HTTP_ORIGIN="https://testserver/",
+            headers={"origin": "https://testserver/"},
         )
         self.assertEqual(response.status_code, 201, response.json())
 
@@ -316,7 +264,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/",
             data={"name": "test event", "steps": [{"event": "test_event "}]},
-            HTTP_ORIGIN="http://testserver",
+            headers={"origin": "http://testserver"},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         action = Action.objects.get(pk=response.json()["id"])
@@ -327,6 +275,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Pre-query to cache things like instance settings
         self.client.get(f"/api/projects/{self.team.id}/actions/")
 
+        # No actions yet, so no tags prefetch query
         with self.assertNumQueries(9), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
@@ -336,7 +285,8 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             created_by=User.objects.create_and_join(self.organization, "a", ""),
         )
 
-        with self.assertNumQueries(9), snapshot_postgres_queries_context(self):
+        # With actions, there's an extra tags prefetch query
+        with self.assertNumQueries(10), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         Action.objects.create(
@@ -345,10 +295,10 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             created_by=User.objects.create_and_join(self.organization, "b", ""),
         )
 
-        with self.assertNumQueries(9), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(10), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
-    def test_get_tags_on_non_ee_returns_empty_list(self):
+    def test_get_tags_returns_list(self):
         action = Action.objects.create(team=self.team, name="bla")
         tag = Tag.objects.create(name="random", team_id=self.team.id)
         action.tagged_items.create(tag_id=tag.id)
@@ -356,20 +306,20 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["tags"], [])
+        self.assertEqual(response.json()["tags"], ["random"])
         self.assertEqual(Action.objects.all().count(), 1)
 
-    def test_create_tags_on_non_ee_not_allowed(self):
+    def test_create_action_with_tags(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/",
             {"name": "Default", "tags": ["random", "hello"]},
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["tags"], [])
-        self.assertEqual(Tag.objects.all().count(), 0)
+        self.assertEqual(sorted(response.json()["tags"]), ["hello", "random"])
+        self.assertEqual(Tag.objects.all().count(), 2)
 
-    def test_update_tags_on_non_ee_not_allowed(self):
+    def test_update_action_tags(self):
         action = Action.objects.create(team_id=self.team.id, name="private dashboard")
         tag = Tag.objects.create(name="random", team_id=self.team.id)
         action.tagged_items.create(tag_id=tag.id)
@@ -384,7 +334,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["tags"], [])
+        self.assertEqual(sorted(response.json()["tags"]), ["hello", "random"])
 
     def test_undefined_tags_allows_other_props_to_update(self):
         action = Action.objects.create(team_id=self.team.id, name="private action")
@@ -400,7 +350,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.json()["name"], "action new name")
         self.assertEqual(response.json()["description"], "Internal system metrics.")
 
-    def test_empty_tags_does_not_delete_tags(self):
+    def test_empty_tags_clears_all_tags(self):
         action = Action.objects.create(team_id=self.team.id, name="private dashboard")
         tag = Tag.objects.create(name="random", team_id=self.team.id)
         action.tagged_items.create(tag_id=tag.id)
@@ -418,7 +368,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["tags"], [])
-        self.assertEqual(Tag.objects.all().count(), 1)
+        self.assertEqual(Tag.objects.all().count(), 0)
 
     def test_hard_deletion_is_forbidden(self):
         response = self.client.post(
@@ -435,7 +385,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 ],
                 "description": "Test description",
             },
-            HTTP_ORIGIN="http://testserver",
+            headers={"origin": "http://testserver"},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -454,7 +404,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "name": "user signed up in folder",
                 "_create_in_folder": "Special Folder/Actions",
             },
-            HTTP_ORIGIN="http://testserver",
+            headers={"origin": "http://testserver"},
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
@@ -466,6 +416,6 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         fs_entry = FileSystem.objects.filter(team=self.team, ref=str(action_id), type="action").first()
         assert fs_entry is not None, "A FileSystem entry was not created for this Action."
-        assert (
-            "Special Folder/Actions" in fs_entry.path
-        ), f"Expected folder to include 'Special Folder/Actions' but got '{fs_entry.path}'."
+        assert "Special Folder/Actions" in fs_entry.path, (
+            f"Expected folder to include 'Special Folder/Actions' but got '{fs_entry.path}'."
+        )

@@ -1,4 +1,22 @@
 .SessionRecordingScene {
+    .SessionRecordingPlayerWrapper {
+        height: calc(100vh - 6rem);
+        min-height: 25rem;
+
+        // When vertically stacked, ensure proper flex behavior
+        &.SessionRecordingPlayerWrapper--stacked-vertically {
+            display: flex;
+            flex-direction: column;
+
+            .SessionRecordingPlayer {
+                flex: 1;
+                height: auto; // Override any fixed height
+                min-height: 0; // Allow flex child to shrink below content size
+            }
+        }
+    }
+
+    // Keep original behavior for non-stacked layout
     .SessionRecordingPlayer {
         height: calc(100vh - 6rem);
         min-height: 25rem;

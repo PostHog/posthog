@@ -4,9 +4,11 @@ import posthog from 'posthog-js'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { apiHostOrigin } from 'lib/utils/apiHost'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { domainFor, proxyLogic } from 'scenes/settings/environment/proxyLogic'
 import { teamLogic } from 'scenes/teamLogic'
+
+import { SDK_DEFAULTS_DATE } from '~/loadPostHogJS'
 
 function snippetFunctions(arrayJs = '/static/array.js'): string {
     const methods: string[] = []
@@ -34,6 +36,7 @@ type SnippetOption = {
 export function useJsSnippet(indent = 0, arrayJs?: string, scriptAttributes?: string): string {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { preflight } = useValues(preflightLogic)
 
     const { proxyRecords } = useValues(proxyLogic)
     const proxyRecord = proxyRecords[0]
@@ -47,12 +50,12 @@ export function useJsSnippet(indent = 0, arrayJs?: string, scriptAttributes?: st
             enabled: true,
         },
         ui_host: {
-            content: apiHostOrigin(),
+            content: preflight?.site_url || window.location.origin,
             comment: "necessary because you're using a proxy, this way links will point back to PostHog properly",
             enabled: !!proxyRecord,
         },
         defaults: {
-            content: '2025-05-24',
+            content: SDK_DEFAULTS_DATE,
             enabled: true,
         },
         person_profiles: {

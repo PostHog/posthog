@@ -1,31 +1,32 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { IconChevronDown, IconCopy, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconChevronDown, IconCopy, IconInfo, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonButtonProps, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
+import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isMobile, pluralize } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { cn } from 'lib/utils/css-classes'
 import { openInAdminPanel } from 'lib/utils/person-actions'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -35,13 +36,15 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
-import { ActivityScope, PersonType, PersonsTabType, ProductKey, PropertyDefinitionType } from '~/types'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { ActivityScope, PersonType, PersonsTabType, PropertyDefinitionType } from '~/types'
 
 import { MergeSplitPerson } from './MergeSplitPerson'
+import { asDisplay } from './person-utils'
 import { PersonCohorts } from './PersonCohorts'
-import PersonFeedCanvas from './PersonFeedCanvas'
-import { RelatedFeatureFlags } from './RelatedFeatureFlags'
+import PersonProfileCanvas from './PersonProfileCanvas'
 import { PersonsLogicProps, personsLogic } from './personsLogic'
+import { RelatedFeatureFlags } from './RelatedFeatureFlags'
 
 export const scene: SceneExport<PersonsLogicProps> = {
     component: PersonScene,
@@ -58,13 +61,15 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
             <div className="flex deprecated-space-x-1">
                 <div>
                     <span className="text-secondary">IDs:</span>{' '}
-                    <CopyToClipboardInline
-                        tooltipMessage={null}
-                        description="person distinct ID"
-                        style={{ justifyContent: 'flex-end' }}
-                    >
-                        {person.distinct_ids[0]}
-                    </CopyToClipboardInline>
+                    <span data-attr="person-distinct-id">
+                        <CopyToClipboardInline
+                            tooltipMessage={null}
+                            description="person distinct ID"
+                            style={{ justifyContent: 'flex-end' }}
+                        >
+                            {person.distinct_ids[0]}
+                        </CopyToClipboardInline>
+                    </span>
                 </div>
                 {person.distinct_ids.length > 1 && (
                     <LemonMenu
@@ -83,9 +88,15 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
             </div>
             <div>
                 <span className="text-secondary">First seen:</span>{' '}
-                {person.created_at ? <TZLabel time={person.created_at} /> : 'unknown'}
+                {person.created_at ? (
+                    <span className="relative -top-px">
+                        <TZLabel time={person.created_at} />
+                    </span>
+                ) : (
+                    'unknown'
+                )}
             </div>
-            <div>
+            <div className="flex items-center gap-1">
                 <span className="text-secondary">Merge restrictions:</span> {person.is_identified ? 'applied' : 'none'}
                 <Link to="https://posthog.com/docs/data/identify#alias-assigning-multiple-distinct-ids-to-the-same-user">
                     <Tooltip
@@ -104,7 +115,55 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
     )
 }
 
+interface LaunchToolbarButtonProps {
+    distinctId: string
+}
+
+function LaunchToolbarButton({ distinctId }: LaunchToolbarButtonProps): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+
+    const handleLaunchToolbar = async (targetUrl: string): Promise<void> => {
+        if (!currentTeam?.app_urls?.length) {
+            lemonToast.error('No authorized URLs configured. Please add a URL in Toolbar settings.')
+            return
+        }
+
+        try {
+            // Prepare toolbar flags on backend and get cache key
+            const response = await api.create('api/user/prepare_toolbar_preloaded_flags', {
+                distinct_id: distinctId,
+            })
+
+            const toolbarUrl = appEditorUrl(targetUrl, {
+                toolbarFlagsKey: response.key,
+            })
+
+            window.open(toolbarUrl, '_blank')
+            lemonToast.success(`Launching toolbar with ${pluralize(response.flag_count, 'feature flag override')}`)
+        } catch (error) {
+            lemonToast.error('Failed to launch toolbar. Please try again.')
+            console.error('Error launching toolbar:', error)
+        }
+    }
+
+    return (
+        <LemonSelect
+            size="medium"
+            icon={<IconOpenInApp />}
+            data-attr="launch-toolbar-with-loaded-flags-button"
+            tooltip="Launch authorized URL with this user's feature flag values as overrides"
+            options={(currentTeam?.app_urls || []).map((url) => ({
+                label: `Launch ${url}`,
+                value: url,
+            }))}
+            placeholder="Launch toolbar with this user's feature flags"
+            onChange={(value) => value && handleLaunchToolbar(value)}
+        />
+    )
+}
+
 export function PersonScene(): JSX.Element | null {
+    const mountedPersonsLogic = useMountedLogic(personsLogic)
     const {
         feedEnabled,
         person,
@@ -117,30 +176,37 @@ export function PersonScene(): JSX.Element | null {
         primaryDistinctId,
         eventsQuery,
         exceptionsQuery,
-    } = useValues(personsLogic)
-    const { loadPersons, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, setDistinctId } =
-        useActions(personsLogic)
+        surveyResponsesQuery,
+    } = useValues(mountedPersonsLogic)
+    const {
+        loadPersons,
+        editProperty,
+        deleteProperty,
+        navigateToTab,
+        setSplitMergeModalShown,
+        setDistinctId,
+        setEventsQuery,
+        setExceptionsQuery,
+        setSurveyResponsesQuery,
+    } = useActions(mountedPersonsLogic)
     const { showPersonDeleteModal } = useActions(personDeleteModalLogic)
     const { deletedPersonLoading } = useValues(personDeleteModalLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { user } = useValues(userLogic)
 
     if (personError) {
-        throw new Error(personError)
+        return <NotFound object="person" meta={{ urlId }} />
     }
     if (!person) {
         return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="person" meta={{ urlId }} />
     }
 
-    const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
-
     return (
-        <SceneContent fullHeight>
+        <SceneContent>
             <SceneTitleSection
-                name="Person"
+                name={asDisplay(person, undefined, true)}
                 resourceType={{
                     type: sceneConfigurations[Scene.Person].iconType || 'default_icon_type',
                 }}
@@ -151,15 +217,15 @@ export function PersonScene(): JSX.Element | null {
                 }}
                 actions={
                     <>
+                        {user?.is_staff && <OpenInAdminPanelButton />}
                         <NotebookSelectButton
                             resource={{
                                 type: NotebookNodeType.Person,
-                                attrs: { distinctId: person?.distinct_ids[0] },
+                                attrs: { id: person?.uuid },
                             }}
                             type="secondary"
                             size="small"
                         />
-                        {user?.is_staff && <OpenInAdminPanelButton />}
                         <LemonButton
                             onClick={() => showPersonDeleteModal(person, () => loadPersons())}
                             disabled={deletedPersonLoading}
@@ -168,8 +234,9 @@ export function PersonScene(): JSX.Element | null {
                             status="danger"
                             data-attr="delete-person"
                             size="small"
+                            icon={isMobile() ? <IconTrash /> : null}
                         >
-                            Delete person
+                            {isMobile() ? null : 'Delete person'}
                         </LemonButton>
 
                         {person.distinct_ids.length > 1 && (
@@ -185,30 +252,23 @@ export function PersonScene(): JSX.Element | null {
                     </>
                 }
             />
-            <SceneDivider />
 
             <PersonCaption person={person} />
 
             <SceneDivider />
             <PersonDeleteModal />
-
             <LemonTabs
                 activeKey={currentTab}
                 onChange={(tab) => {
                     navigateToTab(tab as PersonsTabType)
                 }}
                 data-attr="persons-tabs"
-                className="grow"
-                contentClassName={cn({
-                    'flex flex-col grow': currentTab === PersonsTabType.SESSION_RECORDINGS,
-                })}
-                sceneInset
                 tabs={[
                     feedEnabled
                         ? {
-                              key: PersonsTabType.FEED,
-                              label: <span data-attr="persons-feed-tab">Feed</span>,
-                              content: <PersonFeedCanvas person={person} />,
+                              key: PersonsTabType.PROFILE,
+                              label: <span data-attr="persons-profile-tab">Profile</span>,
+                              content: <PersonProfileCanvas person={person} attachTo={mountedPersonsLogic} />,
                           }
                         : false,
                     {
@@ -230,7 +290,13 @@ export function PersonScene(): JSX.Element | null {
                     {
                         key: PersonsTabType.EVENTS,
                         label: <span data-attr="persons-events-tab">Events</span>,
-                        content: <Query query={eventsQuery} />,
+                        content: (
+                            <Query
+                                uniqueKey="person-profile-events"
+                                query={eventsQuery}
+                                setQuery={(q) => setEventsQuery(q)}
+                            />
+                        ),
                     },
                     {
                         key: PersonsTabType.SESSION_RECORDINGS,
@@ -240,8 +306,8 @@ export function PersonScene(): JSX.Element | null {
                                 {!currentTeam?.session_recording_opt_in ? (
                                     <div className="mb-4">
                                         <LemonBanner type="info">
-                                            Session recordings are currently disabled for this {settingLevel}. To use
-                                            this feature, please go to your{' '}
+                                            Session recordings are currently disabled for this project. To use this
+                                            feature, please go to your{' '}
                                             <Link
                                                 to={`${urls.settings('project')}#recordings`}
                                                 onClick={() => {
@@ -258,19 +324,26 @@ export function PersonScene(): JSX.Element | null {
                                         </LemonBanner>
                                     </div>
                                 ) : null}
-                                <SessionRecordingsPlaylist
-                                    logicKey={`person-scene-${person.uuid}`}
-                                    personUUID={person.uuid}
-                                    distinctIds={person.distinct_ids}
-                                    updateSearchParams
-                                />
+                                <div className="SessionRecordingPlaylistHeightWrapper">
+                                    <SessionRecordingsPlaylist
+                                        logicKey={`person-scene-${person.uuid}`}
+                                        personUUID={person.uuid}
+                                        distinctIds={person.distinct_ids}
+                                        updateSearchParams
+                                    />
+                                </div>
                             </>
                         ),
                     },
                     {
                         key: PersonsTabType.EXCEPTIONS,
                         label: <span data-attr="persons-exceptions-tab">Exceptions</span>,
-                        content: <Query query={exceptionsQuery} />,
+                        content: <Query query={exceptionsQuery} setQuery={(q) => setExceptionsQuery(q)} />,
+                    },
+                    {
+                        key: PersonsTabType.SURVEY_RESPONSES,
+                        label: <span data-attr="persons-survey-responses-tab">Surveys</span>,
+                        content: <Query query={surveyResponsesQuery} setQuery={(q) => setSurveyResponsesQuery(q)} />,
                     },
                     {
                         key: PersonsTabType.COHORTS,
@@ -296,49 +369,56 @@ export function PersonScene(): JSX.Element | null {
                               key: PersonsTabType.FEATURE_FLAGS,
                               tooltip: `Only shows feature flags with targeting conditions based on person properties.`,
                               label: <span data-attr="persons-related-flags-tab">Feature flags</span>,
-                              content: (
-                                  <>
-                                      <div className="flex deprecated-space-x-2 items-center mb-2">
-                                          <div className="flex items-center">
-                                              Choose ID:
-                                              <Tooltip
-                                                  title={
-                                                      <div className="deprecated-space-y-2">
-                                                          <div>
-                                                              Feature flags values can depend on a person's distinct ID.
+                              content: (() => {
+                                  const selectedDistinctId = distinctId || primaryDistinctId
+                                  return (
+                                      <>
+                                          <div className="flex deprecated-space-x-2 items-center mb-2">
+                                              <div className="flex items-center">
+                                                  Choose ID:
+                                                  <Tooltip
+                                                      title={
+                                                          <div className="deprecated-space-y-2">
+                                                              <div>
+                                                                  Feature flags values can depend on a person's distinct
+                                                                  ID.
+                                                              </div>
+                                                              <div>
+                                                                  If you want your flag values to stay consistent for
+                                                                  each user, you can enable flag persistence in the
+                                                                  feature flag settings.
+                                                              </div>
+                                                              <div>
+                                                                  This option may depend on your specific setup and
+                                                                  isn't always suitable. Read more in the{' '}
+                                                                  <Link to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps">
+                                                                      documentation.
+                                                                  </Link>
+                                                              </div>
                                                           </div>
-                                                          <div>
-                                                              If you want your flag values to stay consistent for each
-                                                              user, you can enable flag persistence in the feature flag
-                                                              settings.
-                                                          </div>
-                                                          <div>
-                                                              This option may depend on your specific setup and isn't
-                                                              always suitable. Read more in the{' '}
-                                                              <Link to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps">
-                                                                  documentation.
-                                                              </Link>
-                                                          </div>
-                                                      </div>
-                                                  }
-                                              >
-                                                  <IconInfo className="ml-1 text-base" />
-                                              </Tooltip>
+                                                      }
+                                                  >
+                                                      <IconInfo className="ml-1 text-base" />
+                                                  </Tooltip>
+                                              </div>
+                                              <LemonSelect
+                                                  value={selectedDistinctId}
+                                                  onChange={(value) => value && setDistinctId(value)}
+                                                  options={person.distinct_ids.map((distinct_id) => ({
+                                                      label: distinct_id,
+                                                      value: distinct_id,
+                                                  }))}
+                                                  data-attr="person-feature-flags-select"
+                                              />
+                                              {selectedDistinctId && (
+                                                  <LaunchToolbarButton distinctId={selectedDistinctId} />
+                                              )}
                                           </div>
-                                          <LemonSelect
-                                              value={distinctId || primaryDistinctId}
-                                              onChange={(value) => value && setDistinctId(value)}
-                                              options={person.distinct_ids.map((distinct_id) => ({
-                                                  label: distinct_id,
-                                                  value: distinct_id,
-                                              }))}
-                                              data-attr="person-feature-flags-select"
-                                          />
-                                      </div>
-                                      <LemonDivider className="mb-4" />
-                                      <RelatedFeatureFlags distinctId={distinctId || primaryDistinctId} />
-                                  </>
-                              ),
+                                          <LemonDivider className="mb-4" />
+                                          <RelatedFeatureFlags distinctId={selectedDistinctId} />
+                                      </>
+                                  )
+                              })(),
                           }
                         : false,
                     {
@@ -365,7 +445,7 @@ export function PersonScene(): JSX.Element | null {
     )
 }
 
-function OpenInAdminPanelButton(): JSX.Element {
+function OpenInAdminPanelButton({ size = 'small' }: { size?: LemonButtonProps['size'] }): JSX.Element {
     const { person } = useValues(personsLogic)
     const disabledReason = !person?.properties.email ? 'Person has no email' : undefined
 
@@ -374,8 +454,9 @@ function OpenInAdminPanelButton(): JSX.Element {
             type="secondary"
             onClick={() => openInAdminPanel(person?.properties.email)}
             disabledReason={disabledReason}
+            size={size}
         >
-            Open in Admin Panel
+            Open in admin panel
         </LemonButton>
     )
 }

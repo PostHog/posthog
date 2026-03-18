@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { IconEye, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonCollapse, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { IconPlusSmall } from '@posthog/icons'
+import { LemonBadge, LemonButton, LemonCollapse, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
-import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { IconEyeHidden } from 'lib/lemon-ui/icons'
+import { GoalLinesList } from 'lib/components/GoalLinesList'
 
 import { ChartDisplayType } from '~/types'
 
@@ -95,6 +94,14 @@ export const DisplayTab = (): JSX.Element => {
                                 />
                                 <LemonSwitch
                                     className="flex-1 w-full"
+                                    label="Show nulls as zero"
+                                    checked={chartSettings.showNullsAsZero ?? false}
+                                    onChange={(value) => {
+                                        updateChartSettings({ showNullsAsZero: value })
+                                    }}
+                                />
+                                <LemonSwitch
+                                    className="flex-1 w-full"
                                     label="Show X-axis labels"
                                     checked={chartSettings.showXAxisTicks ?? true}
                                     onChange={(value) => {
@@ -151,63 +158,22 @@ export const DisplayTab = (): JSX.Element => {
                         : null,
                     {
                         key: 'goals',
-                        header: {
-                            children: (
-                                <div className="flex items-center gap-1 flex-1">
-                                    <span className="flex-1">Goals</span>
-                                    {goalLines.length > 0 && (
-                                        <LemonBadge.Number status="muted" size="small" count={goalLines.length} />
-                                    )}
-                                </div>
-                            ),
-                        },
+                        header: (
+                            <div className="flex items-center gap-1 flex-1">
+                                <span className="flex-1">Goals</span>
+                                {goalLines.length > 0 && (
+                                    <LemonBadge.Number status="muted" size="small" count={goalLines.length} />
+                                )}
+                            </div>
+                        ),
                         className: 'p-2',
                         content: (
                             <>
-                                {goalLines.map(({ label, value = 0, displayLabel = true }, goalLineIndex) => (
-                                    <div className="flex flex-1 gap-1 mb-1" key={`${goalLineIndex}`}>
-                                        <SeriesLetter
-                                            className="self-center"
-                                            hasBreakdown={false}
-                                            seriesIndex={goalLineIndex}
-                                        />
-                                        <LemonInput
-                                            placeholder="Label"
-                                            className="grow-2"
-                                            value={label}
-                                            suffix={
-                                                <LemonButton
-                                                    size="small"
-                                                    noPadding
-                                                    icon={displayLabel ? <IconEye /> : <IconEyeHidden />}
-                                                    tooltip={displayLabel ? 'Display label' : 'Hide label'}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation()
-                                                        updateGoalLine(goalLineIndex, 'displayLabel', !displayLabel)
-                                                    }}
-                                                />
-                                            }
-                                            onChange={(value) => updateGoalLine(goalLineIndex, 'label', value)}
-                                        />
-                                        <LemonInput
-                                            placeholder="Value"
-                                            className="grow"
-                                            value={value.toString()}
-                                            inputMode="numeric"
-                                            onChange={(value) =>
-                                                updateGoalLine(goalLineIndex, 'value', parseInt(value))
-                                            }
-                                        />
-                                        <LemonButton
-                                            key="delete"
-                                            icon={<IconTrash />}
-                                            status="danger"
-                                            title="Delete Goal Line"
-                                            noPadding
-                                            onClick={() => removeGoalLine(goalLineIndex)}
-                                        />
-                                    </div>
-                                ))}
+                                <GoalLinesList
+                                    goalLines={goalLines}
+                                    removeGoalLine={removeGoalLine}
+                                    updateGoalLine={updateGoalLine}
+                                />
                                 <LemonButton className="mt-1" onClick={addGoalLine} icon={<IconPlusSmall />} fullWidth>
                                     Add goal line
                                 </LemonButton>

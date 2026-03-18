@@ -6,8 +6,6 @@ import {
     LemonTextAreaMarkdown as _LemonTextMarkdown,
 } from 'lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown'
 
-import { LemonTextAreaProps } from './LemonTextArea'
-
 type Story = StoryObj<typeof LemonTextAreaMarkdown>
 const meta: Meta<typeof LemonTextAreaMarkdown> = {
     title: 'Lemon UI/Lemon Text Area Markdown',
@@ -20,7 +18,7 @@ const meta: Meta<typeof LemonTextAreaMarkdown> = {
 
 export default meta
 
-const Template: StoryFn<typeof LemonTextAreaMarkdown> = (props: LemonTextAreaProps) => {
+const Template: StoryFn<typeof LemonTextAreaMarkdown> = (props) => {
     const [value, setValue] = useState(props.value)
     return <_LemonTextMarkdown {...props} value={value} onChange={(newValue) => setValue(newValue)} />
 }

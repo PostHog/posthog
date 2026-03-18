@@ -26,7 +26,10 @@ const DEFAULT_SLACK_INPUTS: Record<string, any> = {
         value: [
             { type: 'header', text: { type: 'plain_text', text: '🔴 {event.properties.name}' } },
             { type: 'section', text: { type: 'plain_text', text: 'New issue created' } },
-            { type: 'section', text: { type: 'mrkdwn', text: '```{event.properties.description}```' } },
+            {
+                type: 'section',
+                text: { type: 'mrkdwn', text: '```{substring(event.properties.description, 1, 150)}```' },
+            },
             {
                 type: 'context',
                 elements: [

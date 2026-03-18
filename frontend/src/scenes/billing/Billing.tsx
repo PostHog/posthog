@@ -8,9 +8,9 @@ import { useEffect } from 'react'
 
 import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 
+import { JudgeHog, StarHog } from 'lib/components/hedgehogs'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { JudgeHog } from 'lib/components/hedgehogs'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -18,20 +18,23 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toSentenceCase } from 'lib/utils'
+import { couponLogic } from 'scenes/coupons/couponLogic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { BillingProductV2Type, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { BillingProductV2Type } from '~/types'
 
 import { BillingHero } from './BillingHero'
+import { billingLogic } from './billingLogic'
 import { BillingNoAccess } from './BillingNoAccess'
 import { BillingProduct } from './BillingProduct'
 import { BillingSummary } from './BillingSummary'
 import { CreditCTAHero } from './CreditCTAHero'
 import { StripePortalButton } from './StripePortalButton'
 import { UnsubscribeCard } from './UnsubscribeCard'
-import { billingLogic } from './billingLogic'
 
 export const scene: SceneExport = {
     component: Billing,
@@ -54,6 +57,8 @@ export function Billing(): JSX.Element {
     const { openSupportForm } = useActions(supportLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { location, searchParams } = useValues(router)
+    const { activeCoupons, couponsOverviewLoading } = useValues(couponLogic({}))
+    const { memberCount } = useValues(membersLogic)
 
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -77,7 +82,7 @@ export function Billing(): JSX.Element {
         router.actions.push(urls.default())
     }
 
-    if (!billing && billingLoading) {
+    if ((!billing && billingLoading) || couponsOverviewLoading) {
         return (
             <>
                 <SpinnerOverlay sceneLevel />
@@ -188,6 +193,31 @@ export function Billing(): JSX.Element {
 
             {!showBillingSummary && <StripePortalButton />}
 
+            {!couponsOverviewLoading && activeCoupons.length > 0 && (
+                <div className="mt-6 max-w-300">
+                    <LemonBanner type="info" hideIcon>
+                        <div className="flex items-center gap-4">
+                            <StarHog className="w-16 h-16 flex-shrink-0" />
+                            <div>
+                                <p className="font-semibold mb-2">You have active coupons!</p>
+                                <ul className="list-disc list-inside space-y-1">
+                                    {activeCoupons.map((coupon) => (
+                                        <li key={coupon.code} className="text-sm">
+                                            <span>{coupon.campaign_name}</span>
+                                            {coupon.expires_at && (
+                                                <span className="text-muted ml-1">
+                                                    · until {dayjs(coupon.expires_at).format('LL')}
+                                                </span>
+                                            )}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        </div>
+                    </LemonBanner>
+                </div>
+            )}
+
             <LemonDivider className="mt-6 mb-8" />
 
             {featureFlags[FEATURE_FLAGS.BILLING_FORECASTING_ISSUES] && (
@@ -203,7 +233,13 @@ export function Billing(): JSX.Element {
                 <h2>Products</h2>
             </div>
 
-            {products
+            {(memberCount >= 5
+                ? [
+                      platformAndSupportProduct,
+                      ...(products?.filter((product) => product.type !== ProductKey.PLATFORM_AND_SUPPORT) ?? []),
+                  ].filter((product): product is BillingProductV2Type => !!product)
+                : products
+            )
                 ?.filter(
                     (product: BillingProductV2Type) =>
                         !product.inclusion_only || product.addons.find((a) => !a.inclusion_only)

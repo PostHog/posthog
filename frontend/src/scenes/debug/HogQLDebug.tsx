@@ -3,10 +3,10 @@ import { BindLogic, useValues } from 'kea'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Modifiers } from 'scenes/debug/Modifiers'
 
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
-import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
 import { HogQLQuery, HogQLQueryModifiers, HogQLQueryResponse } from '~/queries/schema/schema-general'
@@ -51,7 +51,22 @@ export function HogQLDebug({ query, setQuery, queryKey, modifiers }: HogQLDebugP
                     </>
                 ) : (
                     <>
-                        <QueryTabs query={query} response={response} setQuery={setQuery} queryKey={queryKey} />
+                        <QueryTabs
+                            query={query}
+                            response={response}
+                            setQuery={setQuery}
+                            queryKey={queryKey}
+                            onLoadQuery={(queryString) => {
+                                try {
+                                    const parsed = JSON.parse(queryString)
+                                    if (parsed.kind === 'HogQLQuery') {
+                                        setQuery(parsed)
+                                    }
+                                } catch (e) {
+                                    console.error('Failed to parse query from log', e)
+                                }
+                            }}
+                        />
                     </>
                 )}
             </div>

@@ -5,8 +5,10 @@ use uuid::Uuid;
 #[allow(dead_code)]
 pub fn create_new_job() -> JobInit {
     JobInit {
+        id: None,
         team_id: 1,
         function_id: Some(Uuid::now_v7()), // Lets us uniquely identify jobs without having the Uuid
+        parent_run_id: None,
         queue_name: "test".to_string(),
         priority: 0,
         scheduled: Utc::now() - Duration::minutes(1),

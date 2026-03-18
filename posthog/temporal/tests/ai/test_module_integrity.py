@@ -10,20 +10,36 @@ class TestAITemporalModuleIntegrity:
             "SummarizeSingleSessionWorkflow",
             "SummarizeSessionGroupWorkflow",
             "AssistantConversationRunnerWorkflow",
+            "ChatAgentWorkflow",
+            "ResearchAgentWorkflow",
+            "SummarizeLLMTracesWorkflow",
+            "SlackConversationRunnerWorkflow",
+            "PostHogCodeSlackMentionWorkflow",
+            "PostHogCodeSlackTerminateTaskWorkflow",
+            "VideoSegmentClusteringWorkflow",
+            "VideoSegmentClusteringCoordinatorWorkflow",
+            "TeamSignalGroupingWorkflow",
+            "SignalReportSummaryWorkflow",
+            "SignalReportReingestionWorkflow",
+            "SignalReportDeletionWorkflow",
+            "EmitEvalSignalWorkflow",
+            "TeamSignalGroupingV2Workflow",
+            "BufferSignalsWorkflow",
+            "SignalEmitterWorkflow",
         ]
-        actual_workflow_names = [workflow.__name__ for workflow in ai.WORKFLOWS]
+        actual_workflow_names = [workflow.__name__ for workflow in ai.AI_WORKFLOWS + ai.SIGNALS_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
             f"Workflow count mismatch. Expected {len(expected_workflows)}, got {len(actual_workflow_names)}. "
             "If you're adding/removing workflows, update this test accordingly."
         )
         for expected in expected_workflows:
             assert expected in actual_workflow_names, (
-                f"Workflow '{expected}' is missing from ai.WORKFLOWS. " "If this was intentional, update the test."
+                f"Workflow '{expected}' is missing from ai.WORKFLOWS. If this was intentional, update the test."
             )
         # Check for unexpected workflows
         for actual in actual_workflow_names:
             assert actual in expected_workflows, (
-                f"Unexpected workflow '{actual}' found in ai.WORKFLOWS. " "If this was intentional, update the test."
+                f"Unexpected workflow '{actual}' found in ai.WORKFLOWS. If this was intentional, update the test."
             )
 
     def test_activities_remain_unchanged(self):
@@ -41,20 +57,77 @@ class TestAITemporalModuleIntegrity:
             "combine_patterns_from_chunks_activity",
             "split_session_summaries_into_chunks_for_patterns_extraction_activity",
             "process_conversation_activity",
+            "process_chat_agent_activity",
+            "process_research_agent_activity",
+            "validate_llm_single_session_summary_with_videos_activity",
+            "summarize_llm_traces_activity",
+            "process_slack_conversation_activity",
+            "resolve_posthog_code_slack_user_activity",
+            "handle_posthog_code_rules_command_activity",
+            "collect_posthog_code_thread_messages_activity",
+            "create_posthog_code_routing_rule_activity",
+            "select_posthog_code_repository_activity",
+            "post_posthog_code_no_repos_activity",
+            "post_posthog_code_repo_picker_activity",
+            "create_posthog_code_task_for_repo_activity",
+            "forward_posthog_code_followup_activity",
+            "post_posthog_code_picker_timeout_activity",
+            "post_posthog_code_internal_error_activity",
+            "process_posthog_code_terminate_task_activity",
+            "prep_session_video_asset_activity",
+            "upload_video_to_gemini_activity",
+            "analyze_video_segment_activity",
+            "consolidate_video_segments_activity",
+            "embed_and_store_segments_activity",
+            "store_video_session_summary_activity",
+            "cleanup_gemini_file_activity",
+            "capture_timing_activity",
+            "get_sessions_to_prime_activity",
+            "fetch_segments_activity",
+            "cluster_segments_activity",
+            "emit_signals_from_clusters_activity",
+            "get_proactive_tasks_enabled_team_ids_activity",
+            "actionability_judge_activity",
+            "assign_and_emit_signal_activity",
+            "fetch_signal_type_examples_activity",
+            "fetch_signals_for_report_activity",
+            "generate_search_queries_activity",
+            "get_embedding_activity",
+            "match_signal_to_report_activity",
+            "mark_report_failed_activity",
+            "mark_report_in_progress_activity",
+            "mark_report_pending_input_activity",
+            "mark_report_ready_activity",
+            "reingest_signals_activity",
+            "reset_report_to_potential_activity",
+            "fetch_report_contexts_activity",
+            "soft_delete_report_signals_activity",
+            "verify_match_specificity_activity",
+            "run_signal_semantic_search_activity",
+            "report_safety_judge_activity",
+            "safety_filter_activity",
+            "wait_for_signal_in_clickhouse_activity",
+            "summarize_signals_activity",
+            "delete_report_activity",
+            "flush_signals_to_s3_activity",
+            "read_signals_from_s3_activity",
+            "signal_with_start_grouping_v2_activity",
+            "submit_signal_to_buffer_activity",
+            "emit_eval_signal_activity",
         ]
-        actual_activity_names = [activity.__name__ for activity in ai.ACTIVITIES]
+        actual_activity_names = [activity.__name__ for activity in ai.AI_ACTIVITIES + ai.SIGNALS_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (
             f"Activity count mismatch. Expected {len(expected_activities)}, got {len(actual_activity_names)}. "
             "If you're adding/removing activities, update this test accordingly."
         )
         for expected in expected_activities:
             assert expected in actual_activity_names, (
-                f"Activity '{expected}' is missing from ai.ACTIVITIES. " "If this was intentional, update the test."
+                f"Activity '{expected}' is missing from ai.ACTIVITIES. If this was intentional, update the test."
             )
         # Check for unexpected activities
         for actual in actual_activity_names:
             assert actual in expected_activities, (
-                f"Unexpected activity '{actual}' found in ai.ACTIVITIES. " "If this was intentional, update the test."
+                f"Unexpected activity '{actual}' found in ai.ACTIVITIES. If this was intentional, update the test."
             )
 
     def test_all_exports_remain_unchanged(self):
@@ -64,6 +137,8 @@ class TestAITemporalModuleIntegrity:
             "SingleSessionSummaryInputs",
             "SessionGroupSummaryInputs",
             "SessionGroupSummaryOfSummariesInputs",
+            "SummarizeLLMTracesInputs",
+            "SlackConversationRunnerWorkflowInputs",
         ]
         actual_exports = ai.__all__
         assert len(actual_exports) == len(expected_exports), (
@@ -72,10 +147,10 @@ class TestAITemporalModuleIntegrity:
         )
         for expected in expected_exports:
             assert expected in actual_exports, (
-                f"Export '{expected}' is missing from __all__. " "If this was intentional, update the test."
+                f"Export '{expected}' is missing from __all__. If this was intentional, update the test."
             )
         # Check for unexpected exports
         for actual in actual_exports:
             assert actual in expected_exports, (
-                f"Unexpected export '{actual}' found in __all__. " "If this was intentional, update the test."
+                f"Unexpected export '{actual}' found in __all__. If this was intentional, update the test."
             )

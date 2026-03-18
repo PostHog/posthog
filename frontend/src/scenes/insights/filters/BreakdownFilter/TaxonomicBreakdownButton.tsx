@@ -6,8 +6,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-import { TaxonomicBreakdownPopover } from './TaxonomicBreakdownPopover'
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
+import { TaxonomicBreakdownPopover } from './TaxonomicBreakdownPopover'
 
 interface TaxonomicBreakdownButtonProps {
     disabledReason?: string
@@ -35,9 +35,7 @@ export function TaxonomicBreakdownButton({ disabledReason, size }: TaxonomicBrea
                         : 'https://posthog.com/docs/product-analytics/trends/breakdowns'
                 }
             >
-                {taxonomicBreakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers
-                    ? 'Add cohort'
-                    : 'Add breakdown'}
+                {taxonomicBreakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers ? 'Cohort' : 'Breakdown'}
             </LemonButton>
         </TaxonomicBreakdownPopover>
     )

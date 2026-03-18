@@ -1,7 +1,7 @@
 import './LemonCollapse.scss'
 
 import clsx from 'clsx'
-import React, { ReactNode, useEffect, useState } from 'react'
+import React, { ReactNode, useEffect, useMemo, useState } from 'react'
 import { Transition } from 'react-transition-group'
 import { ENTERED, ENTERING } from 'react-transition-group/Transition'
 import useResizeObserver from 'use-resize-observer'
@@ -12,7 +12,7 @@ import { LemonButton, LemonButtonProps } from '../LemonButton'
 
 export interface LemonCollapsePanel<K extends React.Key> {
     key: K
-    header: string | LemonButtonProps
+    header: ReactNode | LemonButtonProps
     content: ReactNode
     dataAttr?: string
     className?: string
@@ -103,7 +103,7 @@ export function LemonCollapse<K extends React.Key>({
 }
 
 interface LemonCollapsePanelProps {
-    header: ReactNode
+    header: ReactNode | LemonButtonProps
     content: ReactNode
     isExpanded: boolean
     indexUnexpanableHeader: boolean
@@ -112,6 +112,11 @@ interface LemonCollapsePanelProps {
     className?: string
     dataAttr?: string
     onHeaderClick?: () => void
+}
+
+interface HeaderDefinition {
+    headerChildren: ReactNode
+    headerProps: LemonButtonProps
 }
 
 function LemonCollapsePanel({
@@ -127,11 +132,14 @@ function LemonCollapsePanel({
 }: LemonCollapsePanelProps): JSX.Element {
     const { height: contentHeight, ref: contentRef } = useResizeObserver({ box: 'border-box' })
 
-    const headerProps: LemonButtonProps = React.isValidElement(header)
-        ? { children: header }
-        : typeof header === 'string'
-          ? { children: header }
-          : (header ?? {})
+    const { headerChildren, headerProps } = useMemo((): HeaderDefinition => {
+        if (header && typeof header === 'object' && 'children' in header) {
+            const { children, ...rest } = header as LemonButtonProps
+            return { headerChildren: children, headerProps: rest }
+        }
+
+        return { headerChildren: header as ReactNode, headerProps: {} }
+    }, [header])
 
     return (
         <div className="LemonCollapsePanel" aria-expanded={isExpanded}>
@@ -139,7 +147,7 @@ function LemonCollapsePanel({
                 <LemonButton
                     {...headerProps}
                     fullWidth
-                    className={clsx('LemonCollapsePanel__header', headerProps.className)}
+                    className={clsx('LemonCollapsePanel__header', headerProps?.className)}
                     onClick={(e) => {
                         onHeaderClick && onHeaderClick()
                         onChange(!isExpanded)
@@ -149,7 +157,9 @@ function LemonCollapsePanel({
                     icon={isExpanded ? <IconCollapse /> : <IconExpand />}
                     {...(dataAttr ? { 'data-attr': dataAttr } : {})}
                     size={size}
-                />
+                >
+                    {headerChildren}
+                </LemonButton>
             ) : (
                 <LemonButton
                     className="LemonCollapsePanel__header LemonCollapsePanel__header--disabled"
@@ -157,9 +167,10 @@ function LemonCollapsePanel({
                     size={size}
                     icon={indexUnexpanableHeader ? <div className="w-[1em] h-[1em]" /> : null}
                 >
-                    {header}
+                    {headerChildren}
                 </LemonButton>
             )}
+
             <Transition in={isExpanded} timeout={200} mountOnEnter unmountOnExit>
                 {(status) => (
                     <div

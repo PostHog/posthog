@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -33,12 +34,13 @@ func ServedHandler(stats *events.Stats) func(c echo.Context) error {
 	}
 }
 
-func StatsHandler(stats *events.Stats) func(c echo.Context) error {
+func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats, redisStore *events.StatsInRedis) func(c echo.Context) error {
 	return func(c echo.Context) error {
 
 		type resp struct {
-			UsersOnProduct int    `json:"users_on_product,omitempty"`
-			Error          string `json:"error,omitempty"`
+			UsersOnProduct   int    `json:"users_on_product,omitempty"`
+			ActiveRecordings int    `json:"active_recordings,omitempty"`
+			Error            string `json:"error,omitempty"`
 		}
 
 		_, token, err := auth.GetAuthClaims(c.Request().Header)
@@ -46,15 +48,40 @@ func StatsHandler(stats *events.Stats) func(c echo.Context) error {
 			return c.JSON(http.StatusUnauthorized, resp{Error: "wrong token claims"})
 		}
 
-		store := stats.GetExistingStoreForToken(token)
-		if store == nil {
-			resp := resp{
-				Error: "no stats",
+		if redisStore != nil {
+			ctx := c.Request().Context()
+			userCount, userErr := redisStore.GetUserCount(ctx, token)
+			sessionCount, sessionErr := redisStore.GetSessionCount(ctx, token)
+
+			if userErr == nil && sessionErr == nil {
+				if userCount == 0 && sessionCount == 0 {
+					return c.JSON(http.StatusOK, resp{Error: "no stats"})
+				}
+
+				siteStats := resp{}
+				siteStats.UsersOnProduct = int(userCount)
+				siteStats.ActiveRecordings = int(sessionCount)
+
+				return c.JSON(http.StatusOK, siteStats)
 			}
-			return c.JSON(http.StatusOK, resp)
+
+			log.Printf("Redis read failed, falling back to local LRU: users_err=%v sessions_err=%v", userErr, sessionErr)
 		}
-		siteStats := resp{
-			UsersOnProduct: store.Len(),
+
+		// Fallback to local LRU until V2 migration is complete
+		userStore := stats.GetExistingStoreForToken(token)
+		sessionCount := sessionStats.CountForToken(token)
+
+		if userStore == nil && sessionCount == 0 {
+			return c.JSON(http.StatusOK, resp{Error: "no stats"})
+		}
+
+		siteStats := resp{}
+		if userStore != nil {
+			siteStats.UsersOnProduct = userStore.Len()
+		}
+		if sessionCount != 0 {
+			siteStats.ActiveRecordings = sessionCount
 		}
 		return c.JSON(http.StatusOK, siteStats)
 	}
@@ -62,7 +89,7 @@ func StatsHandler(stats *events.Stats) func(c echo.Context) error {
 
 var subID uint64 = 1
 
-func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, filter *events.Filter) func(c echo.Context) error {
+func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSubChan chan events.Subscription) func(c echo.Context) error {
 	return func(c echo.Context) error {
 		log.Debugf("SSE client connected, ip: %v", c.RealIP())
 
@@ -86,26 +113,41 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, filt
 			geoOnly = true
 		}
 
+		var columns []string
+		if _, hasColumns := c.QueryParams()["columns"]; hasColumns {
+			columnsParam := strings.TrimSpace(c.QueryParam("columns"))
+			if columnsParam != "" {
+				columns = strings.Split(columnsParam, ",")
+				for i, col := range columns {
+					columns[i] = strings.TrimSpace(col)
+				}
+			} else {
+				columns = []string{}
+			}
+		}
+
 		var eventTypes []string
 		if eventType != "" {
 			eventTypes = strings.Split(eventType, ",")
 		}
 
 		subscription := events.Subscription{
-			SubID:       atomic.AddUint64(&subID, 1),
-			TeamId:      teamID,
-			Token:       token,
-			DistinctId:  distinctId,
-			Geo:         geoOnly,
-			EventTypes:  eventTypes,
-			EventChan:   make(chan interface{}, 100),
-			ShouldClose: &atomic.Bool{},
+			SubID:         atomic.AddUint64(&subID, 1),
+			TeamId:        teamID,
+			Token:         token,
+			DistinctId:    distinctId,
+			Geo:           geoOnly,
+			Columns:       columns,
+			EventTypes:    eventTypes,
+			EventChan:     make(chan interface{}, 100),
+			ShouldClose:   &atomic.Bool{},
+			DroppedEvents: &atomic.Uint64{},
 		}
 
 		subChan <- subscription
 		defer func() {
 			subscription.ShouldClose.Store(true)
-			filter.UnSubChan <- subscription
+			unSubChan <- subscription
 		}()
 
 		w := c.Response()

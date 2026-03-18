@@ -1,42 +1,115 @@
 import re
+import hmac
 import logging
 import functools
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, Optional, Union
-from urllib.parse import urlsplit
+from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
+from urllib.parse import parse_qs, urlparse
 
 from django.apps import apps
+from django.conf import settings
+from django.contrib.auth.backends import BaseBackend
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError
-from django.db import transaction
-from django.http import HttpRequest, JsonResponse
+from django.db import models, transaction
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.utils import timezone
 
 import jwt
+import structlog
 from prometheus_client import Counter
 from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
+from webauthn.helpers import base64url_to_bytes
 from zxcvbn import zxcvbn
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.jwt import PosthogJwtAudience, decode_jwt
-from posthog.models.oauth import OAuthAccessToken
-from posthog.models.personal_api_key import PERSONAL_API_KEY_MODES_TO_TRY, PersonalAPIKey, hash_key_value
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
+from posthog.models.personal_api_key import (
+    PERSONAL_API_KEY_AUTH_COUNTER,
+    PERSONAL_API_KEY_MODES_TO_TRY,
+    PersonalAPIKey,
+    hash_key_value,
+)
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
+from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.passkey import verify_passkey_authentication_response
+from posthog.settings import LOCAL_DEV_INTERNAL_API_SECRET
+
+
+class WebAuthnAuthenticationResponse(TypedDict):
+    """WebAuthn authentication response data structure."""
+
+    authenticatorData: str
+    clientDataJSON: str
+    signature: str
+    userHandle: str
+
 
 if TYPE_CHECKING:
     from posthog.models.share_password import SharePassword
 
 logger = logging.getLogger(__name__)
+structlog_logger = structlog.get_logger(__name__)
 
 PERSONAL_API_KEY_QUERY_PARAM_COUNTER = Counter(
     "api_auth_personal_api_key_query_param",
     "Requests where the personal api key is specified in a query parameter",
     labelnames=["user_uuid"],
 )
+
+AUTH_BRAND_COOKIE = "ph_auth_brand"
+
+
+def get_auth_brand_for_client_id(client_id: str | None) -> str | None:
+    if not client_id:
+        return None
+    try:
+        application = OAuthApplication.objects.only("auth_brand", "is_first_party").get(client_id=client_id)
+    except OAuthApplication.DoesNotExist:
+        return None
+    if not application.is_first_party:
+        return None
+    return application.auth_brand or None
+
+
+def get_auth_brand_from_next_param(next_param: str | None) -> str | None:
+    if not next_param:
+        return None
+    try:
+        parsed = urlparse(next_param)
+        client_id = parse_qs(parsed.query).get("client_id", [None])[0]
+        return get_auth_brand_for_client_id(client_id)
+    except (ValueError, IndexError, KeyError):
+        return None
+
+
+def normalize_auth_brand(value: str | None) -> str | None:
+    if not value:
+        return None
+    allowed_brands = {brand.value for brand in OAuthApplicationAuthBrand}
+    return value if value in allowed_brands else None
+
+
+def apply_auth_brand_cookie(request: HttpRequest, response: JsonResponse | HttpResponse) -> JsonResponse | HttpResponse:
+    brand = get_auth_brand_for_client_id(request.GET.get("client_id")) or get_auth_brand_from_next_param(
+        request.GET.get("next")
+    )
+    brand = normalize_auth_brand(brand)
+    if brand:
+        response.set_cookie(
+            key=AUTH_BRAND_COOKIE,
+            value=brand,
+            max_age=60 * 30,
+            samesite="Lax",
+            secure=request.is_secure(),
+            httponly=True,
+        )
+    return response
 
 
 class ZxcvbnValidator:
@@ -97,6 +170,18 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
 
     keyword = "Bearer"
     personal_api_key: PersonalAPIKey
+    personal_api_key_source: Optional[str] = None
+
+    # Normalized source identifiers returned by find_key_with_source
+    SOURCE_HEADER = "header"
+    SOURCE_BODY = "body"
+    SOURCE_QUERY_STRING = "query_string"
+
+    _SOURCE_DISPLAY = {
+        SOURCE_HEADER: "Authorization header",
+        SOURCE_BODY: "body",
+        SOURCE_QUERY_STRING: "query string",
+    }
 
     message = "Invalid personal API key."
 
@@ -108,16 +193,22 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         extra_data: Optional[dict[str, Any]] = None,
     ) -> Optional[tuple[str, str]]:
         """Try to find personal API key in request and return it along with where it was found."""
-        if "HTTP_AUTHORIZATION" in request.META:
-            authorization_match = re.match(rf"^{cls.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
+        if "authorization" in request.headers:
+            authorization_match = re.match(rf"^{cls.keyword}\s+(\S.+)$", request.headers["authorization"])
             if authorization_match:
-                return authorization_match.group(1).strip(), "Authorization header"
+                token = authorization_match.group(1).strip()
+
+                if token.startswith(
+                    "pha_"
+                ):  # TRICKY: This returns None to allow the next authentication method to have a go. This should be `if not token.startswith("phx_")`, but we need to support legacy personal api keys that may not have been prefixed with phx_.
+                    return None
+                return token, cls.SOURCE_HEADER
         data = request.data if request_data is None and isinstance(request, Request) else request_data
 
         if data and "personal_api_key" in data:
-            return data["personal_api_key"], "body"
+            return data["personal_api_key"], cls.SOURCE_BODY
         if "personal_api_key" in request.GET:
-            return request.GET["personal_api_key"], "query string"
+            return request.GET["personal_api_key"], cls.SOURCE_QUERY_STRING
         return None
 
     @classmethod
@@ -149,12 +240,14 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
                     .get(secure_value=secure_value)
                 )
                 mode_used = mode
+                PERSONAL_API_KEY_AUTH_COUNTER.labels(hash_mode=mode).inc()
                 break
             except PersonalAPIKey.DoesNotExist:
                 pass
 
         if not personal_api_key_object:
-            raise AuthenticationFailed(detail=f"Personal API key found in request {source} is invalid.")
+            source_display = cls._SOURCE_DISPLAY.get(source, source)
+            raise AuthenticationFailed(detail=f"Personal API key found in request {source_display} is invalid.")
 
         # Upgrade the key if it's not in the latest mode. We can do this since above we've already checked
         # that the key is valid in some mode, and we do check for all modes one by one.
@@ -163,7 +256,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             key_to_update.secure_value = hash_key_value(personal_api_key)
             key_to_update.save(update_fields=["secure_value"])
 
-        if source == "query string":
+        if source == cls.SOURCE_QUERY_STRING:
             PERSONAL_API_KEY_QUERY_PARAM_COUNTER.labels(personal_api_key_object.user.uuid).inc()
 
         return personal_api_key_object
@@ -173,6 +266,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         if not personal_api_key_with_source:
             return None
 
+        _, source = personal_api_key_with_source
         personal_api_key_object = self.validate_key(personal_api_key_with_source)
 
         now = timezone.now()
@@ -194,6 +288,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         )
 
         self.personal_api_key = personal_api_key_object
+        self.personal_api_key_source = source
 
         return personal_api_key_object.user, None
 
@@ -223,8 +318,8 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
         request: Union[HttpRequest, Request],
     ) -> Optional[str]:
         """Try to find project secret API key in request and return it"""
-        if "HTTP_AUTHORIZATION" in request.META:
-            authorization_match = re.match(rf"^{cls.keyword}\s+(phs_[a-zA-Z0-9]+)$", request.META["HTTP_AUTHORIZATION"])
+        if "authorization" in request.headers:
+            authorization_match = re.match(rf"^{cls.keyword}\s+(phs_[a-zA-Z0-9]+)$", request.headers["authorization"])
             if authorization_match:
                 return authorization_match.group(1).strip()
 
@@ -282,35 +377,6 @@ class ProjectSecretAPIKeyUser:
         return False
 
 
-class TemporaryTokenAuthentication(authentication.BaseAuthentication):
-    def authenticate(self, request: Request):
-        # if the Origin is different, the only authentication method should be temporary_token
-        # This happens when someone is trying to create actions from the editor on their own website
-        if (
-            request.headers.get("Origin")
-            and urlsplit(request.headers["Origin"]).netloc not in urlsplit(request.build_absolute_uri("/")).netloc
-        ):
-            if not request.GET.get("temporary_token"):
-                raise AuthenticationFailed(
-                    detail="No temporary_token set. "
-                    + "That means you're either trying to access this API from a different site, "
-                    + "or it means your proxy isn't sending the correct headers. "
-                    + "See https://posthog.com/docs/deployment/running-behind-proxy for more information."
-                )
-        if request.GET.get("temporary_token"):
-            User = apps.get_model(app_label="posthog", model_name="User")
-            user = User.objects.filter(is_active=True, temporary_token=request.GET.get("temporary_token"))
-            if not user.exists():
-                raise AuthenticationFailed(detail="User doesn't exist")
-            return (user.first(), None)
-
-        return None
-
-    # NOTE: This appears first in the authentication chain often so we want to define an authenticate_header to ensure 401 and not 403
-    def authenticate_header(self, request: Request):
-        return "Bearer"
-
-
 class JwtAuthentication(authentication.BaseAuthentication):
     """
     A way of authenticating with a JWT, primarily by background jobs impersonating a User
@@ -320,8 +386,8 @@ class JwtAuthentication(authentication.BaseAuthentication):
 
     @classmethod
     def authenticate(cls, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
-        if "HTTP_AUTHORIZATION" in request.META:
-            authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
+        if "authorization" in request.headers:
+            authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.headers["authorization"])
             if authorization_match:
                 try:
                     token = authorization_match.group(1).strip()
@@ -356,9 +422,9 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
             if request.method not in ["GET", "HEAD"]:
                 raise AuthenticationFailed(detail="Sharing access token can only be used for GET requests.")
             try:
-                sharing_configuration = SharingConfiguration.objects.get(
-                    access_token=sharing_access_token, enabled=True
-                )
+                sharing_configuration = SharingConfiguration.objects.filter(
+                    models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=timezone.now())
+                ).get(access_token=sharing_access_token, enabled=True)
 
                 # If password is required, don't authenticate via direct access_token
                 # Let the view handle showing the unlock page
@@ -389,8 +455,8 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
 
         # Extract JWT token from Authorization header or cookie
         sharing_jwt_token = None
-        if "HTTP_AUTHORIZATION" in request.META:
-            authorization_match = re.match(rf"^{self.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
+        if "authorization" in request.headers:
+            authorization_match = re.match(rf"^{self.keyword}\s+(\S.+)$", request.headers["authorization"])
             if authorization_match:
                 sharing_jwt_token = authorization_match.group(1).strip()
         elif hasattr(request, "COOKIES") and request.COOKIES.get("posthog_sharing_token"):
@@ -405,12 +471,19 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
 
             from posthog.models.share_password import SharePassword
 
-            share_password = SharePassword.objects.select_related("sharing_configuration").get(
-                id=payload["share_password_id"],
-                sharing_configuration__team_id=payload["team_id"],
-                sharing_configuration__enabled=True,
-                sharing_configuration__password_required=True,
-                is_active=True,
+            share_password = (
+                SharePassword.objects.select_related("sharing_configuration")
+                .filter(
+                    models.Q(sharing_configuration__expires_at__isnull=True)
+                    | models.Q(sharing_configuration__expires_at__gt=timezone.now())
+                )
+                .get(
+                    id=payload["share_password_id"],
+                    sharing_configuration__team_id=payload["team_id"],
+                    sharing_configuration__enabled=True,
+                    sharing_configuration__password_required=True,
+                    is_active=True,
+                )
             )
 
             sharing_configuration = share_password.sharing_configuration
@@ -456,7 +529,7 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
             access_token = self._validate_token(authorization_token)
 
             if not access_token:
-                return None  # We return None here because we want to let the next authentication method have a go
+                raise AuthenticationFailed(detail="Invalid access token.")
 
             self.access_token = access_token
 
@@ -474,14 +547,14 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
             raise AuthenticationFailed(detail="Invalid access token.")
 
     def _extract_token(self, request: Union[HttpRequest, Request]) -> Optional[str]:
-        if "HTTP_AUTHORIZATION" in request.META:
-            authorization_match = re.match(rf"^{self.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
+        if "authorization" in request.headers:
+            authorization_match = re.match(rf"^{self.keyword}\s+(\S.+)$", request.headers["authorization"])
             if authorization_match:
                 token = authorization_match.group(1).strip()
-                # Skip tokens that match personal api keys to avoid unnecessary DB queries
-                if token.startswith(("phx_", "phs_")):
-                    return None
-                return token
+
+                if token.startswith("pha_"):
+                    return token
+                return None
         return None
 
     def _validate_token(self, token: str):
@@ -513,23 +586,247 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
         return self.keyword
 
 
-def authenticate_secondarily(endpoint):
+class WidgetAuthentication(authentication.BaseAuthentication):
     """
-    DEPRECATED: Used for supporting legacy endpoints not on DRF.
-    Authentication for function views.
+    Authenticate widget requests via conversations_settings.widget_public_token.
+    This provides team-level authentication only. User-level scoping
+    is enforced via widget_session_id validation in each endpoint.
+    """
+
+    def authenticate(self, request: Request) -> Optional[tuple[None, Any]]:
+        """
+        Returns (None, team) on success.
+        No user object since this is public widget auth.
+        """
+        token = request.headers.get("X-Conversations-Token")
+        if not token:
+            return None  # Let other authenticators try
+
+        try:
+            Team = apps.get_model(app_label="posthog", model_name="Team")
+            team = Team.objects.get(conversations_settings__widget_public_token=token, conversations_enabled=True)
+        except Team.DoesNotExist:
+            raise AuthenticationFailed("Invalid token or conversations not enabled")
+
+        return (None, team)
+
+
+class InternalAPIUser:
+    """Synthetic user for internal API authentication."""
+
+    is_authenticated = True
+    is_anonymous = False
+    is_active = True
+    pk = -2
+
+    def __init__(self, current_organization_id: Any = None, current_team_id: int | None = None) -> None:
+        self.current_organization_id = current_organization_id
+        self.current_team_id = current_team_id
+
+    def has_perm(self, perm, obj=None):
+        return False
+
+    def has_module_perms(self, app_label):
+        return False
+
+
+class InternalAPIAuthentication(authentication.BaseAuthentication):
+    """DRF authentication backend for internal API calls."""
+
+    keyword = "InternalApiSecret"
+    HEADER_NAME = "X-Internal-Api-Secret"
+
+    def _get_team_id_from_request(self, request: Request) -> str | None:
+        parser_context = getattr(request, "parser_context", None)
+        if isinstance(parser_context, dict):
+            kwargs = parser_context.get("kwargs")
+            if isinstance(kwargs, dict):
+                team_id = kwargs.get("team_id")
+                if team_id is not None:
+                    return str(team_id)
+
+        django_request = getattr(request, "_request", request)
+        resolver_match = getattr(django_request, "resolver_match", None)
+        if resolver_match and getattr(resolver_match, "kwargs", None):
+            team_id = resolver_match.kwargs.get("team_id")
+            if team_id is not None:
+                return str(team_id)
+
+        return None
+
+    def _get_internal_api_user(self, request: Request) -> InternalAPIUser:
+        team_id = self._get_team_id_from_request(request)
+        if not team_id:
+            return InternalAPIUser()
+
+        Team = apps.get_model(app_label="posthog", model_name="Team")
+        try:
+            team = Team.objects.only("id", "organization_id").get(id=team_id)
+        except (Team.DoesNotExist, ValueError):
+            raise AuthenticationFailed("Invalid internal API team.")
+
+        return InternalAPIUser(current_organization_id=team.organization_id, current_team_id=team.id)
+
+    def authenticate(self, request: Request) -> tuple[Any, Any]:
+        provided_secret = (
+            request.headers.get(self.HEADER_NAME)
+            or request.headers.get(self.HEADER_NAME.lower())
+            or request.headers.get(self.HEADER_NAME.upper())
+        )
+        configured_secret = settings.INTERNAL_API_SECRET
+
+        if not settings.DEBUG and not settings.TEST and configured_secret == LOCAL_DEV_INTERNAL_API_SECRET:
+            logger.error(
+                "Internal API authentication attempted with default development secret in production environment",
+                extra={"path": request.path, "method": request.method},
+            )
+            raise AuthenticationFailed("Internal API authentication is not properly configured.")
+
+        if not configured_secret:
+            logger.error(
+                "Internal API authentication attempted without configured secret",
+                extra={"path": request.path, "method": request.method},
+            )
+            raise AuthenticationFailed("Internal API authentication is not configured.")
+
+        if not provided_secret:
+            logger.warning(
+                "Internal API request missing authentication header",
+                extra={"path": request.path, "method": request.method},
+            )
+            raise AuthenticationFailed("Missing internal API authentication header.")
+
+        if not hmac.compare_digest(configured_secret, provided_secret):
+            logger.warning(
+                "Internal API request with invalid secret",
+                extra={"path": request.path, "method": request.method},
+            )
+            raise AuthenticationFailed("Invalid internal API authentication.")
+
+        return (self._get_internal_api_user(request), None)
+
+    def authenticate_header(self, request: HttpRequest) -> str:
+        return self.keyword
+
+
+def session_auth_required(endpoint):
+    """
+    DEPRECATED: Require session authentication for function-based views.
+
+    Returns 401 if user is not authenticated via session.
     """
 
     @functools.wraps(endpoint)
     def wrapper(request: HttpRequest):
         if not request.user.is_authenticated:
-            try:
-                auth_result = PersonalAPIKeyAuthentication().authenticate(request)
-                if isinstance(auth_result, tuple) and auth_result[0].__class__.__name__ == "User":
-                    request.user = auth_result[0]
-                else:
-                    raise AuthenticationFailed("Authentication credentials were not provided.")
-            except AuthenticationFailed as e:
-                return JsonResponse({"detail": e.detail}, status=401)
+            return JsonResponse(
+                {"detail": "Authentication credentials were not provided."},
+                status=401,
+            )
         return endpoint(request)
 
     return wrapper
+
+
+class WebauthnBackend(BaseBackend):
+    """
+    Custom authentication backend for WebAuthn/passkey login.
+
+    Handles the complete WebAuthn authentication flow:
+    1. Extracts challenge from session
+    2. Extracts userHandle and credential_id from request data
+    3. Looks up user and credential
+    4. Verifies the authentication response
+    5. Updates credential sign count
+    """
+
+    name = "webauthn"
+
+    def authenticate(
+        self,
+        request: Optional[Union[HttpRequest, Request]],
+        credential_id: Optional[str] = None,
+        challenge: Optional[str] = None,
+        response: Optional[WebAuthnAuthenticationResponse] = None,
+        **kwargs: Any,
+    ) -> Optional[User]:
+        """
+        Authenticate a user via WebAuthn.
+
+        Verifies the WebAuthn assertion and returns the authenticated user.
+
+        Args:
+            request: The HTTP request object
+            credential_id: The base64url-encoded credential ID (rawId)
+            challenge: The base64url-encoded challenge
+            response: The WebAuthn authentication response containing userHandle, authenticatorData, clientDataJSON, and signature
+        """
+        if challenge is None or credential_id is None or response is None:
+            structlog_logger.warning(
+                "no request, response, or credential id while authenticating webauthn credential",
+                credential_id=credential_id,
+                challenge=challenge,
+                response=response,
+            )
+            return None
+
+        try:
+            # Decode credential ID
+            credential_id_bytes = base64url_to_bytes(credential_id)
+
+            # Find the credential
+            credential = (
+                WebauthnCredential.objects.filter(credential_id=credential_id_bytes, verified=True)
+                .select_related("user")
+                .first()
+            )
+
+            if not credential:
+                structlog_logger.warning("webauthn_login_credential_not_found", credential_id=credential_id)
+                return None
+
+            user = credential.user
+            # Check if user is active
+            if not user.is_active:
+                structlog_logger.warning("webauthn_login_user_inactive", user_id=user.pk)
+                return None
+
+            # Construct credential dict for webauthn library
+            # The library expects both 'id' and 'rawId' to be present
+            credential_dict = {
+                "id": credential_id,
+                "rawId": credential_id,
+                "response": response,
+                "type": "public-key",
+            }
+
+            # Verify the authentication response
+            expected_challenge = base64url_to_bytes(challenge)
+            verification = verify_passkey_authentication_response(
+                credential=credential_dict,
+                expected_challenge=expected_challenge,
+                credential_public_key=credential.public_key,
+                credential_current_sign_count=credential.counter,
+            )
+
+            # Update sign count
+            credential.counter = verification.new_sign_count
+            credential.save()
+
+            structlog_logger.info("webauthn_login_success", user_id=user.pk, credential_id=credential.pk)
+
+            return user
+
+        except Exception as e:
+            structlog_logger.exception("webauthn_login_error", error=str(e))
+            return None
+
+    def get_user(self, user_id: int) -> Optional[User]:
+        """Get a user by their primary key.
+
+        Required by Django's authentication system to load the user on subsequent requests.
+        """
+        try:
+            return User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            return None

@@ -4,6 +4,7 @@ import { FeatureFlagType } from '~/types'
 
 import { openConfirmationModal } from './ConfirmationModal'
 import type { featureFlagConfirmationLogicType } from './featureFlagConfirmationLogicType'
+import { DependentFlag } from './featureFlagLogic'
 
 /**
  * Detects feature flag changes that warrant confirmation.
@@ -31,12 +32,14 @@ function detectFeatureFlagChanges(
     }
 
     // Check for active status changes
+    let statusChanged = false
     if (originalFlag.active !== updatedFlag.active) {
         if (updatedFlag.active) {
             changes.push('Enable the feature flag')
         } else {
             changes.push('Disable the feature flag')
         }
+        statusChanged = true
     }
 
     // Check for any filter changes (comprehensive detection)
@@ -93,7 +96,7 @@ function detectFeatureFlagChanges(
         }
 
         // If we haven't caught the specific change, add a generic message
-        if (!rolloutChanged && !variantsChanged && !conditionsChanged && !payloadsChanged) {
+        if (!rolloutChanged && !variantsChanged && !conditionsChanged && !payloadsChanged && !statusChanged) {
             changes.push('Feature flag configuration changed')
         }
     }
@@ -105,12 +108,15 @@ function detectFeatureFlagChanges(
 export function checkFeatureFlagConfirmation(
     originalFlag: FeatureFlagType | null,
     updatedFlag: FeatureFlagType,
-    confirmationEnabled: boolean,
-    customMessage: string | undefined,
-    onConfirm: () => void
+    shouldDisplayConfirmation: boolean,
+    customConfirmationMessage: string | undefined,
+    featureFlagConfirmationEnabled: boolean,
+    onConfirm: () => void,
+    dependentFlags?: DependentFlag[],
+    isBeingDisabled?: boolean
 ): boolean {
     // Check if confirmation is needed
-    const needsConfirmation = !!updatedFlag.id && confirmationEnabled
+    const needsConfirmation = !!updatedFlag.id && shouldDisplayConfirmation
 
     if (needsConfirmation) {
         const changes = detectFeatureFlagChanges(originalFlag, updatedFlag)
@@ -121,7 +127,10 @@ export function checkFeatureFlagConfirmation(
                 featureFlag: updatedFlag,
                 type: 'multi-changes',
                 changes: changes,
-                customMessage: customMessage,
+                customConfirmationMessage: customConfirmationMessage,
+                dependentFlags: dependentFlags,
+                isBeingDisabled: isBeingDisabled,
+                featureFlagConfirmationEnabled: featureFlagConfirmationEnabled,
                 onConfirm: onConfirm,
             })
             return true // Confirmation modal shown, don't proceed with save

@@ -9,7 +9,7 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import ANY
+from unittest.mock import ANY, patch
 
 from posthog.schema import (
     CurrencyCode,
@@ -31,9 +31,11 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
-from posthog.warehouse.models import ExternalDataSchema
-from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
 
+from products.data_warehouse.backend.models import ExternalDataSchema
+from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
+from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_gross_revenue_query_runner import (
     RevenueAnalyticsGrossRevenueQueryRunner,
 )
@@ -104,6 +106,12 @@ LAST_6_MONTHS_FAKEDATETIMES = ALL_MONTHS_FAKEDATETIMES[:7].copy()
 @snapshot_clickhouse_queries
 class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
     QUERY_TIMESTAMP = "2025-05-30"
+
+    def _create_managed_viewsets(self):
+        self.viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
+            team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
+        )
+        self.viewset.sync_views()
 
     def _create_purchase_events(self, data):
         person_result = []
@@ -372,6 +380,53 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
                 },
             },
         )
+
+    # NOTE: This can be removed once `managed-viewsets` feature flag is rolled out to all teams
+    def test_with_data_with_managed_viewsets_ff(self):
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            self._create_managed_viewsets()
+
+            # Use huge date range to collect all data
+            results = self._run_revenue_analytics_gross_revenue_query(
+                date_range=DateRange(date_from="2024-11-01", date_to="2026-05-01")
+            ).results
+
+            self.assertEqual(len(results), 1)
+
+            self.assertEqual(
+                results[0],
+                {
+                    "label": "stripe.posthog_test",
+                    "days": ALL_MONTHS_DAYS,
+                    "labels": ALL_MONTHS_LABELS,
+                    "data": [
+                        0,
+                        0,
+                        Decimal("646.1471446664"),
+                        Decimal("2506.1219846664"),
+                        Decimal("2109.1761346664"),
+                        Decimal("2668.3175004797"),
+                        Decimal("1621.0866070701"),
+                        Decimal("30.1498296664"),
+                        Decimal("30.1498296664"),
+                        Decimal("30.1498296664"),
+                        Decimal("30.1498296664"),
+                        Decimal("30.1498296664"),
+                        Decimal("30.1498296664"),
+                        Decimal("30.1498296664"),
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                    ],
+                    "action": {
+                        "days": ALL_MONTHS_FAKEDATETIMES,
+                        "id": "stripe.posthog_test",
+                        "name": "stripe.posthog_test",
+                    },
+                },
+            )
 
     def test_with_data_and_date_range(self):
         results = self._run_revenue_analytics_gross_revenue_query(
@@ -760,6 +815,68 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
                 },
             },
         )
+
+    def test_with_events_data_with_managed_viewsets_ff(self):
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            s1 = str(uuid7("2025-01-25"))
+            s2 = str(uuid7("2025-02-03"))
+            s3 = str(uuid7("2025-02-05"))
+            s4 = str(uuid7("2025-02-08"))
+            self._create_purchase_events(
+                [
+                    (
+                        "p1",
+                        [
+                            ("2025-01-25", s1, 55, "USD", "", "", None),  # Subscriptionless event
+                            ("2025-01-25", s1, 42, "USD", "Prod A", "coupon_x", "sub_1"),
+                            ("2025-02-03", s2, 25, "USD", "Prod A", "", "sub_1"),  # Contraction
+                        ],
+                    ),
+                    (
+                        "p2",
+                        [
+                            ("2025-02-05", s3, 43, "BRL", "Prod B", "coupon_y", "sub_2"),
+                            ("2025-03-08", s4, 286, "BRL", "Prod B", "", "sub_2"),  # Expansion
+                        ],
+                    ),
+                ]
+            )
+
+            self.team.revenue_analytics_config.events = [
+                REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT.model_copy(
+                    update={
+                        "subscriptionDropoffMode": "after_dropoff_period",  # More reasonable default for tests
+                    }
+                )
+            ]
+            self.team.revenue_analytics_config.save()
+            self._create_managed_viewsets()
+
+            results = self._run_revenue_analytics_gross_revenue_query(
+                properties=[
+                    RevenueAnalyticsPropertyFilter(
+                        key="source_label",
+                        operator=PropertyOperator.EXACT,
+                        value=["revenue_analytics.events.purchase"],
+                    )
+                ],
+            ).results
+
+            self.assertEqual(len(results), 1)
+            self.assertEqual(
+                results[0],
+                {
+                    "label": "revenue_analytics.events.purchase",
+                    "days": LAST_6_MONTHS_DAYS,
+                    "labels": LAST_6_MONTHS_LABELS,
+                    "data": [0, 0, Decimal("77.309"), Decimal("25.4879321819"), Decimal("36.9999675355"), 0, 0],
+                    "action": {
+                        "days": LAST_6_MONTHS_FAKEDATETIMES,
+                        "id": "revenue_analytics.events.purchase",
+                        "name": "revenue_analytics.events.purchase",
+                    },
+                },
+            )
 
     def test_with_events_data_and_currency_aware_divider(self):
         self.team.revenue_analytics_config.events = [

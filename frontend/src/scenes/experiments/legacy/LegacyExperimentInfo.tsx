@@ -3,25 +3,25 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconGear, IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonModal, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonTag, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { dayjs } from 'lib/dayjs'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Label } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { ExperimentStatsMethod, ProgressStatus } from '~/types'
+import { ExperimentStatsMethod, ExperimentStatus } from '~/types'
 
-import { StatsMethodModal } from '../ExperimentView/StatsMethodModal'
-import { StatusTag } from '../ExperimentView/components'
 import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
 import { experimentLogic } from '../experimentLogic'
-import { getExperimentStatus } from '../experimentsLogic'
+import { getExperimentStatus, isExperimentPaused } from '../experimentsLogic'
+import { StatusTag } from '../ExperimentView/components'
+import { StatsMethodModal } from '../ExperimentView/StatsMethodModal'
 import { modalsLogic } from '../modalsLogic'
 import { LegacyExperimentDates } from './LegacyExperimentDates'
 
@@ -80,6 +80,8 @@ export function LegacyExperimentInfo(): JSX.Element | null {
         secondaryMetricsResultsLoading,
         statsMethod,
         usesNewQueryRunner,
+        isSingleVariantShipped,
+        shippedVariantKey,
     } = useValues(experimentLogic)
     const { updateExperiment, refreshExperimentResults } = useActions(experimentLogic)
     const { openEditConclusionModal, openDescriptionModal, closeDescriptionModal, openStatsEngineModal } =
@@ -107,6 +109,7 @@ export function LegacyExperimentInfo(): JSX.Element | null {
         secondaryMetricsResults?.[0]?.last_refresh
 
     const status = getExperimentStatus(experiment)
+    const isPaused = isExperimentPaused(experiment)
 
     return (
         <SceneContent>
@@ -114,16 +117,25 @@ export function LegacyExperimentInfo(): JSX.Element | null {
                 <div className="inline-flex deprecated-space-x-8">
                     <div className="flex flex-col" data-attr="experiment-status">
                         <Label intent="menu">Status</Label>
-                        <StatusTag status={status} />
+                        <div className="flex gap-1">
+                            <StatusTag status={status} isPaused={isPaused} />
+                            {isSingleVariantShipped && (
+                                <Tooltip title={`Variant "${shippedVariantKey}" has been rolled out to 100% of users`}>
+                                    <LemonTag type="completion" className="cursor-default">
+                                        <b className="uppercase">100% rollout</b>
+                                    </LemonTag>
+                                </Tooltip>
+                            )}
+                        </div>
                     </div>
                     {experiment.feature_flag && (
                         <div className="flex flex-col">
                             <Label intent="menu">Feature flag</Label>
                             <div className="flex gap-1 items-center">
-                                {status === ProgressStatus.Running && !experiment.feature_flag.active && (
+                                {isPaused && (
                                     <Tooltip
                                         placement="bottom"
-                                        title="Your experiment is running, but the linked flag is disabled. No data is being collected."
+                                        title="Your experiment is paused. The linked flag is disabled and no data is being collected."
                                     >
                                         <IconWarning
                                             style={{ transform: 'translateY(2px)' }}
@@ -177,11 +189,11 @@ export function LegacyExperimentInfo(): JSX.Element | null {
 
                 <div className="flex flex-col">
                     <div className="inline-flex deprecated-space-x-8">
-                        {experiment.start_date && (
+                        {status !== ExperimentStatus.Draft && (
                             <ExperimentLastRefresh
                                 isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
                                 lastRefresh={lastRefresh}
-                                onClick={() => refreshExperimentResults(true)}
+                                onClick={() => refreshExperimentResults(true, 'manual')}
                             />
                         )}
                         <LegacyExperimentDates />

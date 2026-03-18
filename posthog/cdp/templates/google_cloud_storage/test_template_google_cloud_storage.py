@@ -3,8 +3,6 @@ from datetime import datetime
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from inline_snapshot import snapshot
-
 from posthog.cdp.templates.google_cloud_storage.template_google_cloud_storage import TemplateGoogleCloudStorageMigrator
 from posthog.models import Integration, Plugin, PluginAttachment, PluginConfig
 
@@ -38,19 +36,18 @@ class TestTemplateMigration(BaseTest):
 
         template = TemplateGoogleCloudStorageMigrator.migrate(obj)
         template["inputs"]["auth"]["value"] = 1  # mock the ID
-        assert template["inputs"] == snapshot(
-            {
-                "auth": {"value": 1},
-                "bucketName": {"value": "BUCKET_NAME"},
-                "payload": {
-                    "value": "uuid,event,properties,elements,people_set,people_set_once,distinct_id,team_id,ip,site_url,timestamp\n"
-                    + "{event.uuid},{event.event},{jsonStringify(event.properties)},{event.elements_chain},{jsonStringify(event.properties.$set)},{jsonStringify(event.properties.$set_once)},{event.distinct_id},,,,{event.timestamp}"
-                },
-                "filename": {
-                    "value": "{toDate(event.timestamp)}/{replaceAll(replaceAll(replaceAll(toString(event.timestamp), '-', ''), ':', ''), 'T', '-')}-{event.uuid}.csv"
-                },
-            }
-        )
+        assert template["inputs"] == {
+            "auth": {"value": 1},
+            "bucketName": {"value": "BUCKET_NAME"},
+            "payload": {
+                "value": "uuid,event,properties,elements,people_set,people_set_once,distinct_id,team_id,ip,site_url,timestamp\n"
+                + "{event.uuid},{event.event},{jsonStringify(event.properties)},{event.elements_chain},{jsonStringify(event.properties.$set)},{jsonStringify(event.properties.$set_once)},{event.distinct_id},,,,{event.timestamp}"
+            },
+            "filename": {
+                "value": "{toDate(event.timestamp)}/{replaceAll(replaceAll(replaceAll(toString(event.timestamp), '-', ''), ':', ''), 'T', '-')}-{event.uuid}.csv"
+            },
+        }
+
         assert template["filters"] == {}
 
         integration = Integration.objects.last()
@@ -83,29 +80,26 @@ class TestTemplateMigration(BaseTest):
 
         template = TemplateGoogleCloudStorageMigrator.migrate(obj)
         template["inputs"]["auth"]["value"] = 1  # mock the ID
-        assert template["inputs"] == snapshot(
-            {
-                "auth": {"value": 1},
-                "bucketName": {"value": "BUCKET_NAME"},
-                "payload": {
-                    "value": "uuid,event,properties,elements,people_set,people_set_once,distinct_id,team_id,ip,site_url,timestamp\n"
-                    + "{event.uuid},{event.event},{jsonStringify(event.properties)},{event.elements_chain},{jsonStringify(event.properties.$set)},{jsonStringify(event.properties.$set_once)},{event.distinct_id},,,,{event.timestamp}"
-                },
-                "filename": {
-                    "value": "{toDate(event.timestamp)}/{replaceAll(replaceAll(replaceAll(toString(event.timestamp), '-', ''), ':', ''), 'T', '-')}-{event.uuid}.csv"
-                },
-            }
-        )
-        assert template["filters"] == snapshot(
-            {
-                "events": [
-                    {
-                        "id": None,
-                        "name": "All events",
-                        "type": "events",
-                        "order": 0,
-                        "properties": [{"key": "event not in ('event1', 'event2')", "type": "hogql"}],
-                    }
-                ]
-            }
-        )
+        assert template["inputs"] == {
+            "auth": {"value": 1},
+            "bucketName": {"value": "BUCKET_NAME"},
+            "payload": {
+                "value": "uuid,event,properties,elements,people_set,people_set_once,distinct_id,team_id,ip,site_url,timestamp\n"
+                + "{event.uuid},{event.event},{jsonStringify(event.properties)},{event.elements_chain},{jsonStringify(event.properties.$set)},{jsonStringify(event.properties.$set_once)},{event.distinct_id},,,,{event.timestamp}"
+            },
+            "filename": {
+                "value": "{toDate(event.timestamp)}/{replaceAll(replaceAll(replaceAll(toString(event.timestamp), '-', ''), ':', ''), 'T', '-')}-{event.uuid}.csv"
+            },
+        }
+
+        assert template["filters"] == {
+            "events": [
+                {
+                    "id": None,
+                    "name": "All events",
+                    "type": "events",
+                    "order": 0,
+                    "properties": [{"key": "event not in ('event1', 'event2')", "type": "hogql"}],
+                }
+            ]
+        }

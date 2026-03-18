@@ -32,7 +32,7 @@
 #       source will appear in frontend dropdowns and menus.
 # 14. TODO: phew! you're done. just delete these TODOs before you PR
 
-from typing import cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -40,15 +40,15 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.base import SimpleSource, FieldType
 from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.warehouse.types import ExternalDataSourceType
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class TemplateSource(BaseSource[Config]):  # rename this class and replace `Config` with the generated config
+class TemplateSource(SimpleSource[Config]):  # rename this class and replace `Config` with the generated config
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SOURCE_TYPE  # replace this enum value
@@ -65,7 +65,7 @@ class TemplateSource(BaseSource[Config]):  # rename this class and replace `Conf
         )
 
     def validate_credentials(
-        self, config: Config, team_id: int
+        self, config: Config, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:  # replace `Config` with the generated class
         return (
             True,
@@ -73,7 +73,7 @@ class TemplateSource(BaseSource[Config]):  # rename this class and replace `Conf
         )  # implement logic to validate the credentials of your source, e.g. check the validity of API keys. return a tuple of whether the credentials are valid, and if not, return an error message to return to the user
 
     def get_schemas(
-        self, config: Config, team_id: int, with_counts: bool = False
+        self, config: Config, team_id: int, with_counts: bool = False, names: list[str] | None = None
     ) -> list[SourceSchema]:  # replace `Config` with the generated class
         return []  # implement your source logic
 

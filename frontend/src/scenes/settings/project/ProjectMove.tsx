@@ -76,12 +76,13 @@ export function ProjectMove(): JSX.Element {
     const { otherOrganizations } = useValues(userLogic)
     const [isModalVisible, setIsModalVisible] = useState(false)
 
+    const [targetOrganization, setTargetOrganization] = useState<OrganizationBasicType | null>(null)
+
     const restrictedReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Project,
     })
-
-    const [targetOrganization, setTargetOrganization] = useState<OrganizationBasicType | null>(null)
+    const { moveProjectDisabledReason } = useValues(projectLogic)
 
     return (
         <>
@@ -101,6 +102,7 @@ export function ProjectMove(): JSX.Element {
                         setTargetOrganization(organization || null)
                     }}
                     value={targetOrganization?.id}
+                    disabledReason={restrictedReason ?? moveProjectDisabledReason}
                 />
 
                 <LemonButton
@@ -110,7 +112,9 @@ export function ProjectMove(): JSX.Element {
                     data-attr="move-project-button"
                     icon={<IconArrowRight />}
                     disabledReason={
-                        restrictedReason ?? (targetOrganization === null && 'Please select the target organization')
+                        restrictedReason ??
+                        moveProjectDisabledReason ??
+                        (targetOrganization === null && 'Please select the target organization')
                     }
                 >
                     Move {currentProject?.name || 'the current project'}

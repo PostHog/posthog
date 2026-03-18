@@ -1,14 +1,15 @@
-import math
 import uuid
 from datetime import datetime, timedelta
+from enum import StrEnum
 from typing import Any, Optional, Union, cast
 
 from django.conf import settings
 from django.utils import timezone
 
 import structlog
-import posthoganalytics
+from clickhouse_driver.errors import SocketTimeoutError
 from dateutil import parser
+from pydantic import ValidationError as PydanticValidationError
 from rest_framework.exceptions import ValidationError
 
 from posthog.hogql import ast
@@ -22,6 +23,13 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import Feature, tag_queries, tags_context
 from posthog.constants import PropertyOperatorType
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQuerySizeExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.models import Action, Filter, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
@@ -46,7 +54,82 @@ from posthog.queries.util import PersonPropertiesMode
 
 # temporary marker to denote when cohortpeople table started being populated
 TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
-TARGET_CHUNK_SIZE = 5_000_000
+
+# Cohort query timeout settings
+COHORT_QUERY_TIMEOUT_SECONDS = 1200  # Max execution time for ClickHouse cohort calculation queries
+
+
+class CohortErrorCode(StrEnum):
+    CAPACITY = "capacity"
+    INTERRUPTED = "interrupted"
+    TIMEOUT = "timeout"
+    MEMORY_LIMIT = "memory_limit"
+    QUERY_SIZE = "query_size"
+    VALIDATION_ERROR = "validation_error"
+    INVALID_REGEX = "invalid_regex"
+    INCOMPATIBLE_TYPES = "incompatible_types"
+    NO_PROPERTIES = "no_properties"
+    UNKNOWN = "unknown"
+
+
+UNEXPECTED_ERROR_MESSAGE = (
+    "An error occurred while calculating this cohort. Please review your matching criteria or contact support."
+)
+
+ERROR_CODE_MESSAGES: dict[str, str] = {
+    CohortErrorCode.CAPACITY: "The system was busy when this cohort was scheduled to calculate. It will automatically retry.",
+    CohortErrorCode.INTERRUPTED: "Calculation was interrupted. It will automatically retry.",
+    CohortErrorCode.TIMEOUT: "Cohort calculation was terminated for taking too long.",
+    CohortErrorCode.MEMORY_LIMIT: "Cohort calculation was terminated for using too much memory.",
+    CohortErrorCode.QUERY_SIZE: "The matching criteria produced a query that was too large.",
+    CohortErrorCode.INVALID_REGEX: "This cohort contains an invalid regular expression. Please check your regex syntax in the matching criteria.",
+    CohortErrorCode.NO_PROPERTIES: "This cohort has no matching criteria defined. Please add at least one.",
+    CohortErrorCode.VALIDATION_ERROR: UNEXPECTED_ERROR_MESSAGE,
+    CohortErrorCode.INCOMPATIBLE_TYPES: UNEXPECTED_ERROR_MESSAGE,
+    CohortErrorCode.UNKNOWN: UNEXPECTED_ERROR_MESSAGE,
+}
+
+
+def get_friendly_error_message(error_code: str | None) -> str | None:
+    if error_code is None:
+        return None
+    return ERROR_CODE_MESSAGES.get(error_code, ERROR_CODE_MESSAGES[CohortErrorCode.UNKNOWN])
+
+
+# ClickHouse ServerException.code_name -> CohortErrorCode
+# Keys are lowercase; code_name is normalized via .lower() before lookup
+_CLICKHOUSE_ERROR_MAPPING: dict[str, CohortErrorCode] = {
+    "cannot_compile_regexp": CohortErrorCode.INVALID_REGEX,
+    "memory_limit_exceeded": CohortErrorCode.MEMORY_LIMIT,
+    "timeout_exceeded": CohortErrorCode.TIMEOUT,
+    "no_common_type": CohortErrorCode.INCOMPATIBLE_TYPES,
+}
+
+
+def parse_error_code(e: Exception) -> CohortErrorCode:
+    """Translate exceptions into CohortErrorCode for CohortCalculationHistory.error_code field."""
+    match e:
+        case ClickHouseAtCapacity():
+            return CohortErrorCode.CAPACITY
+        case SocketTimeoutError():
+            return CohortErrorCode.INTERRUPTED
+        case ClickHouseQueryTimeOut() | ClickHouseEstimatedQueryExecutionTimeTooLong():
+            return CohortErrorCode.TIMEOUT
+        case ClickHouseQueryMemoryLimitExceeded():
+            return CohortErrorCode.MEMORY_LIMIT
+        case ClickHouseQuerySizeExceeded():
+            return CohortErrorCode.QUERY_SIZE
+        case PydanticValidationError() | ValidationError():
+            return CohortErrorCode.VALIDATION_ERROR
+
+    code_name = getattr(e, "code_name", "").lower()
+    if code_name in _CLICKHOUSE_ERROR_MAPPING:
+        return _CLICKHOUSE_ERROR_MAPPING[code_name]
+
+    return CohortErrorCode.UNKNOWN
+
+
+COHORT_STATS_COLLECTION_DELAY_SECONDS = 60  # Short delay to allow query_log to flush before collecting stats
 
 logger = structlog.get_logger(__name__)
 
@@ -76,22 +159,41 @@ def run_cohort_query(
     # Tag the query for tracking
     tag_queries(kind="cohort_calculation", id=cohort_tag)
 
+    delayed_task = None
+    # Use tags_context to protect tags during import (circular import resolution can corrupt context)
+    with tags_context():
+        from posthog.tasks.calculate_cohort import COHORT_CALCULATION_STARTED_COUNTER, collect_cohort_query_stats
+
+        # Track that a calculation is starting (before it runs, so we catch OOMs)
+        COHORT_CALCULATION_STARTED_COUNTER.inc()
+
+        # Schedule delayed task to collect stats after query_log_archive is synced
+        # Only if we have a history record to update and not in test mode
+        if history and query and not (settings.TEST or settings.IN_EVAL_TESTING):
+            delayed_task = collect_cohort_query_stats.apply_async(
+                args=[cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
+                countdown=COHORT_QUERY_TIMEOUT_SECONDS + COHORT_STATS_COLLECTION_DELAY_SECONDS,
+            )
+
     try:
         result = fn(*args, **kwargs)
         end_time = timezone.now()  # Capture when query actually finished
 
+        # If calculation succeeded and we scheduled a delayed task, cancel it and run immediately
+        # This avoids waiting the full timeout when the query completed quickly
+        if delayed_task and history and query and not settings.TEST:
+            if delayed_task.state in ["PENDING", "RECEIVED"]:
+                delayed_task.revoke()  # Cancel the delayed task
+
+            # Run immediately since the query already completed
+            collect_cohort_query_stats.apply_async(
+                args=[cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
+                countdown=COHORT_STATS_COLLECTION_DELAY_SECONDS,
+            )
+
         return result, end_time
 
     finally:
-        # Schedule delayed task to collect stats after query_log_archive is synced
-        # Only if we have a history record to update
-        if history and query:
-            from posthog.tasks.calculate_cohort import collect_cohort_query_stats
-
-            collect_cohort_query_stats.apply_async(
-                args=[cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
-                countdown=60,
-            )
         # Reset query tags to avoid affecting other queries
         from posthog.clickhouse.query_tagging import reset_query_tags
 
@@ -107,7 +209,6 @@ def get_clickhouse_query_stats(tag_matcher: str, cohort_id: int, start_time: dat
         return None
 
     try:
-        # Query query_log_archive using tag matcher
         result = sync_execute(
             """
             SELECT
@@ -116,14 +217,13 @@ def get_clickhouse_query_stats(tag_matcher: str, cohort_id: int, start_time: dat
                 read_rows,
                 read_bytes,
                 written_rows,
-                memory_usage
+                memory_usage,
+                exception
             FROM query_log_archive
             WHERE
                 lc_cohort_id = %(cohort_id)s
                 AND team_id = %(team_id)s
                 AND query LIKE %(matcher)s
-                AND type = 'QueryFinish'
-                AND query_kind = 'Insert'
                 AND event_date >= %(start_date)s
                 AND event_time >= %(start_time)s
             ORDER BY event_time DESC
@@ -156,6 +256,7 @@ def get_clickhouse_query_stats(tag_matcher: str, cohort_id: int, start_time: dat
                 "read_bytes": sum(get_column(result, 3)),
                 "written_rows": sum(get_column(result, 4)),
                 "memory_mb": int(sum(get_column(result, 5)) / 1024 / 1024) if get_column(result, 5) else 0,
+                "exception": first_row[6] if len(first_row) > 6 else None,
             }
 
     except Exception as e:
@@ -200,27 +301,50 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
         cast(dict, cohort.query), team=team, limit_context=LimitContext.COHORT_CALCULATION
     ).to_query()
 
+    uses_distinct_id = False
+    uses_actor_id = False
+
     for select_query in extract_select_queries(query):
         columns: dict[str, ast.Expr] = {}
+
         for expr in select_query.select:
             if isinstance(expr, ast.Alias):
                 columns[expr.alias] = expr.expr
             elif isinstance(expr, ast.Field):
                 columns[str(expr.chain[-1])] = expr
+
         column: ast.Expr | None = columns.get("person_id") or columns.get("actor_id") or columns.get("id")
         if isinstance(column, ast.Alias):
             select_query.select = [ast.Alias(expr=column.expr, alias="actor_id")]
+            uses_actor_id = True
         elif isinstance(column, ast.Field):
             select_query.select = [ast.Alias(expr=column, alias="actor_id")]
+            uses_actor_id = True
         else:
             # Support the most common use cases
             table = select_query.select_from.table if select_query.select_from else None
             if isinstance(table, ast.Field) and table.chain[-1] == "events":
                 select_query.select = [ast.Alias(expr=ast.Field(chain=["person", "id"]), alias="actor_id")]
+                uses_actor_id = True
             elif isinstance(table, ast.Field) and table.chain[-1] == "persons":
                 select_query.select = [ast.Alias(expr=ast.Field(chain=["id"]), alias="actor_id")]
+                uses_actor_id = True
             else:
-                raise ValueError("Could not find a person_id, actor_id, or id column in the query")
+                # Check if we have a distinct_id column
+                distinct_id_column = columns.get("distinct_id")
+                if distinct_id_column is not None:
+                    # Use distinct_id and mark that we need to resolve it to person_id
+                    select_query.select = [ast.Alias(expr=distinct_id_column, alias="distinct_id")]
+                    uses_distinct_id = True
+                else:
+                    raise ValueError("Could not find a person_id, actor_id, id, or distinct_id column in the query")
+
+    # Check for mixed ID types in UNION queries
+    if uses_distinct_id and uses_actor_id:
+        raise ValueError(
+            "UNION queries with mixed ID types are not currently supported. "
+            "All SELECT queries in the UNION must use the same ID type (either person_id/actor_id or distinct_id)."
+        )
 
     hogql_context.enable_select_queries = True
     hogql_context.limit_top_select = False
@@ -228,6 +352,32 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
 
     # Apply HogQL global settings to ensure consistency with regular queries
     settings = HogQLGlobalSettings()
+
+    # If we're using distinct_id, wrap the query to resolve to person_id
+    if uses_distinct_id:
+        # Print the inner query without settings - we'll add them to the wrapper
+        base_query = prepare_and_print_ast(query, context=hogql_context, dialect="clickhouse")[0]
+
+        # Format settings as key=value pairs
+        settings_pairs = {k: str(v) for k, v in settings.model_dump().items() if v is not None}
+        settings_clause = ""
+        if settings_pairs:
+            settings_str = ", ".join([f"{key}={value}" for key, value in settings_pairs.items()])
+            settings_clause = f" SETTINGS {settings_str}"
+
+        # Wrap with person_distinct_id2 lookup using raw SQL since it's not a HogQL table
+        wrapped_query = f"""
+        SELECT DISTINCT argMax(person_id, version) as actor_id
+        FROM person_distinct_id2
+        WHERE distinct_id IN (
+            SELECT DISTINCT distinct_id FROM ({base_query})
+        ) AND team_id = %(team_id)s
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0
+        """.strip()
+
+        return f"{wrapped_query}{settings_clause}"
+
     return prepare_and_print_ast(query, context=hogql_context, dialect="clickhouse", settings=settings)[0]
 
 
@@ -410,10 +560,26 @@ def insert_static_cohort(person_uuids: list[Optional[uuid.UUID]], cohort_id: int
 def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, team_id: int):
     """Remove a person from a static cohort in ClickHouse.
 
-    Uses DELETE FROM with mutations_sync=0 to avoid replica synchronization issues in production.
-    This is an exception to PostHog's usual pattern due to the table lacking an is_deleted and version columns.
+    Uses DELETE FROM with mutations_sync=0 and lightweight_deletes_sync=0 to avoid replica
+    synchronization issues when some replicas are inactive. In tests, uses synchronous mutations
+    for deterministic behavior. This is an exception to PostHog's usual pattern due to the table
+    lacking an is_deleted and version columns.
     """
     tag_queries(cohort_id=cohort_id, team_id=team_id, name="remove_person_from_static_cohort", feature=Feature.COHORT)
+
+    # Use synchronous mutations in tests for deterministic behavior
+    if settings.TEST:
+        ch_settings = {
+            "mutations_sync": "2",
+            "lightweight_deletes_sync": "2",
+        }
+    else:
+        # Use async mutations in production to avoid replica sync issues
+        ch_settings = {
+            "mutations_sync": "0",
+            "lightweight_deletes_sync": "0",
+        }
+
     sync_execute(
         DELETE_PERSON_FROM_STATIC_COHORT,
         {
@@ -421,14 +587,15 @@ def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, 
             "cohort_id": cohort_id,
             "team_id": team_id,
         },
-        settings={"mutations_sync": "0"},
+        settings=ch_settings,
     )
 
 
-def get_static_cohort_size(*, cohort_id: int, team_id: int) -> int:
-    count = CohortPeople.objects.filter(cohort_id=cohort_id, person__team_id=team_id).count()
-
-    return count
+def get_static_cohort_size(*, cohort_id: int, team_id: int, using_database: str | None = None) -> int:
+    qs = CohortPeople.objects.filter(cohort_id=cohort_id, person__team_id=team_id)
+    if using_database:
+        qs = qs.using(using_database)
+    return qs.count()
 
 
 def recalculate_cohortpeople(
@@ -445,7 +612,7 @@ def recalculate_cohortpeople(
         tag_queries(user_id=initiating_user_id)
     for team in relevant_teams:
         tag_queries(team_id=team.id)
-        _recalculate_cohortpeople_for_team_hogql(cohort, pending_version, team)
+        _recalculate_cohortpeople_for_team(cohort, pending_version, team)
         count: Optional[int]
         if cohort.is_static:
             count = get_static_cohort_size(cohort_id=cohort.id, team_id=team.id)
@@ -456,47 +623,28 @@ def recalculate_cohortpeople(
     return count_by_team_id[cohort.team_id]
 
 
-def _recalculate_cohortpeople_for_team_hogql(cohort: Cohort, pending_version: int, team: Team) -> int:
+def _recalculate_cohortpeople_for_team(cohort: Cohort, pending_version: int, team: Team) -> int:
     tag_queries(name="recalculate_cohortpeople_for_team_hogql")
 
     history = CohortCalculationHistory.objects.create(
         team=team, cohort=cohort, filters=cohort.properties.to_dict() if cohort.properties.values else {}
     )
 
-    estimated_size = cohort.count if cohort.count else 0
-    total_chunks = 1
-
     try:
-        total_chunks = math.ceil(estimated_size / TARGET_CHUNK_SIZE)
-        should_chunk = not cohort.is_static and cohort.properties.values and total_chunks > 1
-        if should_chunk:
-            should_chunk = posthoganalytics.feature_enabled(
-                "cohort-calculation-chunked",
-                str(team.uuid),
-                groups={"organization": str(team.organization.id)},
-                group_properties={"organization": {"id": str(team.organization.id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-
-        if should_chunk:
-            result = _recalculate_cohortpeople_chunked(cohort, pending_version, team, total_chunks, history)
-        else:
-            result = _recalculate_cohortpeople_standard(cohort, pending_version, team, history)
-
+        result = _recalculate_cohortpeople_for_team_hogql(cohort, pending_version, team, history)
         return result
 
     except Exception as e:
         history.finished_at = timezone.now()
         history.error = str(e)
-        history.save(update_fields=["finished_at", "error"])
+        history.error_code = parse_error_code(e)
+        history.save(update_fields=["finished_at", "error", "error_code"])
         raise
 
 
-def _recalculate_cohortpeople_standard(
+def _recalculate_cohortpeople_for_team_hogql(
     cohort: Cohort, pending_version: int, team: Team, history: CohortCalculationHistory
 ) -> int:
-    """Standard non-chunked cohort calculation with metrics tracking"""
     cohort_params: dict[str, Any]
     if cohort.is_static:
         cohort_query, cohort_params = format_static_cohort_query(cohort, 0, prepend="")
@@ -504,7 +652,8 @@ def _recalculate_cohortpeople_standard(
         history.finished_at = timezone.now()
         history.count = 0
         history.error = "Cohort has no properties defined"
-        history.save(update_fields=["finished_at", "count", "error"])
+        history.error_code = CohortErrorCode.NO_PROPERTIES
+        history.save(update_fields=["finished_at", "count", "error", "error_code"])
         return 0
     else:
         from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
@@ -539,9 +688,9 @@ def _recalculate_cohortpeople_standard(
                 "new_version": pending_version,
             },
             settings={
-                "max_execution_time": 600,
-                "send_timeout": 600,
-                "receive_timeout": 600,
+                "max_execution_time": COHORT_QUERY_TIMEOUT_SECONDS,
+                "send_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
+                "receive_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
                 "optimize_on_insert": 0,
                 "max_ast_elements": hogql_global_settings.max_ast_elements,
                 "max_expanded_ast_elements": hogql_global_settings.max_expanded_ast_elements,
@@ -550,6 +699,7 @@ def _recalculate_cohortpeople_standard(
             },
             workload=Workload.OFFLINE,
             ch_user=ClickHouseUser.COHORTS,
+            team_id=team.id,
         )
 
     result, query_end_time = run_cohort_query(
@@ -560,102 +710,19 @@ def _recalculate_cohortpeople_standard(
     )
 
     if history:
-        try:
-            history.finished_at = query_end_time
-            if isinstance(result, list) and len(result) == 0:
-                history.count = 0
-            else:
-                history.count = result
+        history.finished_at = query_end_time
+        if isinstance(result, list) and len(result) == 0:
+            history.count = 0
+        else:
+            history.count = result
 
-            history.save(update_fields=["finished_at", "count"])
-
-        except Exception as e:
-            history.finished_at = timezone.now()
-            history.error = str(e)
-            history.save(update_fields=["finished_at", "error"])
-            raise
+        history.save(update_fields=["finished_at", "count"])
 
     return result
 
 
-def _recalculate_cohortpeople_chunked(
-    cohort: Cohort, pending_version: int, team: Team, total_chunks: int, history: CohortCalculationHistory
-) -> int:
-    """Chunked cohort calculation to prevent OOMs with metrics tracking"""
-    total_inserted = 0
-
-    for chunk_index in range(total_chunks):
-        chunk_cohort_params: dict[str, Any]
-        from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
-
-        chunk_cohort_query, hogql_context = (
-            HogQLCohortQuery(cohort=cohort, team=team, chunk_index=chunk_index, total_chunks=total_chunks)
-            .get_query_executor()
-            .generate_clickhouse_sql()
-        )
-        chunk_cohort_params = hogql_context.values
-
-        # Remove SETTINGS clause for subquery compatibility
-        chunk_cohort_query = chunk_cohort_query[: chunk_cohort_query.rfind("SETTINGS")]
-
-        chunk_recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=chunk_cohort_query)
-
-        def execute_chunk_query(sql=chunk_recalculate_cohortpeople_sql, params=chunk_cohort_params):
-            tag_queries(
-                kind="cohort_calculation_chunk",
-                query_type="CohortsQueryHogQL",
-                feature=Feature.COHORT,
-                cohort_id=cohort.pk,
-                team_id=team.id,
-            )
-            hogql_global_settings = HogQLGlobalSettings()
-
-            return sync_execute(
-                sql,
-                {
-                    **params,
-                    "cohort_id": cohort.pk,
-                    "team_id": team.id,
-                    "new_version": pending_version,
-                },
-                settings={
-                    "max_execution_time": 600,
-                    "send_timeout": 600,
-                    "receive_timeout": 600,
-                    "optimize_on_insert": 0,
-                    "max_ast_elements": hogql_global_settings.max_ast_elements,
-                    "max_expanded_ast_elements": hogql_global_settings.max_expanded_ast_elements,
-                    "max_bytes_ratio_before_external_group_by": 0.5,
-                    "max_bytes_ratio_before_external_sort": 0.5,
-                },
-                workload=Workload.OFFLINE,
-                ch_user=ClickHouseUser.COHORTS,
-            )
-
-        chunk_result, _ = run_cohort_query(
-            execute_chunk_query, cohort_id=cohort.pk, history=history, query=chunk_recalculate_cohortpeople_sql
-        )
-
-        chunk_inserted = chunk_result or 0
-        total_inserted += chunk_inserted
-
-    if history:
-        try:
-            history.finished_at = timezone.now()
-            history.count = total_inserted
-            history.save(update_fields=["finished_at", "count"])
-
-        except Exception as e:
-            history.finished_at = timezone.now()
-            history.error = str(e)
-            history.save(update_fields=["finished_at", "error"])
-            raise
-
-    return total_inserted
-
-
 def get_cohort_size(cohort: Cohort, override_version: Optional[int] = None, *, team_id: int) -> Optional[int]:
-    tag_queries(name="get_cohort_size", feature=Feature.COHORT)
+    tag_queries(name="get_cohort_size", feature=Feature.COHORT, cohort_id=cohort.pk, team_id=team_id)
     count_result = sync_execute(
         GET_COHORT_SIZE_SQL,
         {
@@ -774,6 +841,18 @@ def get_all_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
     return [*cohort_ids, *static_cohort_ids]
 
 
+def get_nested_cohort_ids(cohort: Cohort) -> set[int]:
+    """Extract cohort IDs referenced in a cohort's property filters."""
+    ids: set[int] = set()
+    for prop in cohort.properties.flat:
+        if prop.type == "cohort" and not isinstance(prop.value, list):
+            try:
+                ids.add(int(prop.value))
+            except (ValueError, TypeError):
+                continue
+    return ids
+
+
 def get_all_cohort_dependencies(
     cohort: Cohort,
     using_database: str = "default",
@@ -786,13 +865,7 @@ def get_all_cohort_dependencies(
     seen_cohort_ids = set()
     seen_cohort_ids.add(cohort.id)
 
-    queue = []
-    for prop in cohort.properties.flat:
-        if prop.type == "cohort" and not isinstance(prop.value, list):
-            try:
-                queue.append(int(prop.value))
-            except (ValueError, TypeError):
-                continue
+    queue = list(get_nested_cohort_ids(cohort))
 
     while queue:
         cohort_id = queue.pop()
@@ -803,19 +876,14 @@ def get_all_cohort_dependencies(
                     continue
             else:
                 current_cohort = Cohort.objects.db_manager(using_database).get(
-                    pk=cohort_id, team__project_id=cohort.team.project_id, deleted=False
+                    pk=cohort_id, team_id=cohort.team_id, deleted=False
                 )
                 seen_cohorts_cache[cohort_id] = current_cohort
             if current_cohort.id not in seen_cohort_ids:
                 cohorts.append(current_cohort)
                 seen_cohort_ids.add(current_cohort.id)
 
-                for prop in current_cohort.properties.flat:
-                    if prop.type == "cohort" and not isinstance(prop.value, list):
-                        try:
-                            queue.append(int(prop.value))
-                        except (ValueError, TypeError):
-                            continue
+                queue.extend(get_nested_cohort_ids(current_cohort))
 
         except Cohort.DoesNotExist:
             seen_cohorts_cache[cohort_id] = ""

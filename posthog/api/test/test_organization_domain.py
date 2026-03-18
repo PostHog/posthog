@@ -1,4 +1,5 @@
 import datetime
+from datetime import timedelta
 from zoneinfo import ZoneInfo
 
 from freezegun import freeze_time
@@ -11,7 +12,11 @@ import dns.rrset
 import dns.resolver
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Team
+
+from ee.api.test.base import APILicensedTest
+from ee.models.scim_request_log import SCIMRequestLog
 
 
 class FakeAnswer:
@@ -99,6 +104,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
                     "verification_challenge": "123",  # ignore me
                     "jit_provisioning_enabled": True,  # ignore me
                     "sso_enforcement": "saml",  # ignore me
+                    "scim_enabled": True,  # ignore me
                 },
             )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -106,6 +112,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(response_data["domain"], "the.posthog.com")
         self.assertEqual(response_data["verified_at"], None)
         self.assertEqual(response_data["jit_provisioning_enabled"], False)
+        self.assertEqual(response_data["scim_enabled"], False)
         self.assertRegex(response_data["verification_challenge"], r"[0-9A-Za-z_-]{32}")
 
         instance = OrganizationDomain.objects.get(id=response_data["id"])
@@ -113,6 +120,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(instance.verified_at, None)
         self.assertEqual(instance.last_verification_retry, None)
         self.assertEqual(instance.sso_enforcement, "")
+        self.assertEqual(instance.scim_enabled, False)
 
         # Verify the domain creation capture event was called
         mock_capture.assert_any_call(
@@ -414,6 +422,37 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(response.json()["verified_at"], None)
         self.assertRegex(response.json()["verification_challenge"], r"[0-9A-Za-z_-]{32}")
 
+    def test_domain_cannot_be_changed_after_creation(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        original_domain = self.domain.domain
+
+        response = self.client.patch(
+            f"/api/organizations/@current/domains/{self.domain.id}/",
+            {"domain": "evil.com"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["domain"], original_domain)
+        self.domain.refresh_from_db()
+        self.assertEqual(self.domain.domain, original_domain)
+
+    def test_verified_domain_cannot_be_swapped(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.domain.verified_at = timezone.now()
+        self.domain.save()
+        original_domain = self.domain.domain
+
+        response = self.client.patch(
+            f"/api/organizations/@current/domains/{self.domain.id}/",
+            {"domain": "victim-corp.com"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["domain"], original_domain)
+        self.domain.refresh_from_db()
+        self.assertEqual(self.domain.domain, original_domain)
+        self.assertIsNotNone(self.domain.verified_at)
+
     def test_only_admin_can_update_domain(self):
         self.domain.verified_at = timezone.now()
         self.domain.save()
@@ -470,6 +509,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
                 "had_saml": False,
                 "had_jit_provisioning": False,
                 "had_sso_enforcement": False,
+                "had_scim": False,
             },
             groups={"instance": ANY, "organization": str(self.organization.id)},
         )
@@ -491,3 +531,250 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json(), self.permission_denied_response())
         self.another_domain.refresh_from_db()
+
+    # SCIM configuration
+
+    def test_can_enable_scim(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization.available_product_features = [{"key": AvailableFeature.SCIM, "name": "SCIM"}]
+        self.organization_membership.save()
+        self.organization.save()
+        self.domain.verified_at = timezone.now()
+        self.domain.save()
+
+        response = self.client.patch(
+            f"/api/organizations/@current/domains/{self.domain.id}/",
+            {"scim_enabled": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["scim_enabled"], True)
+        self.assertIsNotNone(response.json()["scim_bearer_token"])
+        self.assertIn("scim_base_url", response.json())
+
+        self.domain.refresh_from_db()
+        self.assertEqual(self.domain.scim_enabled, True)
+        self.assertIsNotNone(self.domain.scim_bearer_token)
+
+    def test_cannot_enable_scim_without_available_feature(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.domain.verified_at = timezone.now()
+        self.domain.save()
+
+        response = self.client.patch(
+            f"/api/organizations/@current/domains/{self.domain.id}/",
+            {"scim_enabled": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("not available", response.json()["detail"].lower())
+
+    def test_cannot_enable_scim_on_unverified_domain(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization.available_product_features = [{"key": AvailableFeature.SCIM, "name": "SCIM"}]
+        self.organization_membership.save()
+        self.organization.save()
+
+        response = self.client.patch(
+            f"/api/organizations/@current/domains/{self.domain.id}/",
+            {"scim_enabled": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "verification_required",
+                "detail": "This attribute cannot be updated until the domain is verified.",
+                "attr": "scim_enabled",
+            },
+        )
+
+    def test_can_disable_scim(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization.available_product_features = [{"key": AvailableFeature.SCIM, "name": "SCIM"}]
+        self.organization_membership.save()
+        self.organization.save()
+        self.domain.verified_at = timezone.now()
+        self.domain.save()
+
+        # First enable SCIM
+        enable_response = self.client.patch(
+            f"/api/organizations/@current/domains/{self.domain.id}/",
+            {"scim_enabled": True},
+        )
+        self.assertEqual(enable_response.status_code, status.HTTP_200_OK)
+
+        # Then disable it
+        response = self.client.patch(
+            f"/api/organizations/@current/domains/{self.domain.id}/",
+            {"scim_enabled": False},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["scim_enabled"], False)
+        self.assertIsNone(response.json()["scim_bearer_token"])
+
+        self.domain.refresh_from_db()
+        self.assertEqual(self.domain.scim_enabled, False)
+        self.assertIsNone(self.domain.scim_bearer_token)
+
+    def test_can_regenerate_scim_token(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization.available_product_features = [{"key": AvailableFeature.SCIM, "name": "SCIM"}]
+        self.organization_membership.save()
+        self.organization.save()
+        self.domain.verified_at = timezone.now()
+        self.domain.save()
+
+        # First enable SCIM
+        enable_response = self.client.patch(
+            f"/api/organizations/@current/domains/{self.domain.id}/",
+            {"scim_enabled": True},
+        )
+        self.assertEqual(enable_response.status_code, status.HTTP_200_OK)
+        original_token = enable_response.json()["scim_bearer_token"]
+
+        # Regenerate token
+        response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/scim/token")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["scim_enabled"], True)
+        new_token = response.json()["scim_bearer_token"]
+        self.assertIsNotNone(new_token)
+        self.assertNotEqual(original_token, new_token)
+
+    def test_cannot_regenerate_scim_token_without_available_feature(self):
+        from ee.api.scim.auth import generate_scim_token
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.domain.verified_at = timezone.now()
+        self.domain.save()
+
+        # Manually enable SCIM (bypassing validation)
+        plain_token, hashed_token = generate_scim_token()
+        self.domain.scim_enabled = True
+        self.domain.scim_bearer_token = hashed_token
+        self.domain.save()
+
+        # Remove feature
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/scim/token")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class TestSCIMRequestLogsAPI(APILicensedTest):
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.domain = OrganizationDomain.objects.create(
+            organization=self.organization,
+            domain="logs-test.com",
+            verified_at=timezone.now(),
+            scim_enabled=True,
+        )
+
+    def _create_log(self, **kwargs):
+        defaults = {
+            "organization_domain": self.domain,
+            "request_method": "GET",
+            "request_path": "/scim/v2/test/Users",
+            "request_headers": {"Content-Type": "application/json"},
+            "response_status": 200,
+            "response_body": {"schemas": []},
+            "identity_provider": "okta",
+            "duration_ms": 42,
+        }
+        defaults.update(kwargs)
+        return SCIMRequestLog.objects.create(**defaults)
+
+    def test_list_logs(self):
+        self._create_log()
+        self._create_log(response_status=404)
+        response = self.client.get(f"/api/organizations/{self.organization.id}/domains/{self.domain.id}/scim/logs")
+        assert response.status_code == 200
+        assert response.json()["count"] == 2
+
+    def test_list_logs_paginated(self):
+        for _ in range(30):
+            self._create_log()
+        response = self.client.get(f"/api/organizations/{self.organization.id}/domains/{self.domain.id}/scim/logs")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["count"] == 30
+        assert len(data["results"]) == 20
+        assert data["next"] is not None
+
+    def test_filter_by_status_success(self):
+        self._create_log(response_status=200)
+        self._create_log(response_status=201)
+        self._create_log(response_status=400)
+        response = self.client.get(
+            f"/api/organizations/{self.organization.id}/domains/{self.domain.id}/scim/logs",
+            {"status_min": 200, "status_max": 299},
+        )
+        assert response.json()["count"] == 2
+
+    def test_filter_by_status_errors(self):
+        self._create_log(response_status=200)
+        self._create_log(response_status=400)
+        self._create_log(response_status=500)
+        response = self.client.get(
+            f"/api/organizations/{self.organization.id}/domains/{self.domain.id}/scim/logs",
+            {"status_min": 400},
+        )
+        assert response.json()["count"] == 2
+
+    def test_search_by_path(self):
+        self._create_log(request_path="/scim/v2/x/Users")
+        self._create_log(request_path="/scim/v2/x/Groups")
+        response = self.client.get(
+            f"/api/organizations/{self.organization.id}/domains/{self.domain.id}/scim/logs",
+            {"search": "Groups"},
+        )
+        assert response.json()["count"] == 1
+
+    def test_filter_by_date_range(self):
+        log_old = self._create_log()
+        SCIMRequestLog.objects.filter(id=log_old.id).update(created_at=timezone.now() - timedelta(days=10))
+        self._create_log()
+
+        after = (timezone.now() - timedelta(days=1)).isoformat()
+        response = self.client.get(
+            f"/api/organizations/{self.organization.id}/domains/{self.domain.id}/scim/logs",
+            {"after": after},
+        )
+        assert response.json()["count"] == 1
+
+    def test_logs_scoped_to_domain(self):
+        other_domain = OrganizationDomain.objects.create(
+            organization=self.organization,
+            domain="other.com",
+            verified_at=timezone.now(),
+        )
+        self._create_log()
+        SCIMRequestLog.objects.create(
+            organization_domain=other_domain,
+            request_method="GET",
+            request_path="/scim/v2/x/Users",
+            request_headers={},
+            response_status=200,
+            identity_provider="other",
+        )
+        response = self.client.get(f"/api/organizations/{self.organization.id}/domains/{self.domain.id}/scim/logs")
+        assert response.json()["count"] == 1
+
+    def test_log_response_shape(self):
+        self._create_log()
+        response = self.client.get(f"/api/organizations/{self.organization.id}/domains/{self.domain.id}/scim/logs")
+        result = response.json()["results"][0]
+        assert "id" in result
+        assert "request_method" in result
+        assert "request_path" in result
+        assert "request_headers" in result
+        assert "response_status" in result
+        assert "response_body" in result
+        assert "identity_provider" in result
+        assert "duration_ms" in result
+        assert "created_at" in result

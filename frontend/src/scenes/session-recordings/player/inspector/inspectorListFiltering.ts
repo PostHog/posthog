@@ -66,7 +66,9 @@ function isDoctorEvent(item: InspectorListItem): item is InspectorListItemDoctor
 }
 
 function isContextItem(item: InspectorListItem): boolean {
-    return ['browser-visibility', 'offline-status', 'inspector-summary', 'inactivity'].includes(item.type)
+    return ['browser-visibility', 'offline-status', 'inspector-summary', 'inactivity', 'session-change'].includes(
+        item.type
+    )
 }
 
 const eventsMatch = (
@@ -176,7 +178,7 @@ export function filterInspectorListItems({
         | undefined
     allowMatchingEventsFilter: boolean
     showOnlyMatching: boolean
-    trackedWindow: string | null
+    trackedWindow: number | null
     hasEventsToDisplay: boolean
 }): InspectorListItem[] {
     const items: InspectorListItem[] = []

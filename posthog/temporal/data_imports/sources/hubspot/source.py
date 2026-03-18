@@ -8,16 +8,17 @@ from posthog.schema import (
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common import config
-from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
 from posthog.temporal.data_imports.sources.generated_configs import HubspotSourceConfig
 from posthog.temporal.data_imports.sources.hubspot.auth import hubspot_refresh_access_token
-from posthog.temporal.data_imports.sources.hubspot.hubspot import hubspot
+from posthog.temporal.data_imports.sources.hubspot.hubspot import HubspotResumeConfig, hubspot_source
 from posthog.temporal.data_imports.sources.hubspot.settings import ENDPOINTS as HUBSPOT_ENDPOINTS
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @config.config
@@ -27,7 +28,7 @@ class HubspotSourceOldConfig(config.Config):
 
 
 @SourceRegistry.register
-class HubspotSource(BaseSource[HubspotSourceConfig | HubspotSourceOldConfig], OAuthMixin):
+class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig, HubspotResumeConfig], OAuthMixin):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.HUBSPOT
@@ -39,6 +40,7 @@ class HubspotSource(BaseSource[HubspotSourceConfig | HubspotSourceOldConfig], OA
             caption="Select an existing Hubspot account to link to PostHog or create a new connection",
             iconPath="/static/services/hubspot.png",
             docsUrl="https://posthog.com/docs/cdp/sources/hubspot",
+            featured=True,
             fields=cast(
                 list[FieldType],
                 [
@@ -49,6 +51,12 @@ class HubspotSource(BaseSource[HubspotSourceConfig | HubspotSourceOldConfig], OA
             ),
         )
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "missing or invalid refresh token": "Your HubSpot connection is invalid or expired. Please reconnect it.",
+            "missing or unknown hub id": None,
+        }
+
     # TODO: clean up hubspot job inputs to not have two auth config options
     def parse_config(self, job_inputs: dict) -> HubspotSourceConfig | HubspotSourceOldConfig:
         if "hubspot_integration_id" in job_inputs.keys():
@@ -57,9 +65,13 @@ class HubspotSource(BaseSource[HubspotSourceConfig | HubspotSourceOldConfig], OA
         return HubspotSourceOldConfig.from_dict(job_inputs)
 
     def get_schemas(
-        self, config: HubspotSourceConfig | HubspotSourceOldConfig, team_id: int, with_counts: bool = False
+        self,
+        config: HubspotSourceConfig | HubspotSourceOldConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
     ) -> list[SourceSchema]:
-        return [
+        schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=False,
@@ -69,8 +81,20 @@ class HubspotSource(BaseSource[HubspotSourceConfig | HubspotSourceOldConfig], OA
             for endpoint in HUBSPOT_ENDPOINTS
         ]
 
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+
+        return schemas
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[HubspotResumeConfig]:
+        return ResumableSourceManager[HubspotResumeConfig](inputs, HubspotResumeConfig)
+
     def source_for_pipeline(
-        self, config: HubspotSourceConfig | HubspotSourceOldConfig, inputs: SourceInputs
+        self,
+        config: HubspotSourceConfig | HubspotSourceOldConfig,
+        resumable_source_manager: ResumableSourceManager[HubspotResumeConfig],
+        inputs: SourceInputs,
     ) -> SourceResponse:
         if isinstance(config, HubspotSourceConfig):
             integration = self.get_oauth_integration(config.hubspot_integration_id, inputs.team_id)
@@ -94,11 +118,10 @@ class HubspotSource(BaseSource[HubspotSourceConfig | HubspotSourceOldConfig], OA
             else:
                 hubspot_access_code = config_hubspot_access_code
 
-        return dlt_source_to_source_response(
-            hubspot(
-                api_key=hubspot_access_code,
-                refresh_token=refresh_token,
-                endpoints=[inputs.schema_name],
-                logger=inputs.logger,
-            )
+        return hubspot_source(
+            api_key=hubspot_access_code,
+            refresh_token=refresh_token,
+            endpoint=inputs.schema_name,
+            logger=inputs.logger,
+            resumable_source_manager=resumable_source_manager,
         )

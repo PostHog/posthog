@@ -44,12 +44,12 @@ def run(options):
     persons = Person.objects.filter(team_id=team_id, created_at__gt=future_date)
 
     logger.info(
-        f'Found {len(persons)} persons with future created_at value, updating them to {new_date.strftime("%Y-%m-%d %H:%M:%S.%f")}'
+        f"Found {len(persons)} persons with future created_at value, updating them to {new_date.strftime('%Y-%m-%d %H:%M:%S.%f')}"
     )
 
     # If someone else updated the person at the same time these could conflict, which isn't ideal, but this is a one-off script
     for person in persons:
-        logger.info(f'Updating person {person.uuid} created_at to {new_date.strftime("%Y-%m-%d %H:%M:%S.%f")}')
+        logger.info(f"Updating person {person.uuid} created_at to {new_date.strftime('%Y-%m-%d %H:%M:%S.%f')}")
         if live_run:
             Person.objects.filter(pk=person.id).update(version=F("version") + 1, created_at=new_date)
             create_person(

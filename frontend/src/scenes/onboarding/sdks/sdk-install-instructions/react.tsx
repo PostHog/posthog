@@ -1,14 +1,12 @@
 import { useValues } from 'kea'
 
-import { LemonDivider } from '@posthog/lemon-ui'
-
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { apiHostOrigin } from 'lib/utils/apiHost'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { SDK_DEFAULTS_DATE } from '~/loadPostHogJS'
+
 import SetupWizardBanner from './components/SetupWizardBanner'
-import { SDK_DEFAULTS_DATE } from './constants'
 import { JSInstallSnippet } from './js-web'
 
 function ReactEnvVarsSnippet(): JSX.Element {
@@ -35,32 +33,23 @@ import { PostHogProvider } from 'posthog-js/react'
 const options = {
   api_host: import.meta.env.VITE_PUBLIC_POSTHOG_HOST,
   defaults: '${SDK_DEFAULTS_DATE}',
-}
+} as const
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <PostHogProvider apiKey={import.meta.env.VITE_PUBLIC_POSTHOG_KEY} options={options}>
       <App />
     </PostHogProvider>
-  </StrictMode>,
-);`}
+  </StrictMode>
+)`}
         </CodeSnippet>
     )
 }
 
 export function SDKInstallReactInstructions({ hideWizard }: { hideWizard?: boolean }): JSX.Element {
-    const { isCloudOrDev } = useValues(preflightLogic)
-    const showSetupWizard = !hideWizard && isCloudOrDev
     return (
         <>
-            {showSetupWizard && (
-                <>
-                    <h2>Automated Installation</h2>
-                    <SetupWizardBanner integrationName="React" />
-                    <LemonDivider label="OR" />
-                    <h2>Manual Installation</h2>
-                </>
-            )}
+            <SetupWizardBanner integrationName="React" hide={hideWizard} />
             <h3>Install the package</h3>
             <JSInstallSnippet />
             <h3>Add environment variables</h3>

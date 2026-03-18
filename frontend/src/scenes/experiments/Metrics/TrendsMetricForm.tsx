@@ -11,10 +11,10 @@ import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { Query } from '~/queries/Query/Query'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { ExperimentTrendsQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
+import { Query } from '~/queries/Query/Query'
+import { AnyEntityNode, ExperimentTrendsQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, FilterType } from '~/types'
 
 import { SelectableCard } from '../components/SelectableCard'
@@ -23,7 +23,7 @@ import { experimentLogic } from '../experimentLogic'
 import { commonActionFilterProps } from './Selectors'
 
 export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolean }): JSX.Element {
-    const { experiment, isExperimentRunning, editingPrimaryMetricUuid, editingSecondaryMetricUuid } =
+    const { experiment, isExperimentLaunched, editingPrimaryMetricUuid, editingSecondaryMetricUuid } =
         useValues(experimentLogic)
     const { setTrendsMetric, setTrendsExposureMetric, setExperiment } = useActions(experimentLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -80,7 +80,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                             { actions, events, data_warehouse } as any,
                                             true,
                                             MathAvailability.All
-                                        )
+                                        ) as AnyEntityNode[]
 
                                         // Custom exposure metrics are not supported for data warehouse metrics
                                         if (series[0].kind === NodeKind.DataWarehouseNode) {
@@ -128,7 +128,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                         fullWidth
                                     />
                                 </div>
-                                {isExperimentRunning && (
+                                {isExperimentLaunched && (
                                     <LemonBanner type="info" className="mt-3 mb-3">
                                         Preview insights are generated based on {EXPERIMENT_DEFAULT_DURATION} days of
                                         data. This can cause a mismatch between the preview and the actual results.
@@ -245,7 +245,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                                     { actions, events, data_warehouse } as any,
                                                     true,
                                                     MathAvailability.All
-                                                )
+                                                ) as AnyEntityNode[]
 
                                                 if (!currentMetric.uuid) {
                                                     return
@@ -282,7 +282,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                                 fullWidth
                                             />
                                         </div>
-                                        {isExperimentRunning && (
+                                        {isExperimentLaunched && (
                                             <LemonBanner type="info" className="mt-3 mb-3">
                                                 Preview insights are generated based on {EXPERIMENT_DEFAULT_DURATION}{' '}
                                                 days of data. This can cause a mismatch between the preview and the

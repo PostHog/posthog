@@ -446,6 +446,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
             distinct_id="person1",
             first_timestamp="2023-10-01 12:30:00",
             last_timestamp="2023-10-01 12:39:00",
+            ensure_analytics_event_in_session=False,
         )
 
         runner = self._create_runner(SessionsTimelineQuery(before="2023-10-02T06:00:00Z", after="2023-10-01T06:00:00Z"))

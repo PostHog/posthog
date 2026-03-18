@@ -33,12 +33,14 @@ export interface PropertyFiltersProps {
     showNestedArrow?: boolean
     eventNames?: string[]
     schemaColumns?: DatabaseSchemaField[]
+    dataWarehouseTableName?: string
     logicalRowDivider?: boolean
     orFiltering?: boolean
     propertyGroupType?: FilterLogicalOperator | null
     addText?: string | null
     editable?: boolean
     buttonText?: string
+    buttonClassName?: string
     buttonSize?: 'xsmall' | 'small' | 'medium'
     hasRowOperator?: boolean
     sendAllKeyUpdates?: boolean
@@ -53,6 +55,7 @@ export interface PropertyFiltersProps {
     hideBehavioralCohorts?: boolean
     addFilterDocLink?: string
     operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']
+    hogQLGlobals?: Record<string, any>
 }
 
 export function PropertyFilters({
@@ -67,11 +70,13 @@ export function PropertyFilters({
     showNestedArrow = false,
     eventNames = [],
     schemaColumns = [],
+    dataWarehouseTableName,
     orFiltering = false,
     logicalRowDivider = false,
     propertyGroupType = null,
     addText = null,
-    buttonText = 'Add filter',
+    buttonText = 'Filter',
+    buttonClassName = '',
     editable = true,
     buttonSize,
     hasRowOperator = true,
@@ -87,16 +92,19 @@ export function PropertyFilters({
     hideBehavioralCohorts,
     addFilterDocLink,
     operatorAllowlist,
+    hogQLGlobals,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
-    const { filters, filtersWithNew } = useValues(propertyFilterLogic(logicProps))
+    const { filters, filtersWithNew, filterIds, filterIdsWithNew } = useValues(propertyFilterLogic(logicProps))
     const { remove, setFilters, setFilter } = useActions(propertyFilterLogic(logicProps))
     const [allowOpenOnInsert, setAllowOpenOnInsert] = useState<boolean>(false)
 
-    // Update the logic's internal filters when the props change
     useEffect(() => {
         setFilters(propertyFilters ?? [])
     }, [propertyFilters, setFilters])
+
+    const displayedFilters = allowNew && editable ? filtersWithNew : filters
+    const displayedFilterIds = allowNew && editable ? filterIdsWithNew : filterIds
 
     // do not open on initial render, only open if newly inserted
     useOnMountEffect(() => setAllowOpenOnInsert(true))
@@ -110,29 +118,28 @@ export function PropertyFilters({
             )}
             <div className="PropertyFilters__content max-w-full">
                 <BindLogic logic={propertyFilterLogic} props={logicProps}>
-                    {(allowNew && editable ? filtersWithNew : filters).map((item: AnyPropertyFilter, index: number) => {
+                    {displayedFilters.map((item: AnyPropertyFilter, index: number) => {
                         return (
-                            <React.Fragment key={index}>
-                                {logicalRowDivider && index > 0 && index !== filtersWithNew.length - 1 && (
+                            <React.Fragment key={displayedFilterIds[index]}>
+                                {logicalRowDivider && index > 0 && index !== displayedFilters.length - 1 && (
                                     <LogicalRowDivider logicalOperator={FilterLogicalOperator.And} />
                                 )}
                                 <FilterRow
-                                    key={index}
                                     item={item}
                                     index={index}
-                                    totalCount={filtersWithNew.length - 1} // empty state
-                                    filters={filtersWithNew}
+                                    totalCount={displayedFilters.length - 1} // empty state
+                                    filters={displayedFilters}
                                     pageKey={pageKey}
                                     showConditionBadge={showConditionBadge}
                                     disablePopover={disablePopover || orFiltering}
                                     label={buttonText}
+                                    labelClassName={buttonClassName}
                                     size={buttonSize}
                                     onRemove={remove}
                                     orFiltering={orFiltering}
                                     editable={editable}
                                     filterComponent={(onComplete) => (
                                         <TaxonomicPropertyFilter
-                                            key={index}
                                             pageKey={pageKey}
                                             index={index}
                                             filters={filters}
@@ -143,6 +150,7 @@ export function PropertyFilters({
                                             metadataSource={metadataSource}
                                             eventNames={eventNames}
                                             schemaColumns={schemaColumns}
+                                            dataWarehouseTableName={dataWarehouseTableName}
                                             propertyGroupType={propertyGroupType}
                                             disablePopover={disablePopover || orFiltering}
                                             addText={addText}
@@ -157,6 +165,7 @@ export function PropertyFilters({
                                             addFilterDocLink={addFilterDocLink}
                                             editable={editable}
                                             operatorAllowlist={operatorAllowlist}
+                                            hogQLGlobals={hogQLGlobals}
                                         />
                                     )}
                                     errorMessage={errorMessages && errorMessages[index]}

@@ -13,7 +13,7 @@ from posthog.test.base import (
     create_person_id_override_by_distinct_id,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock
 
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -31,8 +31,7 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 ONE_MINUTE = 60_000  # 1 minute in milliseconds
 
 
-class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
-    __test__ = False
+class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def _create_groups(self):
@@ -3492,18 +3491,6 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             ],
             [list(row[3]) for row in results],
         )
-
-
-insight_funnels_use_udf_funnel_flag_side_effect = lambda key, *args, **kwargs: key == "insight-funnels-use-udf"
-
-
-class ClickhousePathsUDF(BaseTestClickhousePaths):
-    __test__ = True
-
-
-@patch("posthoganalytics.feature_enabled", new=Mock(side_effect=insight_funnels_use_udf_funnel_flag_side_effect))
-class TestClickhousePathsUDF(BaseTestClickhousePaths):
-    __test__ = True
 
 
 class TestClickhousePathsEdgeValidation(TestCase):

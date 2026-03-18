@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use aws_sdk_s3::primitives::ByteStreamError;
 use common_geoip::GeoIpError;
 use common_kafka::kafka_producer::KafkaProduceError;
@@ -23,7 +25,7 @@ pub enum ResolveError {
 #[derive(Debug)]
 pub struct PipelineFailure {
     pub index: usize,
-    pub error: UnhandledError,
+    pub error: Arc<UnhandledError>,
 }
 
 // The result of running the pipeline against a single message. Generally,
@@ -68,6 +70,10 @@ pub enum FrameError {
     JavaScript(#[from] JsResolveErr),
     #[error(transparent)]
     Hermes(#[from] HermesError),
+    #[error(transparent)]
+    Proguard(#[from] ProguardError),
+    #[error(transparent)]
+    Apple(#[from] AppleError),
     #[error("No symbol set for chunk id: {0}")]
     MissingChunkIdData(String),
 }
@@ -138,7 +144,45 @@ pub enum HermesError {
     NoTokenForColumn(u32, String),
 }
 
-#[derive(Debug, Error, Clone)]
+#[derive(Debug, Error, Serialize, Deserialize)]
+pub enum ProguardError {
+    #[error("Data error: {0}")]
+    DataError(#[from] SymbolDataError),
+    #[error("Invalid mapping")]
+    InvalidMapping,
+    #[error("No proguard map uploaded for id: {0}")]
+    MissingMap(String),
+    #[error("No map ID sent with frame")]
+    NoMapId,
+    #[error("No original frames could be derived from this raw frame")]
+    NoOriginalFrames,
+    #[error("No module provided")]
+    NoModuleProvided,
+    #[error("No class matched")]
+    MissingClass,
+    #[error("Invalid class format")]
+    InvalidClass,
+}
+
+#[derive(Debug, Error, Serialize, Deserialize)]
+pub enum AppleError {
+    #[error("Data error: {0}")]
+    DataError(#[from] SymbolDataError),
+    #[error("No dSYM uploaded for debug_id: {0}")]
+    MissingDsym(String),
+    #[error("No debug_id found for frame")]
+    NoDebugId,
+    #[error("Invalid address format: {0}")]
+    InvalidAddress(String),
+    #[error("Symbol not found at address: {0:#x}")]
+    SymbolNotFound(u64),
+    #[error("Failed to parse dSYM: {0}")]
+    ParseError(String),
+    #[error("No matching debug image found for frame")]
+    NoMatchingDebugImage,
+}
+
+#[derive(Debug, Error, Clone, Serialize, PartialEq)]
 pub enum EventError {
     #[error("Wrong event type: {0} for event {1}")]
     WrongEventType(String, Uuid),
@@ -154,6 +198,8 @@ pub enum EventError {
     NoTeamForToken(String),
     #[error("Suppressed issue: {0}")]
     Suppressed(Uuid),
+    #[error("Suppressed by rule: {0}")]
+    SuppressedByRule(Uuid),
     #[error("Could not deserialize event data: {1}")]
     FailedToDeserialize(Box<CapturedEvent>, String),
     #[error("Filtered by team id")]
@@ -169,6 +215,18 @@ impl From<JsResolveErr> for ResolveError {
 impl From<HermesError> for ResolveError {
     fn from(e: HermesError) -> Self {
         FrameError::Hermes(e).into()
+    }
+}
+
+impl From<ProguardError> for ResolveError {
+    fn from(e: ProguardError) -> Self {
+        FrameError::Proguard(e).into()
+    }
+}
+
+impl From<AppleError> for ResolveError {
+    fn from(e: AppleError) -> Self {
+        FrameError::Apple(e).into()
     }
 }
 
@@ -213,6 +271,24 @@ impl From<aws_sdk_s3::Error> for UnhandledError {
 
 impl From<(usize, UnhandledError)> for PipelineFailure {
     fn from((index, error): (usize, UnhandledError)) -> Self {
+        PipelineFailure {
+            index,
+            error: Arc::new(error),
+        }
+    }
+}
+
+impl From<(usize, Arc<UnhandledError>)> for PipelineFailure {
+    fn from((index, error): (usize, Arc<UnhandledError>)) -> Self {
         PipelineFailure { index, error }
+    }
+}
+
+impl From<UnhandledError> for PipelineFailure {
+    fn from(error: UnhandledError) -> Self {
+        PipelineFailure {
+            index: 0,
+            error: Arc::new(error),
+        }
     }
 }

@@ -1100,7 +1100,7 @@ def test_parse_prop_clauses_precalculated_cohort(snapshot):
 
     assert (
         parse_prop_grouped_clauses(
-            team_id=1,
+            team_id=team.pk,
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.USING_SUBQUERY,
             allow_denormalized_props=False,
@@ -1109,6 +1109,30 @@ def test_parse_prop_clauses_precalculated_cohort(snapshot):
         )
         == snapshot
     )
+
+
+@pytest.mark.django_db
+def test_parse_prop_clauses_cross_project_cohort_produces_impossible_match():
+    org_a = Organization.objects.create(name="org a")
+    team_a = Team.objects.create(organization=org_a)
+
+    org_b = Organization.objects.create(name="org b")
+    team_b = Team.objects.create(organization=org_b)
+    cohort_b = Cohort.objects.create(team=team_b, groups=[{"properties": [{"key": "$browser", "value": "test"}]}])
+
+    filter = Filter(
+        data={"properties": [{"key": "id", "value": cohort_b.pk, "type": "cohort"}]},
+        team=team_a,
+    )
+    result, _ = parse_prop_grouped_clauses(
+        team_id=team_a.pk,
+        property_group=filter.property_groups,
+        person_properties_mode=PersonPropertiesMode.USING_SUBQUERY,
+        allow_denormalized_props=False,
+        person_id_joined_alias="pdi.person_id",
+        hogql_context=filter.hogql_context,
+    )
+    assert "0 = 13" in result
 
 
 # Regression test for: https://github.com/PostHog/posthog/pull/9283

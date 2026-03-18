@@ -23,10 +23,13 @@ class VectorSearchQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[VectorSea
     cached_response: CachedVectorSearchQueryResponse
 
     def _calculate(self):
-        query = self.to_query()
-        hogql = to_printed_hogql(query, self.team)
+        with self.timings.measure("to_query"):
+            query = self.to_query()
 
-        with tags_context(product=Product.MAX_AI):
+        with self.timings.measure("to_printed_hogql"):
+            hogql = to_printed_hogql(query, self.team)
+
+        with tags_context(product=Product.MAX_AI), self.timings.measure("execute_hogql_query"):
             response = execute_hogql_query(
                 query_type="VectorSearchQuery",
                 query=query,

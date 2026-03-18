@@ -1,11 +1,15 @@
 import os
 import tempfile
+from contextlib import nullcontext
 
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
 
+from parameterized import parameterized
+
 from posthog.tasks.exports import video_exporter
+from posthog.tasks.exports.video_exporter import RecordReplayToFileOptions
 
 
 class TestVideoExporter(APIBaseTest):
@@ -48,12 +52,14 @@ class TestVideoExporter(APIBaseTest):
             with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_file:
                 try:
                     video_exporter.record_replay_to_file(
-                        image_path=tmp_file.name,
-                        url_to_render="http://localhost:8000/exporter?token=test",
-                        screenshot_width=1400,
-                        wait_for_css_selector=".replayer-wrapper",
-                        screenshot_height=600,
-                        recording_duration=5,
+                        RecordReplayToFileOptions(
+                            image_path=tmp_file.name,
+                            url_to_render="http://localhost:8000/exporter?token=test",
+                            wait_for_css_selector=".replayer-wrapper",
+                            recording_duration=5,
+                            screenshot_width=1400,
+                            screenshot_height=600,
+                        )
                     )
 
                     # Verify core functionality
@@ -74,18 +80,20 @@ class TestVideoExporter(APIBaseTest):
     @patch("posthog.tasks.exports.video_exporter.shutil.which")
     def test_record_replay_to_file_webm_success(self, mock_which: Mock, mock_playwright: Mock) -> None:
         """Test successful WebM recording (no ffmpeg conversion needed)."""
-        mock_playwright_instance, mock_page = self._setup_playwright_mocks(mock_playwright, mock_which)
+        self._setup_playwright_mocks(mock_playwright, mock_which)
 
         with patch("posthog.tasks.exports.video_exporter.shutil.move") as mock_move:
             with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp_file:
                 try:
                     video_exporter.record_replay_to_file(
-                        image_path=tmp_file.name,
-                        url_to_render="http://localhost:8000/exporter?token=test",
-                        screenshot_width=1400,
-                        wait_for_css_selector=".replayer-wrapper",
-                        screenshot_height=600,
-                        recording_duration=5,
+                        RecordReplayToFileOptions(
+                            image_path=tmp_file.name,
+                            url_to_render="http://localhost:8000/exporter?token=test",
+                            wait_for_css_selector=".replayer-wrapper",
+                            recording_duration=5,
+                            screenshot_width=1400,
+                            screenshot_height=600,
+                        )
                     )
 
                     # Verify WebM uses direct file move (no ffmpeg conversion)
@@ -104,12 +112,14 @@ class TestVideoExporter(APIBaseTest):
             try:
                 with pytest.raises(RuntimeError, match="ffmpeg is required"):
                     video_exporter.record_replay_to_file(
-                        image_path=tmp_file.name,
-                        url_to_render="http://localhost:8000/exporter?token=test",
-                        screenshot_width=1400,
-                        wait_for_css_selector=".replayer-wrapper",
-                        screenshot_height=600,
-                        recording_duration=5,
+                        RecordReplayToFileOptions(
+                            image_path=tmp_file.name,
+                            url_to_render="http://localhost:8000/exporter?token=test",
+                            wait_for_css_selector=".replayer-wrapper",
+                            recording_duration=5,
+                            screenshot_width=1400,
+                            screenshot_height=600,
+                        )
                     )
             finally:
                 if os.path.exists(tmp_file.name):
@@ -132,42 +142,59 @@ class TestVideoExporter(APIBaseTest):
                 try:
                     with pytest.raises(RuntimeError, match="ffmpeg failed with exit code 1"):
                         video_exporter.record_replay_to_file(
-                            image_path=tmp_file.name,
-                            url_to_render="http://localhost:8000/exporter?token=test",
-                            screenshot_width=1400,
-                            wait_for_css_selector=".replayer-wrapper",
-                            screenshot_height=600,
-                            recording_duration=5,
+                            RecordReplayToFileOptions(
+                                image_path=tmp_file.name,
+                                url_to_render="http://localhost:8000/exporter?token=test",
+                                wait_for_css_selector=".replayer-wrapper",
+                                recording_duration=5,
+                                screenshot_width=1400,
+                                screenshot_height=600,
+                            )
                         )
                 finally:
                     if os.path.exists(tmp_file.name):
                         os.unlink(tmp_file.name)
 
-    def test_record_replay_to_file_input_validation(self) -> None:
-        """Test input parameter validation catches invalid values."""
+    @parameterized.expand(
+        [
+            ("zero_recording_duration", {"recording_duration": 0}, ValueError, "recording_duration must be positive"),
+            ("zero_width", {"screenshot_width": 0}, ValueError, "screenshot_width must be positive"),
+            (
+                "playback_speed_too_low",
+                {"playback_speed": 0},
+                ValueError,
+                "playback_speed must be between 1 and 360",
+            ),
+            (
+                "playback_speed_too_high",
+                {"playback_speed": 361},
+                ValueError,
+                "playback_speed must be between 1 and 360",
+            ),
+            ("valid_playback_speed_min", {"playback_speed": 1}, None, None),
+            ("valid_playback_speed_max", {"playback_speed": 360}, None, None),
+        ]
+    )
+    def test_validation(
+        self, _name: str, overrides: dict, expected_error: type[Exception] | None, error_match: str | None
+    ) -> None:
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_file:
             try:
-                # Test invalid recording duration
-                with pytest.raises(ValueError, match="recording_duration must be positive"):
-                    video_exporter.record_replay_to_file(
-                        image_path=tmp_file.name,
-                        url_to_render="http://localhost:8000/exporter?token=test",
-                        screenshot_width=1400,
-                        wait_for_css_selector=".replayer-wrapper",
-                        screenshot_height=600,
-                        recording_duration=0,
-                    )
+                base_opts = {
+                    "image_path": tmp_file.name,
+                    "url_to_render": "http://localhost:8000/exporter?token=test",
+                    "wait_for_css_selector": ".replayer-wrapper",
+                    "recording_duration": 5,
+                    "screenshot_width": 1400,
+                    "screenshot_height": 600,
+                }
+                opts_dict = {**base_opts, **overrides}
 
-                # Test invalid dimensions
-                with pytest.raises(ValueError, match="screenshot_width must be positive"):
-                    video_exporter.record_replay_to_file(
-                        image_path=tmp_file.name,
-                        url_to_render="http://localhost:8000/exporter?token=test",
-                        screenshot_width=0,  # Intentionally invalid for testing
-                        wait_for_css_selector=".replayer-wrapper",
-                        screenshot_height=600,
-                        recording_duration=5,
-                    )
+                error_context_manager = (
+                    pytest.raises(expected_error, match=error_match) if expected_error else nullcontext()
+                )
+                with error_context_manager:
+                    RecordReplayToFileOptions(**opts_dict)
 
             finally:
                 if os.path.exists(tmp_file.name):
@@ -200,12 +227,14 @@ class TestVideoExporter(APIBaseTest):
             with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_file:
                 try:
                     video_exporter.record_replay_to_file(
-                        image_path=tmp_file.name,
-                        url_to_render="http://localhost:8000/exporter?token=test",
-                        screenshot_width=None,  # Should trigger auto-detection
-                        wait_for_css_selector=".replayer-wrapper",
-                        screenshot_height=None,  # Should trigger auto-detection
-                        recording_duration=5,
+                        RecordReplayToFileOptions(
+                            image_path=tmp_file.name,
+                            url_to_render="http://localhost:8000/exporter?token=test",
+                            wait_for_css_selector=".replayer-wrapper",
+                            recording_duration=5,
+                            screenshot_width=None,
+                            screenshot_height=None,
+                        )
                     )
 
                     # Verify detection flow was called
@@ -225,12 +254,26 @@ class TestVideoExporter(APIBaseTest):
                     if os.path.exists(tmp_file.name):
                         os.unlink(tmp_file.name)
 
+    @parameterized.expand(
+        [
+            ("landscape", 1920, 1080, 1400, 787),
+            ("portrait", 1080, 1920, 787, 1400),
+        ]
+    )
     @patch("posthog.tasks.exports.video_exporter.sync_playwright")
     @patch("posthog.tasks.exports.video_exporter.shutil.which")
-    def test_record_replay_to_file_dimension_scaling(self, mock_which: Mock, mock_playwright: Mock) -> None:
+    def test_dimension_scaling(
+        self,
+        _name: str,
+        input_width: int,
+        input_height: int,
+        expected_width: int,
+        expected_height: int,
+        mock_which: Mock,
+        mock_playwright: Mock,
+    ) -> None:
         mock_playwright_instance, mock_recording_page = self._setup_playwright_mocks(mock_playwright, mock_which)
 
-        # Mock browser context creation to capture the viewport dimensions
         mock_browser = mock_playwright_instance.chromium.launch.return_value
         mock_context = Mock()
         mock_browser.new_context.return_value = mock_context
@@ -241,74 +284,89 @@ class TestVideoExporter(APIBaseTest):
 
             with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_file:
                 try:
-                    # Test with large landscape dimensions (1920x1080 should scale to 1400x787)
                     video_exporter.record_replay_to_file(
-                        image_path=tmp_file.name,
-                        url_to_render="http://localhost:8000/exporter?token=test",
-                        screenshot_width=1920,  # Large width
-                        wait_for_css_selector=".replayer-wrapper",
-                        screenshot_height=1080,  # Proportional height
-                        recording_duration=5,
+                        RecordReplayToFileOptions(
+                            image_path=tmp_file.name,
+                            url_to_render="http://localhost:8000/exporter?token=test",
+                            wait_for_css_selector=".replayer-wrapper",
+                            recording_duration=5,
+                            screenshot_width=input_width,
+                            screenshot_height=input_height,
+                        )
                     )
 
-                    # Verify browser context was created with scaled dimensions
                     mock_browser.new_context.assert_called_once()
                     context_call = mock_browser.new_context.call_args
                     viewport = context_call[1]["viewport"]
-
-                    # Should be scaled down to fit 1400px width while maintaining aspect ratio
-                    assert viewport["width"] == 1400
-                    assert viewport["height"] == 787  # 1080 * (1400/1920) = 787.5 -> 787
-
-                    # Verify record_video_size matches viewport
                     record_video_size = context_call[1]["record_video_size"]
-                    assert record_video_size["width"] == 1400
-                    assert record_video_size["height"] == 787
+
+                    assert viewport["width"] == expected_width
+                    assert viewport["height"] == expected_height
+                    assert record_video_size["width"] == expected_width
+                    assert record_video_size["height"] == expected_height
 
                 finally:
                     if os.path.exists(tmp_file.name):
                         os.unlink(tmp_file.name)
 
+    @parameterized.expand(
+        [
+            ("user_speed_respected", ".mp4", 8, 10, "setpts=8*PTS", False),
+            ("automatic_speed_for_long_mp4", ".mp4", 1, 10, "setpts=4*PTS", False),
+            ("automatic_speed_for_long_webm", ".webm", 1, 10, "setpts=4*PTS", False),
+            ("user_speed_overrides_automatic_speedup", ".mp4", 30, 10, "setpts=30*PTS", False),
+            ("short_video_no_automatic_speedup", ".mp4", 1, 5, None, False),
+            ("short_webm_no_processing", ".webm", 1, 5, None, True),
+        ]
+    )
     @patch("posthog.tasks.exports.video_exporter.sync_playwright")
     @patch("posthog.tasks.exports.video_exporter.shutil.which")
-    def test_record_replay_to_file_portrait_dimension_scaling(self, mock_which: Mock, mock_playwright: Mock) -> None:
-        mock_playwright_instance, mock_recording_page = self._setup_playwright_mocks(mock_playwright, mock_which)
-
-        # Mock browser context creation to capture the viewport dimensions
-        mock_browser = mock_playwright_instance.chromium.launch.return_value
-        mock_context = Mock()
-        mock_browser.new_context.return_value = mock_context
-        mock_context.new_page.return_value = mock_recording_page
+    def test_playback_speed_behavior(
+        self,
+        _name: str,
+        file_ext: str,
+        playback_speed: int,
+        duration: int,
+        expected_ffmpeg_arg: str | None,
+        uses_move: bool,
+        mock_which: Mock,
+        mock_playwright: Mock,
+    ) -> None:
+        self._setup_playwright_mocks(mock_playwright, mock_which)
 
         with patch("posthog.tasks.exports.video_exporter.subprocess.run") as mock_subprocess:
             mock_subprocess.return_value = Mock(returncode=0)
 
-            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_file:
-                try:
-                    # Test with large portrait dimensions (1080x1920 should scale to 787x1400)
-                    video_exporter.record_replay_to_file(
-                        image_path=tmp_file.name,
-                        url_to_render="http://localhost:8000/exporter?token=test",
-                        screenshot_width=1080,  # Width smaller than height
-                        wait_for_css_selector=".replayer-wrapper",
-                        screenshot_height=1920,  # Large height
-                        recording_duration=5,
-                    )
+            with patch("posthog.tasks.exports.video_exporter.shutil.move") as mock_move:
+                with tempfile.NamedTemporaryFile(suffix=file_ext, delete=False) as tmp_file:
+                    try:
+                        video_exporter.record_replay_to_file(
+                            RecordReplayToFileOptions(
+                                image_path=tmp_file.name,
+                                url_to_render=f"http://localhost:8000/exporter?token=test&playerSpeed={playback_speed}",
+                                wait_for_css_selector=".replayer-wrapper",
+                                recording_duration=duration,
+                                screenshot_width=1400,
+                                screenshot_height=600,
+                                playback_speed=playback_speed,
+                            )
+                        )
 
-                    # Verify browser context was created with scaled dimensions
-                    mock_browser.new_context.assert_called_once()
-                    context_call = mock_browser.new_context.call_args
-                    viewport = context_call[1]["viewport"]
+                        if uses_move:
+                            mock_move.assert_called_once()
+                            mock_subprocess.assert_not_called()
+                        else:
+                            ffmpeg_args = mock_subprocess.call_args[0][0]
+                            args_str = " ".join(str(arg) for arg in ffmpeg_args)
 
-                    # Should be scaled down to fit 1400px height while maintaining aspect ratio
-                    assert viewport["width"] == 787  # 1080 * (1400/1920) = 787.5 -> 787
-                    assert viewport["height"] == 1400
+                            if expected_ffmpeg_arg:
+                                assert expected_ffmpeg_arg in args_str
+                            else:
+                                assert "setpts=" not in " ".join(str(arg) for arg in ffmpeg_args)
 
-                    # Verify record_video_size matches viewport
-                    record_video_size = context_call[1]["record_video_size"]
-                    assert record_video_size["width"] == 787
-                    assert record_video_size["height"] == 1400
+                            if file_ext == ".webm":
+                                assert "libvpx-vp9" in args_str
 
-                finally:
-                    if os.path.exists(tmp_file.name):
-                        os.unlink(tmp_file.name)
+                    finally:
+                        if os.path.exists(tmp_file.name):
+                            os.unlink(tmp_file.name)

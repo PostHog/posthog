@@ -4,17 +4,15 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { PaginatedResponse } from 'lib/api'
+import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { DatabaseSchemaViewTable } from '~/queries/schema/schema-general'
-import { DataModelingJob, DataWarehouseSavedQuery } from '~/types'
+import { DataWarehouseSavedQuery } from '~/types'
 
 import type { dataWarehouseViewsLogicType } from './dataWarehouseViewsLogicType'
-
-const REFRESH_INTERVAL = 10000
-const DEFAULT_JOBS_PAGE_SIZE = 10
 
 export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
     path(['scenes', 'warehouse', 'dataWarehouseSavedQueriesLogic']),
@@ -38,30 +36,12 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 updateDataWarehouseSavedQueryFailure: () => false,
             },
         ],
-        startingMaterialization: [
-            false,
-            {
-                setStartingMaterialization: (_, { starting }) => starting,
-                loadDataModelingJobsSuccess: (state, { dataModelingJobs }) => {
-                    const currentJobStatus = dataModelingJobs?.results?.[0]?.status
-                    if (
-                        currentJobStatus &&
-                        ['Running', 'Completed', 'Failed', 'Cancelled'].includes(currentJobStatus)
-                    ) {
-                        return false
-                    }
-                    return state
-                },
-            },
-        ],
     }),
     actions({
         runDataWarehouseSavedQuery: (viewId: string) => ({ viewId }),
         cancelDataWarehouseSavedQuery: (viewId: string) => ({ viewId }),
+        materializeDataWarehouseSavedQuery: (viewId: string) => ({ viewId }),
         revertMaterialization: (viewId: string) => ({ viewId }),
-        loadOlderDataModelingJobs: () => {},
-        resetDataModelingJobs: () => {},
-        setStartingMaterialization: (starting: boolean) => ({ starting }),
     }),
     loaders(({ values }) => ({
         dataWarehouseSavedQueries: [
@@ -77,6 +57,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     const newView = await api.dataWarehouseSavedQueries.create(view)
 
                     lemonToast.success(`${newView.name ?? 'View'} successfully created`)
+                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateSavedView)
 
                     return [...values.dataWarehouseSavedQueries, newView]
                 },
@@ -104,47 +85,10 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 },
             },
         ],
-        dataModelingJobs: [
-            null as PaginatedResponse<DataModelingJob> | null,
-            {
-                loadDataModelingJobs: async (savedQueryId: string) => {
-                    return await api.dataWarehouseSavedQueries.dataWarehouseDataModelingJobs.list(
-                        savedQueryId,
-                        values.dataModelingJobs?.results.length
-                            ? Math.max(values.dataModelingJobs?.results.length, DEFAULT_JOBS_PAGE_SIZE)
-                            : DEFAULT_JOBS_PAGE_SIZE,
-                        0
-                    )
-                },
-                loadOlderDataModelingJobs: async () => {
-                    const nextUrl = values.dataModelingJobs?.next
-
-                    if (!nextUrl) {
-                        return values.dataModelingJobs
-                    }
-
-                    const res = await api.get<PaginatedResponse<DataModelingJob>>(nextUrl)
-                    res.results = [...(values.dataModelingJobs?.results ?? []), ...res.results]
-
-                    return res
-                },
-                resetDataModelingJobs: () => null,
-            },
-        ],
     })),
-    listeners(({ actions, cache }) => ({
+    listeners(({ actions }) => ({
         createDataWarehouseSavedQuerySuccess: () => {
             actions.loadDatabase()
-        },
-        loadDataModelingJobsSuccess: ({ payload }) => {
-            cache.disposables.add(() => {
-                const timeoutId = setTimeout(() => {
-                    if (payload) {
-                        actions.loadDataModelingJobs(payload)
-                    }
-                }, REFRESH_INTERVAL)
-                return () => clearTimeout(timeoutId)
-            }, 'dataModelingJobsRefreshTimeout')
         },
         updateDataWarehouseSavedQuerySuccess: ({ payload }) => {
             // in the case where we are scheduling a materialized view, send an event
@@ -160,9 +104,14 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             }
 
             actions.loadDatabase()
+
+            // Toast is handled by dataWarehouseSettingsSceneLogic when needed
         },
         updateDataWarehouseSavedQueryError: () => {
             lemonToast.error('Failed to update view')
+        },
+        deleteDataWarehouseSavedQuerySuccess: () => {
+            lemonToast.success('View deleted')
         },
         runDataWarehouseSavedQuery: async ({ viewId }) => {
             try {
@@ -180,6 +129,19 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 actions.loadDataWarehouseSavedQueries()
             } catch {
                 lemonToast.error(`Failed to cancel materialization`)
+            }
+        },
+        materializeDataWarehouseSavedQuery: async ({ viewId }) => {
+            try {
+                await api.dataWarehouseSavedQueries.materialize(viewId)
+                lemonToast.success('View materialized successfully')
+                posthog.capture('materialized view created', {
+                    sync_frequency: '24hour',
+                })
+                actions.loadDataWarehouseSavedQueries()
+                actions.loadDatabase()
+            } catch {
+                lemonToast.error(`Failed to materialize view`)
             }
         },
         revertMaterialization: async ({ viewId }) => {
@@ -243,7 +205,6 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 )
             },
         ],
-        hasMoreJobsToLoad: [(s) => [s.dataModelingJobs], (dataModelingJobs) => !!dataModelingJobs?.next],
     }),
     events(({ actions }) => ({
         afterMount: () => {

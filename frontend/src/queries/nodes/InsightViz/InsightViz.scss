@@ -49,7 +49,6 @@
     .NotebookNode &,
     .InsightCard &,
     .ExportedInsight &,
-    .ErrorTracking__breakdowns &,
     .WebAnalyticsDashboard & {
         flex: 1;
         height: 100%;
@@ -177,11 +176,15 @@
     width: 100%;
 
     &--type-steps-vertical,
+    &--type-steps-flow,
     &--type-time_to_convert,
     &--type-trends {
         min-height: var(--insight-viz-min-height);
 
-        .NotebookNode &,
+        .NotebookNode & {
+            min-height: 0;
+        }
+
         .InsightCard &,
         .ExportedInsight &,
         .WebAnalyticsDashboard & {
@@ -197,5 +200,30 @@
 
     .LemonIcon {
         color: var(--color-bg-surface-primary);
+    }
+}
+
+.ErrorTracking__breakdowns,
+.ErrorTracking__insights {
+    .InsightViz {
+        height: 100%;
+    }
+
+    .InsightVizDisplay {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+    }
+
+    .InsightVizDisplay__content {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-height: 0;
+    }
+
+    .TrendsInsight {
+        flex: 1;
+        min-height: 0;
     }
 }

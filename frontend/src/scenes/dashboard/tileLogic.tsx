@@ -17,9 +17,14 @@ export const tileLogic = kea<tileLogicType>([
     key((p: TileLogicProps) => `${p.dashboardId}:${p.tileId}`),
 
     actions(() => ({
-        setDates: (date_from: string | null | undefined, date_to: string | null | undefined) => ({
+        setDates: (
+            date_from: string | null | undefined,
+            date_to: string | null | undefined,
+            explicitDate?: boolean
+        ) => ({
             date_from,
             date_to,
+            explicitDate,
         }),
         setProperties: (properties: AnyPropertyFilter[] | null | undefined) => ({ properties }),
         setBreakdown: (breakdown_filter: BreakdownFilter | null | undefined) => ({ breakdown_filter }),
@@ -30,7 +35,7 @@ export const tileLogic = kea<tileLogicType>([
         overrides: [
             (props.filtersOverrides ?? {}) as TileFilters,
             {
-                setDates: (state, { date_from, date_to }) => {
+                setDates: (state, { date_from, date_to, explicitDate }) => {
                     const newState = { ...state }
                     if (date_from !== undefined && date_from !== null) {
                         newState.date_from = date_from
@@ -41,6 +46,11 @@ export const tileLogic = kea<tileLogicType>([
                         newState.date_to = date_to
                     } else {
                         delete newState.date_to
+                    }
+                    if (explicitDate !== undefined) {
+                        newState.explicitDate = explicitDate
+                    } else {
+                        delete newState.explicitDate
                     }
                     return newState
                 },

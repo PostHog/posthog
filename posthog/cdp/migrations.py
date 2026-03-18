@@ -133,6 +133,7 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
         if not test_mode:
             print("Disabling old plugins")  # noqa: T201
             # Disable the old plugins
+            # nosemgrep: idor-lookup-without-team (internal migration; IDs from prior team-scoped query)
             PluginConfig.objects.filter(id__in=[plugin_config["id"] for plugin_config in legacy_plugins]).update(
                 enabled=False
             )
@@ -171,6 +172,7 @@ def migrate_legacy_plugins(
 
     for i in range(0, len(legacy_plugin_ids), batch_size):
         batch = legacy_plugin_ids[i : i + batch_size]
+        # nosemgrep: idor-lookup-without-team (internal migration; IDs from prior team-scoped query)
         legacy_plugins = PluginConfig.objects.values(
             "id",
             "config",

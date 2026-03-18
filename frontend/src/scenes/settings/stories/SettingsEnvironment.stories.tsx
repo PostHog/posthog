@@ -4,7 +4,7 @@ import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -24,7 +24,7 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-05-25',
-        featureFlags: Object.values(FEATURE_FLAGS),
+        featureFlags: STORYBOOK_FEATURE_FLAGS,
     },
     decorators: [
         mswDecorator({
@@ -43,6 +43,11 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                 '/api/environments/:id/batch_exports': { results: [] },
                 '/api/environments/:id/default_evaluation_tags/': {
                     default_evaluation_tags: [],
+                    enabled: false,
+                },
+                '/api/environments/:id/default_evaluation_contexts/': {
+                    default_evaluation_contexts: [],
+                    available_contexts: [],
                     enabled: false,
                 },
             },
@@ -70,8 +75,14 @@ const Template: StoryFn<StoryProps> = ({ sectionId }) => {
 export const SettingsEnvironmentDetails: Story = Template.bind({})
 SettingsEnvironmentDetails.args = { sectionId: 'environment-details' }
 
+export const SettingsEnvironmentCustomization: Story = Template.bind({})
+SettingsEnvironmentCustomization.args = { sectionId: 'environment-customization' }
+
 export const SettingsEnvironmentAutocapture: Story = Template.bind({})
 SettingsEnvironmentAutocapture.args = { sectionId: 'environment-autocapture' }
+
+export const SettingsEnvironmentHeatmaps: Story = Template.bind({})
+SettingsEnvironmentHeatmaps.args = { sectionId: 'environment-heatmaps' }
 
 export const SettingsEnvironmentProductAnalytics: Story = Template.bind({})
 SettingsEnvironmentProductAnalytics.args = { sectionId: 'environment-product-analytics' }
@@ -81,6 +92,9 @@ SettingsEnvironmentRevenueAnalytics.args = { sectionId: 'environment-revenue-ana
 
 export const SettingsEnvironmentMarketingAnalytics: Story = Template.bind({})
 SettingsEnvironmentMarketingAnalytics.args = { sectionId: 'environment-marketing-analytics' }
+SettingsEnvironmentMarketingAnalytics.parameters = {
+    featureFlags: [...STORYBOOK_FEATURE_FLAGS, 'advance-marketing-analytics-settings'],
+}
 
 export const SettingsEnvironmentWebAnalytics: Story = Template.bind({})
 SettingsEnvironmentWebAnalytics.args = { sectionId: 'environment-web-analytics' }
@@ -99,6 +113,9 @@ SettingsEnvironmentErrorTracking.args = { sectionId: 'environment-error-tracking
 
 export const SettingsEnvironmentCSPReporting: Story = Template.bind({})
 SettingsEnvironmentCSPReporting.args = { sectionId: 'environment-csp-reporting' }
+
+export const SettingsEnvironmentPrivacy: Story = Template.bind({})
+SettingsEnvironmentPrivacy.args = { sectionId: 'environment-privacy' }
 
 export const SettingsEnvironmentMax: Story = Template.bind({})
 SettingsEnvironmentMax.args = { sectionId: 'environment-max' }

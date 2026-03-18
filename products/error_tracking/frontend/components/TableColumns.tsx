@@ -1,20 +1,23 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
-import { IconChevronDown, IconMinus } from '@posthog/icons'
+import { IconChevronDown, IconChevronRight, IconMinus } from '@posthog/icons'
 import { LemonCheckbox, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconChevronRight } from 'lib/lemon-ui/icons'
+import { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { ErrorTrackingCorrelatedIssue, ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { bulkSelectLogic } from '../logics/bulkSelectLogic'
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
+import { sourceDisplay } from '../utils'
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from './Assignee/AssigneeDisplay'
 import { AssigneeSelect } from './Assignee/AssigneeSelect'
 import { issueActionsLogic } from './IssueActions/issueActionsLogic'
+import { issueFiltersLogic, updateFilterSearchParams } from './IssueFilters/issueFiltersLogic'
 import { IssueStatusSelect } from './IssueStatusSelect'
 import { RuntimeIcon } from './RuntimeIcon'
 
@@ -46,6 +49,7 @@ export const IssueListTitleColumn = <T extends ErrorTrackingIssue | ErrorTrackin
     const { selectedIssueIds, shiftKeyHeld, previouslyCheckedRecordIndex } = useValues(bulkSelectLogic)
     const { setSelectedIssueIds, setPreviouslyCheckedRecordIndex } = useActions(bulkSelectLogic)
     const { updateIssueAssignee, updateIssueStatus } = useActions(issueActionsLogic)
+    const { dateRange, filterGroup, filterTestAccounts, searchQuery } = useValues(issueFiltersLogic)
 
     const record = props.record as ErrorTrackingIssue
     const checked = selectedIssueIds.includes(record.id)
@@ -71,6 +75,16 @@ export const IssueListTitleColumn = <T extends ErrorTrackingIssue | ErrorTrackin
         )
     }
 
+    const issueUrl = useMemo(() => {
+        const params: Params = {}
+        // We want to keep params in sync between listing and details views
+        updateFilterSearchParams(params, { dateRange, filterGroup, filterTestAccounts, searchQuery })
+        return urls.errorTrackingIssue(record.id, {
+            timestamp: record.last_seen,
+            ...params,
+        })
+    }, [dateRange, filterGroup, filterTestAccounts, searchQuery, record.last_seen, record.id])
+
     return (
         <div className="flex items-start gap-x-2 group my-1">
             <LemonCheckbox className="h-[1rem]" checked={checked} onChange={onChange} />
@@ -78,7 +92,7 @@ export const IssueListTitleColumn = <T extends ErrorTrackingIssue | ErrorTrackin
             <div className="flex flex-col gap-[3px]">
                 <Link
                     className="flex-1 pr-12"
-                    to={urls.errorTrackingIssue(record.id, { timestamp: record.last_seen })}
+                    to={issueUrl}
                     onClick={() => {
                         const issueLogic = errorTrackingIssueSceneLogic({ id: record.id, timestamp: record.last_seen })
                         issueLogic.mount()
@@ -95,12 +109,16 @@ export const IssueListTitleColumn = <T extends ErrorTrackingIssue | ErrorTrackin
                 <div title={record.description || undefined} className="font-medium line-clamp-1 text-[var(--gray-8)]">
                     {record.description}
                 </div>
+                <div className="line-clamp-1 text-[var(--gray-8)] italic">
+                    {record.function}
+                    {record.source ? <> in {sourceDisplay(record.source)}</> : <></>}
+                </div>
                 <div className="flex items-center text-secondary">
                     <IssueStatusSelect
                         status={record.status}
                         onChange={(status) => updateIssueStatus(record.id, status)}
                     />
-                    <CustomGroupSeparator />
+                    <CustomSeparator />
                     <AssigneeSelect
                         assignee={record.assignee}
                         onChange={(assignee) => updateIssueAssignee(record.id, assignee)}
@@ -120,7 +138,7 @@ export const IssueListTitleColumn = <T extends ErrorTrackingIssue | ErrorTrackin
                             </div>
                         )}
                     </AssigneeSelect>
-                    <CustomGroupSeparator />
+                    <CustomSeparator />
                     <TZLabel time={record.first_seen} className="border-dotted border-b text-xs ml-1" delayMs={750} />
                     <IconChevronRight className="text-quaternary mx-1" />
                     {record.last_seen ? (
@@ -134,4 +152,4 @@ export const IssueListTitleColumn = <T extends ErrorTrackingIssue | ErrorTrackin
     )
 }
 
-const CustomGroupSeparator = (): JSX.Element => <IconMinus className="text-quaternary rotate-90" />
+export const CustomSeparator = (): JSX.Element => <IconMinus className="text-quaternary rotate-90" />

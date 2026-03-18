@@ -1,0 +1,493 @@
+{
+    "uuid": "0195c752-9a1f-7bec-9d57-9ccaaclkklkj",
+    "event": "$exception",
+    "properties": {
+        "$exception_list": [
+            {
+                "id": "019aca26-2cd4-7473-9e88-7367a8aca2b7",
+                "type": "c",
+                "value": "Something went wrong",
+                "mechanism": {
+                    "handled": true,
+                    "type": "generic",
+                    "synthetic": false
+                },
+                "module": "a1",
+                "thread_id": 2,
+                "stacktrace": {
+                    "type": "resolved",
+                    "frames": [
+                        {
+                            "raw_id": "566d84a7993e4e8694d362e7fcfb93d0bef411de9f8e2544bd5408e65b133ef4eeed6e931d0e7efa2f98bde222518bfa2aa2ca36c932ef211cde64932d9072ba/0",
+                            "mangled_name": "onClick",
+                            "line": 3,
+                            "source": "MyCustomException.kt",
+                            "module": "com.posthog.android.sample.MyCustomException",
+                            "in_app": false,
+                            "resolved_name": "<init>",
+                            "lang": "java",
+                            "resolved": true,
+                            "synthetic": false,
+                            "suspicious": false,
+                            "junk_drawer": {
+                                "raw_frame": {
+                                    "filename": "SourceFile",
+                                    "function": "onClick",
+                                    "in_app": false,
+                                    "lineno": 14,
+                                    "map_id": "4eb981e7-d980-3b8f-b6a0-50038f73a0c1",
+                                    "method_synthetic": false,
+                                    "module": "a1.d",
+                                    "synthetic": false
+                                }
+                            }
+                        },
+                        {
+                            "raw_id": "566d84a7993e4e8694d362e7fcfb93d0bef411de9f8e2544bd5408e65b133ef4eeed6e931d0e7efa2f98bde222518bfa2aa2ca36c932ef211cde64932d9072ba/1",
+                            "mangled_name": "onClick",
+                            "line": 8,
+                            "source": "DoSomething.kt",
+                            "module": "com.posthog.android.sample.DoSomething",
+                            "in_app": false,
+                            "resolved_name": "doSomethingNow",
+                            "lang": "java",
+                            "resolved": true,
+                            "synthetic": false,
+                            "suspicious": false,
+                            "junk_drawer": {
+                                "raw_frame": {
+                                    "filename": "SourceFile",
+                                    "function": "onClick",
+                                    "in_app": false,
+                                    "lineno": 14,
+                                    "map_id": "4eb981e7-d980-3b8f-b6a0-50038f73a0c1",
+                                    "method_synthetic": false,
+                                    "module": "a1.d",
+                                    "synthetic": false
+                                }
+                            }
+                        },
+                        {
+                            "raw_id": "566d84a7993e4e8694d362e7fcfb93d0bef411de9f8e2544bd5408e65b133ef4eeed6e931d0e7efa2f98bde222518bfa2aa2ca36c932ef211cde64932d9072ba/2",
+                            "mangled_name": "onClick",
+                            "line": 47,
+                            "source": "NormalActivity.kt",
+                            "module": "com.posthog.android.sample.NormalActivity",
+                            "in_app": false,
+                            "resolved_name": "onCreate$lambda$3",
+                            "lang": "java",
+                            "resolved": true,
+                            "synthetic": false,
+                            "suspicious": false,
+                            "junk_drawer": {
+                                "raw_frame": {
+                                    "filename": "SourceFile",
+                                    "function": "onClick",
+                                    "in_app": false,
+                                    "lineno": 14,
+                                    "map_id": "4eb981e7-d980-3b8f-b6a0-50038f73a0c1",
+                                    "method_synthetic": false,
+                                    "module": "a1.d",
+                                    "synthetic": false
+                                }
+                            }
+                        },
+                        {
+                            "raw_id": "566d84a7993e4e8694d362e7fcfb93d0bef411de9f8e2544bd5408e65b133ef4eeed6e931d0e7efa2f98bde222518bfa2aa2ca36c932ef211cde64932d9072ba/3",
+                            "mangled_name": "onClick",
+                            "line": 0,
+                            "module": "com.posthog.android.sample.NormalActivity$$InternalSyntheticLambda$1$bea1b6b256e56e30625eaffa6860fa0b42a6fe15ee15a3ea5ad83f4b464e3deb$0",
+                            "in_app": false,
+                            "resolved_name": "onClick",
+                            "lang": "java",
+                            "resolved": true,
+                            "synthetic": false,
+                            "suspicious": false,
+                            "junk_drawer": {
+                                "raw_frame": {
+                                    "filename": "SourceFile",
+                                    "function": "onClick",
+                                    "in_app": false,
+                                    "lineno": 14,
+                                    "map_id": "4eb981e7-d980-3b8f-b6a0-50038f73a0c1",
+                                    "method_synthetic": false,
+                                    "module": "a1.d",
+                                    "synthetic": false
+                                }
+                            }
+                        },
+                        {
+                            "raw_id": "8058eb400ff53396bedf8e40df7cb1823463515776f32573ed29cbdd7d14eeebb1bf77fd0eb551f769c124027319d1490a62ce143cb8a21de04162f73c0d5006/0",
+                            "mangled_name": "performClick",
+                            "line": 8028,
+                            "source": "View.java",
+                            "module": "android.view.View",
+                            "in_app": false,
+                            "lang": "java",
+                            "resolved": false,
+                            "resolve_failure": "No original frames could be derived from this raw frame",
+                            "synthetic": false,
+                            "suspicious": false,
+                            "junk_drawer": {
+                                "raw_frame": {
+                                    "filename": "View.java",
+                                    "function": "performClick",
+                                    "in_app": false,
+                                    "lineno": 8028,
+                                    "map_id": "4eb981e7-d980-3b8f-b6a0-50038f73a0c1",
+                                    "method_synthetic": false,
+                                    "module": "android.view.View",
+                                    "synthetic": false
+                                }
+                            }
+                        },
+                        {
+                            "raw_id": "031dffe95682148bbf9a2210f6a957ce73a1eb33767ddddcf7a41260b6a583cea41c5e1af6e6891da5e7d5eef8405fc9403a83f1a1f141f236572f377d826e46/0",
+                            "mangled_name": "performClickInternal",
+                            "line": 8005,
+                            "source": "View.java",
+                            "module": "android.view.View",
+                            "in_app": false,
+                            "lang": "java",
+                            "resolved": false,
+                            "resolve_failure": "No original frames could be derived from this raw frame",
+                            "synthetic": false,
+                            "suspicious": false,
+                            "junk_drawer": {
+                                "raw_frame": {
+                                    "filename": "View.java",
+                                    "function": "performClickInternal",
+                                    "in_app": false,
+                                    "lineno": 8005,
+                                    "map_id": "4eb981e7-d980-3b8f-b6a0-50038f73a0c1",
+                                    "method_synthetic": false,
+                                    "module": "android.view.View",
+                                    "synthetic": false
+                                }
+                            }
+                        },
+                        {
+                            "raw_id": "bec39667d0e4672fa2ddb7e66aa907e42882b6aa94f60d5bd934498084831a908c6e69337b7440842968e50e65f99d9ac05e25023951b0a8c2a7ca2f119b6f5e/0",
+                            "mangled_name": "-$$Nest$mperformClickInternal",
+                            "line": 0,
+                            "module": "android.view.View",
+                            "in_app": false,
+                            "lang": "java",
+                            "resolved": false,
+                            "resolve_failure": "No original frames could be derived from this raw frame",
+                            "synthetic": false,
+                            "suspicious": false,
+                            "junk_drawer": {
+                                "raw_frame": {
+                                    "filename": null,
+                                    "function": "-$$Nest$mperformClickInternal",
+                                    "in_app": false,
+                                    "lineno": 0,
+                                    "map_id": "4eb981e7-d980-3b8f-b6a0-50038f73a0c1",
+                                    "method_synthetic": false,
+                                    "module": "android.view.View",
+                                    "synthetic": false
+                                }
+                            }
+                        },
+                        {
+                            "raw_id": "f0c610f1b734c4f8dc6742d62daaac90871a9195470f3466b016a49fe7e557b8f9c809030ef2cf201725652f597c38d125213c02bbf5b9c13f4e1f0292c0e2e0/0",
+                            "mangled_name": "run",
+                            "line": 31229,
+                            "source": "View.java",
+                            "module": "android.view.View$PerformClick",
+                            "in_app": false,
+                            "lang": "java",
+                            "resolved": false,
+                            "resolve_failure": "No original frames could be derived from this raw frame",
+                            "synthetic": false,
+                            "suspicious": false,
+                            "junk_drawer": {
+                                "raw_frame": {
+                                    "filename": "View.java",
+                                    "function": "run",
+                                    "in_app": false,
+                                    "lineno": 31229,
+                                    "map_id": "4eb981e7-d980-3b8f-b6a0-50038f73a0c1",
+                                    "method_synthetic": false,
+                                    "module": "android.view.View$PerformClick",
+                                    "synthetic": false
+                                }
+                            }
+                        },
+                        {
+                            "raw_id": "fb295ed67eb538280bf54b845c610f16d4a4fdad0e7c9c7d0d488ea8f1df8f5342e0b10f0478fbc520defce15d2178dd5fd2d9ec9a4709d928df6677c6c068e5/0",
+                            "mangled_name": "handleCallback",
+                            "line": 959,
+                            "source": "Handler.java",
+                            "module": "android.os.Handler",
+                            "in_app": false,
+                            "lang": "java",
+                            "resolved": false,
+                            "resolve_failure": "No original frames could be derived from this raw frame",
+                            "synthetic": false,
+                            "suspicious": false,
+                            "junk_drawer": {
+                                "raw_frame": {
+                                    "filename": "Handler.java",
+                                    "function": "handleCallback",
+                                    "in_app": false,
+                                    "lineno": 959,
+                                    "map_id": "4eb981e7-d980-3b8f-b6a0-50038f73a0c1",
+                                    "method_synthetic": false,
+                                    "module": "android.os.Handler",
+                                    "synthetic": false
+                                }
+                            }
+                        },
+                        {
+                            "raw_id": "125284d92c593c0cefe6f1012832c1c258afd443095a1edf75e80591ea4eb504b8fcf99d23de7dfae67f3860ff9f6c0c1d57c268244f7a935abc3a255a19932b/0",
+                            "mangled_name": "dispatchMessage",
+                            "line": 100,
+                            "source": "Handler.java",
+                            "module": "android.os.Handler",
+                            "in_app": false,
+                            "lang": "java",
+                            "resolved": false,
+                            "resolve_failure": "No original frames could be derived from this raw frame",
+                            "synthetic": false,
+                            "suspicious": false,
+                            "junk_drawer": {
+                                "raw_frame": {
+                                    "filename": "Handler.java",
+                                    "function": "dispatchMessage",
+                                    "in_app": false,
+                                    "lineno": 100,
+                                    "map_id": "4eb981e7-d980-3b8f-b6a0-50038f73a0c1",
+                                    "method_synthetic": false,
+                                    "module": "android.os.Handler",
+                                    "synthetic": false
+                                }
+                            }
+                        },
+                        {
+                            "raw_id": "c7af8e82387d2bda594f20214ef88f4455aa43b68d452f7dbc972b1244e8b2d02c5792d700e6733137bcce9e0da3e08906115656c066fdc332274ede0e09aae1/0",
+                            "mangled_name": "loopOnce",
+                            "line": 232,
+                            "source": "Looper.java",
+                            "module": "android.os.Looper",
+                            "in_app": false,
+                            "lang": "java",
+                            "resolved": false,
+                            "resolve_failure": "No original frames could be derived from this raw frame",
+                            "synthetic": false,
+                            "suspicious": false,
+                            "junk_drawer": {
+                                "raw_frame": {
+                                    "filename": "Looper.java",
+                                    "function": "loopOnce",
+                                    "in_app": false,
+                                    "lineno": 232,
+                                    "map_id": "4eb981e7-d980-3b8f-b6a0-50038f73a0c1",
+                                    "method_synthetic": false,
+                                    "module": "android.os.Looper",
+                                    "synthetic": false
+                                }
+                            }
+                        },
+                        {
+                            "raw_id": "0d5bdeb18c11daf402bf4e6dbae378abd535b46baa973d79580b88d597834d4e1773a680c84865affc1587ca8b2e4764b1607758e109dd77d1752b4d9c52631e/0",
+                            "mangled_name": "loop",
+                            "line": 317,
+                            "source": "Looper.java",
+                            "module": "android.os.Looper",
+                            "in_app": false,
+                            "lang": "java",
+                            "resolved": false,
+                            "resolve_failure": "No original frames could be derived from this raw frame",
+                            "synthetic": false,
+                            "suspicious": false,
+                            "junk_drawer": {
+                                "raw_frame": {
+                                    "filename": "Looper.java",
+                                    "function": "loop",
+                                    "in_app": false,
+                                    "lineno": 317,
+                                    "map_id": "4eb981e7-d980-3b8f-b6a0-50038f73a0c1",
+                                    "method_synthetic": false,
+                                    "module": "android.os.Looper",
+                                    "synthetic": false
+                                }
+                            }
+                        },
+                        {
+                            "raw_id": "e1a13da1645dbf562823ac498350d309b71fff6ee2c14c840770900a1f2c8c7fae5ca709855b8db2d8ff02fcd8c301180e3d4ca991b72e338420b160a0fd6019/0",
+                            "mangled_name": "main",
+                            "line": 8705,
+                            "source": "ActivityThread.java",
+                            "module": "android.app.ActivityThread",
+                            "in_app": false,
+                            "lang": "java",
+                            "resolved": false,
+                            "resolve_failure": "No original frames could be derived from this raw frame",
+                            "synthetic": false,
+                            "suspicious": false,
+                            "junk_drawer": {
+                                "raw_frame": {
+                                    "filename": "ActivityThread.java",
+                                    "function": "main",
+                                    "in_app": false,
+                                    "lineno": 8705,
+                                    "map_id": "4eb981e7-d980-3b8f-b6a0-50038f73a0c1",
+                                    "method_synthetic": false,
+                                    "module": "android.app.ActivityThread",
+                                    "synthetic": false
+                                }
+                            }
+                        },
+                        {
+                            "raw_id": "84a729eb98c7813bf9e62aa5c6e07758e36805c209e2b48151be0711bab888c88324ade0527e00aa6f31d602f633392e681d150d0c0f33eee8fc7a2bafbe880c/0",
+                            "mangled_name": "invoke",
+                            "source": "Method.java",
+                            "module": "java.lang.reflect.Method",
+                            "in_app": false,
+                            "lang": "java",
+                            "resolved": false,
+                            "resolve_failure": "No original frames could be derived from this raw frame",
+                            "synthetic": false,
+                            "suspicious": false,
+                            "junk_drawer": {
+                                "raw_frame": {
+                                    "filename": "Method.java",
+                                    "function": "invoke",
+                                    "in_app": false,
+                                    "lineno": null,
+                                    "map_id": "4eb981e7-d980-3b8f-b6a0-50038f73a0c1",
+                                    "method_synthetic": false,
+                                    "module": "java.lang.reflect.Method",
+                                    "synthetic": false
+                                }
+                            }
+                        },
+                        {
+                            "raw_id": "2e7cb3fea8ffcc62c923e313df009fece34fb9cf4fd2d1f6fc096c0a58fa5c41e35e2680c67807f6ab73a74b861885e15f739cba840a9a30cdbed7a576f65ed3/0",
+                            "mangled_name": "run",
+                            "line": 580,
+                            "source": "RuntimeInit.java",
+                            "module": "com.android.internal.os.RuntimeInit$MethodAndArgsCaller",
+                            "in_app": false,
+                            "lang": "java",
+                            "resolved": false,
+                            "resolve_failure": "No original frames could be derived from this raw frame",
+                            "synthetic": false,
+                            "suspicious": false,
+                            "junk_drawer": {
+                                "raw_frame": {
+                                    "filename": "RuntimeInit.java",
+                                    "function": "run",
+                                    "in_app": false,
+                                    "lineno": 580,
+                                    "map_id": "4eb981e7-d980-3b8f-b6a0-50038f73a0c1",
+                                    "method_synthetic": false,
+                                    "module": "com.android.internal.os.RuntimeInit$MethodAndArgsCaller",
+                                    "synthetic": false
+                                }
+                            }
+                        },
+                        {
+                            "raw_id": "6002a6be7793a3ef547f5a427650aea1d77812c1cf196d0d4fbd3d171e9bfbe1ea5333adcbbfa8a98622533059894504c17c429d3072ab5f682e8d85a3d37df8/0",
+                            "mangled_name": "main",
+                            "line": 886,
+                            "source": "ZygoteInit.java",
+                            "module": "com.android.internal.os.ZygoteInit",
+                            "in_app": false,
+                            "lang": "java",
+                            "resolved": false,
+                            "resolve_failure": "No original frames could be derived from this raw frame",
+                            "synthetic": false,
+                            "suspicious": false,
+                            "junk_drawer": {
+                                "raw_frame": {
+                                    "filename": "ZygoteInit.java",
+                                    "function": "main",
+                                    "in_app": false,
+                                    "lineno": 886,
+                                    "map_id": "4eb981e7-d980-3b8f-b6a0-50038f73a0c1",
+                                    "method_synthetic": false,
+                                    "module": "com.android.internal.os.ZygoteInit",
+                                    "synthetic": false
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+        ],
+        "$exception_fingerprint": "bdb580cfbc56f3564558f2a2b5e84768eee14bc55a29f2b51f0461051f87b411b16e5bb5e861b58e51698d1ca978431be49a6976c53398aeb9e596d6aaf685dc",
+        "$exception_proposed_fingerprint": "bdb580cfbc56f3564558f2a2b5e84768eee14bc55a29f2b51f0461051f87b411b16e5bb5e861b58e51698d1ca978431be49a6976c53398aeb9e596d6aaf685dc",
+        "$exception_fingerprint_record": [
+            {
+                "type": "exception",
+                "id": "019aca26-2cd4-7473-9e88-7367a8aca2b7",
+                "pieces": ["Exception Type"]
+            },
+            {
+                "type": "frame",
+                "raw_id": "566d84a7993e4e8694d362e7fcfb93d0bef411de9f8e2544bd5408e65b133ef4eeed6e931d0e7efa2f98bde222518bfa2aa2ca36c932ef211cde64932d9072ba/0",
+                "pieces": ["Source file name", "Module name", "Resolved function name"]
+            }
+        ],
+        "$exception_issue_id": "019a542b-6e9d-7a12-a112-ea3463230ff6",
+        "$geoip_postal_code": "1110",
+        "$is_emulator": true,
+        "$os_name": "Android",
+        "$geoip_country_code": "AT",
+        "$network_carrier": "T-Mobile",
+        "$device_manufacturer": "Google",
+        "$session_id": "019aca26-0a47-776c-baa2-0afbec3ec7bb",
+        "my-custom-error": true,
+        "$lib_version": "3.26.0",
+        "$user_agent": "Dalvik/2.1.0 (Linux; U; Android 15; sdk_gphone16k_arm64 Build/AE3A.240806.041)",
+        "$geoip_continent_code": "EU",
+        "$os_version": "15",
+        "$geoip_country_name": "Austria",
+        "$geoip_continent_name": "Europe",
+        "$device_type": "Mobile",
+        "$exception_level": "error",
+        "$geoip_time_zone": "Europe/Vienna",
+        "$timezone": "Europe/Vienna",
+        "$ip": "83.64.69.206",
+        "$app_version": "1.0",
+        "$device_name": "emu64a16k",
+        "$lib": "posthog-android",
+        "$is_identified": false,
+        "$screen_density": 2.625,
+        "$screen_height": 923,
+        "$device_model": "sdk_gphone16k_arm64",
+        "$geoip_city_name": "Vienna",
+        "$app_name": "PostHog Android Sample",
+        "$app_namespace": "com.posthog.android.sample",
+        "$network_wifi": true,
+        "$screen_width": 411,
+        "$network_cellular": false,
+        "$locale": "en-US",
+        "$network_bluetooth": false,
+        "$app_build": 1,
+        "$process_person_profile": false,
+        "$exception_handled": true,
+        "$exception_releases": {
+            "91731dae7b53a1ec38467f3f813ae6d790a2b62c1a6f5607c7378dcf752168dbdfd48990d6e1647e5bb10a12b00f6d2f36d409967e99dbf1609166d665fa5452": {
+                "version": "bd1373f1b02ffb849572aa5d953b223c142b0e0f",
+                "project": "posthog-android",
+                "timestamp": "2025-11-28T11:07:55.159862Z",
+                "metadata": {
+                    "git": {
+                        "branch": "chore/progaurd-support",
+                        "commit_id": "bd1373f1b02ffb849572aa5d953b223c142b0e0f",
+                        "remote_url": "git@github.com:PostHog/posthog-android.git",
+                        "repo_name": "posthog-android"
+                    }
+                }
+            }
+        },
+        "$exception_types": ["c"],
+        "$exception_values": ["Something went wrong"],
+        "$exception_sources": [],
+        "$exception_functions": []
+    }
+}

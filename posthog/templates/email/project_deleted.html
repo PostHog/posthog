@@ -1,0 +1,8 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% block section %}
+<p>
+    As requested, we've deleted <strong>{{ project_name }}</strong> and all its data.
+</p>
+<p>
+    This can't be undone, but hey, if you ever want to start fresh, we'll be here.
+</p>
+{% endblock %}{% load posthog_filters %} {% block heading %}Project deleted{% endblock %}

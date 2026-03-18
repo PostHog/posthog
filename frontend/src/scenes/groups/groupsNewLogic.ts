@@ -213,8 +213,8 @@ export const groupsNewLogic = kea<groupsNewLogicType>([
     })),
 
     afterMount(({ props, values }) => {
-        // Redirect if the CRM feature flag is not enabled
-        if (!values.featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]) {
+        // Redirect if customer analytics is not enabled
+        if (!values.featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS]) {
             router.actions.push(urls.groups(props.groupTypeIndex))
         }
     }),

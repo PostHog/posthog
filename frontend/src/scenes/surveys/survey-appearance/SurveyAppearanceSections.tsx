@@ -17,6 +17,7 @@ interface CommonProps {
     onAppearanceChange: (appearance: SurveyAppearance) => void
     validationErrors?: DeepPartialMap<SurveyAppearance, ValidationErrorType> | null
     surveyType?: SurveyType
+    disabledReason?: string
 }
 
 const gridPositions: SurveyPosition[] = [
@@ -56,8 +57,8 @@ function SurveyOptionsGroup({
     sectionTitle: string
 }): JSX.Element {
     return (
-        <div className="grid grid-cols-2 gap-2 items-start">
-            <h3 className="col-span-2 mb-0">{sectionTitle}</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-start">
+            <h3 className="col-span-full mb-0">{sectionTitle}</h3>
             {children}
         </div>
     )
@@ -69,9 +70,19 @@ interface SurveyAppearanceInputProps {
     error?: string
     label: string
     info?: string
+    placeholder?: string
+    disabledReason?: string | null
 }
 
-function SurveyAppearanceInput({ value, onChange, error, label, info }: SurveyAppearanceInputProps): JSX.Element {
+function SurveyAppearanceInput({
+    value,
+    onChange,
+    error,
+    label,
+    info,
+    placeholder,
+    disabledReason,
+}: SurveyAppearanceInputProps): JSX.Element {
     const { surveysStylingAvailable } = useValues(surveysLogic)
 
     return (
@@ -81,6 +92,8 @@ function SurveyAppearanceInput({ value, onChange, error, label, info }: SurveyAp
                 onChange={onChange}
                 disabled={!surveysStylingAvailable}
                 className={IGNORE_ERROR_BORDER_CLASS}
+                placeholder={placeholder}
+                disabledReason={disabledReason || undefined}
             />
             {error && <LemonField.Error error={error} />}
         </LemonField.Pure>
@@ -92,18 +105,20 @@ export function SurveyContainerAppearance({
     onAppearanceChange,
     validationErrors,
     surveyType,
+    disabledReason,
 }: CommonProps): JSX.Element | null {
     const { surveysStylingAvailable } = useValues(surveysLogic)
 
     return (
         <SurveyOptionsGroup sectionTitle="Container options">
-            <span className="col-span-2 text-secondary">
+            <span className="col-span-full text-secondary">
                 These options are only applied in the web surveys. Not on native mobile apps.
             </span>
             <SurveyAppearanceInput
                 value={appearance.maxWidth}
                 onChange={(maxWidth) => onAppearanceChange({ maxWidth })}
                 error={validationErrors?.maxWidth}
+                disabledReason={disabledReason}
                 label="Survey width"
                 info="Min-width is always set to 300px"
             />
@@ -111,18 +126,21 @@ export function SurveyContainerAppearance({
                 value={appearance.boxPadding}
                 onChange={(boxPadding) => onAppearanceChange({ boxPadding })}
                 error={validationErrors?.boxPadding}
+                disabledReason={disabledReason}
                 label="Box padding"
             />
             <SurveyAppearanceInput
                 value={appearance.boxShadow}
                 onChange={(boxShadow) => onAppearanceChange({ boxShadow })}
                 error={validationErrors?.boxShadow}
+                disabledReason={disabledReason}
                 label="Box shadow"
             />
             <SurveyAppearanceInput
                 value={appearance.borderRadius}
                 onChange={(borderRadius) => onAppearanceChange({ borderRadius })}
                 error={validationErrors?.borderRadius}
+                disabledReason={disabledReason}
                 label="Border radius"
             />
             <LemonField.Pure
@@ -132,13 +150,13 @@ export function SurveyContainerAppearance({
                         ? 'The "next to feedback button" option requires posthog.js version 1.235.2 or higher.'
                         : undefined
                 }
-                className="gap-1 col-span-2"
+                className="gap-1 col-span-full"
             >
                 <div className="flex items-center gap-2">
                     <SurveyPositionSelector
                         currentPosition={appearance.position}
                         onAppearanceChange={onAppearanceChange}
-                        disabled={!surveysStylingAvailable}
+                        disabled={!surveysStylingAvailable || !!disabledReason}
                     />
                     <LemonSelect
                         value={appearance.position}
@@ -148,6 +166,7 @@ export function SurveyContainerAppearance({
                             value: position,
                         }))}
                         disabled={!surveysStylingAvailable}
+                        disabledReason={disabledReason || undefined}
                     />
                 </div>
                 {surveyType === SurveyType.Widget && appearance.widgetType === SurveyWidgetType.Selector && (
@@ -162,6 +181,7 @@ export function SurveyContainerAppearance({
                             }
                             active={appearance.position === SurveyPosition.NextToTrigger}
                             disabled={!surveysStylingAvailable}
+                            disabledReason={disabledReason || undefined}
                         >
                             {positionDisplayNames[SurveyPosition.NextToTrigger]}
                             {appearance.position === SurveyPosition.NextToTrigger && (
@@ -187,16 +207,27 @@ export function SurveyContainerAppearance({
                     })}
                     className="ignore-error-border"
                     disabled={!surveysStylingAvailable}
+                    disabledReason={disabledReason || undefined}
                 />
             </LemonField.Pure>
             <SurveyAppearanceInput
                 value={appearance.zIndex}
                 onChange={(zIndex) => onAppearanceChange({ zIndex })}
                 error={validationErrors?.zIndex}
+                disabledReason={disabledReason}
                 label="Survey form zIndex"
                 info="If the survey popup is hidden, set this value higher than the overlapping element's zIndex."
             />
         </SurveyOptionsGroup>
+    )
+}
+
+function SurveyColorsSubgroup({ children, title }: { children: React.ReactNode; title: string }): JSX.Element {
+    return (
+        <div className="col-span-full grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <span className="col-span-full text-xs font-semibold text-secondary uppercase tracking-wide">{title}</span>
+            {children}
+        </div>
     )
 }
 
@@ -206,60 +237,93 @@ export function SurveyColorsAppearance({
     validationErrors,
     customizeRatingButtons,
     customizePlaceholderText,
+    disabledReason,
 }: CommonProps & {
     customizeRatingButtons: boolean
     customizePlaceholderText: boolean
 }): JSX.Element {
     return (
         <SurveyOptionsGroup sectionTitle="Colors and placeholder customization">
-            <SurveyAppearanceInput
-                value={appearance.backgroundColor}
-                onChange={(backgroundColor) => onAppearanceChange({ backgroundColor })}
-                error={validationErrors?.backgroundColor}
-                label="Background color"
-            />
-            <SurveyAppearanceInput
-                value={appearance.borderColor}
-                onChange={(borderColor) => onAppearanceChange({ borderColor })}
-                error={validationErrors?.borderColor}
-                label="Border color"
-            />
-            <SurveyAppearanceInput
-                value={appearance.submitButtonColor}
-                onChange={(submitButtonColor) => onAppearanceChange({ submitButtonColor })}
-                error={validationErrors?.submitButtonColor}
-                label="Button color"
-            />
-            <SurveyAppearanceInput
-                value={appearance.submitButtonTextColor}
-                onChange={(submitButtonTextColor) => onAppearanceChange({ submitButtonTextColor })}
-                error={validationErrors?.submitButtonTextColor}
-                label="Button text color"
-            />
-            {customizeRatingButtons && (
-                <>
-                    <SurveyAppearanceInput
-                        value={appearance.ratingButtonColor}
-                        onChange={(ratingButtonColor) => onAppearanceChange({ ratingButtonColor })}
-                        error={validationErrors?.ratingButtonColor}
-                        label="Rating button color"
-                    />
+            <SurveyColorsSubgroup title="Survey background">
+                <SurveyAppearanceInput
+                    value={appearance.backgroundColor}
+                    onChange={(backgroundColor) => onAppearanceChange({ backgroundColor })}
+                    error={validationErrors?.backgroundColor}
+                    disabledReason={disabledReason}
+                    label="Background color"
+                />
+                <SurveyAppearanceInput
+                    value={appearance.textColor}
+                    onChange={(textColor) => onAppearanceChange({ textColor })}
+                    error={validationErrors?.textColor}
+                    disabledReason={disabledReason}
+                    label="Text color"
+                    placeholder="Leave empty for auto-contrast"
+                />
+                <SurveyAppearanceInput
+                    value={appearance.borderColor}
+                    onChange={(borderColor) => onAppearanceChange({ borderColor })}
+                    error={validationErrors?.borderColor}
+                    disabledReason={disabledReason}
+                    label="Border color"
+                />
+            </SurveyColorsSubgroup>
+
+            <SurveyColorsSubgroup title="Inputs and ratings">
+                <SurveyAppearanceInput
+                    value={appearance.inputBackground}
+                    onChange={(inputBackground) =>
+                        onAppearanceChange({ inputBackground, ratingButtonColor: inputBackground })
+                    }
+                    error={validationErrors?.inputBackground || validationErrors?.ratingButtonColor}
+                    disabledReason={disabledReason}
+                    label="Background color"
+                />
+                <SurveyAppearanceInput
+                    value={appearance.inputTextColor}
+                    onChange={(inputTextColor) => onAppearanceChange({ inputTextColor })}
+                    error={validationErrors?.inputTextColor}
+                    disabledReason={disabledReason}
+                    label="Text color"
+                    placeholder="Leave empty for auto-contrast"
+                />
+                {customizeRatingButtons && (
                     <SurveyAppearanceInput
                         value={appearance.ratingButtonActiveColor}
                         onChange={(ratingButtonActiveColor) => onAppearanceChange({ ratingButtonActiveColor })}
                         error={validationErrors?.ratingButtonActiveColor}
-                        label="Rating button active color"
+                        disabledReason={disabledReason}
+                        label="Active rating background"
                     />
-                </>
-            )}
-            {customizePlaceholderText && (
+                )}
+                {customizePlaceholderText && (
+                    <SurveyAppearanceInput
+                        value={appearance.placeholder}
+                        onChange={(placeholder) => onAppearanceChange({ placeholder })}
+                        error={validationErrors?.placeholder}
+                        disabledReason={disabledReason}
+                        label="Placeholder text"
+                    />
+                )}
+            </SurveyColorsSubgroup>
+
+            <SurveyColorsSubgroup title="Submit button">
                 <SurveyAppearanceInput
-                    value={appearance.placeholder}
-                    onChange={(placeholder) => onAppearanceChange({ placeholder })}
-                    error={validationErrors?.placeholder}
-                    label="Placeholder text"
+                    value={appearance.submitButtonColor}
+                    onChange={(submitButtonColor) => onAppearanceChange({ submitButtonColor })}
+                    error={validationErrors?.submitButtonColor}
+                    disabledReason={disabledReason}
+                    label="Background color"
                 />
-            )}
+                <SurveyAppearanceInput
+                    value={appearance.submitButtonTextColor}
+                    onChange={(submitButtonTextColor) => onAppearanceChange({ submitButtonTextColor })}
+                    error={validationErrors?.submitButtonTextColor}
+                    disabledReason={disabledReason}
+                    label="Text color"
+                    placeholder="Leave empty for auto-contrast"
+                />
+            </SurveyColorsSubgroup>
         </SurveyOptionsGroup>
     )
 }

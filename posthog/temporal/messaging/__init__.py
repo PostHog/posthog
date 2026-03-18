@@ -1,30 +1,31 @@
-from posthog.temporal.messaging.actions_workflow import ActionsWorkflow, process_actions_activity
-from posthog.temporal.messaging.actions_workflow_coordinator import (
-    ActionsCoordinatorWorkflow,
-    get_actions_count_activity,
+from posthog.temporal.messaging.backfill_precalculated_person_properties_coordinator_workflow import (
+    BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow,
+    get_person_count_activity,
 )
-from posthog.temporal.messaging.behavioral_cohorts_workflow import (
-    BehavioralCohortsWorkflow,
-    get_unique_conditions_page_activity,
-    process_condition_batch_activity,
+from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
+    BackfillPrecalculatedPersonPropertiesWorkflow,
+    backfill_precalculated_person_properties_activity,
 )
-from posthog.temporal.messaging.behavioral_cohorts_workflow_coordinator import (
-    BehavioralCohortsCoordinatorWorkflow,
-    check_running_workflows_activity,
-    get_conditions_count_activity,
+from posthog.temporal.messaging.realtime_cohort_calculation_workflow import (
+    RealtimeCohortCalculationWorkflow,
+    process_realtime_cohort_calculation_activity,
+)
+from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
+    RealtimeCohortCalculationCoordinatorWorkflow,
+    get_query_percentile_thresholds_activity,
+    get_realtime_cohort_selection_activity,
 )
 
 WORKFLOWS = [
-    ActionsWorkflow,
-    ActionsCoordinatorWorkflow,
-    BehavioralCohortsWorkflow,
-    BehavioralCohortsCoordinatorWorkflow,
+    BackfillPrecalculatedPersonPropertiesWorkflow,
+    BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow,
+    RealtimeCohortCalculationWorkflow,
+    RealtimeCohortCalculationCoordinatorWorkflow,
 ]
 ACTIVITIES = [
-    get_actions_count_activity,
-    get_conditions_count_activity,
-    get_unique_conditions_page_activity,
-    process_actions_activity,
-    process_condition_batch_activity,
-    check_running_workflows_activity,
+    get_person_count_activity,
+    get_realtime_cohort_selection_activity,
+    get_query_percentile_thresholds_activity,
+    backfill_precalculated_person_properties_activity,
+    process_realtime_cohort_calculation_activity,
 ]

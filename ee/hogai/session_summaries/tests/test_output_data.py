@@ -7,6 +7,7 @@ from unittest.mock import patch
 from ee.hogai.session_summaries import SummaryValidationError
 from ee.hogai.session_summaries.session.output_data import (
     RawSessionSummarySerializer,
+    SessionSummarySerializer,
     calculate_time_since_start,
     enrich_raw_session_summary_with_meta,
     load_raw_session_summary_from_llm_content,
@@ -193,12 +194,12 @@ session_outcome:
         ("2024-03-01T12:00:02+00:00", datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC), 2000),  # 2 seconds after
         ("2024-03-01T12:00:00+00:00", datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC), 0),  # same time
         ("2024-03-01T11:59:59+00:00", datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC), 0),  # 1 second before (clamped to 0)
-        (None, datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC), None),  # no event time
-        ("2024-03-01T12:00:02+00:00", None, None),  # no start time
         ("2024-03-01T13:00:00+00:00", datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC), 3600000),  # 1 hour after
+        # Also accepts datetime objects for event_time
+        (datetime(2024, 3, 1, 12, 0, 2, tzinfo=UTC), datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC), 2000),
     ],
 )
-def test_calculate_time_since_start(event_time: str, start_time: datetime, expected: int) -> None:
+def test_calculate_time_since_start(event_time: str | datetime, start_time: datetime, expected: int) -> None:
     result = calculate_time_since_start(event_time, start_time)
     assert result == expected
 
@@ -236,6 +237,7 @@ class TestEnrichRawSessionSummary:
             session_id=mock_session_id,
             session_start_time_str=mock_session_metadata.start_time.isoformat(),
             session_duration=mock_session_metadata.duration,
+            final_validation=True,
         )
         assert result.is_valid()
         # Check segments
@@ -294,6 +296,7 @@ class TestEnrichRawSessionSummary:
                 session_id=mock_session_id,
                 session_start_time_str=mock_session_metadata.start_time.isoformat(),
                 session_duration=mock_session_metadata.duration,
+                final_validation=True,
             )
 
     def test_calculate_segment_meta_missing_event(
@@ -321,6 +324,7 @@ class TestEnrichRawSessionSummary:
             session_id=mock_session_id,
             session_start_time_str=mock_session_metadata.start_time.isoformat(),
             session_duration=mock_session_metadata.duration,
+            final_validation=True,
         )
         assert result.is_valid()
         # Verify the result has segments and the missing event was handled
@@ -367,6 +371,7 @@ class TestEnrichRawSessionSummary:
                 session_id=mock_session_id,
                 session_start_time_str=mock_session_metadata.start_time.isoformat(),
                 session_duration=mock_session_metadata.duration,
+                final_validation=True,
             )
 
     def test_enrich_raw_session_summary_missing_url(
@@ -394,6 +399,7 @@ class TestEnrichRawSessionSummary:
             session_id=mock_session_id,
             session_start_time_str=mock_session_metadata.start_time.isoformat(),
             session_duration=mock_session_metadata.duration,
+            final_validation=True,
         )
 
     def test_enrich_raw_session_summary_missing_window_id(
@@ -421,6 +427,7 @@ class TestEnrichRawSessionSummary:
             session_id=mock_session_id,
             session_start_time_str=mock_session_metadata.start_time.isoformat(),
             session_duration=mock_session_metadata.duration,
+            final_validation=True,
         )
 
     def test_enrich_raw_session_summary_chronological_sorting(
@@ -449,6 +456,7 @@ class TestEnrichRawSessionSummary:
             session_id=mock_session_id,
             session_start_time_str=mock_session_metadata.start_time.isoformat(),
             session_duration=mock_session_metadata.duration,
+            final_validation=True,
         )
         assert result.is_valid()
         # Check that events are sorted chronologically
@@ -481,6 +489,7 @@ class TestEnrichRawSessionSummary:
             session_id=mock_session_id,
             session_start_time_str=mock_session_metadata.start_time.isoformat(),
             session_duration=mock_session_metadata.duration,
+            final_validation=True,
         )
         assert result.is_valid()
 
@@ -509,3 +518,143 @@ class TestEnrichRawSessionSummary:
             "failure_count": 2,
             "key_action_count": 3,
         }
+
+
+def _get_valid_summary_data() -> dict[str, Any]:
+    return {
+        "segments": [{"index": 0, "name": "Test Segment", "start_event_id": "abcd1234", "end_event_id": "efgh5678"}],
+        "key_actions": [
+            {
+                "segment_index": 0,
+                "events": [
+                    {
+                        "event_id": "abcd1234",
+                        "description": "Test action",
+                        "abandonment": False,
+                        "confusion": False,
+                        "exception": None,
+                    }
+                ],
+            }
+        ],
+        "segment_outcomes": [{"segment_index": 0, "summary": "Test outcome", "success": True}],
+        "session_outcome": {"description": "Test session outcome", "success": True},
+    }
+
+
+class TestSessionSummarySerializerValidation:
+    def test_valid_summary_passes_validation(self) -> None:
+        serializer = SessionSummarySerializer(data=_get_valid_summary_data())
+        assert serializer.is_valid()
+
+    def test_validation_skipped_with_streaming_validation_context(self) -> None:
+        data = _get_valid_summary_data()
+        data["session_outcome"] = None
+        serializer = SessionSummarySerializer(data=data, context={"streaming_validation": True})
+        assert serializer.is_valid()
+
+    @pytest.mark.parametrize(
+        "path,value,expected_error_field",
+        [
+            # Top-level fields
+            (["segments"], None, "segments"),
+            (["segments"], [], "segments"),
+            (["key_actions"], None, "key_actions"),
+            (["key_actions"], [], "key_actions"),
+            (["segment_outcomes"], None, "segment_outcomes"),
+            (["segment_outcomes"], [], "segment_outcomes"),
+            (["session_outcome"], None, "session_outcome"),
+            # Segment fields
+            (["segments", 0, "index"], None, "segments[0].index"),
+            (["segments", 0, "name"], None, "segments[0].name"),
+            (["segments", 0, "start_event_id"], None, "segments[0].start_event_id"),
+            (["segments", 0, "end_event_id"], None, "segments[0].end_event_id"),
+            # Key actions group fields
+            (["key_actions", 0, "segment_index"], None, "key_actions[0].segment_index"),
+            (["key_actions", 0, "events"], None, "key_actions[0].events"),
+            (["key_actions", 0, "events"], [], "key_actions[0].events"),
+            # Event fields
+            (["key_actions", 0, "events", 0, "event_id"], None, "key_actions[0].events[0].event_id"),
+            (["key_actions", 0, "events", 0, "description"], None, "key_actions[0].events[0].description"),
+            (["key_actions", 0, "events", 0, "abandonment"], None, "key_actions[0].events[0].abandonment"),
+            (["key_actions", 0, "events", 0, "confusion"], None, "key_actions[0].events[0].confusion"),
+            # Segment outcome fields
+            (["segment_outcomes", 0, "segment_index"], None, "segment_outcomes[0].segment_index"),
+            (["segment_outcomes", 0, "summary"], None, "segment_outcomes[0].summary"),
+            (["segment_outcomes", 0, "success"], None, "segment_outcomes[0].success"),
+            # Session outcome fields
+            (["session_outcome", "description"], None, "session_outcome.description"),
+            (["session_outcome", "success"], None, "session_outcome.success"),
+        ],
+    )
+    def test_required_field_validation(self, path: list, value: Any, expected_error_field: str) -> None:
+        data = _get_valid_summary_data()
+        target = data
+        for key in path[:-1]:
+            target = target[key]
+        target[path[-1]] = value
+        serializer = SessionSummarySerializer(data=data)
+        assert not serializer.is_valid()
+        assert expected_error_field in serializer.errors
+
+    def test_event_exception_field_must_exist(self) -> None:
+        data = _get_valid_summary_data()
+        del data["key_actions"][0]["events"][0]["exception"]
+        serializer = SessionSummarySerializer(data=data)
+        assert not serializer.is_valid()
+        assert "key_actions[0].events[0].exception" in serializer.errors
+
+    @pytest.mark.parametrize("value", [None, "blocking", "non-blocking"])
+    def test_event_exception_valid_values(self, value: Any) -> None:
+        data = _get_valid_summary_data()
+        data["key_actions"][0]["events"][0]["exception"] = value
+        serializer = SessionSummarySerializer(data=data)
+        assert serializer.is_valid()
+
+    def test_multiple_validation_errors_collected(self) -> None:
+        data = _get_valid_summary_data()
+        data["segments"][0]["index"] = None
+        data["segments"][0]["name"] = None
+        data["session_outcome"]["success"] = None
+        serializer = SessionSummarySerializer(data=data)
+        assert not serializer.is_valid()
+        assert "segments[0].index" in serializer.errors
+        assert "segments[0].name" in serializer.errors
+        assert "session_outcome.success" in serializer.errors
+
+    def test_validation_correctly_identifies_error_position_in_arrays(self) -> None:
+        data = {
+            "segments": [
+                {"index": 0, "name": "Segment 1", "start_event_id": "a1b2c3d4", "end_event_id": "e5f6g7h8"},
+                {"index": 1, "name": None, "start_event_id": "i9j0k1l2", "end_event_id": "m3n4o5p6"},
+            ],
+            "key_actions": [
+                {
+                    "segment_index": 0,
+                    "events": [
+                        {
+                            "event_id": "a1b2c3d4",
+                            "description": "Action 1",
+                            "abandonment": False,
+                            "confusion": False,
+                            "exception": None,
+                        },
+                        {
+                            "event_id": "e5f6g7h8",
+                            "description": None,
+                            "abandonment": False,
+                            "confusion": False,
+                            "exception": None,
+                        },
+                    ],
+                },
+            ],
+            "segment_outcomes": [{"segment_index": 0, "summary": "Outcome 1", "success": True}],
+            "session_outcome": {"description": "Overall outcome", "success": True},
+        }
+        serializer = SessionSummarySerializer(data=data)
+        assert not serializer.is_valid()
+        assert "segments[1].name" in serializer.errors
+        assert "segments[0].name" not in serializer.errors
+        assert "key_actions[0].events[1].description" in serializer.errors
+        assert "key_actions[0].events[0].description" not in serializer.errors

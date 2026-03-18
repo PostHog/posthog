@@ -17,7 +17,7 @@ export function replayActivityDescriber(logItem: ActivityLogItem, asNotification
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> bulk deleted{' '}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> bulk deleted{' '}
                     <b>{logItem.detail?.name || 'session recordings'}</b>
                 </>
             ),

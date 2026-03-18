@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
 
+import { IconFilter } from '@posthog/icons'
+
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import MaxTool from 'scenes/max/MaxTool'
 
@@ -7,7 +9,7 @@ import { ErrorTrackingIssueFilteringToolOutput } from '~/queries/schema/schema-g
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import { errorTrackingSceneLogic } from '../scenes/ErrorTrackingScene/errorTrackingSceneLogic'
-import { taxonomicFilterLogicKey, taxonomicGroupTypes } from './IssueFilters/FilterGroup'
+import { TAXONOMIC_FILTER_LOGIC_KEY, TAXONOMIC_GROUP_TYPES } from './IssueFilters/consts'
 import { issueFiltersLogic } from './IssueFilters/issueFiltersLogic'
 import { issueQueryOptionsLogic } from './IssueQueryOptions/issueQueryOptionsLogic'
 
@@ -68,8 +70,8 @@ export function ErrorTrackingIssueFilteringTool(): JSX.Element {
     const { filterGroup } = useValues(issueFiltersLogic)
     const { setSearchQuery } = useActions(
         taxonomicFilterLogic({
-            taxonomicFilterLogicKey: taxonomicFilterLogicKey,
-            taxonomicGroupTypes: taxonomicGroupTypes,
+            taxonomicFilterLogicKey: TAXONOMIC_FILTER_LOGIC_KEY,
+            taxonomicGroupTypes: TAXONOMIC_GROUP_TYPES,
         })
     )
 
@@ -103,8 +105,10 @@ export function ErrorTrackingIssueFilteringTool(): JSX.Element {
     return (
         <MaxTool
             identifier="filter_error_tracking_issues"
-            context={{
-                current_query: query,
+            context={{ current_query: query }}
+            contextDescription={{
+                text: 'Current filters',
+                icon: <IconFilter />,
             }}
             callback={(toolOutput: ErrorTrackingIssueFilteringToolOutput) => {
                 callback(toolOutput)

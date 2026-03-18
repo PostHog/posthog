@@ -84,20 +84,6 @@ export const seekbarLogic = kea<seekbarLogicType>([
             },
         ],
 
-        bufferPercent: [
-            (selectors) => [selectors.sessionPlayerData],
-            (sessionPlayerData) => {
-                if (sessionPlayerData?.bufferedToTime && sessionPlayerData?.segments && sessionPlayerData?.durationMs) {
-                    // we calculate this number to many decimal places, so we round it to 1 decimal place
-                    // since otherwise we render dependent components
-                    // thousands of times more than we need to
-                    return parseFloat(
-                        (100 * (sessionPlayerData?.bufferedToTime / sessionPlayerData.durationMs)).toFixed(1)
-                    )
-                }
-                return 0
-            },
-        ],
         scrubbingTime: [
             (selectors) => [selectors.thumbLeftPos, selectors.slider, selectors.sessionPlayerData],
             (thumbLeftPos, slider, sessionPlayerData) => {
@@ -112,7 +98,16 @@ export const seekbarLogic = kea<seekbarLogicType>([
             (scrubbingTime) => Math.floor(scrubbingTime / 1000),
         ],
     }),
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, cache }) => ({
+        setSlider: () => {
+            // When the slider is set (component mounted), initialize thumb position based on current timestamp
+            if (values.slider && values.sessionPlayerData.durationMs) {
+                const xValue =
+                    ((values.currentPlayerTime ?? 0) / values.sessionPlayerData.durationMs) * values.slider.offsetWidth
+                actions.setThumbLeftPos(xValue - THUMB_OFFSET, false)
+            }
+        },
+
         setCurrentTimestamp: () => {
             if (!values.slider) {
                 return
@@ -137,30 +132,32 @@ export const seekbarLogic = kea<seekbarLogicType>([
                 actions.seekToTime(playerTime)
             }
         },
-        handleSeek: ({ newX, shouldSeek }) => {
+        handleSeek: async ({ newX, shouldSeek }, breakpoint) => {
+            await breakpoint(5)
+
             const end = values.slider?.offsetWidth ?? 0
             actions.setThumbLeftPos(clamp(newX, 0, end) - THUMB_OFFSET, shouldSeek)
             actions.endSeeking()
         },
-        handleMove: ({ event }) => {
+        handleMove: async ({ event }, breakpoint) => {
             if (!values.slider) {
                 return
             }
+            await breakpoint(10)
+
             actions.startScrub()
             const newX = getXPos(event) - values.cursorDiff - values.slider.getBoundingClientRect().left
             actions.handleSeek(newX, false)
         },
-        handleUp: ({ event }) => {
-            document.removeEventListener('touchmove', actions.handleMove)
-            document.removeEventListener('touchend', actions.handleUp)
-            document.removeEventListener('mousemove', actions.handleMove)
-            document.removeEventListener('mouseup', actions.handleUp)
+        handleUp: async ({ event }, breakpoint) => {
+            await breakpoint(25)
 
-            if (!values.slider) {
-                return
+            cache.disposables.dispose('seekbarListeners')
+
+            if (values.slider) {
+                const newX = getXPos(event) - values.cursorDiff - values.slider.getBoundingClientRect().left
+                actions.handleSeek(newX)
             }
-            const newX = getXPos(event) - values.cursorDiff - values.slider.getBoundingClientRect().left
-            actions.handleSeek(newX)
             actions.endScrub()
         },
         handleDown: ({ event }) => {
@@ -171,16 +168,24 @@ export const seekbarLogic = kea<seekbarLogicType>([
             actions.startScrub()
             const xPos = getXPos(event)
             let diffFromThumb = xPos - values.thumb.getBoundingClientRect().left - THUMB_OFFSET
-            // If click is too far from thumb, move thumb to click position
             if (Math.abs(diffFromThumb) > THUMB_SIZE) {
                 diffFromThumb = 0
             }
             actions.setCursorDiff(diffFromThumb)
 
-            document.addEventListener('touchmove', actions.handleMove)
-            document.addEventListener('touchend', actions.handleUp)
-            document.addEventListener('mousemove', actions.handleMove)
-            document.addEventListener('mouseup', actions.handleUp)
+            cache.disposables.add(() => {
+                document.addEventListener('touchmove', actions.handleMove, { passive: true })
+                document.addEventListener('touchend', actions.handleUp)
+                document.addEventListener('mousemove', actions.handleMove)
+                document.addEventListener('mouseup', actions.handleUp)
+
+                return () => {
+                    document.removeEventListener('touchmove', actions.handleMove)
+                    document.removeEventListener('touchend', actions.handleUp)
+                    document.removeEventListener('mousemove', actions.handleMove)
+                    document.removeEventListener('mouseup', actions.handleUp)
+                }
+            }, 'seekbarListeners')
         },
     })),
 ])

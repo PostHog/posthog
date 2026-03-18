@@ -3,25 +3,26 @@ import typing
 import asyncio
 import datetime as dt
 import dataclasses
-from itertools import groupby
 
 from django.conf import settings
 
+import posthoganalytics
 import temporalio.common
 import temporalio.activity
 import temporalio.workflow
 from structlog import get_logger
+from temporalio.exceptions import ApplicationError
 
 from posthog.models.subscription import Subscription
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 
-from ee.tasks.subscriptions import deliver_subscription_report_async, team_use_temporal_flag
+from ee.tasks.subscriptions import deliver_subscription_report_async
 
 LOGGER = get_logger(__name__)
 
-# Changed 10/10/2025
+# Changed 20260109-01
 
 
 @dataclasses.dataclass
@@ -47,42 +48,18 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
     await logger.ainfo(f"Looking for subscriptions due before {now_with_buffer}")
 
     @database_sync_to_async(thread_sensitive=False)
-    def get_subscription_ids() -> list[Subscription]:
+    def get_subscription_ids() -> list[int]:
         return list(
             Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False)
             .exclude(dashboard__deleted=True)
             .exclude(insight__deleted=True)
-            .select_related("team")
-            .order_by("team_id")
-            .all()
+            .values_list("id", flat=True)
         )
 
     await logger.ainfo("Starting database query for subscriptions")
-    subscriptions = await get_subscription_ids()
-    await logger.ainfo(f"Database query completed, found {len(subscriptions)} total subscriptions")
+    subscription_ids = await get_subscription_ids()
+    await logger.ainfo(f"Database query completed, found {len(subscription_ids)} subscriptions")
 
-    subscription_ids: list[int] = []
-    team_count = 0
-    processed_teams = 0
-
-    await logger.ainfo("Starting team processing and feature flag checks")
-
-    for team, group_subscriptions in groupby(subscriptions, key=lambda x: x.team):
-        team_count += 1
-        if team_count % 10 == 0:
-            await logger.ainfo(f"Processed {team_count} teams so far, {len(subscription_ids)} subscriptions collected")
-
-        if team_use_temporal_flag(team):
-            processed_teams += 1
-            for subscription in group_subscriptions:
-                subscription_ids.append(subscription.id)
-
-    await logger.ainfo(
-        "Completed subscription fetch",
-        total_teams=team_count,
-        teams_using_temporal=processed_teams,
-        subscription_count=len(subscription_ids),
-    )
     return subscription_ids
 
 
@@ -117,6 +94,81 @@ async def deliver_subscription_report_activity(inputs: DeliverSubscriptionReport
             previous_value=inputs.previous_value,
             invite_message=inputs.invite_message,
         )
+
+
+@dataclasses.dataclass
+class EmitSubscriptionDeliveryStartedInputs:
+    subscription_ids: list[int]
+
+
+@temporalio.activity.defn
+async def emit_subscription_delivery_started_activity(
+    inputs: EmitSubscriptionDeliveryStartedInputs,
+) -> None:
+    @database_sync_to_async(thread_sensitive=False)
+    def load_team_ids() -> dict[int, int]:
+        return dict(Subscription.objects.filter(id__in=inputs.subscription_ids).values_list("id", "team_id"))
+
+    sub_to_team = await load_team_ids()
+
+    for sub_id in inputs.subscription_ids:
+        team_id = sub_to_team.get(sub_id)
+        if team_id is None:
+            continue
+        posthoganalytics.capture(
+            distinct_id=str(team_id),
+            event="subscription_delivery_started",
+            properties={"subscription_id": sub_id, "team_id": team_id},
+        )
+
+    await asyncio.to_thread(posthoganalytics.flush)
+
+
+@dataclasses.dataclass
+class EmitSubscriptionDeliveryOutcomeInputs:
+    succeeded_subscription_ids: list[int]
+    failed_deliveries: list[dict[str, typing.Any]]
+
+
+@temporalio.activity.defn
+async def emit_subscription_delivery_outcome_events_activity(
+    inputs: EmitSubscriptionDeliveryOutcomeInputs,
+) -> None:
+    all_sub_ids = inputs.succeeded_subscription_ids + [f["subscription_id"] for f in inputs.failed_deliveries]
+
+    @database_sync_to_async(thread_sensitive=False)
+    def load_team_ids() -> dict[int, int]:
+        return dict(Subscription.objects.filter(id__in=all_sub_ids).values_list("id", "team_id"))
+
+    sub_to_team = await load_team_ids()
+
+    for sub_id in inputs.succeeded_subscription_ids:
+        team_id = sub_to_team.get(sub_id)
+        if team_id is None:
+            continue
+        posthoganalytics.capture(
+            distinct_id=str(team_id),
+            event="subscription_delivery_succeeded",
+            properties={"subscription_id": sub_id, "team_id": team_id},
+        )
+
+    for failure in inputs.failed_deliveries:
+        sub_id = failure["subscription_id"]
+        team_id = sub_to_team.get(sub_id)
+        if team_id is None:
+            continue
+        posthoganalytics.capture(
+            distinct_id=str(team_id),
+            event="subscription_delivery_exhausted",
+            properties={
+                "subscription_id": sub_id,
+                "team_id": team_id,
+                "error_type": failure.get("error_type", ""),
+                "error_message": failure.get("error_message", ""),
+            },
+        )
+
+    await asyncio.to_thread(posthoganalytics.flush)
 
 
 @dataclasses.dataclass
@@ -162,8 +214,26 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
             ),
         )
 
+        # Emit started events before delivery
+        try:
+            await temporalio.workflow.execute_activity(
+                emit_subscription_delivery_started_activity,
+                EmitSubscriptionDeliveryStartedInputs(subscription_ids=subscription_ids),
+                start_to_close_timeout=dt.timedelta(minutes=2),
+                retry_policy=temporalio.common.RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=5),
+                    maximum_interval=dt.timedelta(minutes=1),
+                    maximum_attempts=3,
+                ),
+            )
+        except Exception as emit_error:
+            temporalio.workflow.logger.error(
+                "Failed to emit subscription delivery started events",
+                extra={"error": str(emit_error)},
+            )
+
         # Fan-out delivery activities in parallel
-        tasks = []
+        tasks: list[tuple[int, typing.Coroutine[typing.Any, typing.Any, None]]] = []
         for sub_id in subscription_ids:
             task = temporalio.workflow.execute_activity(
                 deliver_subscription_report_activity,
@@ -176,10 +246,50 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
                     non_retryable_error_types=[],
                 ),
             )
-            tasks.append(task)
+            tasks.append((sub_id, task))
 
-        if tasks:
-            await asyncio.gather(*tasks)
+        if not tasks:
+            return
+
+        results = await asyncio.gather(*[t for _, t in tasks], return_exceptions=True)
+
+        succeeded: list[int] = []
+        failed: list[dict[str, typing.Any]] = []
+        for (sub_id, _), result in zip(tasks, results):
+            if isinstance(result, BaseException):
+                failed.append(
+                    {
+                        "subscription_id": sub_id,
+                        "error_type": type(result).__name__,
+                        "error_message": str(result),
+                    }
+                )
+            else:
+                succeeded.append(sub_id)
+
+        try:
+            await temporalio.workflow.execute_activity(
+                emit_subscription_delivery_outcome_events_activity,
+                EmitSubscriptionDeliveryOutcomeInputs(
+                    succeeded_subscription_ids=succeeded,
+                    failed_deliveries=failed,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=2),
+                retry_policy=temporalio.common.RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=5),
+                    maximum_interval=dt.timedelta(minutes=1),
+                    maximum_attempts=3,
+                ),
+            )
+        except Exception as emit_error:
+            temporalio.workflow.logger.error(
+                "Failed to emit subscription delivery outcome events",
+                extra={"error": str(emit_error)},
+            )
+
+        if failed:
+            failed_ids = [f["subscription_id"] for f in failed]
+            raise ApplicationError(f"Subscription deliveries failed for IDs: {failed_ids}", non_retryable=True)
 
 
 @temporalio.workflow.defn(name="handle-subscription-value-change")
@@ -191,13 +301,68 @@ class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: DeliverSubscriptionReportActivityInputs) -> None:
-        await temporalio.workflow.execute_activity(
-            deliver_subscription_report_activity,
-            inputs,
-            start_to_close_timeout=dt.timedelta(minutes=settings.TEMPORAL_TASK_TIMEOUT_MINUTES),
-            retry_policy=temporalio.common.RetryPolicy(
-                initial_interval=dt.timedelta(seconds=5),
-                maximum_interval=dt.timedelta(minutes=2),
-                maximum_attempts=3,
-            ),
-        )
+        try:
+            await temporalio.workflow.execute_activity(
+                emit_subscription_delivery_started_activity,
+                EmitSubscriptionDeliveryStartedInputs(subscription_ids=[inputs.subscription_id]),
+                start_to_close_timeout=dt.timedelta(minutes=2),
+                retry_policy=temporalio.common.RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=5),
+                    maximum_interval=dt.timedelta(minutes=1),
+                    maximum_attempts=3,
+                ),
+            )
+        except Exception as emit_error:
+            temporalio.workflow.logger.error(
+                "Failed to emit subscription delivery started event",
+                extra={"subscription_id": inputs.subscription_id, "error": str(emit_error)},
+            )
+
+        succeeded: list[int] = []
+        failed: list[dict[str, typing.Any]] = []
+        delivery_error: Exception | None = None
+
+        try:
+            await temporalio.workflow.execute_activity(
+                deliver_subscription_report_activity,
+                inputs,
+                start_to_close_timeout=dt.timedelta(minutes=settings.TEMPORAL_TASK_TIMEOUT_MINUTES),
+                retry_policy=temporalio.common.RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=5),
+                    maximum_interval=dt.timedelta(minutes=2),
+                    maximum_attempts=3,
+                ),
+            )
+            succeeded.append(inputs.subscription_id)
+        except Exception as e:
+            delivery_error = e
+            failed.append(
+                {
+                    "subscription_id": inputs.subscription_id,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                }
+            )
+
+        try:
+            await temporalio.workflow.execute_activity(
+                emit_subscription_delivery_outcome_events_activity,
+                EmitSubscriptionDeliveryOutcomeInputs(
+                    succeeded_subscription_ids=succeeded,
+                    failed_deliveries=failed,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=2),
+                retry_policy=temporalio.common.RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=5),
+                    maximum_interval=dt.timedelta(minutes=1),
+                    maximum_attempts=3,
+                ),
+            )
+        except Exception as emit_error:
+            temporalio.workflow.logger.error(
+                "Failed to emit subscription delivery outcome event",
+                extra={"subscription_id": inputs.subscription_id, "error": str(emit_error)},
+            )
+
+        if delivery_error is not None:
+            raise delivery_error

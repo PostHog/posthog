@@ -4,10 +4,11 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { Ref, forwardRef, useEffect, useState } from 'react'
 
+import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
+
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
-import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { range } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -28,6 +29,8 @@ export interface LemonCalendarProps {
     weekStartDay?: number
     /** Set the time granularity of the calendar */
     granularity?: 'day' | 'hour' | 'minute'
+    /** Use 24-hour format instead of 12-hour with AM/PM */
+    use24HourFormat?: boolean
 }
 
 export interface GetLemonButtonPropsOpts {
@@ -44,7 +47,7 @@ export interface GetLemonButtonTimePropsOpts {
 const dayLabels = ['su', 'mo', 'tu', 'we', 'th', 'fr', 'sa']
 
 export const LemonCalendar = forwardRef(function LemonCalendar(
-    { granularity = 'day', ...props }: LemonCalendarProps,
+    { granularity = 'day', use24HourFormat = false, ...props }: LemonCalendarProps,
     ref: Ref<HTMLDivElement>
 ): JSX.Element {
     const { weekStartDay: teamWeekStartDay } = useValues(teamLogic)
@@ -53,7 +56,9 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
     const weekStartDay = props.weekStartDay ?? teamWeekStartDay
     const today = dayjs().startOf('day')
 
-    const [leftmostMonth, setLeftmostMonth] = useState<dayjs.Dayjs>((props.leftmostMonth ?? today).startOf('month'))
+    const [leftmostMonth, setLeftmostMonth] = useState<dayjs.Dayjs>(() =>
+        (props.leftmostMonth ?? today).startOf('month')
+    )
     useEffect(() => {
         if (props.leftmostMonth && props.leftmostMonth.isSame(leftmostMonth, 'd')) {
             setLeftmostMonth(props.leftmostMonth)
@@ -172,7 +177,7 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
             {granularity != 'day' && (
                 <div className="LemonCalendar__time absolute top-0 bottom-0 right-0 flex divide-x border-l">
                     <ScrollableShadows direction="vertical">
-                        {[12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((hour) => {
+                        {(use24HourFormat ? range(0, 24) : [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]).map((hour) => {
                             const buttonProps = props.getLemonButtonTimeProps?.({
                                 unit: 'h',
                                 value: hour,
@@ -204,14 +209,16 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
                             <div className="LemonCalendar__time--scroll-spacer" />
                         </ScrollableShadows>
                     )}
-                    <div>
-                        <LemonButton fullWidth {...props.getLemonButtonTimeProps?.({ unit: 'a', value: 'am' })}>
-                            <span className="w-full text-center">AM</span>
-                        </LemonButton>
-                        <LemonButton fullWidth {...props.getLemonButtonTimeProps?.({ unit: 'a', value: 'pm' })}>
-                            <span className="w-full text-center">PM</span>
-                        </LemonButton>
-                    </div>
+                    {!use24HourFormat && (
+                        <div>
+                            <LemonButton fullWidth {...props.getLemonButtonTimeProps?.({ unit: 'a', value: 'am' })}>
+                                <span className="w-full text-center">AM</span>
+                            </LemonButton>
+                            <LemonButton fullWidth {...props.getLemonButtonTimeProps?.({ unit: 'a', value: 'pm' })}>
+                                <span className="w-full text-center">PM</span>
+                            </LemonButton>
+                        </div>
+                    )}
                 </div>
             )}
         </div>

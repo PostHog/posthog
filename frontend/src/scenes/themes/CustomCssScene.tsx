@@ -92,7 +92,7 @@ export function CustomCssScene(): JSX.Element {
     })
 
     const onPreview = (): void => {
-        router.actions.push(urls.projectHomepage())
+        router.actions.push(urls.projectRoot())
     }
 
     return (
@@ -112,7 +112,7 @@ export function CustomCssScene(): JSX.Element {
                             type="primary"
                             onClick={() => {
                                 saveCustomCss()
-                                router.actions.push(urls.projectHomepage())
+                                router.actions.push(urls.projectRoot())
                             }}
                             size="small"
                         >

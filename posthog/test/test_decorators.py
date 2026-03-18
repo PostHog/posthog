@@ -3,14 +3,16 @@ from typing import TYPE_CHECKING
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, BaseTest
+from unittest.mock import patch
 
 from django.core.cache import cache
 
+from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api import router
-from posthog.decorators import cached_by_filters, is_stale_filter
+from posthog.decorators import cached_by_filters, disallow_if_impersonated, is_stale_filter
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -253,3 +255,81 @@ class TestIsStaleHelper(BaseTest):
             stale = is_stale_filter(self.team, filter, self.cached_response)
 
             assert stale is True
+
+
+class ImpersonationTestViewSet(GenericViewSet):
+    @action(methods=["GET", "POST"], detail=False)
+    @disallow_if_impersonated()
+    def blocked_action(self, request):
+        return Response({"status": "success"})
+
+    @action(methods=["GET", "POST"], detail=False)
+    @disallow_if_impersonated(message="Custom error message.")
+    def blocked_with_custom_message(self, request):
+        return Response({"status": "success"})
+
+    @action(methods=["GET", "POST"], detail=False)
+    @disallow_if_impersonated(allowed_methods=["GET"])
+    def partially_blocked(self, request):
+        return Response({"status": "success", "method": request.method})
+
+
+router.register(r"impersonation-test", ImpersonationTestViewSet, "impersonation-test")
+
+
+class TestDisallowIfImpersonatedDecorator(APIBaseTest):
+    @patch("posthog.decorators.is_impersonated_session")
+    def test_allows_non_impersonated_session(self, mock_is_impersonated):
+        mock_is_impersonated.return_value = False
+
+        response = self.client.get("/api/impersonation-test/blocked_action/")
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "success"
+
+    @patch("posthog.decorators.is_impersonated_session")
+    def test_blocks_impersonated_session(self, mock_is_impersonated):
+        mock_is_impersonated.return_value = True
+
+        response = self.client.get("/api/impersonation-test/blocked_action/")
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Impersonated sessions cannot perform this action."
+
+    @patch("posthog.decorators.is_impersonated_session")
+    def test_custom_error_message(self, mock_is_impersonated):
+        mock_is_impersonated.return_value = True
+
+        response = self.client.get("/api/impersonation-test/blocked_with_custom_message/")
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Custom error message."
+
+    @patch("posthog.decorators.is_impersonated_session")
+    def test_allowed_methods_get_is_allowed(self, mock_is_impersonated):
+        mock_is_impersonated.return_value = True
+
+        response = self.client.get("/api/impersonation-test/partially_blocked/")
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "success"
+        assert response.json()["method"] == "GET"
+
+    @patch("posthog.decorators.is_impersonated_session")
+    def test_allowed_methods_post_is_blocked(self, mock_is_impersonated):
+        mock_is_impersonated.return_value = True
+
+        response = self.client.post("/api/impersonation-test/partially_blocked/")
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Impersonated sessions cannot perform this action."
+
+    @patch("posthog.decorators.is_impersonated_session")
+    def test_non_impersonated_can_use_all_methods(self, mock_is_impersonated):
+        mock_is_impersonated.return_value = False
+
+        get_response = self.client.get("/api/impersonation-test/partially_blocked/")
+        post_response = self.client.post("/api/impersonation-test/partially_blocked/")
+
+        assert get_response.status_code == 200
+        assert post_response.status_code == 200

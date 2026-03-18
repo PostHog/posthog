@@ -1,6 +1,9 @@
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { loaders } from 'kea-loaders'
+import { actionToUrl, router } from 'kea-router'
 
+import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { objectsEqual } from 'lib/utils'
 import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'scenes/data-warehouse/utils'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -15,7 +18,14 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getDefaultQuery, queryFromKind } from '~/queries/nodes/InsightViz/utils'
 import { queryExportContext } from '~/queries/query'
 import { DataVisualizationNode, HogQLVariable, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
-import { isDataTableNode, isDataVisualizationNode, isHogQLQuery, isHogQuery, isInsightVizNode } from '~/queries/utils'
+import {
+    isDataTableNode,
+    isDataVisualizationNode,
+    isHogQLQuery,
+    isHogQuery,
+    isInsightVizNode,
+    isWebAnalyticsInsightQuery,
+} from '~/queries/utils'
 import { ExportContext, InsightLogicProps, InsightType } from '~/types'
 
 import { teamLogic } from '../teamLogic'
@@ -59,7 +69,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
         actions: [
             insightLogic,
-            ['setInsight'],
+            ['setInsight', 'setInsightMetadata'],
             dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             ['loadData', 'loadDataSuccess', 'loadDataFailure', 'setResponse as setInsightData'],
         ],
@@ -68,6 +78,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     actions({
         setQuery: (query: Node | null) => ({ query }),
+        syncQueryFromProps: (query: Node | null) => ({ query }),
         toggleQueryEditorPanel: true,
         toggleDebugPanel: true,
         cancelChanges: true,
@@ -78,6 +89,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             null as Node | null,
             {
                 setQuery: (_, { query }) => query,
+                syncQueryFromProps: (_, { query }) => query,
             },
         ],
         showQueryEditor: [
@@ -94,12 +106,36 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
     }),
 
+    loaders(({ values }) => ({
+        generatedInsightName: [
+            null as string | null,
+            {
+                generateInsightName: async () => {
+                    const insightQuery = values.insightQuery
+                    if (!insightQuery) {
+                        return null
+                    }
+                    try {
+                        const response = await api.insights.generateName({
+                            kind: NodeKind.InsightVizNode,
+                            source: insightQuery,
+                        })
+                        return response.name
+                    } catch (e) {
+                        lemonToast.error('Failed to generate name')
+                        throw e
+                    }
+                },
+            },
+        ],
+    })),
+
     selectors({
         query: [
             (s) => [s.propsQuery, s.insight, s.internalQuery, s.filterTestAccountsDefault, s.isDataWarehouseQuery],
             (propsQuery, insight, internalQuery, filterTestAccountsDefault, isDataWarehouseQuery): Node | null =>
-                propsQuery ||
                 internalQuery ||
+                propsQuery ||
                 insight.query ||
                 (isDataWarehouseQuery
                     ? examples.DataWarehouse
@@ -145,10 +181,13 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 if (savedInsight.query) {
                     savedOrDefaultQuery = savedInsight.query as InsightVizNode | DataVisualizationNode
                 } else if (isInsightVizNode(query)) {
-                    savedOrDefaultQuery = getDefaultQuery(
-                        nodeKindToInsightType[query.source.kind],
-                        filterTestAccountsDefault
-                    )
+                    // Web Analytics insights don't have traditional defaults, they come from tiles
+                    // and should always be considered "changed" for URL hash purposes
+                    if (isWebAnalyticsInsightQuery(query.source)) {
+                        return true
+                    }
+                    const insightType = nodeKindToInsightType[query.source.kind]
+                    savedOrDefaultQuery = getDefaultQuery(insightType, filterTestAccountsDefault)
                 } else if (isDataVisualizationNode(query)) {
                     savedOrDefaultQuery = getDefaultQuery(InsightType.SQL, filterTestAccountsDefault)
                 } else if (isDataTableNode(query)) {
@@ -206,6 +245,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
+        generateInsightNameSuccess: ({ generatedInsightName }) => {
+            if (generatedInsightName) {
+                actions.setInsightMetadata({ name: generatedInsightName })
+            }
+        },
         setInsight: ({ insight: { query, result }, options: { overrideQuery } }) => {
             // we don't want to override the query for example when updating the insight's name
             if (!overrideQuery) {
@@ -271,9 +315,48 @@ export const insightDataLogic = kea<insightDataLogicType>([
             )
         },
     })),
-    propsChanged(({ actions, props, values }) => {
-        if (props.cachedInsight?.query && !objectsEqual(props.cachedInsight.query, values.query)) {
+    propsChanged(({ actions, props, values }, oldProps) => {
+        // Uses syncQueryFromProps (not setQuery) to avoid triggering the
+        // insightVizDataLogic.setQuery listener which would loop back via props.setQuery.
+        // Guard must match propsQuery selector (only ad-hoc insights receive query via props).
+        if (props.dashboardItemId?.startsWith('new-AdHoc.') && props.query) {
+            try {
+                if (!objectsEqual(props.query, values.query)) {
+                    actions.syncQueryFromProps(props.query)
+                }
+            } catch {
+                actions.syncQueryFromProps(props.query)
+            }
+            return
+        }
+
+        if (!props.cachedInsight?.query) {
+            return
+        }
+
+        const cachedQueryChanged =
+            !oldProps?.cachedInsight?.query || !objectsEqual(oldProps.cachedInsight.query, props.cachedInsight.query)
+
+        if (!cachedQueryChanged) {
+            return
+        }
+        try {
+            if (!objectsEqual(props.cachedInsight.query, values.query)) {
+                actions.setQuery(props.cachedInsight.query)
+            }
+        } catch {
+            // values.query can throw if the logic's state isn't in the store yet
+            // (e.g. when InsightCard rebuilds the logic during navigation)
             actions.setQuery(props.cachedInsight.query)
         }
     }),
+    actionToUrl(({ props }) => ({
+        cancelChanges: () => {
+            if (props.tabId && sceneLogic.values.activeTabId === props.tabId) {
+                const { pathname, searchParams, hashParams } = router.values.currentLocation
+                const { q: _, ...hash } = hashParams
+                return [pathname, searchParams, hash]
+            }
+        },
+    })),
 ])

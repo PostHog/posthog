@@ -14,8 +14,9 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
 if (not match(inputs.webhookUrl, '^https://[^/]+.logic.azure.com:443/workflows/[^/]+/triggers/manual/paths/invoke?.*') and
     not match(inputs.webhookUrl, '^https://[^/]+.webhook.office.com/webhookb2/[^/]+/IncomingWebhook/[^/]+/[^/]+') and
     not match(inputs.webhookUrl, '^https://[^/]+.powerautomate.com/[^/]+') and
-    not match(inputs.webhookUrl, '^https://[^/]+.flow.microsoft.com/[^/]+')) {
-    throw Error('Invalid URL. The URL should match either Azure Logic Apps format (https://<region>.logic.azure.com:443/workflows/...), Power Platform format (https://<tenant>.webhook.office.com/webhookb2/...), or Power Automate format (https://<region>.powerautomate.com/... or https://<region>.flow.microsoft.com/...)')
+    not match(inputs.webhookUrl, '^https://[^/]+.flow.microsoft.com/[^/]+') and
+    not match(inputs.webhookUrl, '^https://[^/]+.environment.api.powerplatform.com(:443)?/powerautomate/automations/direct/workflows/.*')) {
+    throw Error('Invalid URL. The URL should match either Azure Logic Apps format (https://<region>.logic.azure.com:443/workflows/...), Power Platform format (https://<tenant>.webhook.office.com/webhookb2/...), Power Automate format (https://<region>.powerautomate.com/... or https://<region>.flow.microsoft.com/...), or Power Platform environment format (https://<tenant>.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/...)')
 }
 
 let res := fetch(inputs.webhookUrl, {
@@ -55,7 +56,7 @@ if (res.status >= 400) {
             "key": "webhookUrl",
             "type": "string",
             "label": "Webhook URL",
-            "description": "You can use any of these options: Azure Logic Apps (logic.azure.com), Power Platform webhooks (create through Microsoft Teams by adding an incoming webhook connector to your channel), or Power Automate (powerautomate.com or flow.microsoft.com)",
+            "description": "You can use any of these options: Azure Logic Apps (logic.azure.com), Power Platform webhooks (create through Microsoft Teams by adding an incoming webhook connector to your channel), Power Automate (powerautomate.com or flow.microsoft.com), or Power Platform environment endpoints (environment.api.powerplatform.com)",
             "secret": False,
             "required": True,
         },

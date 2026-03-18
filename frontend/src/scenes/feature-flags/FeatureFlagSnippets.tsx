@@ -703,7 +703,7 @@ export function JSSnippet({
 
     const propertyOverrideSnippet = `// Your flag depends on properties that are not instantly available. If you want
 // to make them available without waiting for server delays, send these properties for flag evaluation, like so:
-// Make sure to call this before evaluating flags. More info: https://posthog.com/docs/libraries/js#overriding-server-properties 
+// Make sure to call this before evaluating flags. More info: https://posthog.com/docs/libraries/js/usage#overriding-server-properties 
 posthog.${
         groupType
             ? `setGroupPropertiesForFlags({ '${groupType.group_type}': {'${propertyName}': 'value'}})`

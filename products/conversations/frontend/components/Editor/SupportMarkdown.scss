@@ -1,0 +1,32 @@
+.SupportMarkdown {
+    .SupportMarkdown__image-wrapper {
+        position: relative;
+        display: block;
+        margin: 0.5em 0;
+    }
+
+    .SupportMarkdown__image-skeleton {
+        width: 200px;
+        height: 150px;
+        border-radius: var(--radius);
+    }
+
+    .SupportMarkdown__image {
+        max-width: 100%;
+        max-height: 300px;
+        cursor: pointer;
+        border-radius: var(--radius);
+        transition: opacity 0.15s ease;
+
+        &:hover {
+            opacity: 0.9;
+        }
+    }
+
+    .SupportMarkdown__image-error {
+        display: inline-block;
+        padding: 0.5em;
+        background: var(--bg-light);
+        border-radius: var(--radius);
+    }
+}

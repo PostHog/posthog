@@ -136,13 +136,13 @@ class TestAnalyzeMigrationRisk(TestCase):
         assert result == ""
 
     def test_check_missing_migrations_does_not_filter_mixed_operations(self):
-        """Should return warning when there are non-removal operations."""
+        """Should filter out Remove field operations but keep others."""
         from posthog.management.commands.analyze_migration_risk import Command
 
         command = Command()
 
         def mock_makemigrations(*args, **kwargs):
-            # Simulate mixed operations (not just removals)
+            # Simulate mixed operations (removals + non-removals)
             import sys
 
             sys.stdout.write("Migrations for 'posthog':\n")
@@ -154,6 +154,33 @@ class TestAnalyzeMigrationRisk(TestCase):
         with patch("django.core.management.call_command", side_effect=mock_makemigrations):
             result = command.check_missing_migrations()
 
-        # Should return warning because there are non-removal operations
+        # Should return warning with non-removal operations
         assert "**Summary:** ⚠️ Missing migrations detected" in result
         assert "Add field new_field to testmodel" in result
+        # Should NOT include the deprecated field removal
+        assert "Remove field is_emoji from annotation" not in result
+
+    def test_check_missing_migrations_preserves_non_deprecated_removals(self):
+        """Should NOT filter out Remove field for non-deprecated fields (false negative check)."""
+        from posthog.management.commands.analyze_migration_risk import Command
+
+        command = Command()
+
+        def mock_makemigrations(*args, **kwargs):
+            # Simulate removal of a field that is NOT wrapped in deprecate_field()
+            import sys
+
+            sys.stdout.write("Migrations for 'posthog':\n")
+            sys.stdout.write("  posthog/migrations/0887_test.py\n")
+            sys.stdout.write("    - Remove field is_emoji from annotation\n")  # deprecated
+            sys.stdout.write("    - Remove field nonexistent_field from testmodel\n")  # NOT deprecated!
+            raise SystemExit(1)
+
+        with patch("django.core.management.call_command", side_effect=mock_makemigrations):
+            result = command.check_missing_migrations()
+
+        # Should return warning for non-deprecated field removal
+        assert "**Summary:** ⚠️ Missing migrations detected" in result
+        assert "Remove field nonexistent_field from testmodel" in result
+        # Should NOT include deprecated field removal
+        assert "Remove field is_emoji from annotation" not in result

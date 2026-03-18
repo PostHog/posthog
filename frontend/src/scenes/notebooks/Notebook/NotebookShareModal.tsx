@@ -63,11 +63,12 @@ export function NotebookShareModal({ shortId }: NotebookShareModalProps): JSX.El
                             type="secondary"
                             fullWidth
                             center
+                            truncate
                             sideIcon={<IconCopy />}
                             onClick={() => void copyToClipboard(notebookUrl, 'notebook link')}
                             title={notebookUrl}
                         >
-                            <span className="truncate">{notebookUrl}</span>
+                            {notebookUrl}
                         </LemonButton>
 
                         <LemonDivider className="my-4" />
@@ -87,11 +88,12 @@ export function NotebookShareModal({ shortId }: NotebookShareModalProps): JSX.El
                     type="secondary"
                     fullWidth
                     center
+                    truncate
                     sideIcon={<IconCopy />}
                     onClick={() => void copyToClipboard(canvasUrl, 'canvas link')}
                     title={canvasUrl}
                 >
-                    <span className="truncate">{canvasUrl}</span>
+                    {canvasUrl}
                 </LemonButton>
 
                 <LemonDivider className="my-4" />

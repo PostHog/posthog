@@ -8,7 +8,6 @@ import { DataWarehouseManagedViewsetImpactModal } from 'scenes/data-management/m
 import { disableDataWarehouseManagedViewsetModalLogic } from 'scenes/data-management/managed-viewsets/disableDataWarehouseManagedViewsetModalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { AccessControlResourceType } from '~/types'
 
 export function DataWarehouseManagedViewsetConfiguration(): JSX.Element {
@@ -32,28 +31,23 @@ export function DataWarehouseManagedViewsetConfiguration(): JSX.Element {
 
     return (
         <>
-            <SceneSection
-                title="Revenue analytics"
-                description="Revenue analytics must be enabled to automatically create and maintain optimized database views for your revenue data. Once enabled, you can configure which revenue sources and events to track below."
-            >
-                {!isEnabled && (
-                    <LemonBanner type="warning" className="mb-4">
-                        <div className="flex items-center gap-2">
-                            <span>
-                                <strong>Revenue analytics is currently disabled.</strong> Enable it below to start
-                                configuring revenue sources and events.
-                            </span>
-                        </div>
-                    </LemonBanner>
-                )}
+            {!isEnabled && (
+                <LemonBanner type="warning">
+                    <div className="flex items-center gap-2">
+                        <span>
+                            <strong>Revenue analytics is currently disabled.</strong> Enable it below to start
+                            configuring revenue sources and events.
+                        </span>
+                    </div>
+                </LemonBanner>
+            )}
 
-                <DataWarehouseManagedViewsetCard
-                    type="ManagedViewsetConfiguration"
-                    kind="revenue_analytics"
-                    displayConfigLink={false}
-                    resourceType={AccessControlResourceType.RevenueAnalytics}
-                />
-            </SceneSection>
+            <DataWarehouseManagedViewsetCard
+                type="ManagedViewsetConfiguration"
+                kind="revenue_analytics"
+                displayConfigLink={false}
+                resourceType={AccessControlResourceType.RevenueAnalytics}
+            />
 
             <DataWarehouseManagedViewsetImpactModal
                 type="ManagedViewsetConfiguration"

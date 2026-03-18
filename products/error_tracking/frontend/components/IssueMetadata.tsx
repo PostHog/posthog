@@ -1,12 +1,11 @@
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { PropsWithChildren, useState } from 'react'
 import { match } from 'ts-pattern'
 
-import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { IconChevronRight } from '@posthog/icons'
+import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
-import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 
 import { ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
@@ -54,8 +53,8 @@ export const Metadata = ({ children, className }: PropsWithChildren<{ className?
     )
 
     return (
-        <LemonCard className={clsx('p-0', className)} hoverEffect={false}>
-            <div className="flex justify-between items-center h-[40px] px-2">
+        <div className={className}>
+            <div className="flex justify-between items-center h-[40px] px-2 shrink-0">
                 <div className="flex justify-end items-center h-full">
                     {match(hoveredDatum)
                         .when(
@@ -99,7 +98,7 @@ export const Metadata = ({ children, className }: PropsWithChildren<{ className?
                         .otherwise(() => null)}
                 </div>
             </div>
-            <div onClick={cancelEvent}>
+            <div onClick={cancelEvent} className="shrink-0">
                 <SparklineChart
                     data={sparklineData}
                     events={sparklineEvents}
@@ -107,8 +106,8 @@ export const Metadata = ({ children, className }: PropsWithChildren<{ className?
                     className="h-full pt-0"
                 />
             </div>
-            {children}
-        </LemonCard>
+            <div className="flex-1 min-h-0 overflow-y-auto">{children}</div>
+        </div>
     )
 }
 

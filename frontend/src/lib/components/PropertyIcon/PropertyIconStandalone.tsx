@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { Ref, forwardRef } from 'react'
 
-import { IconGearFilled, IconHeadset } from '@posthog/icons'
+import { IconGearFilled, IconHeadset, IconPhone, IconTabletPortrait } from '@posthog/icons'
 
 import {
     IconAndroidOS,
@@ -17,10 +17,8 @@ import {
     IconMicrosoftEdge,
     IconMonitor,
     IconOpera,
-    IconPhone,
     IconSafari,
     IconSamsungInternet,
-    IconTablet,
     IconUCBrowser,
     IconWeb,
     IconWindows,
@@ -73,7 +71,7 @@ export const PROPERTIES_ICON_MAP: Record<string, Record<string, JSX.Element>> = 
     $device_type: {
         ['desktop']: <IconMonitor />,
         ['mobile']: <IconPhone />,
-        ['tablet']: <IconTablet />,
+        ['tablet']: <IconTabletPortrait />,
         ['console']: <IconHeadset />,
         ['wearable']: <IconDevices />,
         ['other']: <IconDevices />,

@@ -1,0 +1,149 @@
+rules:
+    # Rule 1: Taint tracking for user input interpolated into HogQL strings
+    # Only flags when user data is INSIDE an f-string (vulnerable pattern),
+    # NOT when user provides the entire expression (safe pattern).
+    - id: hogql-injection-taint
+      mode: taint
+      languages: [python]
+      severity: WARNING
+      message: |
+          User-controlled data interpolated into HogQL string flows to parse function.
+          Use ast.Constant in placeholders: parse_expr("{x}", placeholders={"x": ast.Constant(value=...)})
+      pattern-sources:
+          # Direct interpolation in f-strings
+          - patterns:
+                - pattern-either:
+                      - pattern: self.query.$FIELD
+                      - pattern: self.context.includeProperties
+                      - pattern: self.series.math_hogql
+                - pattern-inside: f"..."
+          # Loop variable from taint source used in f-string
+          - patterns:
+                - pattern: $VAR
+                - pattern-inside: |
+                      for $VAR in self.query.$FIELD:
+                          ...
+                - pattern-inside: f"..."
+          - patterns:
+                - pattern: $VAR
+                - pattern-inside: |
+                      for $VAR in self.context.includeProperties:
+                          ...
+                - pattern-inside: f"..."
+      pattern-sinks:
+          - pattern: parse_select(...)
+          - pattern: parse_expr(...)
+          - pattern: parse_order_expr(...)
+      pattern-sanitizers:
+          - pattern: ast.Constant(value=...)
+          - pattern: ast.Tuple(exprs=...)
+      metadata:
+          category: security
+          subcategory:
+              - vuln
+          cwe: 'CWE-89: SQL Injection'
+          owasp: 'A03:2021 - Injection'
+          confidence: HIGH
+      paths:
+          exclude:
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/.semgrep/**'
+
+    # Rule 2: Audit rule for f-strings (catch interpolation patterns)
+    - id: hogql-fstring-audit
+      patterns:
+          - pattern-either:
+                - pattern: parse_select(f"...", ...)
+                - pattern: parse_expr(f"...")
+                - pattern: parse_order_expr(f"...", ...)
+          # Exclude known-safe patterns (each entry is OR'd together)
+          - pattern-not-regex: "step_\\{|latest_\\{|exclusion_\\{"
+          - pattern-not-regex: "\\.pk\\}|\\{table_alias\\}"
+          # Loop indices (safe: always integers)
+          - pattern-not-regex: "\\{i\\}|\\{index\\}"
+          # Funnel step integers (safe: from self.context.max_steps, range(), etc)
+          - pattern-not-regex: "\\{step_num|\\{funnelStep|\\{target_step|\\{final_step|\\{first_step"
+          - pattern-not-regex: "\\{absolute_actors_step|\\{from_step|\\{to_step|\\{prior_required|\\{max_steps\\}"
+          - pattern-not-regex: "\\{bin_count"
+          # Array indexing with integer vars (safe: e.g. matched_events_array[{target_step}])
+          - pattern-not-regex: "\\[\\{[a-z_]+\\s*[+\\-]?\\s*\\d*\\}\\]"
+          # Internal constant strings (safe: hardcoded ASC/DESC, field names)
+          - pattern-not-regex: "\\{order_dir\\}|\\{order_clause\\}|\\{actor\\}|\\{field\\}"
+          # Internally computed SQL fragments (safe: built from internal logic, not user input)
+          - pattern-not-regex: "\\{statement\\}|\\{event_clause\\}|\\{prop_selector\\}|\\{prop_vals\\}"
+          - pattern-not-regex: "\\{conversion_filter\\}|\\{event_join_query\\}|\\{recording_event_select_statement\\}"
+          - pattern-not-regex: "\\{funnel_step_names\\}|\\{percentile_function\\}|\\{metric_value_field\\}"
+          - pattern-not-regex: "\\{default_breakdown_selector\\}|\\{where_clause\\}|\\{array_join_query\\}"
+          # Funnel computed values (safe: join of internally-built strings)
+          - pattern-not-regex: "\\{step_results|\\{conversion_time_arrays\\}|\\{final_prop\\}|\\{order_by\\}"
+          - pattern-not-regex: "\\{mean_conversion_times\\}|\\{median_conversion_times\\}|\\{conversion_rate_expr\\}"
+          # Interval/time patterns (safe: integers or validated enums)
+          - pattern-not-regex: "\\{interval\\}|\\{interval_unit\\}"
+          # Method calls returning safe internal values
+          - pattern-not-regex: "self\\._get_breakdown|timezone_wrapper\\("
+          # Explicit int() conversion (safe: guarantees integer)
+          - pattern-not-regex: "int\\(self\\."
+          # Common limit/offset/count patterns (safe: always integers)
+          - pattern-not-regex: "\\{limit\\}|\\{offset\\}|\\{count\\}"
+          # Computed expression names (safe: internally built SQL fragments)
+          - pattern-not-regex: "\\{timestamp_expr\\}|\\{array_merge_operation\\}"
+          # Date filter patterns (safe: computed from internal date range)
+          - pattern-not-regex: "\\{date_to_filter\\}|\\{date_from_filter\\}"
+          # Inline ternary conditions (safe: boolean conditions creating constant strings)
+          - pattern-not-regex: "\\{'[^']*'\\s+if\\s+\\w+\\s+else"
+          - pattern-not-regex: "\\{\"[^\"]*\"\\s+if\\s+\\w+\\s+else"
+      message: 'HogQL f-string - review if user input is interpolated'
+      languages: [python]
+      severity: INFO
+      metadata:
+          category: security
+          subcategory:
+              - audit
+          cwe: 'CWE-89: SQL Injection'
+          owasp: 'A03:2021 - Injection'
+          confidence: LOW
+      paths:
+          exclude:
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/.semgrep/**'
+
+    # Rule 3: Taint tracking for user input interpolated into ClickHouse queries
+    # Only flags when user data is INSIDE an f-string that flows to sync_execute/async_execute.
+    - id: clickhouse-injection-taint
+      mode: taint
+      languages: [python]
+      severity: WARNING
+      message: |
+          User-controlled data interpolated into ClickHouse query.
+          Use escape_clickhouse_identifier() for identifiers or %(name)s placeholders for values.
+      options:
+          taint_assume_safe_numbers: true
+          taint_assume_safe_booleans: true
+      pattern-sources:
+          # self.* fields in f-strings (user-controlled query parameters and instance attributes)
+          - patterns:
+                - pattern-either:
+                      - pattern: self.query.$FIELD
+                      - pattern: self.$FIELD
+                - pattern-inside: f"..."
+      pattern-sinks:
+          - pattern: sync_execute(...)
+          - pattern: async_execute(...)
+      pattern-sanitizers:
+          - pattern: escape_clickhouse_identifier(...)
+          - pattern: escape_hogql_identifier(...)
+          - pattern: int(...)
+      metadata:
+          category: security
+          subcategory:
+              - vuln
+          cwe: 'CWE-89: SQL Injection'
+          owasp: 'A03:2021 - Injection'
+          confidence: HIGH
+      paths:
+          exclude:
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/.semgrep/**'

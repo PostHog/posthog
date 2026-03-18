@@ -28,13 +28,35 @@ use tracing::{info, warn, Level};
 
 use capture::config::{CaptureMode, Config, KafkaConfig};
 use capture::server::serve;
+use common_continuous_profiling::ContinuousProfilingConfig;
 use health::HealthStrategy;
 use limiters::redis::{QuotaResource, OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY};
 
 pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     print_sink: false,
+    noop_sink: false,
     address: SocketAddr::from_str("127.0.0.1:0").unwrap(),
     redis_url: "redis://localhost:6379/".to_string(),
+    redis_response_timeout_ms: 100,
+    redis_connection_timeout_ms: 5000,
+    global_rate_limit_enabled: false,
+    global_rate_limit_window_interval_secs: 60,
+    global_rate_limit_sync_interval_secs: 15,
+    global_rate_limit_tick_interval_ms: 1000,
+    global_rate_limit_token_distinctid_threshold: 10_000,
+    global_rate_limit_token_distinctid_overrides_csv: None,
+    global_rate_limit_token_distinctid_local_cache_max_entries: 300_000,
+    global_rate_limit_token_threshold: 300_000,
+    global_rate_limit_token_overrides_csv: None,
+    global_rate_limit_token_local_cache_max_entries: 300_000,
+    global_rate_limit_redis_url: None,
+    global_rate_limit_redis_reader_url: None,
+    global_rate_limit_redis_response_timeout_ms: None,
+    global_rate_limit_redis_connection_timeout_ms: None,
+    event_restrictions_enabled: false,
+    event_restrictions_redis_url: None,
+    event_restrictions_refresh_interval_secs: 30,
+    event_restrictions_fail_open_after_secs: 300,
     overflow_enabled: false,
     overflow_preserve_partition_locality: false,
     overflow_burst_limit: NonZeroU32::new(5).unwrap(),
@@ -43,7 +65,6 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     drop_events_by_token_distinct_id: None,
     enable_historical_rerouting: false,
     historical_rerouting_threshold_days: 1_i64,
-    historical_tokens_keys: None,
     is_mirror_deploy: false,
     log_level: Level::INFO,
     verbose_sample_percent: 0.0_f32,
@@ -60,13 +81,22 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_historical_topic: "events_plugin_ingestion_historical".to_string(),
         kafka_client_ingestion_warning_topic: "events_plugin_ingestion".to_string(),
         kafka_exceptions_topic: "events_plugin_ingestion".to_string(),
+        kafka_error_tracking_topic: "error_tracking_events".to_string(),
         kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
         kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
+        kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
+        kafka_traces_topic: "ingestion_traces".to_string(),
         kafka_tls: false,
         kafka_client_id: "".to_string(),
         kafka_metadata_max_age_ms: 60000,
         kafka_producer_max_retries: 2,
         kafka_producer_acks: "all".to_string(),
+        kafka_socket_timeout_ms: 60000,
+        kafka_producer_batch_num_messages: 10000,
+        kafka_producer_batch_size: 1000000,
+        kafka_producer_max_in_flight_requests: 1000000,
+        kafka_producer_sticky_partitioning_linger_ms: 10,
+        kafka_producer_enable_idempotence: false,
     },
     otel_url: None,
     otel_sampling_rate: 0.0,
@@ -81,6 +111,24 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     s3_fallback_prefix: String::new(),
     healthcheck_strategy: HealthStrategy::All,
     ai_max_sum_of_parts_bytes: 26_214_400, // 25MB default
+    ai_s3_bucket: None,
+    ai_s3_prefix: "llma/".to_string(),
+    ai_s3_endpoint: None,
+    ai_s3_region: "us-east-1".to_string(),
+    ai_s3_access_key_id: None,
+    ai_s3_secret_access_key: None,
+    request_timeout_seconds: Some(10),
+    http1_header_read_timeout_ms: Some(5000), // 5 seconds default
+    body_chunk_read_timeout_ms: None,         // disabled by default in tests
+    body_read_chunk_size_kb: 256,             // 256KB default
+    error_tracking_dual_write_enabled: false,
+    error_tracking_dual_write_sample_rate: 0.0,
+    continuous_profiling: ContinuousProfilingConfig {
+        continuous_profiling_enabled: false,
+        pyroscope_server_address: String::new(),
+        pyroscope_application_name: String::new(),
+        pyroscope_sample_rate: 100,
+    },
 });
 
 static TRACING_INIT: Once = Once::new();
@@ -284,7 +332,7 @@ impl EphemeralTopic {
                         std::thread::sleep(Duration::from_millis(100));
                         continue;
                     }
-                    bail!("kafka read error: {}", err);
+                    bail!("kafka read error: {err}");
                 }
                 None => bail!("kafka read timeout"),
             }
@@ -319,7 +367,7 @@ impl EphemeralTopic {
                         std::thread::sleep(Duration::from_millis(100));
                         continue;
                     }
-                    bail!("kafka read error: {}", err);
+                    bail!("kafka read error: {err}");
                 }
                 None => bail!("kafka read timeout"),
             }
@@ -366,7 +414,7 @@ impl EphemeralTopic {
                         std::thread::sleep(Duration::from_millis(100));
                         continue;
                     }
-                    bail!("kafka read error: {}", err);
+                    bail!("kafka read error: {err}");
                 }
                 None => bail!("kafka read timeout"),
             }

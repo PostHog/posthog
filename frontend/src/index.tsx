@@ -1,5 +1,8 @@
 import '~/styles'
 
+import './buffer-polyfill'
+
+import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip'
 import { polyfillCountryFlagEmojis } from 'country-flag-emoji-polyfill'
 import { getContext } from 'kea'
 import posthog from 'posthog-js'
@@ -8,13 +11,14 @@ import { createRoot } from 'react-dom/client'
 
 import { App } from 'scenes/App'
 
-import './buffer-polyfill'
 import { initKea } from './initKea'
 import { ErrorBoundary } from './layout/ErrorBoundary'
 import { loadPostHogJS } from './loadPostHogJS'
+import { preWarmDecompression } from './scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager'
 
 loadPostHogJS()
 initKea()
+preWarmDecompression()
 
 // On Chrome + Windows, the country flag emojis don't render correctly. This is a polyfill for that.
 // It won't be applied on other platforms.
@@ -39,7 +43,9 @@ function renderApp(): void {
         createRoot(root).render(
             <ErrorBoundary>
                 <PostHogProvider client={posthog}>
-                    <App />
+                    <BaseTooltip.Provider delay={500} closeDelay={0} timeout={400}>
+                        <App />
+                    </BaseTooltip.Provider>
                 </PostHogProvider>
             </ErrorBoundary>
         )

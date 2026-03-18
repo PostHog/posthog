@@ -1,18 +1,11 @@
 import pytest
-from posthog.test.base import BaseTest, _create_event, _create_person, flush_persons_and_events
+from posthog.test.base import BaseTest, _create_action, _create_event, _create_person, flush_persons_and_events
 
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_response_in_tests
 
 from posthog.models import Action
 from posthog.models.utils import UUIDT
-
-
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name}])
-    return action
 
 
 def _create_action_with_property(**kwargs):

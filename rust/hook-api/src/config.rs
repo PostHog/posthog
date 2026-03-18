@@ -1,7 +1,11 @@
+use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 
 #[derive(Envconfig)]
 pub struct Config {
+    #[envconfig(nested = true)]
+    pub continuous_profiling: ContinuousProfilingConfig,
+
     #[envconfig(from = "BIND_HOST", default = "::")]
     pub host: String,
 

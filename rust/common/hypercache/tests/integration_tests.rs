@@ -57,7 +57,14 @@ async fn setup_integration_clients() -> anyhow::Result<TestClients> {
 
     let s3_client = aws_sdk_s3::Client::from_conf(s3_config_builder.build());
 
-    let redis_client_for_cache = RedisClient::new("redis://localhost:6379".to_string()).await?;
+    let redis_client_for_cache = RedisClient::with_config(
+        "redis://localhost:6379".to_string(),
+        common_redis::CompressionConfig::disabled(),
+        common_redis::RedisValueFormat::default(),
+        Some(Duration::from_millis(1000)),
+        Some(Duration::from_millis(5000)),
+    )
+    .await?;
     let hypercache =
         HyperCacheReader::new(std::sync::Arc::new(redis_client_for_cache), config.clone()).await?;
 
@@ -96,7 +103,7 @@ async fn set_cache_value(
         .body(json_str.into_bytes().into())
         .send()
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to set S3 object: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to set S3 object: {e}"))?;
 
     Ok(())
 }
@@ -268,7 +275,14 @@ async fn test_hypercache_token_based_cache_key() -> anyhow::Result<()> {
     config.token_based = true;
     config.s3_endpoint = Some("http://localhost:19000".to_string());
 
-    let redis_client_for_cache = RedisClient::new("redis://localhost:6379".to_string()).await?;
+    let redis_client_for_cache = RedisClient::with_config(
+        "redis://localhost:6379".to_string(),
+        common_redis::CompressionConfig::disabled(),
+        common_redis::RedisValueFormat::default(),
+        Some(Duration::from_millis(1000)),
+        Some(Duration::from_millis(5000)),
+    )
+    .await?;
     let token_based_hypercache =
         HyperCacheReader::new(std::sync::Arc::new(redis_client_for_cache), config).await?;
 
@@ -342,7 +356,14 @@ async fn test_hypercache_keytype_variants() -> anyhow::Result<()> {
     config_token.token_based = true;
     config_token.s3_endpoint = Some("http://localhost:19000".to_string());
 
-    let redis_client_token = RedisClient::new("redis://localhost:6379".to_string()).await?;
+    let redis_client_token = RedisClient::with_config(
+        "redis://localhost:6379".to_string(),
+        common_redis::CompressionConfig::disabled(),
+        common_redis::RedisValueFormat::default(),
+        Some(Duration::from_millis(1000)),
+        Some(Duration::from_millis(5000)),
+    )
+    .await?;
     let hypercache_token = HyperCacheReader::new(
         std::sync::Arc::new(redis_client_token),
         config_token.clone(),

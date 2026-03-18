@@ -15,7 +15,7 @@ import type { managedMigrationLogicType } from './managedMigrationLogicType'
 import { ManagedMigration } from './types'
 
 export interface ManagedMigrationForm {
-    source_type: 's3' | 'mixpanel' | 'amplitude'
+    source_type: 's3' | 's3_gzip' | 'mixpanel' | 'amplitude'
     access_key: string
     secret_key: string
     content_type: 'captured' | 'mixpanel' | 'amplitude'
@@ -57,6 +57,8 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
     }),
     actions({
         editManagedMigration: (id: string | null) => ({ id }),
+        pauseMigration: (id: string) => ({ id }),
+        resumeMigration: (id: string) => ({ id }),
         startPolling: true,
         stopPolling: true,
     }),
@@ -81,6 +83,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
             defaults: NEW_MANAGED_MIGRATION,
             errors: ({
                 source_type,
+                content_type,
                 access_key,
                 secret_key,
                 s3_region,
@@ -96,9 +99,16 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                     secret_key: !secret_key ? 'Secret key is required' : null,
                 }
 
-                if (source_type === 's3') {
+                if (source_type === 's3' || source_type === 's3_gzip') {
                     errors.s3_region = !s3_region ? 'S3 region is required' : null
                     errors.s3_bucket = !s3_bucket ? 'S3 bucket is required' : null
+
+                    if (content_type === 'amplitude') {
+                        if (!import_events && !generate_identify_events && !generate_group_identify_events) {
+                            errors.import_events =
+                                'At least one of "Import events", "Generate identify events", or "Generate group identify events" must be enabled'
+                        }
+                    }
                 } else if (source_type === 'mixpanel' || source_type === 'amplitude') {
                     errors.start_date = !start_date ? 'Start date is required' : null
                     errors.end_date = !end_date ? 'End date is required' : null
@@ -133,12 +143,18 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                     secret_key: values.secret_key,
                     content_type: values.content_type,
                 }
-                if (values.source_type === 's3') {
+                if (values.source_type === 's3' || values.source_type === 's3_gzip') {
                     payload = {
                         ...payload,
                         s3_region: values.s3_region,
                         s3_bucket: values.s3_bucket,
                         s3_prefix: values.s3_prefix,
+                    }
+
+                    if (values.content_type === 'amplitude') {
+                        payload.import_events = values.import_events
+                        payload.generate_identify_events = values.generate_identify_events
+                        payload.generate_group_identify_events = values.generate_group_identify_events
                     }
                 } else if (values.source_type === 'mixpanel' || values.source_type === 'amplitude') {
                     payload = {
@@ -179,32 +195,47 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                 lemonToast.error('Failed to create migration. Please try again.')
             }
         },
+        pauseMigration: async ({ id }) => {
+            try {
+                const projectId = ApiConfig.getCurrentProjectId()
+                await api.create(`api/projects/${projectId}/managed_migrations/${id}/pause/`)
+                lemonToast.success('Migration paused successfully')
+                actions.loadMigrations()
+            } catch (error: any) {
+                lemonToast.error(error?.message || 'Failed to pause migration')
+            }
+        },
+        resumeMigration: async ({ id }) => {
+            try {
+                const projectId = ApiConfig.getCurrentProjectId()
+                await api.create(`api/projects/${projectId}/managed_migrations/${id}/resume/`)
+                lemonToast.success('Migration resumed successfully')
+                actions.loadMigrations()
+            } catch (error: any) {
+                lemonToast.error(error?.message || 'Failed to resume migration')
+            }
+        },
         loadMigrationsSuccess: () => {
-            const hasRunningMigrations = values.migrations.some(
-                (migration: ManagedMigration) => migration.status === 'running'
+            const hasActiveMigrations = values.migrations.some(
+                (migration: ManagedMigration) =>
+                    migration.display_status === 'running' || migration.display_status === 'waiting_to_start'
             )
-            if (hasRunningMigrations && !values.isPolling) {
+            if (hasActiveMigrations && !values.isPolling) {
                 actions.startPolling()
-            } else if (!hasRunningMigrations && values.isPolling) {
+            } else if (!hasActiveMigrations && values.isPolling) {
                 actions.stopPolling()
             }
         },
         startPolling: () => {
-            const pollInterval = setInterval(() => {
-                if (!values.isPolling) {
-                    clearInterval(pollInterval)
-                    return
-                }
-                actions.loadMigrations()
-            }, 5000)
-
-            cache.pollInterval = pollInterval
+            cache.disposables.add(() => {
+                const intervalId = setInterval(() => {
+                    actions.loadMigrations()
+                }, 5000)
+                return () => clearInterval(intervalId)
+            }, 'pollMigrations')
         },
         stopPolling: () => {
-            if (cache.pollInterval) {
-                clearInterval(cache.pollInterval)
-                cache.pollInterval = null
-            }
+            cache.disposables.dispose('pollMigrations')
         },
     })),
     selectors({

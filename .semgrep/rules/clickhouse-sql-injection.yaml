@@ -1,0 +1,88 @@
+rules:
+    # Rule 1: Taint tracking for direct user input -> sync_execute f-string
+    - id: clickhouse-sql-injection
+      mode: taint
+      languages: [python]
+      severity: ERROR
+      message: |
+          User-controlled data interpolated into ClickHouse SQL query.
+          Use escape_clickhouse_identifier() for identifiers or parameterized queries for values.
+      pattern-sources:
+          - pattern-either:
+                - pattern: data.get(...)
+                - pattern: data[...]
+                - pattern: validated_data.get(...)
+                - pattern: validated_data[...]
+                - pattern: request.data.get(...)
+                - pattern: request.data[...]
+                - pattern: request.GET.get(...)
+                - pattern: request.GET[...]
+                - pattern: request.POST.get(...)
+                - pattern: request.POST[...]
+                - pattern: request.query_params.get(...)
+                - pattern: request.query_params[...]
+                - pattern: self.request.data.get(...)
+                - pattern: self.request.data[...]
+                - pattern: self.request.query_params.get(...)
+                - pattern: self.request.query_params[...]
+      pattern-sinks:
+          - pattern: sync_execute(f"...", ...)
+          - pattern: async_execute(f"...", ...)
+          - pattern: execute_on_connection(f"...", ...)
+      pattern-sanitizers:
+          - pattern: escape_clickhouse_identifier(...)
+          - pattern: escape_clickhouse_string(...)
+      metadata:
+          category: security
+          subcategory:
+              - vuln
+          cwe: 'CWE-89: SQL Injection'
+          owasp: 'A03:2021 - Injection'
+          confidence: HIGH
+      paths:
+          exclude:
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/.semgrep/**'
+
+    # Rule 2: Taint tracking for function parameters -> sync_execute f-string
+    # Catches indirect user input via function parameters (like Finding 1)
+    # NOTE: Files with Python 3.12+ `type` statements may not parse correctly in semgrep < 1.50
+    - id: clickhouse-fstring-param-audit
+      mode: taint
+      languages: [python]
+      severity: WARNING
+      message: |
+          Function parameter used in f-string SQL query.
+          If this parameter can receive user input, use escape_clickhouse_identifier()
+          for identifiers or parameterized queries for values.
+      pattern-sources:
+          - patterns:
+                - pattern: $PARAM
+                - pattern-inside: |
+                      def $FUNC(..., $PARAM: str, ...):
+                          ...
+          - patterns:
+                - pattern: $PARAM
+                - pattern-inside: |
+                      def $FUNC(..., $PARAM, ...):
+                          ...
+      pattern-sinks:
+          - pattern: sync_execute(f"...", ...)
+          - pattern: async_execute(f"...", ...)
+          - pattern: execute_on_connection(f"...", ...)
+      pattern-sanitizers:
+          - pattern: escape_clickhouse_identifier(...)
+          - pattern: escape_clickhouse_string(...)
+      metadata:
+          category: security
+          subcategory:
+              - audit
+          cwe: 'CWE-89: SQL Injection'
+          owasp: 'A03:2021 - Injection'
+          confidence: MEDIUM
+      paths:
+          exclude:
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/.semgrep/**'

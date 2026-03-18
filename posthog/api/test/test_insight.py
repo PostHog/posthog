@@ -7,7 +7,6 @@ from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
-    FuzzyInt,
     QueryMatchingTest,
     _create_event,
     _create_person,
@@ -79,6 +78,21 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def setUp(self) -> None:
         super().setUp()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
+
+    @parameterized.expand(
+        [
+            ("trend", "/api/projects/{team_id}/insights/trend/"),
+            ("funnel", "/api/projects/{team_id}/insights/funnel/"),
+        ]
+    )
+    def test_legacy_insight_endpoints_blocked_with_feature_flag(self, _name: str, path: str) -> None:
+        with patch("posthog.api.insight.posthoganalytics.feature_enabled", return_value=True) as mock_feature_enabled:
+            response = self.client.get(path.format(team_id=self.team.id))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], "Legacy insight endpoints are not available for this user.")
+        mock_feature_enabled.assert_called_once()
+        self.assertEqual(mock_feature_enabled.call_args[0][0], "legacy-insight-endpoints-disabled")
 
     def test_get_insight_items(self) -> None:
         filter_dict = {
@@ -182,12 +196,22 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 response_1.json().items(),
             )
             mock_capture.assert_any_call(
-                "insight created",
                 distinct_id=self.user.distinct_id,
+                event="insight created",
                 properties={
-                    "insight_id": response_1.json()["short_id"],
                     "$current_url": "https://posthog.com/my-referer",
+                    "$host": "posthog.com",
+                    "$pathname": "/my-referer",
                     "$session_id": "my-session-id",
+                    "source": "web",
+                    "was_impersonated": False,
+                    "mcp_user_agent": None,
+                    "mcp_client_name": None,
+                    "mcp_client_version": None,
+                    "mcp_protocol_version": None,
+                    "mcp_oauth_client_name": None,
+                    "insight_id": response_1.json()["short_id"],
+                    "$set_once": {"email": self.user.email},
                 },
                 groups=ANY,
             )
@@ -217,12 +241,22 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             insight_short_id = response_2.json()["short_id"]
             # Check that "insight updated" event was called among all capture calls
             mock_capture.assert_any_call(
-                "insight updated",
                 distinct_id=self.user.distinct_id,
+                event="insight updated",
                 properties={
-                    "insight_id": insight_short_id,
                     "$current_url": "https://posthog.com/my-referer",
+                    "$host": "posthog.com",
+                    "$pathname": "/my-referer",
                     "$session_id": "my-session-id",
+                    "source": "web",
+                    "was_impersonated": False,
+                    "mcp_user_agent": None,
+                    "mcp_client_name": None,
+                    "mcp_client_version": None,
+                    "mcp_protocol_version": None,
+                    "mcp_oauth_client_name": None,
+                    "insight_id": insight_short_id,
+                    "$set_once": {"email": self.user.email},
                 },
                 groups=ANY,
             )
@@ -440,6 +474,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 filters_override={},
                 variables_override={},
                 tile_filters_override={},
+                analytics_props=ANY,
             )
 
         with patch(
@@ -455,6 +490,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 filters_override={},
                 variables_override={},
                 tile_filters_override={},
+                analytics_props=ANY,
             )
 
     def test_get_insight_by_short_id(self) -> None:
@@ -565,13 +601,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # adding more insights doesn't change the query count
         self.assertEqual(
-            [
-                FuzzyInt(13, 14),
-                FuzzyInt(13, 14),
-                FuzzyInt(13, 14),
-                FuzzyInt(13, 14),
-                FuzzyInt(13, 14),
-            ],
+            [15, 15, 15, 15, 15],
             query_counts,
             f"received query counts\n\n{query_counts}",
         )
@@ -1083,8 +1113,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
             response_data = response.json()
             self.assertEqual(response_data["name"], "insight new name")
-            # tags are a paid feature and safely ignored when not licensed
-            self.assertEqual(sorted(response_data["tags"]), [])
+            self.assertEqual(sorted(response_data["tags"]), ["add", "tags", "these"])
             self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
             self.assertEqual(
                 response_data["effective_restriction_level"],
@@ -1109,6 +1138,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                         "item_id": str(insight_id),
                         "detail": {
                             "changes": [
+                                {
+                                    "type": "Insight",
+                                    "action": "changed",
+                                    "field": "tags",
+                                    "before": [],
+                                    "after": ["add", "tags", "these"],
+                                },
                                 {
                                     "type": "Insight",
                                     "action": "changed",
@@ -2344,28 +2380,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(lines[2], b"test custom,0,0,0,0,0,0,2,1")
         self.assertEqual(len(lines), 3, response.content)
 
-    def test_insight_trends_formula_and_fractional_numbers_csv(self) -> None:
-        with freeze_time("2012-01-14T03:21:34.000Z"):
-            _create_event(team=self.team, event="$pageview", distinct_id="1")
-            _create_event(team=self.team, event="$pageview", distinct_id="2")
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            _create_event(team=self.team, event="$pageview", distinct_id="2")
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/insights/trend.csv/?events={json.dumps([{'id': '$pageview', 'custom_name': 'test custom'}])}&export_name=Pageview count&export_insight_id=test123&formula=A*0.5"
-            )
-
-        lines = response.content.splitlines()
-
-        self.assertEqual(lines[0], b"http://localhost:8010/insights/test123/", lines[0])
-        self.assertEqual(
-            lines[1],
-            b"series,8-Jan-2012,9-Jan-2012,10-Jan-2012,11-Jan-2012,12-Jan-2012,13-Jan-2012,14-Jan-2012,15-Jan-2012",
-            lines[0],
-        )
-        self.assertEqual(lines[2], b"Formula (A*0.5),0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.5")
-        self.assertEqual(len(lines), 3, response.content)
-
     def _create_one_person_cohort(self, properties: list[dict[str, Any]]) -> int:
         Person.objects.create(team=self.team, properties=properties)
         cohort_one_id = self.client.post(
@@ -2704,8 +2718,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         activity_response = self.dashboard_api.get_insight_activity(insight_id)
 
         activity: list[dict] = activity_response["results"]
-        # we will have three logged activities (in reverse order) undelete, delete, create
-        assert [a["activity"] for a in activity] == ["updated", "updated", "created"]
+        # we will have three logged activities (in reverse order) restore, delete, create
+        assert [a["activity"] for a in activity] == ["restored", "deleted", "created"]
         undelete_change_log = activity[0]["detail"]["changes"][0]
         assert undelete_change_log == {
             "action": "changed",
@@ -3911,3 +3925,108 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Verify the breakdown filter is applied in the result
         self.assertIn("result", response_data)
         self.assertEqual(response_data["result"][0][0]["breakdown"], ["Chrome"])
+
+
+class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
+    @parameterized.expand(
+        [
+            ("ExposedCHQueryError", "posthog.errors.ExposedCHQueryError", "NO_COMMON_TYPE error from ClickHouse"),
+            ("ExposedHogQLError", "posthog.hogql.errors.ExposedHogQLError", "Invalid HogQL syntax"),
+            ("HogVMException", "common.hogvm.python.utils.HogVMException", "Global variable not found: variables"),
+        ]
+    )
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_retrieve_returns_400_for_exposed_errors(
+        self, _name: str, error_class_path: str, error_message: str, mock_calculate: mock.MagicMock
+    ) -> None:
+        from posthog.hogql.errors import ExposedHogQLError
+
+        from posthog.errors import ExposedCHQueryError
+
+        from common.hogvm.python.utils import HogVMException
+
+        error_classes: dict[str, type] = {
+            "ExposedCHQueryError": ExposedCHQueryError,
+            "ExposedHogQLError": ExposedHogQLError,
+            "HogVMException": HogVMException,
+        }
+        mock_calculate.side_effect = error_classes[_name](error_message)
+
+        insight = Insight.objects.create(
+            team=self.team,
+            query={
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+            },
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/insights/{insight.id}/?refresh=blocking")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(error_message, str(response.json()))
+
+    @parameterized.expand(
+        [
+            ("ExposedCHQueryError", "ClickHouse trend error"),
+            ("ExposedHogQLError", "HogQL trend error"),
+            ("HogVMException", "Global variable not found: variables"),
+        ]
+    )
+    @patch("posthog.api.insight.InsightViewSet.calculate_trends_hogql")
+    @patch("posthog.api.insight.get_query_method", return_value="hogql")
+    def test_trend_returns_400_for_exposed_errors(
+        self, error_type: str, error_message: str, _mock_query_method: mock.MagicMock, mock_calculate: mock.MagicMock
+    ) -> None:
+        from posthog.hogql.errors import ExposedHogQLError
+
+        from posthog.errors import ExposedCHQueryError
+
+        from common.hogvm.python.utils import HogVMException
+
+        error_classes: dict[str, type] = {
+            "ExposedCHQueryError": ExposedCHQueryError,
+            "ExposedHogQLError": ExposedHogQLError,
+            "HogVMException": HogVMException,
+        }
+        mock_calculate.side_effect = error_classes[error_type](error_message)
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/insights/trend/",
+            data={"events": json.dumps([{"id": "$pageview"}])},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(error_message, str(response.json()))
+
+    @parameterized.expand(
+        [
+            ("ExposedCHQueryError", "ClickHouse funnel error"),
+            ("ExposedHogQLError", "HogQL funnel error"),
+            ("HogVMException", "Global variable not found: variables"),
+        ]
+    )
+    @patch("posthog.api.insight.InsightViewSet.calculate_funnel_hogql")
+    @patch("posthog.api.insight.get_query_method", return_value="hogql")
+    def test_funnel_returns_400_for_exposed_errors(
+        self, error_type: str, error_message: str, _mock_query_method: mock.MagicMock, mock_calculate: mock.MagicMock
+    ) -> None:
+        from posthog.hogql.errors import ExposedHogQLError
+
+        from posthog.errors import ExposedCHQueryError
+
+        from common.hogvm.python.utils import HogVMException
+
+        error_classes: dict[str, type] = {
+            "ExposedCHQueryError": ExposedCHQueryError,
+            "ExposedHogQLError": ExposedHogQLError,
+            "HogVMException": HogVMException,
+        }
+        mock_calculate.side_effect = error_classes[error_type](error_message)
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/insights/funnel/",
+            data={"events": json.dumps([{"id": "$pageview"}, {"id": "$pageleave"}])},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(error_message, str(response.json()))

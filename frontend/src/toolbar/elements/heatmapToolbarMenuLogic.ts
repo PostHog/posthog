@@ -7,20 +7,70 @@ import { PostHog } from 'posthog-js'
 import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
 
 import { elementToSelector } from 'lib/actionUtils'
-import { PaginatedResponse } from 'lib/api'
+import type { PaginatedResponse } from 'lib/api'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { createVersionChecker } from 'lib/utils/semver'
 
+import { DOMIndex, buildDOMIndex, matchEventToElementUsingIndex } from '~/toolbar/elements/domElementIndex'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
-import { elementToActionStep, trimElement } from '~/toolbar/utils'
+import { elementIsVisible, invalidateZoomCache, trimElement } from '~/toolbar/utils'
 import { FilterType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { heatmapToolbarMenuLogicType } from './heatmapToolbarMenuLogicType'
 
 export const doesVersionSupportScrollDepth = createVersionChecker('1.99')
+
+function yieldToMain(): Promise<void> {
+    return new Promise((resolve) => {
+        if ('scheduler' in window && typeof (window as any).scheduler?.yield === 'function') {
+            ;(window as any).scheduler.yield().then(resolve)
+        } else if (typeof (window as any).requestIdleCallback === 'function') {
+            ;(window as any).requestIdleCallback(() => resolve(), { timeout: 50 })
+        } else {
+            setTimeout(resolve, 0)
+        }
+    })
+}
+
+interface ElementProcessingCache {
+    pageElements?: HTMLElement[]
+    domIndex?: DOMIndex
+    selectorToElements: Record<string, HTMLElement[]>
+    lastHref?: string
+    intersectionObserver?: IntersectionObserver
+    visibilityCache: WeakMap<HTMLElement, boolean>
+    mutationObserver?: MutationObserver
+    cacheInvalidated?: boolean
+}
+
+function invalidatePageElementsCache(cache: ElementProcessingCache): void {
+    cache.cacheInvalidated = true
+    cache.visibilityCache = new WeakMap()
+    cache.domIndex = undefined
+}
+
+function getCachedPageElements(
+    cache: ElementProcessingCache,
+    href: string
+): { pageElements: HTMLElement[]; domIndex: DOMIndex } {
+    const hrefChanged = cache.lastHref !== href
+    const cacheValid = cache.pageElements && !hrefChanged && !cache.cacheInvalidated
+
+    if (cacheValid && cache.pageElements && cache.domIndex) {
+        return { pageElements: cache.pageElements, domIndex: cache.domIndex }
+    }
+
+    cache.pageElements = collectAllElementsDeep('*', document)
+    cache.domIndex = buildDOMIndex(cache.pageElements)
+    cache.lastHref = href
+    cache.selectorToElements = {}
+    cache.cacheInvalidated = false
+    return { pageElements: cache.pageElements, domIndex: cache.domIndex }
+}
 
 const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
     next: undefined,
@@ -46,7 +96,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 'heatmapFilters',
                 'heatmapElements',
                 'heatmapTooltipLabel',
-                'heatmapScrollY',
                 'dateRange',
             ],
         ],
@@ -65,7 +114,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 'loadHeatmap',
                 'loadHeatmapSuccess',
                 'loadHeatmapFailure',
-                'setHeatmapScrollY',
             ],
         ],
     })),
@@ -83,6 +131,14 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         maybeLoadClickmap: true,
         maybeLoadHeatmap: true,
         updateElementMetrics: (observedElements: [HTMLElement, boolean][]) => ({ observedElements }),
+        startElementObservation: true,
+        stopElementObservation: true,
+        processElements: true,
+        refreshClickmap: true,
+        setIsRefreshing: (isRefreshing: boolean) => ({ isRefreshing }),
+        setProcessedElements: (elements: CountedHTMLElement[]) => ({ elements }),
+        setElementsLoading: (loading: boolean) => ({ loading }),
+        setProcessingProgress: (processed: number, total: number) => ({ processed, total }),
     }),
     windowValues(() => ({
         windowWidth: (window: Window) => window.innerWidth,
@@ -133,6 +189,38 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
                     return onUpdate
                 },
+                toggleClickmapsEnabled: (state, { enabled }) => (enabled ? state : new Map()),
+            },
+        ],
+        processedElements: [
+            [] as CountedHTMLElement[],
+            {
+                setProcessedElements: (_, { elements }) => elements,
+                toggleClickmapsEnabled: (state, { enabled }) => (enabled ? state : []),
+                resetElementStats: () => [],
+            },
+        ],
+        elementsLoading: [
+            false,
+            {
+                setElementsLoading: (_, { loading }) => loading,
+                processElements: () => true,
+                setProcessedElements: () => false,
+                toggleClickmapsEnabled: (state, { enabled }) => (enabled ? state : false),
+            },
+        ],
+        processingProgress: [
+            null as { processed: number; total: number } | null,
+            {
+                setProcessingProgress: (_, { processed, total }) => (processed >= total ? null : { processed, total }),
+                setProcessedElements: () => null,
+                toggleClickmapsEnabled: () => null,
+            },
+        ],
+        isRefreshing: [
+            false,
+            {
+                setIsRefreshing: (_, { isRefreshing }) => isRefreshing,
             },
         ],
     }),
@@ -206,139 +294,14 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             },
         ],
     })),
-    selectors(({ cache }) => ({
-        elements: [
-            (s) => [s.elementStats, toolbarConfigLogic.selectors.dataAttributes, s.href, s.matchLinksByHref],
-            (elementStats, dataAttributes, href, matchLinksByHref) => {
-                cache.pageElements = cache.lastHref == href ? cache.pageElements : collectAllElementsDeep('*', document)
-                cache.selectorToElements = cache.lastHref == href ? cache.selectorToElements : {}
-
-                cache.lastHref = href
-
-                const elements: CountedHTMLElement[] = []
-                elementStats?.results.forEach((event) => {
-                    let combinedSelector: string
-                    let lastSelector: string | undefined
-                    for (let i = 0; i < event.elements.length; i++) {
-                        const element = event.elements[i]
-                        const selector =
-                            elementToSelector(
-                                matchLinksByHref ? element : { ...element, href: undefined },
-                                dataAttributes
-                            ) || '*'
-                        combinedSelector = lastSelector ? `${selector} > ${lastSelector}` : selector
-
-                        try {
-                            let domElements: HTMLElement[] | undefined = cache.selectorToElements?.[combinedSelector]
-                            if (domElements === undefined) {
-                                domElements = Array.from(
-                                    querySelectorAllDeep(combinedSelector, document, cache.pageElements)
-                                )
-                                cache.selectorToElements[combinedSelector] = domElements
-                            }
-
-                            if (domElements.length === 1) {
-                                const e = event.elements[i]
-
-                                // element like "svg" (only tag, no class/id/etc.) as the first one
-                                if (
-                                    i === 0 &&
-                                    e.tag_name &&
-                                    !e.attr_class &&
-                                    !e.attr_id &&
-                                    !e.href &&
-                                    !e.text &&
-                                    e.nth_child === 1 &&
-                                    e.nth_of_type === 1 &&
-                                    !e.attributes['attr__data-attr']
-                                ) {
-                                    // too simple selector, bail
-                                } else {
-                                    elements.push({
-                                        element: domElements[0],
-                                        count: event.count,
-                                        selector: selector,
-                                        hash: event.hash,
-                                        type: event.type,
-                                    } as CountedHTMLElement)
-                                    return null
-                                }
-                            }
-
-                            if (domElements.length === 0) {
-                                if (i === event.elements.length - 1) {
-                                    return null
-                                } else if (i > 0 && lastSelector) {
-                                    // We already have something, but found nothing when adding the next selector.
-                                    // Skip it and try with the next one...
-                                    lastSelector = lastSelector ? `* > ${lastSelector}` : '*'
-                                    continue
-                                }
-                            }
-                        } catch {
-                            break
-                        }
-
-                        lastSelector = combinedSelector
-
-                        // TODO: what if multiple elements will continue to match until the end?
-                    }
-                })
-
-                return elements
-            },
-        ],
+    selectors(() => ({
         countedElements: [
-            (s) => [s.elements, toolbarConfigLogic.selectors.dataAttributes, s.clickmapsEnabled, s.elementMetrics],
-            (elements, dataAttributes, clickmapsEnabled, elementMetrics) => {
-                if (!clickmapsEnabled) {
-                    return []
-                }
-
-                cache.intersectionObserver.disconnect()
-                cache.intersectionObserver.observe(document.body)
-
-                const normalisedElements = new Map<HTMLElement, CountedHTMLElement>()
-
-                for (const countedElement of elements || []) {
-                    const trimmedElement = trimElement(countedElement.element)
-                    if (!trimmedElement) {
-                        continue
-                    }
-
-                    const metrics = elementMetrics.get(trimmedElement) || {
-                        visible: isElementVisible(trimmedElement),
-                        rect: trimmedElement.getBoundingClientRect(),
-                    }
-
-                    if (normalisedElements.has(trimmedElement)) {
-                        const existing = normalisedElements.get(trimmedElement)
-                        if (existing) {
-                            existing.count += countedElement.count
-                            existing.clickCount += countedElement.type === '$autocapture' ? countedElement.count : 0
-                            existing.rageclickCount += countedElement.type === '$rageclick' ? countedElement.count : 0
-                            existing.deadclickCount += countedElement.type === '$dead_click' ? countedElement.count : 0
-                            existing.visible = metrics.visible
-                        }
-                    } else {
-                        normalisedElements.set(trimmedElement, {
-                            ...countedElement,
-                            clickCount: countedElement.type === '$autocapture' ? countedElement.count : 0,
-                            rageclickCount: countedElement.type === '$rageclick' ? countedElement.count : 0,
-                            deadclickCount: countedElement.type === '$dead_click' ? countedElement.count : 0,
-                            element: trimmedElement,
-                            actionStep: elementToActionStep(trimmedElement, dataAttributes),
-                            visible: metrics.visible,
-                        })
-                    }
-
-                    cache.intersectionObserver.observe(trimmedElement)
-                }
-
-                const countedElements = Array.from(normalisedElements.values())
-                countedElements.sort((a, b) => b.count - a.count)
-
-                return countedElements.map((e, i) => ({ ...e, position: i + 1 }))
+            (s) => [s.processedElements, s.elementMetrics],
+            (processedElements, elementMetrics) => {
+                return processedElements.map((el: CountedHTMLElement) => {
+                    const metrics = elementMetrics.get(el.element)
+                    return metrics ? { ...el, visible: metrics.visible } : el
+                })
             },
         ],
         elementCount: [(s) => [s.countedElements], (countedElements) => countedElements.length],
@@ -374,15 +337,90 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 return !isSupported ? 'version' : isDisabled ? 'disabled' : null
             },
         ],
+        processingInputs: [
+            (s) => [
+                s.elementStats,
+                toolbarConfigLogic.selectors.dataAttributes,
+                s.href,
+                s.matchLinksByHref,
+                s.clickmapsEnabled,
+            ],
+            (elementStats, dataAttributes, href, matchLinksByHref, clickmapsEnabled) => ({
+                elementStats,
+                dataAttributes,
+                href,
+                matchLinksByHref,
+                clickmapsEnabled,
+            }),
+        ],
     })),
     subscriptions(({ actions }) => ({
         viewportRange: () => {
             actions.maybeLoadHeatmap()
         },
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
+        processElements: async (_, breakpoint) => {
+            const BATCH_SIZE = 200
+            const INITIAL_BATCH_SIZE = 50
+
+            const { elementStats, dataAttributes, href, matchLinksByHref, clickmapsEnabled } = values.processingInputs
+
+            if (!clickmapsEnabled || !elementStats?.results?.length) {
+                actions.setProcessedElements([])
+                actions.setIsRefreshing(false)
+                return
+            }
+
+            cache.visibilityCache = cache.visibilityCache || new WeakMap<HTMLElement, boolean>()
+            const cursorPointerCache = new WeakMap<HTMLElement, boolean>()
+            const { pageElements, domIndex } = getCachedPageElements(cache as ElementProcessingCache, href)
+            const eventsToProcess = elementStats.results
+            const totalEvents = eventsToProcess.length
+
+            const allTrimmedElements: CountedHTMLElement[] = []
+            let processedCount = 0
+
+            while (processedCount < totalEvents) {
+                const batchSize = processedCount === 0 ? INITIAL_BATCH_SIZE : BATCH_SIZE
+                const batchEnd = Math.min(processedCount + batchSize, totalEvents)
+
+                for (let i = processedCount; i < batchEnd; i++) {
+                    const event = eventsToProcess[i]
+                    const matched =
+                        matchEventToElementUsingIndex(event, dataAttributes, matchLinksByHref, domIndex) ||
+                        matchEventToElement(
+                            event,
+                            dataAttributes,
+                            matchLinksByHref,
+                            pageElements,
+                            cache as ElementProcessingCache
+                        )
+
+                    if (matched) {
+                        const trimmed = trimElement(matched.element, { cursorPointerCache })
+                        if (
+                            trimmed &&
+                            elementIsVisible(trimmed, cache.visibilityCache as WeakMap<HTMLElement, boolean>)
+                        ) {
+                            allTrimmedElements.push({ ...matched, element: trimmed })
+                        }
+                    }
+                }
+
+                processedCount = batchEnd
+                actions.setProcessingProgress(processedCount, totalEvents)
+
+                breakpoint()
+                await yieldToMain()
+            }
+
+            actions.setProcessedElements(aggregateAndSortElements(allTrimmedElements))
+            actions.startElementObservation()
+            actions.setIsRefreshing(false)
+        },
+
         enableHeatmap: () => {
-            // need to set the href at least once to get the heatmap to load
             actions.setDataHref(values.href)
             actions.loadAllEnabled()
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: true })
@@ -392,6 +430,23 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             actions.resetElementStats()
             actions.resetHeatmapData()
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: false })
+        },
+
+        startElementObservation: () => {
+            if (!cache.intersectionObserver || !values.clickmapsEnabled) {
+                return
+            }
+
+            const countedElements = values.countedElements
+            cache.intersectionObserver.disconnect()
+            cache.intersectionObserver.observe(document.body)
+            countedElements.forEach((element) => {
+                cache.intersectionObserver.observe(element.element)
+            })
+        },
+
+        stopElementObservation: () => {
+            cache.intersectionObserver?.disconnect()
         },
 
         loadAllEnabled: async () => {
@@ -418,6 +473,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             }
             actions.maybeLoadClickmap()
         },
+
         setWildcardHref: ({ href }) => {
             if (values.heatmapEnabled) {
                 actions.setHrefMatchType(href === window.location.href ? 'exact' : 'pattern')
@@ -432,10 +488,16 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             actions.maybeLoadClickmap()
         },
 
-        // Only trigger element stats loading if clickmaps are enabled
         toggleClickmapsEnabled: () => {
             if (values.clickmapsEnabled) {
                 actions.getElementStats()
+            } else {
+                actions.stopElementObservation()
+                actions.resetElementStats()
+                cache.pageElements = undefined
+                cache.selectorToElements = {}
+                cache.lastHref = undefined
+                cache.visibilityCache = new WeakMap()
             }
         },
 
@@ -445,28 +507,34 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             }
         },
 
+        getElementStatsSuccess: () => {
+            actions.processElements()
+        },
+
+        setMatchLinksByHref: () => {
+            actions.processElements()
+        },
+
+        refreshClickmap: () => {
+            if (!values.clickmapsEnabled) {
+                return
+            }
+            actions.setIsRefreshing(true)
+            invalidatePageElementsCache(cache as ElementProcessingCache)
+            actions.processElements()
+        },
+
         patchHeatmapFilters: ({ filters }) => {
             if (filters.type) {
-                // Clear the heatmap if the type changes
                 actions.resetHeatmapData()
             }
             actions.maybeLoadHeatmap()
         },
     })),
-    afterMount(({ actions, values, cache }) => {
-        cache.disposables.add(() => {
-            const timerId = setInterval(() => {
-                const scrollY = values.posthog?.scrollManager?.scrollY() ?? 0
-                if (values.heatmapScrollY !== scrollY) {
-                    actions.setHeatmapScrollY(scrollY)
-                }
-            }, 50)
-            return () => clearInterval(timerId)
-        }, 'scrollCheckTimer')
+    afterMount(({ actions, cache, values }) => {
+        cache.selectorToElements = {}
+        cache.visibilityCache = new WeakMap()
 
-        // we bundle the whole app with the toolbar, which means we don't need ES5 support
-        // so we can use IntersectionObserver
-        // oxlint-disable-next-line compat/compat
         cache.disposables.add(() => {
             const intersectionObserver = new IntersectionObserver((entries) => {
                 const observedElements: [HTMLElement, boolean][] = []
@@ -477,20 +545,155 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 actions.updateElementMetrics(observedElements)
             })
 
-            // Store for cleanup and expose via cache for use in selectors
             cache.intersectionObserver = intersectionObserver
 
             return () => intersectionObserver.disconnect()
         }, 'intersectionObserver')
+
+        cache.disposables.add(() => {
+            let debounceTimer: ReturnType<typeof setTimeout> | null = null
+
+            const mutationObserver = new MutationObserver(() => {
+                if (debounceTimer) {
+                    clearTimeout(debounceTimer)
+                }
+                debounceTimer = setTimeout(() => {
+                    invalidatePageElementsCache(cache as ElementProcessingCache)
+                    invalidateZoomCache()
+                    debounceTimer = null
+                }, 500)
+            })
+
+            mutationObserver.observe(document.body, {
+                childList: true,
+                subtree: true,
+            })
+
+            cache.mutationObserver = mutationObserver
+
+            return () => {
+                if (debounceTimer) {
+                    clearTimeout(debounceTimer)
+                }
+                mutationObserver.disconnect()
+            }
+        }, 'mutationObserver')
+
+        cache.disposables.add(() => {
+            const handleVisibilityChange = (): void => {
+                if (document.hidden) {
+                    actions.stopElementObservation()
+                } else {
+                    if (values.clickmapsEnabled) {
+                        actions.startElementObservation()
+                    }
+                }
+            }
+
+            document.addEventListener('visibilitychange', handleVisibilityChange)
+            return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+        }, 'visibilityChangeHandler')
     }),
-    beforeUnmount(() => {
-        // Disposables plugin handles cleanup automatically
+    beforeUnmount(({ cache }) => {
+        cache.pageElements = undefined
+        cache.selectorToElements = {}
+        cache.visibilityCache = new WeakMap()
+        cache.lastHref = undefined
+        cache.cacheInvalidated = false
     }),
 ])
 
-function isElementVisible(element: HTMLElement): boolean {
-    const style = window.getComputedStyle(element)
-    return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0'
+function matchEventToElement(
+    event: ElementsEventType,
+    dataAttributes: string[],
+    matchLinksByHref: boolean,
+    pageElements: HTMLElement[],
+    cache: ElementProcessingCache
+): CountedHTMLElement | null {
+    let lastSelector: string | undefined
+
+    for (let i = 0; i < event.elements.length; i++) {
+        const element = event.elements[i]
+        const selector =
+            elementToSelector(matchLinksByHref ? element : { ...element, href: undefined }, dataAttributes) || '*'
+        const combinedSelector = lastSelector ? `${selector} > ${lastSelector}` : selector
+
+        try {
+            let domElements: HTMLElement[] | undefined = cache.selectorToElements[combinedSelector]
+            if (domElements === undefined) {
+                domElements = Array.from(querySelectorAllDeep(combinedSelector, document, pageElements))
+                cache.selectorToElements[combinedSelector] = domElements
+            }
+
+            if (domElements.length === 1) {
+                const e = event.elements[i]
+                const isTooSimple =
+                    i === 0 &&
+                    e.tag_name &&
+                    !e.attr_class &&
+                    !e.attr_id &&
+                    !e.href &&
+                    !e.text &&
+                    e.nth_child === 1 &&
+                    e.nth_of_type === 1 &&
+                    !e.attributes['attr__data-attr']
+
+                if (!isTooSimple) {
+                    return {
+                        element: domElements[0],
+                        count: event.count,
+                        selector: selector,
+                        hash: event.hash,
+                        type: event.type,
+                    } as CountedHTMLElement
+                }
+            }
+
+            if (domElements.length === 0) {
+                if (i === event.elements.length - 1) {
+                    return null
+                } else if (i > 0 && lastSelector) {
+                    lastSelector = `* > ${lastSelector}`
+                    continue
+                }
+            }
+        } catch {
+            toolbarLogger.warn('heatmap', 'Failed to resolve heatmap element with selector', {
+                selector: combinedSelector,
+            })
+            break
+        }
+
+        lastSelector = combinedSelector
+    }
+
+    return null
+}
+
+function aggregateAndSortElements(elements: CountedHTMLElement[]): CountedHTMLElement[] {
+    const normalisedElements = new Map<HTMLElement, CountedHTMLElement>()
+
+    for (const countedElement of elements) {
+        if (normalisedElements.has(countedElement.element)) {
+            const existing = normalisedElements.get(countedElement.element)!
+            existing.count += countedElement.count
+            existing.clickCount += countedElement.type === '$autocapture' ? countedElement.count : 0
+            existing.rageclickCount += countedElement.type === '$rageclick' ? countedElement.count : 0
+            existing.deadclickCount += countedElement.type === '$dead_click' ? countedElement.count : 0
+        } else {
+            normalisedElements.set(countedElement.element, {
+                ...countedElement,
+                clickCount: countedElement.type === '$autocapture' ? countedElement.count : 0,
+                rageclickCount: countedElement.type === '$rageclick' ? countedElement.count : 0,
+                deadclickCount: countedElement.type === '$dead_click' ? countedElement.count : 0,
+            })
+        }
+    }
+
+    const sorted = Array.from(normalisedElements.values())
+    sorted.sort((a, b) => b.count - a.count)
+
+    return sorted.map((e, i) => ({ ...e, position: i + 1 }))
 }
 
 export const escapeUnescapedRegex = (str: string): string =>

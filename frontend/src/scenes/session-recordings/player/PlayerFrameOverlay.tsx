@@ -4,6 +4,7 @@ import { useActions, useValues } from 'kea'
 
 import { IconEmoji, IconPlay, IconRewindPlay, IconWarning } from '@posthog/icons'
 
+import { IconSkipBackward } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -14,8 +15,36 @@ import { SessionPlayerState } from '~/types'
 import { CommentOnRecordingButton } from './commenting/CommentOnRecordingButton'
 import { ClipRecording } from './controller/ClipRecording'
 import { Screenshot } from './controller/PlayerController'
-import { playerSettingsLogic } from './playerSettingsLogic'
 import { SessionRecordingPlayerMode } from './sessionRecordingPlayerLogic'
+
+const SeekIndicator = (): JSX.Element | null => {
+    const { seekIndicator } = useValues(sessionRecordingPlayerLogic)
+
+    if (!seekIndicator) {
+        return null
+    }
+
+    const isForward = seekIndicator.direction === 'forward'
+
+    return (
+        <div
+            className={cn(
+                'SeekIndicator absolute inset-0 z-20 flex items-center pointer-events-none',
+                isForward ? 'justify-end pr-[15%]' : 'justify-start pl-[15%]'
+            )}
+            key={`seek-indicator-${isForward ? 'forward' : 'backward'}-${Date.now()}`}
+        >
+            <div className="SeekIndicator__bubble flex flex-col items-center justify-center rounded-full bg-black/60 w-20 h-20">
+                <IconSkipBackward
+                    className={cn('SeekIndicator__icon text-white text-4xl', {
+                        'SeekIndicator__icon--forward': isForward,
+                    })}
+                />
+                <span className="text-white text-sm font-semibold">{seekIndicator.seconds}s</span>
+            </div>
+        </div>
+    )
+}
 
 const PlayerFrameOverlayActions = (): JSX.Element | null => {
     const { setQuickEmojiIsOpen } = useActions(sessionRecordingPlayerLogic)
@@ -40,14 +69,13 @@ const PlayerFrameOverlayActions = (): JSX.Element | null => {
 
 const PlayerFrameOverlayContent = (): JSX.Element | null => {
     const { currentPlayerState, endReached, logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { isCinemaMode } = useValues(playerSettingsLogic)
 
     let content = null
     const pausedState =
         currentPlayerState === SessionPlayerState.PAUSE || currentPlayerState === SessionPlayerState.READY
     const isInExportContext = !!getCurrentExporterData()
     const playerMode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
-    const showActionsOnOverlay = !isCinemaMode && playerMode === SessionRecordingPlayerMode.Standard && pausedState
+    const showActionsOnOverlay = playerMode === SessionRecordingPlayerMode.Standard && pausedState
 
     if (currentPlayerState === SessionPlayerState.ERROR) {
         content = (
@@ -87,16 +115,27 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
     }
     if (pausedState) {
         content = endReached ? (
-            <IconRewindPlay className="text-6xl text-white" />
+            <LemonButton
+                icon={<IconRewindPlay className="text-6xl text-white" />}
+                aria-label="Rewind recording"
+                data-attr="replay-overlay-rewind"
+            />
         ) : (
             <div className="flex flex-col items-center justify-center">
-                <IconPlay className="text-6xl text-white" />
+                <LemonButton
+                    icon={<IconPlay className="text-6xl text-white" />}
+                    aria-label="Resume recording"
+                    data-attr="replay-overlay-resume"
+                />
                 {showActionsOnOverlay && <PlayerFrameOverlayActions />}
             </div>
         )
     }
     if (currentPlayerState === SessionPlayerState.SKIP) {
         content = <div className="text-3xl italic font-medium text-white">Skipping inactivity</div>
+    }
+    if (currentPlayerState === SessionPlayerState.SKIP_TO_MATCHING_EVENT) {
+        content = <div className="text-3xl italic font-medium text-white">Skipping to filtered event</div>
     }
     return content ? (
         <div
@@ -117,6 +156,7 @@ export function PlayerFrameOverlay(): JSX.Element {
     return (
         <div className="PlayerFrameOverlay absolute inset-0 z-10" onClick={togglePlayPause}>
             <PlayerFrameOverlayContent />
+            <SeekIndicator />
         </div>
     )
 }

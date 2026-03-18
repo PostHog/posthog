@@ -1,4 +1,4 @@
-use sqlx::{postgres::PgQueryResult, PgPool};
+use sqlx::postgres::PgQueryResult;
 use uuid::Uuid;
 
 use crate::{
@@ -35,14 +35,6 @@ pub fn throw_if_no_rows(res: PgQueryResult, job: Uuid, lock: Uuid) -> Result<(),
     } else {
         Ok(())
     }
-}
-
-/// Run the latest cyclotron migrations. Panics if the migrations can't be run - failure to run migrations is purposefully fatal.
-pub async fn run_migrations(pool: &PgPool) {
-    sqlx::migrate!("./migrations")
-        .run(pool)
-        .await
-        .expect("Failed to run migrations");
 }
 
 /// Move a job into the dead letter queue, also updating the metadata table. Note that this operation does not

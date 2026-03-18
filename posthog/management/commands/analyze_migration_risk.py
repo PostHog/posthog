@@ -6,9 +6,9 @@ from django.core.management.base import BaseCommand
 from django.db import migrations
 
 from posthog.management.migration_analysis.analyzer import RiskAnalyzer
+from posthog.management.migration_analysis.deprecated_field_filter import DeprecatedFieldFilter
 from posthog.management.migration_analysis.formatters import ConsoleTreeFormatter
 from posthog.management.migration_analysis.models import MigrationRisk, RiskLevel
-from posthog.management.migration_analysis.policies import SingleMigrationPolicy
 
 
 class Command(BaseCommand):
@@ -61,14 +61,10 @@ class Command(BaseCommand):
 
     def check_batch_policies(self, migrations: list[tuple[str, migrations.Migration]]) -> list[str]:
         """Check policies that apply to the batch of migrations."""
-        # Count migrations per app
-        app_counts: dict[str, int] = {}
-        for _label, migration in migrations:
-            app_label = migration.app_label
-            app_counts[app_label] = app_counts.get(app_label, 0) + 1
-
-        policy = SingleMigrationPolicy(app_counts)
-        return policy.check_batch()
+        # No batch-level policies currently enforced.
+        # SingleMigrationPolicy was removed to allow splitting atomic and non-atomic
+        # operations into separate migrations (e.g., schema changes + concurrent index).
+        return []
 
     def get_unapplied_migrations(self) -> list[tuple[str, "migrations.Migration"]]:
         """Get all unapplied migrations using Django's migration executor."""
@@ -135,19 +131,14 @@ class Command(BaseCommand):
                 # Exit code 1 means migrations needed
                 output = stdout_capture.getvalue()
                 if output.strip():
-                    # Check if ALL operations are "Remove field" (likely deprecated fields)
-                    # Django-deprecate-fields hides deprecated fields when sys.argv doesn't
-                    # contain 'makemigrations'. Since we load models before calling makemigrations,
-                    # fields are hidden, causing false positives for deprecated-but-not-yet-removed fields.
-                    lines = [line.strip() for line in output.split("\n") if line.strip()]
-                    operation_lines = [line for line in lines if line.startswith("- ")]
+                    # Filter out deprecated field removals
+                    filtered_output = DeprecatedFieldFilter.filter_output(output)
 
-                    # If all operations are "Remove field", skip the warning
-                    if operation_lines and all(line.startswith("- Remove field") for line in operation_lines):
+                    if not filtered_output.strip():
                         return ""
 
                     # Prepend Summary for CI workflow, wrap Django's output in code block
-                    return f"**Summary:** ⚠️ Missing migrations detected\n\n```\n{output}```\n\nRun `python manage.py makemigrations` to create them.\n"
+                    return f"**Summary:** ⚠️ Missing migrations detected\n\n```\n{filtered_output}\n```\n\nRun `python manage.py makemigrations` to create them.\n"
                 return ""
         except Exception:
             # Ignore other errors (e.g., can't connect to DB)

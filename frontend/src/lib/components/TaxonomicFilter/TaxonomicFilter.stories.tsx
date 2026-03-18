@@ -9,8 +9,8 @@ import { useAvailableFeatures } from '~/mocks/features'
 import { actionsModel } from '~/models/actionsModel'
 import { AvailableFeature } from '~/types'
 
-import { TaxonomicFilter } from './TaxonomicFilter'
 import { infiniteListLogic } from './infiniteListLogic'
+import { TaxonomicFilter } from './TaxonomicFilter'
 
 const meta: Meta<typeof TaxonomicFilter> = {
     title: 'Filters/Taxonomic Filter',

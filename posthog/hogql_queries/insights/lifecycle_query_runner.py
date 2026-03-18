@@ -2,6 +2,8 @@ from datetime import datetime, timedelta
 from math import ceil
 from typing import Optional
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import (
     ActionsNode,
     CachedLifecycleQueryResponse,
@@ -9,6 +11,7 @@ from posthog.schema import (
     EventsNode,
     InsightActorsQueryOptionsResponse,
     IntervalType,
+    LifecycleDataWarehouseNode,
     LifecycleQuery,
     LifecycleQueryResponse,
     ResolvedDateRangeResponse,
@@ -24,7 +27,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange, compare_interval_length
-from posthog.hogql_queries.utils.timestamp_utils import format_label_date
+from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_from_series
 from posthog.models import Action
 from posthog.models.filters.mixins.utils import cached_property
 
@@ -32,6 +35,38 @@ from posthog.models.filters.mixins.utils import cached_property
 class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
     query: LifecycleQuery
     cached_response: CachedLifecycleQueryResponse
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        self._validate_query()
+        self._validate_data_warehouse_settings()
+
+    def _validate_query(self) -> None:
+        if not self.query.series:
+            raise ValidationError("Lifecycle insights require at least one series.")
+
+    def _validate_data_warehouse_settings(self) -> None:
+        if not self.is_data_warehouse_series:
+            if self.query.customAggregationTarget:
+                raise ValidationError(
+                    "Custom entity aggregation target is not supported for lifecycle insights without a data warehouse series."
+                )
+            return
+
+        unsupported_settings: list[str] = []
+        if self.query.properties not in (None, []):
+            unsupported_settings.append("filters")
+        if self.query.filterTestAccounts:
+            unsupported_settings.append("test account filters")
+        if self.query.samplingFactor is not None:
+            unsupported_settings.append("sampling")
+
+        if unsupported_settings:
+            settings = " and ".join(unsupported_settings)
+            verb = "is" if unsupported_settings == ["sampling"] else "are"
+            raise ValidationError(
+                f"{settings.capitalize()} {verb} not supported for lifecycle insights with a data warehouse series."
+            )
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         if self.query.samplingFactor == 0:
@@ -46,6 +81,10 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
         else:
             counts_with_sampling = parse_expr("counts")
 
+        # Use exact dates when exact_timerange is enabled
+        date_to_filter = "{date_to}" if self.exact_timerange else "{date_to_start_of_interval}"
+        date_from_filter = "{date_from}" if self.exact_timerange else "{date_from_start_of_interval}"
+
         placeholders = {
             **self.query_date_range.to_placeholders(),
             "events_query": self.events_query,
@@ -54,9 +93,9 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
         }
         with self.timings.measure("lifecycle_query"):
             lifecycle_query = parse_select(
-                """
+                f"""
                     SELECT groupArray(start_of_period) AS date,
-                           groupArray({counts_with_sampling}) AS total,
+                           groupArray({{counts_with_sampling}}) AS total,
                            status
                     FROM (
                         SELECT
@@ -68,7 +107,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                                 periods.start_of_period as start_of_period,
                                 0 AS counts,
                                 status
-                            FROM {periods_query} as periods
+                            FROM {{periods_query}} as periods
                             CROSS JOIN (
                                 SELECT status
                                 FROM (SELECT 1)
@@ -78,11 +117,11 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                             UNION ALL
                             SELECT
                                 start_of_period, count(DISTINCT actor_id) AS counts, status
-                            FROM {events_query}
+                            FROM {{events_query}}
                             GROUP BY start_of_period, status
                         )
-                        WHERE start_of_period <= {date_to_start_of_interval}
-                            AND start_of_period >= {date_from_start_of_interval}
+                        WHERE start_of_period <= {date_to_filter}
+                            AND start_of_period >= {date_from_filter}
                         GROUP BY start_of_period, status
                         ORDER BY start_of_period ASC
                     )
@@ -140,6 +179,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
         )
 
     def _calculate(self) -> LifecycleQueryResponse:
+        series = self.first_series
         query = self.to_query()
         hogql = to_printed_hogql(query, self.team)
 
@@ -151,9 +191,6 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
             modifiers=self.modifiers,
             limit_context=self.limit_context,
         )
-
-        # TODO: can we move the data conversion part into the query as well? It would make it easier to swap
-        # e.g. the LifecycleQuery with HogQLQuery, while keeping the chart logic the same.
 
         # ensure that the items are in a deterministic order
         order = {"new": 1, "returning": 2, "resurrecting": 3, "dormant": 4}
@@ -171,8 +208,8 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
             # legacy response compatibility object
             action_object = {}
             label = "{} - {}".format("", val[2])
-            if isinstance(self.query.series[0], ActionsNode):
-                action = Action.objects.get(pk=int(self.query.series[0].id), team__project_id=self.team.project_id)
+            if isinstance(series, ActionsNode):
+                action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
                 label = "{} - {}".format(action.name, val[2])
                 action_object = {
                     "id": str(action.pk),
@@ -181,8 +218,11 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                     "order": 0,
                     "math": "total",
                 }
-            elif isinstance(self.query.series[0], EventsNode):
-                event = self.query.series[0].event
+                custom_name = getattr(series, "custom_name", None)
+                if custom_name is not None:
+                    action_object["custom_name"] = custom_name
+            elif isinstance(series, EventsNode):
+                event = series.event
                 label = "{} - {}".format("All events" if event is None else event, val[2])
                 action_object = {
                     "id": event,
@@ -190,6 +230,23 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                     "type": "events",
                     "order": 0,
                     "math": "total",
+                }
+                custom_name = getattr(series, "custom_name", None)
+                if custom_name is not None:
+                    action_object["custom_name"] = custom_name
+            elif isinstance(series, LifecycleDataWarehouseNode):
+                data_warehouse_node = series
+                label = "{} - {}".format(data_warehouse_node.table_name, val[2])
+                action_object = {
+                    "id": data_warehouse_node.id,
+                    "name": data_warehouse_node.table_name,
+                    "type": "data_warehouse",
+                    "order": 0,
+                    "math": "total",
+                    "table_name": data_warehouse_node.table_name,
+                    "timestamp_field": data_warehouse_node.timestamp_field,
+                    "aggregation_target_field": data_warehouse_node.aggregation_target_field,
+                    "created_at_field": data_warehouse_node.created_at_field,
                 }
 
             additional_values = {"label": label, "status": val[2]}
@@ -215,6 +272,40 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
             ),
         )
 
+    @property
+    def is_data_warehouse_series(self) -> bool:
+        return isinstance(self.first_series, LifecycleDataWarehouseNode)
+
+    @property
+    def first_series(self) -> ActionsNode | EventsNode | LifecycleDataWarehouseNode:
+        assert self.query.series, "There should be at least one series in the query"
+        return self.query.series[0]
+
+    @property
+    def data_warehouse_series(self) -> LifecycleDataWarehouseNode:
+        series = self.first_series
+        if not isinstance(series, LifecycleDataWarehouseNode):
+            raise ValueError("Expected a data warehouse series")
+        return series
+
+    @property
+    def timestamp_field(self) -> ast.Expr:
+        if self.is_data_warehouse_series:
+            return parse_expr(self.data_warehouse_series.timestamp_field)
+        return ast.Field(chain=["events", "timestamp"])
+
+    @cached_property
+    def _earliest_timestamp(self) -> datetime | None:
+        if self.query.dateRange and self.query.dateRange.date_from == "all":
+            # Get earliest timestamp across all series in this insight
+            return get_earliest_timestamp_from_series(team=self.team, series=list(self.query.series or []))
+
+        return None
+
+    @property
+    def exact_timerange(self):
+        return self.query.dateRange and self.query.dateRange.explicitDate
+
     @cached_property
     def query_date_range(self):
         return QueryDateRange(
@@ -222,29 +313,33 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
             team=self.team,
             interval=self.query.interval,
             now=datetime.now(),
+            earliest_timestamp_fallback=self._earliest_timestamp,
+            exact_timerange=self.exact_timerange,
         )
 
     @cached_property
     def event_filter(self) -> ast.Expr:
-        event_filters: list[ast.Expr] = [
-            ast.CompareOperation(
-                left=ast.Field(chain=["properties", "$process_person_profile"]),
-                right=ast.Constant(value="false"),
-                op=ast.CompareOperationOp.NotEq,
+        event_filters: list[ast.Expr] = []
+        if not self.is_data_warehouse_series:
+            event_filters.append(
+                ast.CompareOperation(
+                    left=ast.Field(chain=["properties", "$process_person_profile"]),
+                    right=ast.Constant(value="false"),
+                    op=ast.CompareOperationOp.NotEq,
+                )
             )
-        ]
         with self.timings.measure("date_range"):
             event_filters.append(
                 parse_expr(
-                    "timestamp >= {date_from_start_of_interval} - {one_interval_period}",
-                    self.query_date_range.to_placeholders(),
+                    "{timestamp_field} >= {date_from_start_of_interval} - {one_interval_period}",
+                    {**self.query_date_range.to_placeholders(), "timestamp_field": self.timestamp_field},
                     timings=self.timings,
                 )
             )
             event_filters.append(
                 parse_expr(
-                    "timestamp < {date_to_start_of_interval} + {one_interval_period}",
-                    self.query_date_range.to_placeholders(),
+                    "{timestamp_field} < {date_to_start_of_interval} + {one_interval_period}",
+                    {**self.query_date_range.to_placeholders(), "timestamp_field": self.timestamp_field},
                     timings=self.timings,
                 )
             )
@@ -252,23 +347,28 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
             if self.query.properties is not None and self.query.properties != []:
                 event_filters.append(property_to_expr(self.query.properties, self.team))
         with self.timings.measure("series_filters"):
-            for serie in self.query.series or []:
-                if isinstance(serie, ActionsNode):
-                    action = Action.objects.get(pk=int(serie.id), team__project_id=self.team.project_id)
+            for series in self.query.series or []:
+                if isinstance(series, ActionsNode):
+                    try:
+                        action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
+                    except Action.DoesNotExist:
+                        raise ValidationError(f"Action ID {series.id} does not exist!")
                     event_filters.append(action_to_expr(action))
-                elif isinstance(serie, EventsNode):
-                    if serie.event is not None:
+                elif isinstance(series, EventsNode):
+                    if series.event is not None:
                         event_filters.append(
                             ast.CompareOperation(
                                 op=ast.CompareOperationOp.Eq,
                                 left=ast.Field(chain=["event"]),
-                                right=ast.Constant(value=str(serie.event)),
+                                right=ast.Constant(value=str(series.event)),
                             )
                         )
+                elif isinstance(series, LifecycleDataWarehouseNode):
+                    pass
                 else:
-                    raise ValueError(f"Invalid serie kind: {serie.kind}")
-                if serie.properties is not None and serie.properties != []:
-                    event_filters.append(property_to_expr(serie.properties, self.team))
+                    raise ValueError(f"Invalid series kind: {series.kind}")
+                if series.properties is not None and series.properties != []:
+                    event_filters.append(property_to_expr(series.properties, self.team))
         with self.timings.measure("test_account_filters"):
             if (
                 self.query.filterTestAccounts
@@ -308,6 +408,8 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
 
     @property
     def target_field(self):
+        if self.is_data_warehouse_series:
+            return parse_expr(self.data_warehouse_series.aggregation_target_field)
         if self.has_group_type:
             return ast.Field(chain=["events", f"$group_{self.group_type_index}"])
         return ast.Field(chain=["person_id"])
@@ -315,6 +417,8 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
     @property
     def created_at_field(self):
         """Returns the correct created_at field to use based on aggregation type."""
+        if self.is_data_warehouse_series:
+            return parse_expr(self.data_warehouse_series.created_at_field)
         if self.has_group_type:
             return ast.Field(chain=["events", f"group_{self.group_type_index}", "created_at"])
         return ast.Field(chain=["events", "person", "created_at"])
@@ -338,27 +442,28 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                         arraySort(groupUniqArray({{trunc_timestamp}})) AS all_activity,
                         arrayPopBack(arrayPushFront(all_activity, {{trunc_created_at}})) as previous_activity,
                         arrayPopFront(arrayPushBack(all_activity, {{trunc_epoch}})) as following_activity,
-                        arrayMap((previous, current, index) -> (previous = current ? 'new' : (({timezone_wrapper('current')} - {{one_interval_period}}) = previous AND index != 1) ? 'returning' : 'resurrecting'), previous_activity, all_activity, arrayEnumerate(all_activity)) as initial_status,
-                        arrayMap((current, next) -> ({timezone_wrapper('current')} + {{one_interval_period}} = {timezone_wrapper('next')} ? '' : 'dormant'), all_activity, following_activity) as dormant_status,
-                        arrayMap(x -> {timezone_wrapper('x')} + {{one_interval_period}}, arrayFilter((current, is_dormant) -> is_dormant = 'dormant', all_activity, dormant_status)) as dormant_periods,
+                        arrayMap((previous, current, index) -> (previous = current ? 'new' : (({timezone_wrapper("current")} - {{one_interval_period}}) = previous AND index != 1) ? 'returning' : 'resurrecting'), previous_activity, all_activity, arrayEnumerate(all_activity)) as initial_status,
+                        arrayMap((current, next) -> ({timezone_wrapper("current")} + {{one_interval_period}} = {timezone_wrapper("next")} ? '' : 'dormant'), all_activity, following_activity) as dormant_status,
+                        arrayMap(x -> {timezone_wrapper("x")} + {{one_interval_period}}, arrayFilter((current, is_dormant) -> is_dormant = 'dormant', all_activity, dormant_status)) as dormant_periods,
                         arrayMap(x -> 'dormant', dormant_periods) as dormant_label,
                         arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) as temp_concat,
                         arrayJoin(temp_concat) as period_status_pairs,
                         period_status_pairs.1 as start_of_period,
                         period_status_pairs.2 as status,
                         {{target}}
-                    FROM events
+                    FROM {{table}}
                     WHERE {{event_filter}}
                     GROUP BY actor_id
                 """,
                 placeholders={
                     **self.query_date_range.to_placeholders(),
+                    "table": ast.Field(chain=[self.data_warehouse_series.table_name])
+                    if self.is_data_warehouse_series
+                    else ast.Field(chain=["events"]),
                     "target": ast.Alias(alias="actor_id", expr=self.target_field),
                     "created_at_field": self.created_at_field,
                     "event_filter": self.event_filter,
-                    "trunc_timestamp": self.query_date_range.date_to_start_of_interval_hogql(
-                        ast.Field(chain=["events", "timestamp"])
-                    ),
+                    "trunc_timestamp": self.query_date_range.date_to_start_of_interval_hogql(self.timestamp_field),
                     "trunc_created_at": self.query_date_range.date_to_start_of_interval_hogql(
                         ast.Field(chain=["created_at"])
                     ),

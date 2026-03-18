@@ -33,6 +33,7 @@ class PluginAttachmentInline(admin.StackedInline):
                 )
 
             response = json.dumps(json.loads(attachment.contents), sort_keys=True, indent=4)
+            # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, JSON is re-serialized)
             return mark_safe(f"<pre>{response}</pre>")
         except Exception as err:
             return format_html(f"cannot preview: {err}")

@@ -5,9 +5,10 @@ import { router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { isGroupType } from 'lib/utils'
+import { assignField, isGroupType, isSessionType } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -23,6 +24,7 @@ import {
     InsightActorsQueryOptions,
     InsightActorsQueryOptionsResponse,
     NodeKind,
+    TrendsQuery,
     insightActorsQueryOptionsResponseKeys,
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
@@ -31,10 +33,16 @@ import {
     BreakdownType,
     ChartDisplayType,
     CommonActorType,
+    FilterLogicalOperator,
     GroupActorType,
     IntervalType,
     PersonActorType,
     PropertiesTimelineFilterType,
+    SessionActorType,
+    PropertyFilterType,
+    PropertyOperator,
+    RecordingUniversalFilters,
+    UniversalFilterValue,
 } from '~/types'
 
 import type { personsModalLogicType } from './personsModalLogicType'
@@ -78,8 +86,8 @@ export const personsModalLogic = kea<personsModalLogicType>([
         loadActorsQueryOptions: (query: InsightActorsQuery) => ({ query }),
     }),
     connect(() => ({
-        values: [groupsModel, ['groupTypes', 'aggregationLabel']],
-        actions: [eventUsageLogic, ['reportPersonsModalViewed']],
+        values: [groupsModel, ['groupTypes', 'aggregationLabel'], teamLogic, ['currentTeamId']],
+        actions: [eventUsageLogic, ['reportPersonsModalViewed', 'reportPersonsModalSearched']],
     })),
 
     loaders(({ values, actions, props }) => ({
@@ -117,9 +125,10 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         breakpoint()
 
                         const assembledSelectFields = values.selectFields
-                        const additionalFieldIndices = Object.values(props.additionalSelect || {}).map((field) =>
-                            assembledSelectFields.indexOf(field)
-                        )
+                        const fieldKeys = Object.keys(props.additionalSelect || {}) as Array<keyof CommonActorType>
+                        const fieldValues = Object.values(props.additionalSelect || {}) as Array<keyof CommonActorType>
+                        const additionalFieldIndices = fieldValues.map((field) => assembledSelectFields.indexOf(field))
+                        const personColumnIndex = (response.columns || []).indexOf('person')
                         const newResponse: ListActorsResponse = {
                             results: [
                                 {
@@ -136,10 +145,26 @@ export const personsModalLogic = kea<personsModalLogicType>([
                                                 matched_recordings: [],
                                                 value_at_data_point: null,
                                             }
-                                            Object.keys(props.additionalSelect || {}).forEach((field, index) => {
-                                                group[field] = result[additionalFieldIndices[index]]
+                                            fieldKeys.forEach((field, index) => {
+                                                assignField(group, field, result[additionalFieldIndices[index]])
                                             })
                                             return group
+                                        }
+
+                                        if (result[0].session_id !== undefined) {
+                                            const session: SessionActorType = {
+                                                type: 'session',
+                                                id: result[0].session_id,
+                                                properties: result[0],
+                                                created_at: result[0].$start_timestamp,
+                                                matched_recordings: [],
+                                                value_at_data_point: null,
+                                                person: personColumnIndex >= 0 ? result[personColumnIndex] : undefined,
+                                            }
+                                            fieldKeys.forEach((field, index) => {
+                                                assignField(session, field, result[additionalFieldIndices[index]])
+                                            })
+                                            return session
                                         }
                                         const person: PersonActorType = {
                                             type: 'person',
@@ -151,11 +176,9 @@ export const personsModalLogic = kea<personsModalLogicType>([
                                             matched_recordings: [],
                                             value_at_data_point: null,
                                         }
-
-                                        Object.keys(props.additionalSelect || {}).forEach((field, index) => {
-                                            person[field] = result[additionalFieldIndices[index]]
+                                        fieldKeys.forEach((field, index) => {
+                                            assignField(person, field, result[additionalFieldIndices[index]])
                                         })
-
                                         return person
                                     }),
                                 },
@@ -252,9 +275,16 @@ export const personsModalLogic = kea<personsModalLogicType>([
     })),
 
     listeners(({ actions, values, props }) => ({
-        setSearchTerm: async (_, breakpoint) => {
+        setSearchTerm: async ({ search }, breakpoint) => {
             await breakpoint(500)
             actions.loadActors({ url: props.url, clear: true })
+
+            if (search) {
+                actions.reportPersonsModalSearched({
+                    teamId: values.currentTeamId,
+                    actorType: values.actorLabel.singular,
+                })
+            }
         },
         saveAsCohort: async ({ cohortName }) => {
             const cohortParams = {
@@ -301,6 +331,9 @@ export const personsModalLogic = kea<personsModalLogicType>([
 
                 if (!firstResult) {
                     return { singular: 'result', plural: 'results' }
+                }
+                if (isSessionType(firstResult)) {
+                    return { singular: 'session', plural: 'sessions' }
                 }
                 return aggregationLabel(isGroupType(firstResult) ? firstResult.group_type_index : undefined)
             },
@@ -384,7 +417,6 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     return null
                 }
 
-                // Generate insight events query from actors query
                 const { select: _select, ...source } = actorsQuery
 
                 const kind =
@@ -396,18 +428,124 @@ export const personsModalLogic = kea<personsModalLogicType>([
 
                 const { includeRecordings, ...insightActorsQuery } = source.source as InsightActorsQuery
 
+                const trendsQuery = insightActorsQuery.source as TrendsQuery
+                const seriesIndex = insightActorsQuery.series ?? 0
+                const seriesNode = trendsQuery.series?.[seriesIndex]
+                const eventName = seriesNode && 'event' in seriesNode ? seriesNode.event : undefined
+
                 const query: DataTableNode = {
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.EventsQuery,
                         source: insightActorsQuery,
                         select: ['*', 'event', 'person', 'timestamp'],
-                        after: 'all', // Show all events by default because date range is filtered by the source
+                        // Show all events by default because date range is filtered by the source
+                        after: 'all',
+                        event: eventName,
                     },
                     full: true,
                 }
 
                 return urls.insightNew({ query })
+            },
+        ],
+        sessionIdsFromLoadedActors: [
+            (s) => [s.actors],
+            (actors: ActorType[]): string[] => {
+                // Extract all session IDs from loaded actors' matched_recordings
+                const sessionIds: string[] = []
+                actors.forEach((actor: ActorType) => {
+                    if (actor.matched_recordings) {
+                        actor.matched_recordings.forEach((recording) => {
+                            if (recording.session_id) {
+                                sessionIds.push(recording.session_id)
+                            }
+                        })
+                    }
+                })
+                return sessionIds
+            },
+        ],
+        recordingFilters: [
+            (s) => [s.actorsQuery, s.propertiesTimelineFilterFromUrl, s.sessionIdsFromLoadedActors],
+            (
+                actorsQuery: ActorsQuery | null,
+                propertiesTimelineFilter: PropertiesTimelineFilterType,
+                sessionIds: string[]
+            ): Partial<RecordingUniversalFilters> => {
+                if (!actorsQuery || !actorsQuery.source) {
+                    return {}
+                }
+
+                const source = actorsQuery.source
+
+                // For FunnelsActorsQuery with session IDs, use ONLY session IDs for efficient lookup
+                // No need for additional event/property filters since we already have the exact list of sessions
+                if (source.kind === 'FunnelsActorsQuery' && sessionIds.length > 0) {
+                    return {
+                        session_ids: sessionIds,
+                        // Use minimal valid structure required by conversion functions
+                        filter_group: {
+                            type: FilterLogicalOperator.And,
+                            values: [{ type: FilterLogicalOperator.And, values: [] }],
+                        },
+                        duration: [], // Empty duration means no duration filtering (we have explicit session IDs)
+                    }
+                }
+
+                // For non-funnel queries or funnels without session IDs, use filter-based approach
+                const filters: UniversalFilterValue[] = []
+
+                // For FunnelsActorsQuery, the actual query is nested at source.source
+                let insightQuery = source
+                if (source.kind === 'FunnelsActorsQuery' && 'source' in source && source.source) {
+                    insightQuery = source.source as any
+                }
+
+                // Add breakdown filters if present
+                if ('breakdown' in source && source.breakdown && propertiesTimelineFilter?.breakdown) {
+                    const breakdownFilter = {
+                        key: propertiesTimelineFilter.breakdown,
+                        value: source.breakdown,
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    }
+                    filters.push(breakdownFilter as UniversalFilterValue)
+                }
+
+                // Add global properties from the insight query
+                if (
+                    'properties' in insightQuery &&
+                    Array.isArray(insightQuery.properties) &&
+                    insightQuery.properties.length > 0
+                ) {
+                    filters.push(...insightQuery.properties)
+                }
+
+                // Extract date range from insight query
+                let date_from = propertiesTimelineFilter?.date_from
+                let date_to = propertiesTimelineFilter?.date_to
+
+                if ('dateRange' in insightQuery && insightQuery.dateRange) {
+                    const dateRange = insightQuery.dateRange as any
+                    date_from = dateRange.date_from || date_from
+                    date_to = dateRange.date_to || date_to
+                }
+
+                // Build the result for non-funnel or fallback cases
+                return {
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: filters,
+                            },
+                        ],
+                    },
+                    date_from,
+                    date_to,
+                }
             },
         ],
     }),

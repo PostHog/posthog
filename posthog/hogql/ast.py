@@ -4,8 +4,9 @@ import dataclasses
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, Literal, Optional, Union, get_args
+from typing import Any, Literal, Optional, Union, cast, get_args
 
+import posthog.hogql.resolver_utils as resolver_utils
 from posthog.hogql.base import AST, CTE, ConstantType, Expr, Type, UnknownType
 from posthog.hogql.constants import ConstantDataType, HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
@@ -19,12 +20,53 @@ from posthog.hogql.database.models import (
     StringArrayDatabaseField,
     StringJSONDatabaseField,
     Table,
+    UnknownDatabaseField,
     VirtualTable,
 )
 from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionError
 
 # :NOTE: when you add new AST fields or nodes, add them to CloningVisitor and TraversingVisitor in visitor.py as well.
 # :NOTE2: also search for ":TRICKY:" in "resolver.py" when modifying SelectQuery or JoinExpr
+
+VALID_JOIN_CONSTRAINT_TYPES = get_args(Literal["ON", "USING"])
+VALID_JOIN_TYPES = frozenset(
+    {
+        "JOIN",
+        "INNER",
+        "INNER JOIN",
+        "LEFT JOIN",
+        "RIGHT JOIN",
+        "FULL JOIN",
+        "FULL OUTER JOIN",
+        "CROSS JOIN",
+        "LEFT OUTER JOIN",
+        "RIGHT OUTER JOIN",
+        "ANY INNER JOIN",
+        "ALL INNER JOIN",
+        "ASOF INNER JOIN",
+        "LEFT SEMI JOIN",
+        "LEFT ANTI JOIN",
+        "LEFT ANY JOIN",
+        "LEFT ALL JOIN",
+        "LEFT ASOF JOIN",
+        "RIGHT SEMI JOIN",
+        "RIGHT ANTI JOIN",
+        "RIGHT ANY JOIN",
+        "RIGHT ALL JOIN",
+        "RIGHT ASOF JOIN",
+        "FULL ANY JOIN",
+        "FULL ALL JOIN",
+        "ASOF LEFT JOIN",
+    }
+)
+
+
+@dataclass(kw_only=True)
+class TypeCast(Expr):
+    """A type cast expression."""
+
+    expr: Expr
+    type_name: str
 
 
 @dataclass(kw_only=True)
@@ -296,6 +338,9 @@ class SelectSetQueryType(Type):
     def resolve_column_constant_type(self, name: str, context: HogQLContext) -> ConstantType:
         return self.types[0].resolve_column_constant_type(name, context)
 
+    def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
+        return self.types[0].resolve_constant_type(context)
+
 
 @dataclass(kw_only=True)
 class SelectViewType(BaseTableType):
@@ -320,6 +365,40 @@ class SelectViewType(BaseTableType):
         if isinstance(field, DatabaseField):
             return field.get_constant_type()
         return UnknownType()
+
+
+@dataclass(kw_only=True)
+class CTETableType(BaseTableType):
+    name: str
+    select_query_type: SelectQueryType | SelectSetQueryType
+
+    def has_child(self, name: str, context: HogQLContext) -> bool:
+        try:
+            self.resolve_database_table(context).get_field(name)
+            return True
+        except Exception:
+            return False
+
+    def resolve_database_table(self, context: HogQLContext) -> Table:
+        return resolver_utils.resolve_cte_database_table(self.select_query_type, context)
+
+    def resolve_column_constant_type(self, name: str, context: HogQLContext) -> ConstantType:
+        field = self.resolve_database_table(context).get_field(name)
+        if isinstance(field, DatabaseField):
+            return field.get_constant_type()
+        return UnknownType()
+
+
+@dataclass(kw_only=True)
+class CTETableAliasType(BaseTableType):
+    alias: str
+    cte_table_type: CTETableType
+
+    def resolve_database_table(self, context: HogQLContext) -> Table:
+        return self.cte_table_type.resolve_database_table(context)
+
+    def resolve_column_constant_type(self, name: str, context: HogQLContext) -> ConstantType:
+        return self.cte_table_type.resolve_column_constant_type(name, context)
 
 
 @dataclass(kw_only=True)
@@ -382,6 +461,13 @@ class StringJSONType(StringType):
 class StringArrayType(StringType):
     def print_type(self) -> str:
         return "Array"
+
+
+@dataclass(kw_only=True)
+class StringLiteralType(StringType):
+    """Matches only specific constant string values"""
+
+    values: frozenset[str] = field(default_factory=frozenset)
 
 
 @dataclass(kw_only=True)
@@ -669,6 +755,15 @@ class Not(Expr):
 
 
 @dataclass(kw_only=True)
+class BetweenExpr(Expr):
+    expr: Expr
+    low: Expr
+    high: Expr
+    negated: bool = False
+    type: Optional[ConstantType] = None
+
+
+@dataclass(kw_only=True)
 class OrderExpr(Expr):
     expr: Expr
     order: Literal["ASC", "DESC"] = "ASC"
@@ -760,6 +855,10 @@ class JoinConstraint(Expr):
     expr: Expr
     constraint_type: Literal["ON", "USING"]
 
+    def __post_init__(self):
+        if self.constraint_type not in VALID_JOIN_CONSTRAINT_TYPES:
+            raise ValueError(f"Invalid join constraint type: {self.constraint_type}")
+
 
 @dataclass(kw_only=True)
 class JoinExpr(Expr):
@@ -774,6 +873,16 @@ class JoinExpr(Expr):
     constraint: Optional[JoinConstraint] = None
     next_join: Optional["JoinExpr"] = None
     sample: Optional["SampleExpr"] = None
+
+    def __post_init__(self):
+        if self.join_type is None:
+            return
+
+        if self.join_type.startswith("GLOBAL ") and self.join_type.removeprefix("GLOBAL ") in VALID_JOIN_TYPES:
+            return
+
+        if self.join_type not in VALID_JOIN_TYPES:
+            raise ValueError(f"Invalid join type: {self.join_type}")
 
 
 @dataclass(kw_only=True)
@@ -831,20 +940,40 @@ class SelectQuery(Expr):
     view_name: Optional[str] = None
 
     @classmethod
-    def empty(cls, *, columns: list[str] | None = None) -> "SelectQuery":
+    def empty(
+        cls,
+        *,
+        columns: dict[str, FieldOrTable] | None = None,
+    ) -> "SelectQuery":
         """Returns an empty SelectQuery that evaluates to no rows.
 
         Creates a query that selects NULL with a WHERE clause that is always false,
         effectively returning zero rows while maintaining valid SQL syntax.
         """
+
         if columns is None:
-            columns = ["_"]
+            columns = {"_": UnknownDatabaseField(name="_")}
+
         return SelectQuery(
-            select=[Alias(alias=column, expr=Constant(value=None)) for column in columns], where=Constant(value=False)
+            select=[
+                Alias(alias=column, expr=Constant(value=cast(DatabaseField, field).default_value()))
+                for (column, field) in columns.items()
+            ],
+            where=Constant(value=False),
         )
 
 
-SetOperator = Literal["UNION ALL", "UNION DISTINCT", "INTERSECT", "INTERSECT DISTINCT", "EXCEPT"]
+SetOperator = Literal[
+    "UNION ALL",
+    "UNION DISTINCT",
+    "UNION ALL BY NAME",
+    "UNION DISTINCT BY NAME",
+    "INTERSECT",
+    "INTERSECT ALL",
+    "INTERSECT DISTINCT",
+    "EXCEPT",
+    "EXCEPT ALL",
+]
 
 
 @dataclass(kw_only=True)

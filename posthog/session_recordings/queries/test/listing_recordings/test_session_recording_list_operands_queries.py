@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickho
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
+from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
@@ -192,3 +193,93 @@ class TestSessionRecordingsListOperandsQueries(ClickhouseTestMixin, APIBaseTest)
             },
             [self.non_target_non_vip_session, self.non_target_vip_session, self.target_non_vip_session],
         )
+
+
+@freeze_time("2021-01-01T13:46:23")
+class TestSessionRecordingsNegativeFiltersWithMultipleEvents(ClickhouseTestMixin, APIBaseTest):
+    """
+    Negative filters should match sessions where NO events match the positive condition.
+    A session with mixed events (some matching, some not) should be excluded.
+    """
+
+    def setUp(self):
+        super().setUp()
+        sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
+        sync_execute(TRUNCATE_LOG_ENTRIES_TABLE_SQL)
+
+    @property
+    def an_hour_ago(self):
+        return (now() - relativedelta(hours=1)).replace(microsecond=0, second=0)
+
+    def _a_session_with_multiple_pageviews(self, pageview_properties_list: list[dict]) -> str:
+        session_id = str(uuid7())
+        user_id = str(uuid7())
+
+        produce_replay_summary(
+            distinct_id=user_id,
+            session_id=session_id,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+
+        for i, props in enumerate(pageview_properties_list):
+            create_event(
+                team=self.team,
+                distinct_id=user_id,
+                timestamp=self.an_hour_ago + relativedelta(minutes=i),
+                properties={"$session_id": session_id, "$window_id": "1", **props},
+            )
+
+        return session_id
+
+    @parameterized.expand(
+        [
+            (
+                "not_icontains_entity_property",
+                {"$pathname": "/target-page"},
+                {"$pathname": "/other-page"},
+                {
+                    "operand": "AND",
+                    "events": [
+                        {
+                            "id": "$pageview",
+                            "name": "$pageview",
+                            "type": "events",
+                            "properties": [
+                                {"key": "$pathname", "type": "event", "value": "target", "operator": "not_icontains"}
+                            ],
+                        }
+                    ],
+                },
+            ),
+            (
+                "is_not_entity_property",
+                {"vip": "true"},
+                {"vip": "false"},
+                {
+                    "operand": "AND",
+                    "events": [
+                        {
+                            "id": "$pageview",
+                            "name": "$pageview",
+                            "type": "events",
+                            "properties": [{"key": "vip", "type": "event", "value": ["true"], "operator": "is_not"}],
+                        }
+                    ],
+                },
+            ),
+            (
+                "not_icontains_top_level_property",
+                {"email": "test@posthog.com"},
+                {"email": "test@gmail.com"},
+                {"properties": [{"key": "email", "type": "event", "value": "posthog", "operator": "not_icontains"}]},
+            ),
+        ]
+    )
+    def test_negative_filter_excludes_session_with_any_matching_event(
+        self, _name: str, matching_props: dict, non_matching_props: dict, query: dict
+    ):
+        _mixed_session = self._a_session_with_multiple_pageviews([matching_props, non_matching_props])
+        clean_session = self._a_session_with_multiple_pageviews([non_matching_props, non_matching_props])
+
+        assert_query_matches_session_ids(team=self.team, query=query, expected=[clean_session])

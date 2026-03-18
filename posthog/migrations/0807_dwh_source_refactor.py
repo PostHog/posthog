@@ -2,8 +2,8 @@
 
 from django.db import migrations
 
-from posthog.warehouse.models import ExternalDataSource as ExternalDataSourceModel
-from posthog.warehouse.types import ExternalDataSourceType
+from products.data_warehouse.backend.models import ExternalDataSource as ExternalDataSourceModel
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 def forwards(apps, schema_editor):

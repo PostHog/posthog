@@ -326,3 +326,28 @@ ADD_BLOCK_COLUMNS_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSI
 ADD_BLOCK_COLUMNS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_BLOCK_COLUMNS.format(
     table_name="session_replay_events",
 )
+
+# =========================
+# MIGRATION: Add is_deleted column to support metadata deletion
+# When a recording is deleted via the recording-api, we mark it as deleted in ClickHouse
+# so it no longer appears in session recording lists.
+# Using SimpleAggregateFunction(max, UInt8) ensures that once is_deleted=1 is written,
+# subsequent merges keep the value as 1.
+# =========================
+
+ALTER_SESSION_REPLAY_ADD_IS_DELETED_COLUMN = """
+    ALTER TABLE {table_name}
+        ADD COLUMN IF NOT EXISTS is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0
+"""
+
+ADD_IS_DELETED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_IS_DELETED_COLUMN.format(
+    table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
+)
+
+ADD_IS_DELETED_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_IS_DELETED_COLUMN.format(
+    table_name="writable_session_replay_events",
+)
+
+ADD_IS_DELETED_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_IS_DELETED_COLUMN.format(
+    table_name="session_replay_events",
+)

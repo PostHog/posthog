@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 from io import BytesIO
 from typing import Any, Optional
@@ -19,7 +20,7 @@ from requests.exceptions import HTTPError
 
 from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
 
-from posthog.models import ExportedAsset
+from posthog.models import Action, ExportedAsset
 from posthog.models.utils import UUIDT
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -31,10 +32,14 @@ from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.tasks.exports import csv_exporter
 from posthog.tasks.exports.csv_exporter import (
+    ExcelWriter,
     UnexpectedEmptyJsonResponse,
     _convert_response_to_csv_data,
+    _format_breakdown_value,
     add_query_params,
+    sanitize_value_for_excel,
 )
+from posthog.tasks.exports.failure_handler import ExcelColumnLimitExceeded
 from posthog.test.test_journeys import journeys_for
 from posthog.utils import absolute_uri
 
@@ -164,13 +169,13 @@ class TestCSVExporter(APIBaseTest):
             assert exported_asset.content is None
 
     @patch("posthog.models.exported_asset.UUIDT")
-    @patch("posthog.models.exported_asset.object_storage.write")
+    @patch("posthog.models.exported_asset.object_storage.write_from_file")
     def test_csv_exporter_writes_to_asset_when_object_storage_write_fails(
-        self, mocked_object_storage_write, mocked_uuidt
+        self, mocked_object_storage_write_from_file, mocked_uuidt
     ) -> None:
         exported_asset = self._create_asset()
         mocked_uuidt.return_value = "a-guid"
-        mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
+        mocked_object_storage_write_from_file.side_effect = ObjectStorageError("mock write failed")
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
@@ -183,13 +188,13 @@ class TestCSVExporter(APIBaseTest):
             )
 
     @patch("posthog.models.exported_asset.UUIDT")
-    @patch("posthog.models.exported_asset.object_storage.write")
+    @patch("posthog.models.exported_asset.object_storage.write_from_file")
     def test_csv_exporter_does_not_filter_columns_on_empty_param(
-        self, mocked_object_storage_write, mocked_uuidt
+        self, mocked_object_storage_write_from_file, mocked_uuidt
     ) -> None:
         exported_asset = self._create_asset({"columns": []})
         mocked_uuidt.return_value = "a-guid"
-        mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
+        mocked_object_storage_write_from_file.side_effect = ObjectStorageError("mock write failed")
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
@@ -202,12 +207,12 @@ class TestCSVExporter(APIBaseTest):
             )
 
     @patch("posthog.models.exported_asset.UUIDT")
-    @patch("posthog.models.exported_asset.object_storage.write")
-    def test_csv_exporter_does_filter_columns(self, mocked_object_storage_write, mocked_uuidt) -> None:
+    @patch("posthog.models.exported_asset.object_storage.write_from_file")
+    def test_csv_exporter_does_filter_columns(self, mocked_object_storage_write_from_file, mocked_uuidt) -> None:
         # NB these columns are not in the "natural" order
         exported_asset = self._create_asset({"columns": ["distinct_id", "properties.$browser", "event"]})
         mocked_uuidt.return_value = "a-guid"
-        mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
+        mocked_object_storage_write_from_file.side_effect = ObjectStorageError("mock write failed")
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
@@ -220,11 +225,11 @@ class TestCSVExporter(APIBaseTest):
             )
 
     @patch("posthog.models.exported_asset.UUIDT")
-    @patch("posthog.models.exported_asset.object_storage.write")
-    def test_csv_exporter_includes_whole_dict(self, mocked_object_storage_write, mocked_uuidt) -> None:
+    @patch("posthog.models.exported_asset.object_storage.write_from_file")
+    def test_csv_exporter_includes_whole_dict(self, mocked_object_storage_write_from_file, mocked_uuidt) -> None:
         exported_asset = self._create_asset({"columns": ["distinct_id", "properties"]})
         mocked_uuidt.return_value = "a-guid"
-        mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
+        mocked_object_storage_write_from_file.side_effect = ObjectStorageError("mock write failed")
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
@@ -234,13 +239,13 @@ class TestCSVExporter(APIBaseTest):
             assert exported_asset.content == b"distinct_id,properties.$browser\r\n2,Safari\r\n2,Safari\r\n2,Safari\r\n"
 
     @patch("posthog.models.exported_asset.UUIDT")
-    @patch("posthog.models.exported_asset.object_storage.write")
+    @patch("posthog.models.exported_asset.object_storage.write_from_file")
     def test_csv_exporter_includes_whole_dict_alternative_order(
-        self, mocked_object_storage_write, mocked_uuidt
+        self, mocked_object_storage_write_from_file, mocked_uuidt
     ) -> None:
         exported_asset = self._create_asset({"columns": ["properties", "distinct_id"]})
         mocked_uuidt.return_value = "a-guid"
-        mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
+        mocked_object_storage_write_from_file.side_effect = ObjectStorageError("mock write failed")
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
@@ -250,14 +255,14 @@ class TestCSVExporter(APIBaseTest):
             assert exported_asset.content == b"properties.$browser,distinct_id\r\nSafari,2\r\nSafari,2\r\nSafari,2\r\n"
 
     @patch("posthog.models.exported_asset.UUIDT")
-    @patch("posthog.models.exported_asset.object_storage.write")
+    @patch("posthog.models.exported_asset.object_storage.write_from_file")
     def test_csv_exporter_does_filter_columns_and_can_handle_unexpected_columns(
-        self, mocked_object_storage_write, mocked_uuidt
+        self, mocked_object_storage_write_from_file, mocked_uuidt
     ) -> None:
         # NB these columns are not in the "natural" order
         exported_asset = self._create_asset({"columns": ["distinct_id", "properties.$browser", "event", "tomato"]})
         mocked_uuidt.return_value = "a-guid"
-        mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
+        mocked_object_storage_write_from_file.side_effect = ObjectStorageError("mock write failed")
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
@@ -270,17 +275,18 @@ class TestCSVExporter(APIBaseTest):
             )
 
     @patch("posthog.models.exported_asset.UUIDT")
-    @patch("posthog.models.exported_asset.object_storage.write")
-    def test_csv_exporter_excel(self, mocked_object_storage_write: Any, mocked_uuidt: Any) -> None:
+    @patch("posthog.models.exported_asset.object_storage.write_from_file")
+    def test_csv_exporter_excel(self, mocked_object_storage_write_from_file: Any, mocked_uuidt: Any) -> None:
         exported_asset = self._create_asset({"columns": ["distinct_id", "properties.$browser", "event", "tomato"]})
         exported_asset.export_format = ExportedAsset.ExportFormat.XLSX
         mocked_uuidt.return_value = "a-guid"
-        mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
+        mocked_object_storage_write_from_file.side_effect = ObjectStorageError("mock write failed")
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
 
-            assert exported_asset.filename == "export.xlsx"
+            created_date = exported_asset.created_at.strftime("%Y-%m-%d-%H%M%S")
+            assert exported_asset.filename == f"export-{created_date}.xlsx"
             assert exported_asset.content_location is None
 
             wb = load_workbook(filename=BytesIO(exported_asset.content))
@@ -295,7 +301,7 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("posthog.models.exported_asset.UUIDT")
     @patch("posthog.models.exported_asset.object_storage.write")
-    @patch("requests.request")
+    @patch("posthog.tasks.exports.csv_exporter.requests.request")
     def test_csv_exporter_limits_breakdown_insights_correctly(
         self, mocked_request, mocked_object_storage_write, mocked_uuidt
     ) -> None:
@@ -563,6 +569,73 @@ class TestCSVExporter(APIBaseTest):
                 ],
             )
 
+    @patch("posthog.models.exported_asset.object_storage.write_from_file")
+    @patch("posthog.tasks.exports.csv_exporter.process_query_dict")
+    @patch("posthog.tasks.exports.csv_exporter._query_supports_limit")
+    def test_skips_limit_when_query_does_not_support_it(
+        self, mock_supports_limit: MagicMock, mock_process_query: MagicMock, mock_write: MagicMock
+    ) -> None:
+        """Verify that when schema validation shows limit is not supported, we don't add it."""
+        mock_supports_limit.return_value = False
+        mock_process_query.return_value = {
+            "results": [["value1"], ["value2"]],
+            "columns": ["col"],
+            "types": ["String"],
+        }
+        mock_write.side_effect = ObjectStorageError("mock write failed")
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={"source": {"kind": "SomeQuery"}},
+        )
+        exported_asset.save()
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            # Verify only one call made, without limit
+            self.assertEqual(mock_process_query.call_count, 1)
+            query_json = mock_process_query.call_args_list[0].kwargs["query_json"]
+            self.assertNotIn("limit", query_json)
+
+            # Verify content fell back to DB storage
+            content = exported_asset.content
+            lines = (bytes(content) if content else b"").decode("utf-8").strip().split("\r\n")
+            self.assertEqual(lines, ["col", "value1", "value2"])
+
+    @patch("posthog.models.exported_asset.object_storage.write_from_file")
+    @patch("posthog.tasks.exports.csv_exporter.process_query_dict")
+    @patch("posthog.tasks.exports.csv_exporter._query_supports_limit")
+    def test_adds_limit_when_query_supports_it(
+        self, mock_supports_limit: MagicMock, mock_process_query: MagicMock, mock_write: MagicMock
+    ) -> None:
+        """Verify that when schema validation shows limit is supported, we add it."""
+        from posthog.tasks.exports.csv_exporter import QUERY_PAGE_SIZE
+
+        mock_supports_limit.return_value = True
+        mock_process_query.return_value = {
+            "results": [["value1"], ["value2"]],
+            "columns": ["col"],
+            "types": ["String"],
+            "hasMore": False,
+        }
+        mock_write.side_effect = ObjectStorageError("mock write failed")
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={"source": {"kind": "SomeQuery"}},
+        )
+        exported_asset.save()
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            self.assertEqual(mock_process_query.call_count, 1)
+            query_json = mock_process_query.call_args_list[0].kwargs["query_json"]
+            self.assertEqual(query_json.get("limit"), QUERY_PAGE_SIZE)
+
     def test_funnel_time_to_convert(self) -> None:
         bins = [
             [1, 1],
@@ -626,8 +699,8 @@ class TestCSVExporter(APIBaseTest):
         exported_asset.save()
         mocked_uuidt.return_value = "a-guid"
 
-        with patch("posthog.tasks.exports.csv_exporter.get_from_hogql_query") as mocked_get_from_hogql_query:
-            mocked_get_from_hogql_query.return_value = iter([])
+        with patch("posthog.tasks.exports.csv_exporter.get_from_query") as mocked_get_from_query:
+            mocked_get_from_query.return_value = iter([])
 
             with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
                 csv_exporter.export_tabular(exported_asset)
@@ -807,13 +880,13 @@ class TestCSVExporter(APIBaseTest):
             lines = (content or "").strip().splitlines()
 
             expected_lines = [
-                "series,21-Mar-2023,22-Mar-2023,23-Mar-2023,24-Mar-2023,25-Mar-2023,26-Mar-2023,27-Mar-2023,28-Mar-2023",
-                "Chrome - current,2.0,0.0,0.0,0.0,0.0,0.0,0.0,3.0",
-                "Firefox - current,1.0,0.0,0.0,0.0,0.0,0.0,0.0,2.0",
-                "Safari - current,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0",
-                "Chrome - previous,0.0,0.0,0.0,0.0,0.0,0.0,0.0,2.0",
-                "Firefox - previous,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0",
-                "Safari - previous,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0",
+                "series,$browser,21-Mar-2023,22-Mar-2023,23-Mar-2023,24-Mar-2023,25-Mar-2023,26-Mar-2023,27-Mar-2023,28-Mar-2023",
+                "$pageview - current,Chrome,2.0,0.0,0.0,0.0,0.0,0.0,0.0,3.0",
+                "$pageview - current,Firefox,1.0,0.0,0.0,0.0,0.0,0.0,0.0,2.0",
+                "$pageview - current,Safari,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0",
+                "$pageview - previous,Chrome,0.0,0.0,0.0,0.0,0.0,0.0,0.0,2.0",
+                "$pageview - previous,Firefox,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0",
+                "$pageview - previous,Safari,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0",
             ]
 
             self.assertEqual(lines, expected_lines)
@@ -880,8 +953,848 @@ class TestCSVExporter(APIBaseTest):
             self.assertEqual(
                 lines,
                 [
-                    "actor.id,actor.is_identified,actor.created_at,actor.distinct_ids.0,event_count,event_distinct_ids.0",
-                    "4beb316f-23aa-2584-66d3-4a1b8ab458f2,False,2022-06-01 12:00:00+00:00,user_1,2,user_1",
-                    "d0780d6b-ccd0-44fa-a227-47efe4f3f30d,,,user_2,1,user_2",
+                    "actor.id,actor.is_identified,actor.created_at,actor.last_seen_at,actor.distinct_ids.0,event_count,event_distinct_ids.0",
+                    "4beb316f-23aa-2584-66d3-4a1b8ab458f2,False,2022-06-01 12:00:00+00:00,,user_1,2,user_1",
+                    "d0780d6b-ccd0-44fa-a227-47efe4f3f30d,,,,user_2,1,user_2",
                 ],
             )
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    def test_csv_exporter_trends_query_with_formula(
+        self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS: int = 10
+    ) -> None:
+        with freeze_time("2024-05-15T12:00:00.000Z"):
+            _create_person(distinct_ids=["formula_test_user_xyz"], team=self.team)
+
+        events_by_person = {
+            "formula_test_user_xyz": [
+                {"event": "formula_test_event_a", "timestamp": datetime(2024, 5, 15, 13, 46)},
+                {"event": "formula_test_event_b", "timestamp": datetime(2024, 5, 15, 13, 47)},
+            ],
+        }
+        journeys_for(events_by_person, self.team)
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "source": {
+                    "kind": "TrendsQuery",
+                    "dateRange": {"date_to": "2024-05-15", "date_from": "2024-05-15"},
+                    "series": [
+                        {"kind": "EventsNode", "event": "formula_test_event_a", "name": "Event A", "math": "total"},
+                        {"kind": "EventsNode", "event": "formula_test_event_b", "name": "Event B", "math": "total"},
+                    ],
+                    "interval": "day",
+                    "trendsFilter": {
+                        "showLegend": True,
+                        "display": "ActionsTable",
+                        "formula": "A+B",
+                    },
+                }
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "a-guid"
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            assert (
+                exported_asset.content_location
+                == f"{TEST_PREFIX}/csv/team-{self.team.id}/task-{exported_asset.id}/a-guid"
+            )
+
+            content = object_storage.read(exported_asset.content_location)
+            lines = (content or "").strip().split("\r\n")
+            self.assertEqual(
+                lines,
+                [
+                    "series,Total Sum",
+                    "Formula (A+B),2.0",
+                ],
+            )
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    def test_csv_exporter_trends_query_with_formula_and_single_breakdown(
+        self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS: int = 10
+    ) -> None:
+        with freeze_time("2024-06-10T12:00:00.000Z"):
+            _create_person(distinct_ids=["breakdown_user_single"], team=self.team)
+
+        _create_event(
+            event="breakdown_single_event_a",
+            distinct_id="breakdown_user_single",
+            team=self.team,
+            timestamp=datetime(2024, 6, 10, 13, 46),
+            properties={"country": "USA"},
+        )
+        _create_event(
+            event="breakdown_single_event_b",
+            distinct_id="breakdown_user_single",
+            team=self.team,
+            timestamp=datetime(2024, 6, 10, 13, 47),
+            properties={"country": "USA"},
+        )
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "source": {
+                    "kind": "TrendsQuery",
+                    "dateRange": {"date_to": "2024-06-10", "date_from": "2024-06-10"},
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "event": "breakdown_single_event_a",
+                            "name": "Event A",
+                            "math": "total",
+                        },
+                        {
+                            "kind": "EventsNode",
+                            "event": "breakdown_single_event_b",
+                            "name": "Event B",
+                            "math": "total",
+                        },
+                    ],
+                    "interval": "day",
+                    "trendsFilter": {
+                        "showLegend": True,
+                        "display": "ActionsTable",
+                        "formula": "A+B",
+                    },
+                    "breakdownFilter": {
+                        "breakdown": "country",
+                        "breakdown_type": "event",
+                    },
+                }
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "a-guid"
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            assert (
+                exported_asset.content_location
+                == f"{TEST_PREFIX}/csv/team-{self.team.id}/task-{exported_asset.id}/a-guid"
+            )
+
+            content = object_storage.read(exported_asset.content_location)
+            lines = (content or "").strip().split("\r\n")
+            self.assertEqual(
+                lines,
+                [
+                    "series,country,Total Sum",
+                    "Formula (A+B),USA,2.0",
+                ],
+            )
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    def test_csv_exporter_trends_query_with_formula_and_multiple_breakdowns(
+        self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS: int = 10
+    ) -> None:
+        with freeze_time("2024-07-20T12:00:00.000Z"):
+            _create_person(distinct_ids=["multi_breakdown_user_1"], team=self.team)
+            _create_person(distinct_ids=["multi_breakdown_user_2"], team=self.team)
+
+        _create_event(
+            event="multi_breakdown_event_a",
+            distinct_id="multi_breakdown_user_1",
+            team=self.team,
+            timestamp=datetime(2024, 7, 20, 13, 46),
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            event="multi_breakdown_event_b",
+            distinct_id="multi_breakdown_user_1",
+            team=self.team,
+            timestamp=datetime(2024, 7, 20, 13, 47),
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            event="multi_breakdown_event_a",
+            distinct_id="multi_breakdown_user_2",
+            team=self.team,
+            timestamp=datetime(2024, 7, 20, 13, 48),
+            properties={"$browser": "Firefox"},
+        )
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "source": {
+                    "kind": "TrendsQuery",
+                    "dateRange": {"date_to": "2024-07-20", "date_from": "2024-07-20"},
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "event": "multi_breakdown_event_a",
+                            "name": "Event A",
+                            "math": "total",
+                        },
+                        {
+                            "kind": "EventsNode",
+                            "event": "multi_breakdown_event_b",
+                            "name": "Event B",
+                            "math": "total",
+                        },
+                    ],
+                    "interval": "day",
+                    "trendsFilter": {
+                        "showLegend": True,
+                        "display": "ActionsTable",
+                        "formula": "A+B",
+                    },
+                    "breakdownFilter": {
+                        "breakdowns": [
+                            {"property": "distinct_id", "type": "event_metadata"},
+                            {"property": "$browser", "type": "event"},
+                        ]
+                    },
+                }
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "a-guid"
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            assert (
+                exported_asset.content_location
+                == f"{TEST_PREFIX}/csv/team-{self.team.id}/task-{exported_asset.id}/a-guid"
+            )
+
+            content = object_storage.read(exported_asset.content_location)
+            lines = (content or "").strip().split("\r\n")
+
+            # Sort data lines for consistent comparison (order may vary)
+            data_lines = sorted(lines[1:])
+
+            self.assertEqual(
+                lines[0:1] + data_lines,
+                [
+                    "series,distinct_id,$browser,Total Sum",
+                    "Formula (A+B),multi_breakdown_user_1,Chrome,2.0",
+                    "Formula (A+B),multi_breakdown_user_2,Firefox,1.0",
+                ],
+            )
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    def test_csv_exporter_trends_with_breakdown(self, mocked_uuidt: Any) -> None:
+        with freeze_time("2025-05-22T12:00:00.000Z"):
+            _create_person(distinct_ids=["user_1"], team=self.team)
+            _create_person(distinct_ids=["user_2"], team=self.team)
+
+        events_by_person = {
+            "user_1": [
+                {
+                    "event": "test_event",
+                    "timestamp": datetime(2025, 5, 22, 13, 0),
+                    "properties": {"$browser": "Chrome"},
+                },
+            ],
+            "user_2": [
+                {
+                    "event": "test_event",
+                    "timestamp": datetime(2025, 5, 22, 13, 1),
+                    "properties": {"$browser": "Firefox"},
+                },
+            ],
+        }
+        journeys_for(events_by_person, self.team)
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "source": {
+                    "kind": "TrendsQuery",
+                    "dateRange": {"date_to": "2025-05-22", "date_from": "2025-05-22"},
+                    "series": [
+                        {"kind": "EventsNode", "event": "test_event", "name": "test_event", "math": "total"},
+                    ],
+                    "interval": "day",
+                    "trendsFilter": {
+                        "display": "ActionsTable",
+                    },
+                    "breakdownFilter": {
+                        "breakdown": "$browser",
+                        "breakdown_type": "event",
+                    },
+                }
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "a-guid"
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            assert (
+                exported_asset.content_location
+                == f"{TEST_PREFIX}/csv/team-{self.team.id}/task-{exported_asset.id}/a-guid"
+            )
+
+            content = object_storage.read(exported_asset.content_location)
+            lines = (content or "").strip().split("\r\n")
+            data_lines = sorted(lines[1:])
+
+            self.assertEqual(
+                lines[0:1] + data_lines,
+                [
+                    "series,$browser,Total Sum",
+                    "test_event,Chrome,1",
+                    "test_event,Firefox,1",
+                ],
+            )
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    def test_csv_exporter_trends_with_breakdown_and_action(self, mocked_uuidt: Any) -> None:
+        with freeze_time("2025-05-22T12:00:00.000Z"):
+            _create_person(distinct_ids=["user_1"], team=self.team)
+            _create_person(distinct_ids=["user_2"], team=self.team)
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Test Action",
+            steps_json=[{"event": "test_action_event"}],
+        )
+
+        events_by_person = {
+            "user_1": [
+                {
+                    "event": "test_action_event",
+                    "timestamp": datetime(2025, 5, 22, 13, 0),
+                    "properties": {"$browser": "Chrome"},
+                },
+            ],
+            "user_2": [
+                {
+                    "event": "test_action_event",
+                    "timestamp": datetime(2025, 5, 22, 13, 1),
+                    "properties": {"$browser": "Firefox"},
+                },
+            ],
+        }
+        journeys_for(events_by_person, self.team)
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "source": {
+                    "kind": "TrendsQuery",
+                    "dateRange": {"date_to": "2025-05-22", "date_from": "2025-05-22"},
+                    "series": [
+                        {"kind": "ActionsNode", "id": action.id, "math": "total"},
+                    ],
+                    "interval": "day",
+                    "trendsFilter": {
+                        "display": "ActionsTable",
+                    },
+                    "breakdownFilter": {
+                        "breakdown": "$browser",
+                        "breakdown_type": "event",
+                    },
+                }
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "a-guid"
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            assert (
+                exported_asset.content_location
+                == f"{TEST_PREFIX}/csv/team-{self.team.id}/task-{exported_asset.id}/a-guid"
+            )
+
+            content = object_storage.read(exported_asset.content_location)
+            lines = (content or "").strip().split("\r\n")
+            data_lines = sorted(lines[1:])
+
+            self.assertEqual(
+                lines[0:1] + data_lines,
+                [
+                    "series,$browser,Total Sum",
+                    "Test Action,Chrome,1",
+                    "Test Action,Firefox,1",
+                ],
+            )
+
+    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
+    @patch("posthog.models.exported_asset.UUIDT")
+    def test_excel_streaming_saves_to_object_storage(self, mocked_uuidt: Any) -> None:
+        """Test that Excel streaming export saves to object storage and handles complex types."""
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
+        query_limit = 5
+        for i in range(15):
+            _create_event(
+                event="$pageview",
+                distinct_id=random_uuid,
+                team=self.team,
+                timestamp=now() - relativedelta(hours=1),
+                properties={"prop": i, "tags": ["tag1", "tag2"], "meta": {"key": "value"}},
+            )
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.XLSX,
+            export_context={
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": f"select event, properties.prop as prop, properties.tags as tags, properties.meta as meta from events where distinct_id = '{random_uuid}' order by prop limit {query_limit}",
+                }
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "a-guid"
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            assert (
+                exported_asset.content_location
+                == f"{TEST_PREFIX}/vnd.openxmlformats-officedocument.spreadsheetml.sheet/team-{self.team.id}/task-{exported_asset.id}/a-guid"
+            )
+
+            content = object_storage.read_bytes(exported_asset.content_location)
+            assert content is not None
+
+            workbook = load_workbook(filename=BytesIO(content))
+            worksheet = workbook.active
+            rows = list(worksheet.iter_rows(values_only=True))
+
+            header_row = 1
+            assert rows[0] == ("event", "prop", "tags", "meta")
+            assert len(rows) == query_limit + header_row
+            assert all(row[0] == "$pageview" for row in rows[1:])
+            # Complex types (arrays, objects) are converted to strings without crashing
+            assert all(row[2] is not None and "tag1" in str(row[2]) for row in rows[1:])
+
+    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
+    @patch("posthog.models.exported_asset.UUIDT")
+    def test_csv_streaming_saves_to_object_storage(self, mocked_uuidt: Any, csv_export_limit: int = 10) -> None:
+        """Test that CSV streaming export saves to object storage and handles complex types."""
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
+        for i in range(15):
+            _create_event(
+                event="$pageview",
+                distinct_id=random_uuid,
+                team=self.team,
+                timestamp=now() - relativedelta(hours=1),
+                properties={"prop": i, "tags": ["tag1", "tag2"], "meta": {"key": "value"}},
+            )
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": f"select event, properties.tags as tags, properties.meta as meta from events where distinct_id = '{random_uuid}'",
+                }
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "a-guid"
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            assert exported_asset.content_location is not None
+            assert exported_asset.content is None
+
+            content = object_storage.read(exported_asset.content_location)
+            lines = (content or "").strip().split("\r\n")
+            header_row = 1
+            assert lines[0] == "event,tags,meta"
+            assert len(lines) == csv_export_limit + header_row
+            # Complex types (arrays, objects) are handled without crashing
+            assert "tag1" in lines[1]
+
+    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
+    def test_csv_streaming_uses_temp_file(self) -> None:
+        """Test that CSV streaming export writes to temp files and cleans them up."""
+        import tempfile
+
+        original_temp_file = tempfile.NamedTemporaryFile
+        temp_file_paths: list[str] = []
+
+        def tracking_temp_file(*args: Any, **kwargs: Any) -> Any:
+            tmp = original_temp_file(*args, **kwargs)
+            temp_file_paths.append(tmp.name)
+            return tmp
+
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
+        _create_event(
+            event="$pageview",
+            distinct_id=random_uuid,
+            team=self.team,
+            timestamp=now() - relativedelta(hours=1),
+        )
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": f"select event from events where distinct_id = '{random_uuid}'",
+                }
+            },
+        )
+        exported_asset.save()
+
+        with patch("posthog.tasks.exports.csv_exporter.tempfile.NamedTemporaryFile", tracking_temp_file):
+            csv_exporter.export_tabular(exported_asset)
+
+        # Two temp files: jsonl (phase 1) + csv (phase 2)
+        assert len(temp_file_paths) == 2
+        assert any(p.endswith(".jsonl") for p in temp_file_paths)
+        assert any(p.endswith(".csv") for p in temp_file_paths)
+        for path in temp_file_paths:
+            assert not os.path.exists(path), f"Temp file {path} should be cleaned up after export"
+
+    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
+    def test_excel_streaming_uses_temp_file(self) -> None:
+        """Test that Excel streaming export writes to temp files and cleans them up."""
+        import tempfile
+
+        original_temp_file = tempfile.NamedTemporaryFile
+        temp_file_paths: list[str] = []
+
+        def tracking_temp_file(*args: Any, **kwargs: Any) -> Any:
+            tmp = original_temp_file(*args, **kwargs)
+            temp_file_paths.append(tmp.name)
+            return tmp
+
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
+        _create_event(
+            event="$pageview",
+            distinct_id=random_uuid,
+            team=self.team,
+            timestamp=now() - relativedelta(hours=1),
+        )
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.XLSX,
+            export_context={
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": f"select event from events where distinct_id = '{random_uuid}'",
+                }
+            },
+        )
+        exported_asset.save()
+
+        with patch("posthog.tasks.exports.csv_exporter.tempfile.NamedTemporaryFile", tracking_temp_file):
+            csv_exporter.export_tabular(exported_asset)
+
+        # Two temp files: jsonl (phase 1) + xlsx (phase 2)
+        assert len(temp_file_paths) == 2
+        assert any(p.endswith(".jsonl") for p in temp_file_paths)
+        assert any(p.endswith(".xlsx") for p in temp_file_paths)
+        for path in temp_file_paths:
+            assert not os.path.exists(path), f"Temp file {path} should be cleaned up after export"
+
+    def test_sanitize_value_for_excel(self) -> None:
+        test_cases = [
+            ("normal text", "normal text"),
+            ("text with\ttab", "text with\ttab"),  # Tab is allowed
+            ("text with\nnewline", "text with\nnewline"),  # Newline is allowed
+            ("text with\rcarriage return", "text with\rcarriage return"),  # CR is allowed
+            ("has\x00null char", "hasnull char"),  # NULL removed
+            ("has\x07bell char", "hasbell char"),  # Bell removed
+            ("has\x0bvertical tab", "hasvertical tab"),  # Vertical tab removed
+            ("has\x1bescape char", "hasescape char"),  # ESC removed (start of ANSI codes)
+            ("\x1b[1;31mred text\x1b[0m", "[1;31mred text[0m"),  # ANSI: ESC removed, rest preserved
+            (123, 123),  # Non-strings pass through
+            (None, None),  # None passes through
+            (12.34, 12.34),  # Float passes through
+            (True, True),  # Bool passes through
+        ]
+        for input_value, expected in test_cases:
+            assert sanitize_value_for_excel(input_value) == expected, f"Failed for input: {repr(input_value)}"
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    @patch("posthog.models.exported_asset.object_storage.write_from_file")
+    def test_excel_export_with_illegal_characters(
+        self, mocked_object_storage_write_from_file: Any, mocked_uuidt: Any
+    ) -> None:
+        """Test that Excel export handles data with illegal XML characters without crashing."""
+        with patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request:
+            mock_response = Mock()
+            mock_response.status_code = 200
+            # Data containing control characters that would normally crash openpyxl
+            mock_response.json.return_value = {
+                "next": None,
+                "results": [
+                    {
+                        "id": "1",
+                        "data_with_null": "before\x00after",
+                        "data_with_bell": "before\x07after",
+                        "data_with_escape": "before\x1b[31mred\x1b[0mafter",
+                        "normal_data": "just normal text",
+                    }
+                ],
+            }
+            patched_request.return_value = mock_response
+
+            exported_asset = ExportedAsset(
+                team=self.team,
+                export_format=ExportedAsset.ExportFormat.XLSX,
+                export_context={"path": "/api/test/endpoint"},
+            )
+            exported_asset.save()
+            mocked_uuidt.return_value = "a-guid"
+            mocked_object_storage_write_from_file.side_effect = ObjectStorageError("mock write failed")
+
+            with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+                # This should not raise IllegalCharacterError
+                csv_exporter.export_tabular(exported_asset)
+
+                # Verify content was generated
+                assert exported_asset.content is not None
+
+                # Verify the Excel file can be loaded and contains sanitized data
+                wb = load_workbook(filename=BytesIO(exported_asset.content))
+                ws = wb.active
+                data = list(ws.iter_rows(values_only=True))
+
+                # Header row + 1 data row
+                assert len(data) == 2
+
+                # Find the data row values
+                data_row = data[1]
+
+                # Control characters should be stripped, but visible parts preserved
+                assert "beforeafter" in str(data_row)  # NULL stripped
+                assert "[31mred[0mafter" in str(data_row)  # ANSI: ESC stripped, rest preserved
+
+    def test_format_breakdown_value(self) -> None:
+        """Test _format_breakdown_value handles None."""
+        # None was causing TypeError: can only join an iterable
+        assert _format_breakdown_value(None) == ""
+
+        # Normal list behavior unchanged
+        assert _format_breakdown_value([]) == ""
+        assert _format_breakdown_value(["a", "b", "c"]) == "a::b::c"
+        assert _format_breakdown_value(["single"]) == "single"
+
+    def test_excel_writer_raises_column_limit_exceeded(self) -> None:
+        writer = ExcelWriter()
+        # Create more columns than openpyxl supports (18,278 max)
+        # See: https://foss.heptapod.net/openpyxl/openpyxl/-/blob/a345f3975f06450193646a53a5caaf081730e9ea/openpyxl/utils/cell.py#L93
+        columns = [f"col_{i}" for i in range(18300)]
+
+        with pytest.raises(ExcelColumnLimitExceeded) as exc_info:
+            writer.write_header(columns)
+
+        assert "18,278 columns" in str(exc_info.value)
+        assert "CSV format" in str(exc_info.value)
+
+    def test_excel_writer_normal_column_count_works(self) -> None:
+        writer = ExcelWriter()
+        columns = ["col_a", "col_b", "col_c"]
+        writer.write_header(columns)
+        writer.write_row({"col_a": "1", "col_b": "2", "col_c": "3"})
+        path = writer.finish()
+
+        assert os.path.exists(path)
+        os.unlink(path)
+
+
+@override_settings(SITE_URL="http://testserver")
+class TestNestedColumnExport(APIBaseTest):
+    """
+    Test CSV export handles mixed null/nested data correctly.
+    """
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    @patch("posthog.models.exported_asset.object_storage.write_from_file")
+    @patch("posthog.tasks.exports.csv_exporter.get_from_query")
+    def test_nested_columns_included_when_some_rows_are_null(
+        self,
+        mocked_get_from_query: Any,
+        mocked_object_storage_write_from_file: Any,
+        mocked_uuidt: Any,
+    ) -> None:
+        """
+        When some rows have null inputState and others have nested objects,
+        the export should include the nested column keys (not just 'inputState').
+        """
+        mocked_get_from_query.return_value = iter(
+            [
+                {
+                    "id": "trace-with-state",
+                    "inputState": {"messages": [{"role": "user", "content": "Hello world"}]},
+                    "outputState": {"messages": [{"role": "assistant", "content": "Hi there!"}]},
+                },
+                {
+                    "id": "trace-without-state",
+                    "inputState": None,
+                    "outputState": None,
+                },
+            ]
+        )
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "columns": ["id", "inputState", "outputState"],
+                "source": {"kind": "TracesQuery"},
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "test-guid"
+        mocked_object_storage_write_from_file.side_effect = ObjectStorageError("mock write failed")
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            assert exported_asset.content is not None
+            assert b"Hello world" in exported_asset.content, f"Nested input content missing"
+            assert b"Hi there!" in exported_asset.content, f"Nested output content missing"
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    @patch("posthog.models.exported_asset.object_storage.write_from_file")
+    @patch("posthog.tasks.exports.csv_exporter.get_from_query")
+    def test_null_rows_first_still_includes_nested_columns(
+        self,
+        mocked_get_from_query: Any,
+        mocked_object_storage_write_from_file: Any,
+        mocked_uuidt: Any,
+    ) -> None:
+        """
+        Even when null rows come first (adding base key to seen_keys),
+        nested keys from later rows should still be included.
+        """
+        mocked_get_from_query.return_value = iter(
+            [
+                {"id": "null-first", "inputState": None},
+                {"id": "nested-second", "inputState": {"messages": [{"role": "user", "content": "Test message"}]}},
+            ]
+        )
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "columns": ["id", "inputState"],
+                "source": {"kind": "TracesQuery"},
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "test-guid"
+        mocked_object_storage_write_from_file.side_effect = ObjectStorageError("mock write failed")
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            assert exported_asset.content is not None
+            assert b"Test message" in exported_asset.content, f"Nested content missing when null row came first"
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    @patch("posthog.models.exported_asset.object_storage.write_from_file")
+    @patch("posthog.tasks.exports.csv_exporter.get_from_query")
+    def test_all_null_rows_still_includes_requested_column(
+        self,
+        mocked_get_from_query: Any,
+        mocked_object_storage_write_from_file: Any,
+        mocked_uuidt: Any,
+    ) -> None:
+        """When all rows have null for a requested column, the column header should still appear."""
+        mocked_get_from_query.return_value = iter(
+            [
+                {"id": "trace-1", "inputState": None},
+                {"id": "trace-2", "inputState": None},
+            ]
+        )
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "columns": ["id", "inputState"],
+                "source": {"kind": "TracesQuery"},
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "test-guid"
+        mocked_object_storage_write_from_file.side_effect = ObjectStorageError("mock write failed")
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            assert exported_asset.content is not None
+            # Header should contain inputState column even when all values are null
+            assert b"inputState" in exported_asset.content
+            # Verify both data rows are present
+            assert b"trace-1" in exported_asset.content
+            assert b"trace-2" in exported_asset.content
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    @patch("posthog.models.exported_asset.object_storage.write_from_file")
+    @patch("posthog.tasks.exports.csv_exporter.get_from_query")
+    def test_deeply_nested_objects_are_flattened(
+        self,
+        mocked_get_from_query: Any,
+        mocked_object_storage_write_from_file: Any,
+        mocked_uuidt: Any,
+    ) -> None:
+        """Deeply nested objects should be flattened to dot-notation columns."""
+        mocked_get_from_query.return_value = iter(
+            [
+                {
+                    "id": "trace-1",
+                    "inputState": {
+                        "messages": [
+                            {"role": "user", "content": "First message"},
+                            {"role": "user", "content": "Second message"},
+                        ],
+                        "metadata": {"source": "web"},
+                    },
+                },
+            ]
+        )
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "columns": ["id", "inputState"],
+                "source": {"kind": "TracesQuery"},
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "test-guid"
+        mocked_object_storage_write_from_file.side_effect = ObjectStorageError("mock write failed")
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            assert exported_asset.content is not None
+            assert b"First message" in exported_asset.content
+            assert b"Second message" in exported_asset.content
+            assert b"web" in exported_asset.content
+            # Nested objects should be flattened to dot-notation columns
+            assert b"inputState.messages.0.content" in exported_asset.content
+            assert b"inputState.messages.1.content" in exported_asset.content

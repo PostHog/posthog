@@ -13,15 +13,13 @@ import {
 } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { AvailableFeature } from '~/types'
 
 import { isLegacySharedMetric } from '../utils'
 import { SharedMetric } from './sharedMetricLogic'
@@ -34,8 +32,6 @@ export const scene: SceneExport = {
 
 export function SharedMetrics(): JSX.Element {
     const { sharedMetrics, sharedMetricsLoading } = useValues(sharedMetricsLogic)
-
-    const { hasAvailableFeature } = useValues(userLogic)
 
     const columns: LemonTableColumns<SharedMetric> = [
         {
@@ -70,17 +66,13 @@ export function SharedMetrics(): JSX.Element {
             title: 'Description',
             dataIndex: 'description',
         },
-        ...(hasAvailableFeature(AvailableFeature.TAGGING)
-            ? [
-                  {
-                      title: 'Tags',
-                      dataIndex: 'tags' as keyof SharedMetric,
-                      render: function Render(tags: SharedMetric['tags']) {
-                          return tags ? <ObjectTags tags={tags} staticOnly /> : null
-                      },
-                  } as LemonTableColumn<SharedMetric, keyof SharedMetric | undefined>,
-              ]
-            : []),
+        {
+            title: 'Tags',
+            dataIndex: 'tags' as keyof SharedMetric,
+            render: function Render(tags: SharedMetric['tags']) {
+                return tags ? <ObjectTags tags={tags} staticOnly /> : null
+            },
+        } as LemonTableColumn<SharedMetric, keyof SharedMetric | undefined>,
         {
             title: 'Type',
             key: 'type',

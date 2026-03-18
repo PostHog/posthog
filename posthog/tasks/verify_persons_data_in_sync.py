@@ -10,7 +10,7 @@ import structlog
 from celery import shared_task
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models.person import Person
+from posthog.models.person import Person, PersonDistinctId
 
 logger = structlog.get_logger(__name__)
 
@@ -89,8 +89,12 @@ def _team_integrity_statistics(person_data: list[Any]) -> Counter:
     # :TRICKY: To speed up processing, we fetch all models in batch at once and store results in dictionary indexed by person uuid
     pg_persons = _index_by(
         list(
-            Person.objects.filter(id__in=person_ids).prefetch_related(
-                Prefetch("persondistinctid_set", to_attr="distinct_ids_cache")
+            Person.objects.filter(id__in=person_ids, team_id__in=team_ids).prefetch_related(
+                Prefetch(
+                    "persondistinctid_set",
+                    queryset=PersonDistinctId.objects.filter(team_id__in=team_ids).order_by("id"),
+                    to_attr="distinct_ids_cache",
+                )
             )
         ),
         lambda p: p.uuid,

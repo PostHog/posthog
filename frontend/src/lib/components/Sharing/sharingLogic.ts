@@ -4,9 +4,9 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getInsightId } from 'scenes/insights/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -183,6 +183,7 @@ export const sharingLogic = kea<sharingLogicType>([
                 allowfullscreen: true,
                 src: embedLink,
                 key: iframeKey,
+                sandbox: 'allow-scripts allow-same-origin allow-popups',
             }),
         ],
 

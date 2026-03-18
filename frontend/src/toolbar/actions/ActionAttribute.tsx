@@ -4,8 +4,10 @@ import { LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { IconBranch, IconClipboardEdit, IconLink, IconTextSize } from 'lib/lemon-ui/icons'
 
-import { ActionStepPropertyKey } from './ActionStep'
+import { SelectorQualityBadge } from '~/toolbar/elements/SelectorQualityWarning'
+
 import { actionsTabLogic } from './actionsTabLogic'
+import { ActionStepPropertyKey } from './ActionStep'
 
 function SelectorString({ value }: { value: string }): JSX.Element {
     const [last, ...rest] = value.split(' ').reverse()
@@ -44,8 +46,11 @@ export function ActionAttribute({
             </Link>
         ) : attribute === 'selector' ? (
             value ? (
-                <span className="font-mono">
-                    <SelectorString value={value} />
+                <span className="flex items-center gap-1">
+                    <span className="font-mono">
+                        <SelectorString value={value} />
+                    </span>
+                    <SelectorQualityBadge selector={value} />
                 </span>
             ) : (
                 <span>

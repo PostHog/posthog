@@ -1,19 +1,11 @@
+use crate::parsing::u64_or_string;
 use crate::unordered_trends::AggregateFunnelRowUnordered;
 use crate::PropVal;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::str::FromStr;
 use uuid::Uuid;
-
-fn deserialize_number_from_string<'de, D>(deserializer: D) -> Result<u64, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s = String::deserialize(deserializer)?;
-    u64::from_str(&s).map_err(serde::de::Error::custom)
-}
 
 #[derive(Clone, Deserialize)]
 pub struct EnteredTimestamp {
@@ -24,7 +16,7 @@ pub struct EnteredTimestamp {
 #[derive(Debug, Clone, Deserialize)]
 pub struct Event {
     pub timestamp: f64,
-    #[serde(deserialize_with = "deserialize_number_from_string")]
+    #[serde(deserialize_with = "u64_or_string")]
     pub interval_start: u64,
     pub uuid: Uuid,
     pub breakdown: PropVal,
@@ -36,6 +28,7 @@ pub struct Args {
     pub from_step: usize,
     pub to_step: usize,
     pub num_steps: usize,
+    #[serde(deserialize_with = "u64_or_string")]
     pub conversion_window_limit: u64, // In seconds
     pub breakdown_attribution_type: String,
     pub funnel_order_type: String,
@@ -103,7 +96,9 @@ pub fn process_line(line: &str) -> Value {
 
 #[inline(always)]
 fn parse_args(line: &str) -> Args {
-    serde_json::from_str(line).expect("Invalid JSON input")
+    serde_json::from_str(line).unwrap_or_else(|e| {
+        panic!("Invalid JSON input while parsing Args: {e}. Input: {line}");
+    })
 }
 
 impl AggregateFunnelRow {
@@ -139,7 +134,7 @@ impl AggregateFunnelRow {
                     true
                 }
             })
-            .group_by(|e| e.timestamp);
+            .chunk_by(|e| e.timestamp);
 
         for (_timestamp, events_with_same_timestamp) in &filtered_events {
             let events_with_same_timestamp: Vec<_> = events_with_same_timestamp.collect();
@@ -316,5 +311,58 @@ impl AggregateFunnelRow {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+    use uuid::Uuid;
+
+    #[rstest]
+    #[case(
+        r#"{
+            "from_step": 1,
+            "to_step": 2,
+            "num_steps": 3,
+            "conversion_window_limit": 3600,
+            "breakdown_attribution_type": "first_touch",
+            "funnel_order_type": "ordered",
+            "prop_vals": ["en"],
+            "value": [{
+                "timestamp": 1.5,
+                "interval_start": 1700000000,
+                "uuid": "00000000-0000-0000-0000-000000000000",
+                "breakdown": "en",
+                "steps": [1, 2]
+            }]
+        }"#,
+        "00000000-0000-0000-0000-000000000000",
+        3600,
+        1_700_000_000
+    )]
+    fn parse_args_handles_valid_json(
+        #[case] input: &str,
+        #[case] expected_uuid: &str,
+        #[case] expected_window_limit: u64,
+        #[case] expected_interval_start: u64,
+    ) {
+        let args = parse_args(input);
+
+        assert_eq!(args.conversion_window_limit, expected_window_limit);
+        assert_eq!(args.value.len(), 1);
+        let event = &args.value[0];
+        assert_eq!(event.interval_start, expected_interval_start);
+        assert_eq!(event.uuid, Uuid::parse_str(expected_uuid).unwrap());
+        assert_eq!(event.breakdown, args.prop_vals[0]);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Invalid JSON input while parsing Args: missing field `to_step` at line 1 column 16. Input: {\"from_step\": 1}"
+    )]
+    fn parse_args_panics_on_invalid_json() {
+        let _ = parse_args(r#"{"from_step": 1}"#);
     }
 }

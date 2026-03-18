@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
 import { IconPlus } from '@posthog/icons'
@@ -8,11 +8,13 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -25,9 +27,9 @@ import { EventConfiguration } from './EventConfiguration'
 import { ExternalDataSourceConfiguration } from './ExternalDataSourceConfiguration'
 import { FilterTestAccountsConfiguration } from './FilterTestAccountsConfiguration'
 import { GoalsConfiguration } from './GoalsConfiguration'
+import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 import { RevenueExampleDataWarehouseTablesData } from './RevenueExampleDataWarehouseTablesData'
 import { RevenueExampleEventsTable } from './RevenueExampleEventsTable'
-import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
 type Tab = 'events' | 'data-warehouse'
 
@@ -52,6 +54,9 @@ export function RevenueAnalyticsSettings(): JSX.Element {
 
     const shouldBlockSettings = managedViewsetsEnabled && !isViewsetEnabled
 
+    const { reportRevenueAnalyticsSettingsViewed } = useActions(eventUsageLogic)
+    useOnMountEffect(() => reportRevenueAnalyticsSettingsViewed())
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -61,7 +66,6 @@ export function RevenueAnalyticsSettings(): JSX.Element {
                     type: sceneConfigurations[Scene.RevenueAnalytics].iconType || 'default_icon_type',
                 }}
             />
-            <SceneDivider />
 
             {managedViewsetsEnabled && (
                 <>

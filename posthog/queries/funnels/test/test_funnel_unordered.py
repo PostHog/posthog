@@ -3,6 +3,7 @@ from datetime import datetime
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    _create_action,
     _create_event,
     _create_person,
     snapshot_clickhouse_queries,
@@ -11,7 +12,6 @@ from posthog.test.base import (
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import INSIGHT_FUNNELS
-from posthog.models.action import Action
 from posthog.models.filters import Filter
 from posthog.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
 from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
@@ -24,14 +24,6 @@ from posthog.queries.funnels.test.conversion_time_cases import funnel_conversion
 from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
-
-
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
-    return action
 
 
 class TestFunnelUnorderedStepsBreakdown(
@@ -88,42 +80,9 @@ class TestFunnelUnorderedStepsBreakdown(
         )
 
         result = funnel.run()
-        assert_funnel_results_equal(
-            result[0],
-            [
-                {
-                    "action_id": None,
-                    "name": "Completed 1 step",
-                    "custom_name": None,
-                    "order": 0,
-                    "people": [],
-                    "count": 1,
-                    "type": "events",
-                    "average_conversion_time": None,
-                    "median_conversion_time": None,
-                    "breakdown": ["Chrome"],
-                    "breakdown_value": ["Chrome"],
-                },
-                {
-                    "action_id": None,
-                    "name": "Completed 2 steps",
-                    "custom_name": None,
-                    "order": 1,
-                    "people": [],
-                    "count": 0,
-                    "type": "events",
-                    "average_conversion_time": None,
-                    "median_conversion_time": None,
-                    "breakdown": ["Chrome"],
-                    "breakdown_value": ["Chrome"],
-                },
-            ],
-        )
-        self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ["Chrome"]), [person1.uuid])
-        self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, ["Chrome"]), [])
 
         assert_funnel_results_equal(
-            result[1],
+            result[0],
             [
                 {
                     "action_id": None,
@@ -155,6 +114,40 @@ class TestFunnelUnorderedStepsBreakdown(
         )
         self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ["Safari"]), [person1.uuid])
         self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, ["Safari"]), [person1.uuid])
+
+        assert_funnel_results_equal(
+            result[1],
+            [
+                {
+                    "action_id": None,
+                    "name": "Completed 1 step",
+                    "custom_name": None,
+                    "order": 0,
+                    "people": [],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "median_conversion_time": None,
+                    "breakdown": ["Chrome"],
+                    "breakdown_value": ["Chrome"],
+                },
+                {
+                    "action_id": None,
+                    "name": "Completed 2 steps",
+                    "custom_name": None,
+                    "order": 1,
+                    "people": [],
+                    "count": 0,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "median_conversion_time": None,
+                    "breakdown": ["Chrome"],
+                    "breakdown_value": ["Chrome"],
+                },
+            ],
+        )
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ["Chrome"]), [person1.uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, ["Chrome"]), [])
 
     def test_funnel_step_breakdown_with_step_attribution(self):
         # overridden from factory, since with no order, step one is step zero, and vice versa

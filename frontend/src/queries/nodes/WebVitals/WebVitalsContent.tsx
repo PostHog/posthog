@@ -25,9 +25,10 @@ import {
 
 type WebVitalsContentProps = {
     webVitalsQueryResponse?: WebVitalsQueryResponse
+    isLoading: boolean
 }
 
-export const WebVitalsContent = ({ webVitalsQueryResponse }: WebVitalsContentProps): JSX.Element => {
+export const WebVitalsContent = ({ webVitalsQueryResponse, isLoading }: WebVitalsContentProps): JSX.Element => {
     const { webVitalsTab, webVitalsPercentile } = useValues(webAnalyticsLogic)
 
     const value = useMemo(
@@ -41,10 +42,18 @@ export const WebVitalsContent = ({ webVitalsQueryResponse }: WebVitalsContentPro
     const color = getThresholdColor(value, webVitalsTab)
     const band = getMetricBand(value, webVitalsTab)
 
-    // NOTE: `band` will only return `none` if the value is undefined,
-    // so this is basically the same check twice, but we need that to make TS happy
-    if (value === undefined || band === 'none') {
+    // Show skeleton only when loading
+    if (isLoading) {
         return <LemonSkeleton fade className="w-full h-full rounded sm:w-[30%]" />
+    }
+
+    // Show no data message when not loading and value is undefined
+    if (value === undefined || band === 'none') {
+        return (
+            <div className="w-full p-4 sm:w-[30%] flex flex-col gap-2 bg-surface-primary rounded border items-center justify-center">
+                <span className="text-sm text-text-tertiary">No data for the selected date range</span>
+            </div>
+        )
     }
 
     const grade = GRADE_PER_BAND[band]

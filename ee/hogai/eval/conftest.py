@@ -6,7 +6,7 @@ from unittest import mock
 from _pytest.terminal import TerminalReporter
 
 # We want the PostHog django_db_setup fixture here
-from posthog.conftest import django_db_setup  # noqa: F401
+from posthog.conftest import _django_db_setup  # noqa: F401
 
 
 def pytest_addoption(parser):
@@ -18,9 +18,9 @@ _nodeid_to_results_url_map: dict[str, str] = {}
 """Map of test nodeid (file + test name) to Braintrust results URL."""
 
 
-@pytest.fixture(scope="package")
-def set_up_evals(django_db_setup):  # noqa: F811
-    yield
+@pytest.fixture(scope="session")
+def set_up_evals(django_db_setup, django_db_keepdb, django_db_blocker):  # noqa: F811
+    yield from _django_db_setup(django_db_keepdb, django_db_blocker)
 
 
 @pytest.fixture(autouse=True)

@@ -1,5 +1,6 @@
 from django.db.models import Q
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.response import Response
@@ -9,6 +10,8 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.auth import SharingAccessTokenAuthentication
 from posthog.constants import AvailableFeature
 from posthog.models import DataColorTheme
+from posthog.permissions import TeamMemberStrictManagementPermission
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 
 class GlobalThemePermission(BasePermission):
@@ -47,7 +50,7 @@ class PublicDataColorThemeSerializer(serializers.ModelSerializer):
         return obj.team_id is None
 
 
-class DataColorThemeSerializer(PublicDataColorThemeSerializer):
+class DataColorThemeSerializer(PublicDataColorThemeSerializer, UserAccessControlSerializerMixin):
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
@@ -66,11 +69,12 @@ class DataColorThemeSerializer(PublicDataColorThemeSerializer):
         return super().create(validated_data, *args, **kwargs)
 
 
+@extend_schema(tags=["dashboards"])
 class DataColorThemeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "project"
     queryset = DataColorTheme.objects.all().order_by("-created_at")
     serializer_class = DataColorThemeSerializer
-    permission_classes = [GlobalThemePermission, PaidThemePermission]
+    permission_classes = [GlobalThemePermission, PaidThemePermission, TeamMemberStrictManagementPermission]
     sharing_enabled_actions = ["retrieve", "list"]
 
     # override the team scope queryset to also include global themes

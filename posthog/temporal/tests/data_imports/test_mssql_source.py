@@ -34,8 +34,9 @@ import structlog
 
 from posthog.temporal.data_imports.sources.mssql.mssql import _get_table_average_row_size, _get_table_stats
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
-from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
-from posthog.warehouse.types import IncrementalFieldType
+
+from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
+from products.data_warehouse.backend.types import IncrementalFieldType
 
 pytestmark = pytest.mark.usefixtures("minio_client")
 
@@ -149,7 +150,7 @@ def mssql_source_table(
                     SELECT *
                     FROM sys.tables t
                     JOIN sys.schemas s ON t.schema_id = s.schema_id
-                    WHERE s.name = '{mssql_config['schema']}'
+                    WHERE s.name = '{mssql_config["schema"]}'
                     AND t.name = '{MSSQL_TABLE_NAME}'
                 )
                 BEGIN
@@ -518,7 +519,7 @@ class TestGetTableAverageRowSize:
                         SELECT *
                         FROM sys.tables t
                         JOIN sys.schemas s ON t.schema_id = s.schema_id
-                        WHERE s.name = '{mssql_config['schema']}'
+                        WHERE s.name = '{mssql_config["schema"]}'
                         AND t.name = '{MSSQL_TABLE_NAME}'
                     )
                     BEGIN
@@ -594,7 +595,7 @@ class TestGetTableStats:
                         SELECT *
                         FROM sys.tables t
                         JOIN sys.schemas s ON t.schema_id = s.schema_id
-                        WHERE s.name = '{mssql_config['schema']}'
+                        WHERE s.name = '{mssql_config["schema"]}'
                         AND t.name = 'test_small'
                     )
                     BEGIN
@@ -645,7 +646,7 @@ class TestGetTableStats:
                         SELECT *
                         FROM sys.tables t
                         JOIN sys.schemas s ON t.schema_id = s.schema_id
-                        WHERE s.name = '{mssql_config['schema']}'
+                        WHERE s.name = '{mssql_config["schema"]}'
                         AND t.name = 'test_empty'
                     )
                     BEGIN

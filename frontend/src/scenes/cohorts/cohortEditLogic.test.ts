@@ -6,14 +6,16 @@ import { v4 as uuidv4 } from 'uuid'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
+import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { CRITERIA_VALIDATIONS, NEW_CRITERIA, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
-import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
 import { cohortsModel } from '~/models/cohortsModel'
+import { ActorsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
 import {
@@ -58,14 +60,15 @@ describe('cohortEditLogic', () => {
     beforeEach(async () => {
         useMocks({
             get: {
-                '/api/projects/:team/cohorts': [mockCohort],
-                '/api/projects/:team/cohorts/:id': mockCohort,
+                '/api/projects/:team_id/cohorts/': toPaginatedResponse([mockCohort]),
+                '/api/projects/:team_id/cohorts/:id/': mockCohort,
             },
             post: {
-                '/api/projects/:team/cohorts/:id': mockCohort,
+                '/api/projects/:team_id/cohorts/': mockCohort,
+                '/api/projects/:team_id/cohorts/:id/': mockCohort,
             },
             patch: {
-                '/api/projects/:team/cohorts/:id': mockCohort,
+                '/api/projects/:team_id/cohorts/:id/': mockCohort,
             },
         })
         initKeaTests()
@@ -848,6 +851,213 @@ describe('cohortEditLogic', () => {
                             }),
                         },
                     }),
+                })
+        })
+    })
+
+    describe('query state and column configuration', () => {
+        it('preserves custom column configuration when setCohort is called', async () => {
+            await initCohortLogic({ id: 1 })
+
+            // Set custom columns via setQuery
+            const customColumns = ['person_display_name -- Person', 'id', 'created_at', 'properties.$browser']
+            const testQuery: DataTableNode = {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.ActorsQuery,
+                    fixedProperties: [
+                        { type: PropertyFilterType.Cohort, key: 'id', value: 1, operator: PropertyOperator.In },
+                    ],
+                    select: customColumns,
+                },
+                full: true,
+                showPropertyFilter: false,
+                showEventFilter: false,
+            }
+            await expectLogic(logic, () => {
+                logic.actions.setQuery(testQuery)
+            })
+                .toDispatchActions(['setQuery'])
+                .toMatchValues({
+                    query: testQuery,
+                })
+
+            // Now call setCohort (simulating what happens after saving)
+            await expectLogic(logic, () => {
+                logic.actions.setCohort(mockCohort)
+            })
+                .toDispatchActions(['setCohort'])
+                .toMatchValues({
+                    query: partial({
+                        source: partial({
+                            select: customColumns, // Custom columns should be preserved
+                        }),
+                    }),
+                })
+        })
+
+        it('uses default columns when no custom columns have been set', async () => {
+            await initCohortLogic({ id: 1 })
+
+            // Call setCohort without setting custom columns first
+            await expectLogic(logic, () => {
+                logic.actions.setCohort(mockCohort)
+            })
+                .toDispatchActions(['setCohort'])
+                .toMatchValues({
+                    query: partial({
+                        source: partial({
+                            // For non-static cohorts, default is without the delete column
+                            select: ['person_display_name -- Person', 'id', 'created_at'],
+                        }),
+                    }),
+                })
+        })
+
+        it('preserves custom columns after saving cohort (simulating saveCohort flow)', async () => {
+            await initCohortLogic({ id: 1 })
+
+            // First, set the cohort (this happens on initial load via fetchCohort)
+            await expectLogic(logic).toFinishAllListeners()
+
+            // User configures custom columns via the "Configure columns" UI
+            const customColumns = ['person_display_name -- Person', 'id', 'properties.$browser', 'properties.$os']
+            const testQuery: DataTableNode = {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.ActorsQuery,
+                    fixedProperties: [
+                        { type: PropertyFilterType.Cohort, key: 'id', value: 1, operator: PropertyOperator.In },
+                    ],
+                    select: customColumns,
+                },
+                full: true,
+                showPropertyFilter: false,
+                showEventFilter: false,
+            }
+            await expectLogic(logic, () => {
+                logic.actions.setQuery(testQuery)
+            }).toDispatchActions(['setQuery'])
+
+            // Verify custom columns are set
+            expect((logic.values.query.source as ActorsQuery).select).toEqual(customColumns)
+
+            // User saves the cohort - this triggers setCohort with the updated cohort from API
+            // (simulating what happens in saveCohort loader after API call)
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({
+                    ...mockCohort,
+                    is_calculating: false,
+                    last_calculation: '2024-01-01T00:00:00Z',
+                })
+            }).toDispatchActions(['setCohort'])
+
+            // Custom columns should still be preserved after save
+            expect((logic.values.query.source as ActorsQuery).select).toEqual(customColumns)
+        })
+    })
+
+    describe('cohort duplication', () => {
+        it('duplicate static cohort as static', async () => {
+            await initCohortLogic({ id: 1 })
+
+            const staticCohort = {
+                ...mockCohort,
+                id: 1,
+                name: 'Static Cohort',
+                is_static: true,
+            }
+
+            const duplicatedCohort = {
+                ...staticCohort,
+                id: 2,
+                name: 'Static Cohort (static copy)',
+            }
+
+            jest.spyOn(api, 'create').mockResolvedValue(duplicatedCohort)
+
+            await expectLogic(logic, () => {
+                logic.actions.setCohort(staticCohort)
+                logic.actions.duplicateCohort(true)
+            }).toFinishAllListeners()
+
+            expect(api.create).toHaveBeenCalledWith('api/cohort', {
+                is_static: true,
+                name: 'Static Cohort (static copy)',
+                query: {
+                    kind: NodeKind.HogQLQuery,
+                    query: 'SELECT person_id FROM static_cohort_people WHERE cohort_id = 1',
+                },
+            })
+        })
+
+        it('duplicate dynamic cohort as static', async () => {
+            await initCohortLogic({ id: 1 })
+
+            const dynamicCohort = {
+                ...mockCohort,
+                id: 1,
+                name: 'Dynamic Cohort',
+                is_static: false,
+            }
+
+            const duplicatedCohort = {
+                ...dynamicCohort,
+                id: 2,
+                name: 'Dynamic Cohort (static copy)',
+                is_static: true,
+            }
+
+            jest.spyOn(api, 'create').mockResolvedValue(duplicatedCohort)
+
+            await expectLogic(logic, () => {
+                logic.actions.setCohort(dynamicCohort)
+                logic.actions.duplicateCohort(true)
+            }).toFinishAllListeners()
+
+            expect(api.create).toHaveBeenCalledWith('api/cohort', {
+                is_static: true,
+                name: 'Dynamic Cohort (static copy)',
+                query: {
+                    kind: NodeKind.HogQLQuery,
+                    query: 'SELECT person_id FROM cohort_people WHERE cohort_id = 1',
+                },
+            })
+        })
+
+        it('duplicate dynamic cohort as dynamic', async () => {
+            await initCohortLogic({ id: 1 })
+
+            const dynamicCohort = {
+                ...mockCohort,
+                id: 1,
+                name: 'Dynamic Cohort',
+                is_static: false,
+                filters: {
+                    properties: {
+                        type: FilterLogicalOperator.Or,
+                        values: [
+                            {
+                                type: BehavioralFilterKey.Behavioral,
+                                value: BehavioralEventType.PerformEvent,
+                                event_type: TaxonomicFilterGroupType.Events,
+                                time_value: 30,
+                                time_interval: TimeUnitType.Day,
+                                key: '$pageview',
+                            },
+                        ],
+                    },
+                },
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setCohort(dynamicCohort)
+                logic.actions.duplicateCohort(false)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    // The duplication should complete without errors
+                    cohort: partial(dynamicCohort),
                 })
         })
     })

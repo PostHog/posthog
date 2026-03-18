@@ -15,36 +15,42 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { FilterLogicalOperator, PropertyFilterType, UniversalFiltersGroup } from '~/types'
 
+import { TAXONOMIC_FILTER_LOGIC_KEY, TAXONOMIC_GROUP_TYPES } from './consts'
 import { issueFiltersLogic } from './issueFiltersLogic'
 
-export const taxonomicFilterLogicKey = 'error-tracking'
-export const taxonomicGroupTypes = [
-    TaxonomicFilterGroupType.ErrorTrackingProperties,
-    TaxonomicFilterGroupType.ErrorTrackingIssues,
-    TaxonomicFilterGroupType.EventProperties,
-    TaxonomicFilterGroupType.PersonProperties,
-    TaxonomicFilterGroupType.Cohorts,
-    TaxonomicFilterGroupType.HogQLExpression,
-]
-
-export const FilterGroup = (): JSX.Element => {
+export const FilterGroup = ({
+    taxonomicGroupTypes = TAXONOMIC_GROUP_TYPES,
+    excludeFilterTypes,
+}: {
+    taxonomicGroupTypes?: TaxonomicFilterGroupType[]
+    excludeFilterTypes?: PropertyFilterType[]
+} = {}): JSX.Element => {
     const { filterGroup } = useValues(issueFiltersLogic)
     const { setFilterGroup } = useActions(issueFiltersLogic)
 
+    const inner = filterGroup.values[0] as UniversalFiltersGroup
+    const displayGroup =
+        excludeFilterTypes && excludeFilterTypes.length > 0
+            ? { ...inner, values: inner.values.filter((f: any) => !excludeFilterTypes.includes(f.type)) }
+            : inner
+
     return (
         <UniversalFilters
-            rootKey={taxonomicFilterLogicKey}
-            group={filterGroup.values[0] as UniversalFiltersGroup}
-            // TODO: Probably makes sense to create a new taxonomic group for exception-specific event property filters only, keep it clean.
+            rootKey={TAXONOMIC_FILTER_LOGIC_KEY}
+            group={displayGroup}
             taxonomicGroupTypes={taxonomicGroupTypes}
             onChange={(group) => setFilterGroup({ type: FilterLogicalOperator.And, values: [group] })}
         >
-            <UniversalSearch />
+            <UniversalSearch taxonomicGroupTypes={taxonomicGroupTypes} />
         </UniversalFilters>
     )
 }
 
-const UniversalSearch = (): JSX.Element => {
+const UniversalSearch = ({
+    taxonomicGroupTypes = TAXONOMIC_GROUP_TYPES,
+}: {
+    taxonomicGroupTypes?: TaxonomicFilterGroupType[]
+}): JSX.Element => {
     const [visible, setVisible] = useState<boolean>(false)
     const { searchQuery } = useValues(issueFiltersLogic)
     const { setSearchQuery } = useActions(issueFiltersLogic)
@@ -59,13 +65,13 @@ const UniversalSearch = (): JSX.Element => {
     }
 
     const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
-        taxonomicFilterLogicKey,
+        taxonomicFilterLogicKey: TAXONOMIC_FILTER_LOGIC_KEY,
         taxonomicGroupTypes,
-        onChange: (taxonomicGroup, value, item, originalQuery) => {
+        onChange: (taxonomicGroup, value, item) => {
             searchInputRef.current?.blur()
             setVisible(false)
             setSearchQuery('')
-            addGroupFilter(taxonomicGroup, value, item, originalQuery)
+            addGroupFilter(taxonomicGroup, value, item)
         },
         onEnter: onClose,
         autoSelectItem: false,
@@ -79,26 +85,28 @@ const UniversalSearch = (): JSX.Element => {
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
             <LemonDropdown
                 overlay={
-                    <InfiniteSelectResults
-                        focusInput={() => searchInputRef.current?.focus()}
-                        taxonomicFilterLogicProps={taxonomicFilterLogicProps}
-                        popupAnchorElement={floatingRef.current}
-                        useVerticalLayout={true}
-                    />
+                    <div className="w-[400px] md:w-[600px]">
+                        <InfiniteSelectResults
+                            focusInput={() => searchInputRef.current?.focus()}
+                            taxonomicFilterLogicProps={taxonomicFilterLogicProps}
+                            popupAnchorElement={floatingRef.current}
+                            useVerticalLayout={true}
+                        />
+                    </div>
                 }
-                matchWidth
                 visible={visible}
                 closeOnClickInside={false}
                 floatingRef={floatingRef}
                 onClickOutside={() => onClose()}
             >
                 <TaxonomicFilterSearchInput
-                    prefix={<UniversalFilterGroup />}
+                    prefix={<UniversalFilterGroup taxonomicGroupTypes={taxonomicGroupTypes} />}
                     onClick={() => setVisible(true)}
                     searchInputRef={searchInputRef}
                     onClose={() => onClose()}
                     onChange={onChange}
                     size="small"
+                    autoFocus={false}
                     fullWidth
                     docLink="https://posthog.com/docs/error-tracking/filter-and-search-issues"
                 />
@@ -107,7 +115,11 @@ const UniversalSearch = (): JSX.Element => {
     )
 }
 
-const UniversalFilterGroup = (): JSX.Element => {
+const UniversalFilterGroup = ({
+    taxonomicGroupTypes = TAXONOMIC_GROUP_TYPES,
+}: {
+    taxonomicGroupTypes?: TaxonomicFilterGroupType[]
+}): JSX.Element => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
     const [allowInitiallyOpen, setAllowInitiallyOpen] = useState<boolean>(false)
@@ -119,7 +131,7 @@ const UniversalFilterGroup = (): JSX.Element => {
             {filterGroup.values.map((filterOrGroup, index) => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group index={index} key={index} group={filterOrGroup}>
-                        <UniversalSearch />
+                        <UniversalSearch taxonomicGroupTypes={taxonomicGroupTypes} />
                     </UniversalFilters.Group>
                 ) : (
                     <UniversalFilters.Value

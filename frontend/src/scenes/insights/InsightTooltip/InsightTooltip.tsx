@@ -6,8 +6,8 @@ import { ReactNode } from 'react'
 
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { dayjs } from 'lib/dayjs'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { IconHandClick } from 'lib/lemon-ui/icons'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { shortTimeZone } from 'lib/utils'
 import { formatAggregationValue } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -27,10 +27,14 @@ import {
 
 export function ClickToInspectActors({
     isTruncated,
+    inspectLabel,
     groupTypeLabel,
+    showShiftKeyHint,
 }: {
     isTruncated?: boolean
+    inspectLabel?: string
     groupTypeLabel: string
+    showShiftKeyHint?: boolean
 }): JSX.Element {
     return (
         <div className="table-subtext">
@@ -39,9 +43,15 @@ export function ClickToInspectActors({
                     For readability, <b>not all series are displayed</b>.<br />
                 </div>
             )}
+            {showShiftKeyHint && (
+                <>
+                    <div>Hold Shift (⇧) to highlight individual bars</div>
+                    <br />
+                </>
+            )}
             <div className="table-subtext-click-to-inspect">
                 <IconHandClick className="mr-1 mb-0.5" />
-                Click to view {groupTypeLabel}
+                {inspectLabel ?? `Click to view ${groupTypeLabel}`}
             </div>
         </div>
     )
@@ -88,10 +98,12 @@ export function InsightTooltip({
     rowCutoff = ROW_CUTOFF,
     colCutoff = COL_CUTOFF,
     showHeader = true,
+    inspectLabel,
     groupTypeLabel = 'people',
     breakdownFilter,
     interval,
     dateRange,
+    showShiftKeyHint,
 }: InsightTooltipProps): JSX.Element {
     // Display entities as columns if multiple exist (e.g., pageview + autocapture, or multiple formulas)
     // and the insight has a breakdown or compare option enabled. This gives us space for labels
@@ -191,7 +203,7 @@ export function InsightTooltip({
         }
 
         return (
-            <div className={clsx('InsightTooltip', embedded && 'InsightTooltip--embedded')}>
+            <div className={clsx('InsightTooltip', embedded && 'InsightTooltip--embedded')} data-attr="insight-tooltip">
                 <LemonTable
                     dataSource={dataSource.slice(0, rowCutoff)}
                     columns={columns}
@@ -201,7 +213,12 @@ export function InsightTooltip({
                     showHeader={showHeader}
                 />
                 {!hideInspectActorsSection && (
-                    <ClickToInspectActors isTruncated={isTruncated} groupTypeLabel={groupTypeLabel} />
+                    <ClickToInspectActors
+                        isTruncated={isTruncated}
+                        inspectLabel={inspectLabel}
+                        groupTypeLabel={groupTypeLabel}
+                        showShiftKeyHint={showShiftKeyHint}
+                    />
                 )}
             </div>
         )
@@ -251,7 +268,7 @@ export function InsightTooltip({
     })
 
     return (
-        <div className={clsx('InsightTooltip', embedded && 'InsightTooltip--embedded')}>
+        <div className={clsx('InsightTooltip', embedded && 'InsightTooltip--embedded')} data-attr="insight-tooltip">
             <LemonTable
                 dataSource={dataSource.slice(0, rowCutoff)}
                 columns={columns}
@@ -261,7 +278,12 @@ export function InsightTooltip({
                 showHeader={showHeader}
             />
             {!hideInspectActorsSection && (
-                <ClickToInspectActors isTruncated={isTruncated} groupTypeLabel={groupTypeLabel} />
+                <ClickToInspectActors
+                    isTruncated={isTruncated}
+                    inspectLabel={inspectLabel}
+                    groupTypeLabel={groupTypeLabel}
+                    showShiftKeyHint={showShiftKeyHint}
+                />
             )}
         </div>
     )

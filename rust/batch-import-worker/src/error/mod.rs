@@ -27,20 +27,13 @@ impl<T, E: std::error::Error + Send + Sync + 'static> ToUserError<T> for Result<
 
 const DEFAULT_USER_ERROR_MESSAGE: &str = "An unknown error occurred";
 
-pub fn get_user_message(error: &anyhow::Error) -> &str {
-    if let Some(user_error) = error.downcast_ref::<UserError>() {
-        return &user_error.msg;
+pub fn get_user_message(error: &anyhow::Error) -> String {
+    // Get the shallowest UserError in the chain
+    // To provide the user with all the error context they need, we concatenate the user errors together at call site
+    match error.downcast_ref::<UserError>() {
+        Some(user_error) => user_error.msg.clone(),
+        None => DEFAULT_USER_ERROR_MESSAGE.to_string(),
     }
-
-    let mut source = error.source();
-    while let Some(err) = source {
-        if let Some(user_error) = err.downcast_ref::<UserError>() {
-            return &user_error.msg;
-        }
-        source = err.source();
-    }
-
-    DEFAULT_USER_ERROR_MESSAGE
 }
 
 #[derive(Error, Debug)]
@@ -133,30 +126,31 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_user_errors_in_chain() {
+    fn test_multiple_user_errors_returns_shallowest() {
         let deep_user_error = UserError::new("Deep user error");
-        let middle_user_error = UserError::new("Middle user error");
+        let shallowest_user_error = UserError::new("Shallowest user error");
 
         let error = anyhow::Error::from(deep_user_error)
             .context("Some system error")
-            .context(middle_user_error)
+            .context(shallowest_user_error)
             .context("Top level error");
 
         let result = get_user_message(&error);
-        assert_eq!(result, "Middle user error");
+        assert_eq!(result, "Shallowest user error");
     }
 
     #[test]
-    fn test_multiple_user_errors_with_root_user_error() {
-        let deep_user_error = UserError::new("Deep user error");
-        let root_user_error = UserError::new("Root user error");
+    fn test_concatenated_user_error() {
+        // Test the pattern we use: concatenate inner message when creating outer error
+        let inner_error = anyhow::Error::from(UserError::new("specific parse error"));
+        let inner_msg = get_user_message(&inner_error);
 
-        let error = anyhow::Error::from(deep_user_error)
-            .context("Some system error")
-            .context(root_user_error);
+        let outer_error = inner_error.context(UserError::new(format!(
+            "File 'test.json' failed: {inner_msg}"
+        )));
 
-        let result = get_user_message(&error);
-        assert_eq!(result, "Root user error");
+        let result = get_user_message(&outer_error);
+        assert_eq!(result, "File 'test.json' failed: specific parse error");
     }
 
     #[test]

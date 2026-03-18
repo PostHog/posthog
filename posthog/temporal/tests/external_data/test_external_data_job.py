@@ -17,7 +17,6 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from posthog.models import Team
 from posthog.temporal.data_imports.external_data_job import (
     Any_Source_Errors,
@@ -46,8 +45,14 @@ from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
     SyncNewSchemasActivityInputs,
     sync_new_schemas_activity,
 )
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource, get_latest_run_if_exists
-from posthog.warehouse.models.external_data_schema import get_all_schemas_for_source_id
+
+from products.data_warehouse.backend.models import (
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+    get_latest_run_if_exists,
+)
+from products.data_warehouse.backend.models.external_data_schema import get_all_schemas_for_source_id
 
 BUCKET_NAME = "test-pipeline"
 SESSION = boto3.Session()
@@ -134,6 +139,7 @@ def _create_schema(schema_name: str, source: ExternalDataSource, team: Team, tab
     )
 
 
+@sync_to_async
 def _create_external_data_job(
     external_data_source_id: uuid.UUID,
     external_data_schema_id: uuid.UUID,
@@ -175,9 +181,9 @@ def test_create_external_job_activity(activity_environment, team, **kwargs):
         team_id=team.id, source_id=new_source.pk, schema_id=test_1_schema.id, billable=True
     )
 
-    run_id, _, __ = activity_environment.run(create_external_data_job_model_activity, inputs)
+    result = activity_environment.run(create_external_data_job_model_activity, inputs)
 
-    runs = ExternalDataJob.objects.filter(id=run_id)
+    runs = ExternalDataJob.objects.filter(id=result.job_id)
     assert runs.exists()
 
 
@@ -202,10 +208,51 @@ def test_create_external_job_activity_schemas_exist(activity_environment, team, 
         team_id=team.id, source_id=new_source.pk, schema_id=schema.id, billable=True
     )
 
-    run_id, _, __ = activity_environment.run(create_external_data_job_model_activity, inputs)
+    result = activity_environment.run(create_external_data_job_model_activity, inputs)
 
-    runs = ExternalDataJob.objects.filter(id=run_id)
+    runs = ExternalDataJob.objects.filter(id=result.job_id)
     assert runs.exists()
+
+
+@pytest.mark.parametrize(
+    "ai_consent,source_config_enabled,expected",
+    [
+        (True, True, True),
+        (True, False, False),
+        (True, None, False),
+        (False, True, False),
+        (None, True, False),
+    ],
+)
+@pytest.mark.django_db(transaction=True)
+def test_create_external_job_activity_emit_signals_respects_ai_consent(
+    activity_environment, team, organization, ai_consent, source_config_enabled, expected
+):
+    from products.signals.backend.models import SignalSourceConfig
+
+    organization.is_ai_data_processing_approved = ai_consent
+    organization.save()
+    if source_config_enabled is not None:
+        SignalSourceConfig.objects.create(
+            team=team,
+            source_product="zendesk",
+            source_type="ticket",
+            enabled=source_config_enabled,
+        )
+    new_source = ExternalDataSource.objects.create(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="Zendesk",
+    )
+    schema = _create_schema("tickets", new_source, team)
+    inputs = CreateExternalDataJobModelActivityInputs(
+        team_id=team.id, source_id=new_source.pk, schema_id=schema.id, billable=True
+    )
+    result = activity_environment.run(create_external_data_job_model_activity, inputs)
+    assert result.emit_signals_enabled is expected
 
 
 @pytest.mark.django_db(transaction=True)
@@ -237,11 +284,12 @@ def test_create_external_job_activity_update_schemas(activity_environment, team,
 
 
 @pytest.mark.django_db(transaction=True)
-def test_update_external_job_activity(activity_environment, team, **kwargs):
+@pytest.mark.asyncio
+async def test_update_external_job_activity(activity_environment, team, **kwargs):
     """
     Test that the update external job activity updates the job status
     """
-    new_source = ExternalDataSource.objects.create(
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=str(uuid.uuid4()),
         connection_id=str(uuid.uuid4()),
         destination_id=str(uuid.uuid4()),
@@ -250,14 +298,14 @@ def test_update_external_job_activity(activity_environment, team, **kwargs):
         source_type="Stripe",
     )
 
-    schema = ExternalDataSchema.objects.create(
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
         name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
         team_id=team.id,
         source_id=new_source.pk,
         should_sync=True,
     )
 
-    new_job = _create_external_data_job(
+    new_job = await _create_external_data_job(
         team_id=team.id,
         external_data_source_id=new_source.pk,
         workflow_id=activity_environment.info.workflow_id,
@@ -275,17 +323,18 @@ def test_update_external_job_activity(activity_environment, team, **kwargs):
         team_id=team.id,
     )
 
-    activity_environment.run(update_external_data_job_model, inputs)
-    new_job.refresh_from_db()
-    schema.refresh_from_db()
+    await activity_environment.run(update_external_data_job_model, inputs)
+    await sync_to_async(new_job.refresh_from_db)()
+    await sync_to_async(schema.refresh_from_db)()
 
     assert new_job.status == ExternalDataJob.Status.COMPLETED
     assert schema.status == ExternalDataJob.Status.COMPLETED
 
 
 @pytest.mark.django_db(transaction=True)
-def test_update_external_job_activity_with_retryable_error(activity_environment, team, **kwargs):
-    new_source = ExternalDataSource.objects.create(
+@pytest.mark.asyncio
+async def test_update_external_job_activity_with_retryable_error(activity_environment, team, **kwargs):
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=str(uuid.uuid4()),
         connection_id=str(uuid.uuid4()),
         destination_id=str(uuid.uuid4()),
@@ -294,14 +343,14 @@ def test_update_external_job_activity_with_retryable_error(activity_environment,
         source_type="Stripe",
     )
 
-    schema = ExternalDataSchema.objects.create(
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
         name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
         team_id=team.id,
         source_id=new_source.pk,
         should_sync=True,
     )
 
-    new_job = _create_external_data_job(
+    new_job = await _create_external_data_job(
         team_id=team.id,
         external_data_source_id=new_source.pk,
         workflow_id=activity_environment.info.workflow_id,
@@ -319,9 +368,9 @@ def test_update_external_job_activity_with_retryable_error(activity_environment,
         team_id=team.id,
     )
 
-    activity_environment.run(update_external_data_job_model, inputs)
-    new_job.refresh_from_db()
-    schema.refresh_from_db()
+    await activity_environment.run(update_external_data_job_model, inputs)
+    await sync_to_async(new_job.refresh_from_db)()
+    await sync_to_async(schema.refresh_from_db)()
 
     assert new_job.status == ExternalDataJob.Status.COMPLETED
     assert schema.status == ExternalDataJob.Status.COMPLETED
@@ -329,8 +378,9 @@ def test_update_external_job_activity_with_retryable_error(activity_environment,
 
 
 @pytest.mark.django_db(transaction=True)
-def test_update_external_job_activity_with_non_retryable_error(activity_environment, team, **kwargs):
-    new_source = ExternalDataSource.objects.create(
+@pytest.mark.asyncio
+async def test_update_external_job_activity_with_non_retryable_error(activity_environment, team, **kwargs):
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=str(uuid.uuid4()),
         connection_id=str(uuid.uuid4()),
         destination_id=str(uuid.uuid4()),
@@ -339,14 +389,14 @@ def test_update_external_job_activity_with_non_retryable_error(activity_environm
         source_type="Postgres",
     )
 
-    schema = ExternalDataSchema.objects.create(
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
         name="test_123",
         team_id=team.id,
         source_id=new_source.pk,
         should_sync=True,
     )
 
-    new_job = _create_external_data_job(
+    new_job = await _create_external_data_job(
         team_id=team.id,
         external_data_source_id=new_source.pk,
         workflow_id=activity_environment.info.workflow_id,
@@ -363,11 +413,13 @@ def test_update_external_job_activity_with_non_retryable_error(activity_environm
         source_id=str(new_source.pk),
         team_id=team.id,
     )
-    with mock.patch("posthog.warehouse.models.external_data_schema.external_data_workflow_exists", return_value=False):
-        activity_environment.run(update_external_data_job_model, inputs)
+    with mock.patch(
+        "products.data_warehouse.backend.models.external_data_schema.external_data_workflow_exists", return_value=False
+    ):
+        await activity_environment.run(update_external_data_job_model, inputs)
 
-    new_job.refresh_from_db()
-    schema.refresh_from_db()
+    await sync_to_async(new_job.refresh_from_db)()
+    await sync_to_async(schema.refresh_from_db)()
 
     assert new_job.status == ExternalDataJob.Status.COMPLETED
     assert schema.status == ExternalDataJob.Status.COMPLETED
@@ -375,10 +427,11 @@ def test_update_external_job_activity_with_non_retryable_error(activity_environm
 
 
 @pytest.mark.django_db(transaction=True)
-def test_update_external_job_activity_with_not_source_sepecific_non_retryable_error(
+@pytest.mark.asyncio
+async def test_update_external_job_activity_with_not_source_sepecific_non_retryable_error(
     activity_environment, team, **kwargs
 ):
-    new_source = ExternalDataSource.objects.create(
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=str(uuid.uuid4()),
         connection_id=str(uuid.uuid4()),
         destination_id=str(uuid.uuid4()),
@@ -387,14 +440,14 @@ def test_update_external_job_activity_with_not_source_sepecific_non_retryable_er
         source_type="Postgres",
     )
 
-    schema = ExternalDataSchema.objects.create(
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
         name="test_123",
         team_id=team.id,
         source_id=new_source.pk,
         should_sync=True,
     )
 
-    new_job = _create_external_data_job(
+    new_job = await _create_external_data_job(
         team_id=team.id,
         external_data_source_id=new_source.pk,
         workflow_id=activity_environment.info.workflow_id,
@@ -406,16 +459,18 @@ def test_update_external_job_activity_with_not_source_sepecific_non_retryable_er
         job_id=str(new_job.id),
         status=ExternalDataJob.Status.COMPLETED,
         latest_error=None,
-        internal_error=Any_Source_Errors[0],
+        internal_error=next(iter(Any_Source_Errors.keys())),
         schema_id=str(schema.pk),
         source_id=str(new_source.pk),
         team_id=team.id,
     )
-    with mock.patch("posthog.warehouse.models.external_data_schema.external_data_workflow_exists", return_value=False):
-        activity_environment.run(update_external_data_job_model, inputs)
+    with mock.patch(
+        "products.data_warehouse.backend.models.external_data_schema.external_data_workflow_exists", return_value=False
+    ):
+        await activity_environment.run(update_external_data_job_model, inputs)
 
-    new_job.refresh_from_db()
-    schema.refresh_from_db()
+    await sync_to_async(new_job.refresh_from_db)()
+    await sync_to_async(schema.refresh_from_db)()
 
     assert new_job.status == ExternalDataJob.Status.COMPLETED
     assert schema.status == ExternalDataJob.Status.COMPLETED
@@ -461,7 +516,8 @@ def mock_stripe_client():
 
 
 @pytest.mark.django_db(transaction=True)
-def test_run_stripe_job(activity_environment, team, minio_client, mock_stripe_client, **kwargs):
+@pytest.mark.asyncio
+async def test_run_stripe_job(activity_environment, team, minio_client, mock_stripe_client, **kwargs):
     def setup_job_1():
         new_source = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
@@ -528,28 +584,28 @@ def test_run_stripe_job(activity_environment, team, minio_client, mock_stripe_cl
 
         return new_job, inputs
 
-    job_1, job_1_inputs = setup_job_1()
-    job_2, job_2_inputs = setup_job_2()
+    job_1, job_1_inputs = await sync_to_async(setup_job_1)()
+    job_2, job_2_inputs = await sync_to_async(setup_job_2)()
 
     with (
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
             BUCKET_NAME=BUCKET_NAME,
         ),
         mock.patch(
-            "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
+            "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns",
             return_value={
                 "id": {"clickhouse": "string", "hogql": "StringDatabaseField"},
                 "name": {"clickhouse": "string", "hogql": "StringDatabaseField"},
             },
         ),
     ):
-        activity_environment.run(import_data_activity_sync, job_1_inputs)
+        await activity_environment.run(import_data_activity_sync, job_1_inputs)
 
-        folder_path = job_1.folder_path()
+        folder_path = await sync_to_async(job_1.folder_path)()
         job_1_customer_objects = minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/customer/")
 
         assert len(job_1_customer_objects["Contents"]) == 3
@@ -557,27 +613,29 @@ def test_run_stripe_job(activity_environment, team, minio_client, mock_stripe_cl
     with (
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
             BUCKET_NAME=BUCKET_NAME,
         ),
         mock.patch(
-            "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
+            "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns",
             return_value={
                 "id": {"clickhouse": "string", "hogql": "StringDatabaseField"},
                 "customer": {"clickhouse": "string", "hogql": "StringDatabaseField"},
             },
         ),
     ):
-        activity_environment.run(import_data_activity_sync, job_2_inputs)
+        await activity_environment.run(import_data_activity_sync, job_2_inputs)
 
-        job_2_charge_objects = minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{job_2.folder_path()}/charge/")
+        job_2_folder_path = await sync_to_async(job_2.folder_path)()
+        job_2_charge_objects = minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{job_2_folder_path}/charge/")
         assert len(job_2_charge_objects["Contents"]) == 3
 
 
 @pytest.mark.django_db(transaction=True)
-def test_run_stripe_job_row_count_update(activity_environment, team, minio_client, mock_stripe_client, **kwargs):
+@pytest.mark.asyncio
+async def test_run_stripe_job_row_count_update(activity_environment, team, minio_client, mock_stripe_client, **kwargs):
     def setup_job_1():
         new_source = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
@@ -613,32 +671,32 @@ def test_run_stripe_job_row_count_update(activity_environment, team, minio_clien
 
         return new_job, inputs
 
-    job_1, job_1_inputs = setup_job_1()
+    job_1, job_1_inputs = await sync_to_async(setup_job_1)()
 
     with (
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
             BUCKET_NAME=BUCKET_NAME,
         ),
         mock.patch(
-            "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
+            "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns",
             return_value={
                 "id": {"clickhouse": "string", "hogql": "StringDatabaseField"},
                 "name": {"clickhouse": "string", "hogql": "StringDatabaseField"},
             },
         ),
     ):
-        activity_environment.run(import_data_activity_sync, job_1_inputs)
+        await activity_environment.run(import_data_activity_sync, job_1_inputs)
 
-        folder_path = job_1.folder_path()
+        folder_path = await sync_to_async(job_1.folder_path)()
         job_1_customer_objects = minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/customer/")
 
         assert len(job_1_customer_objects["Contents"]) == 3
 
-        job_1.refresh_from_db()
+        await sync_to_async(job_1.refresh_from_db)()
         assert job_1.rows_synced == 1
 
 
@@ -671,27 +729,29 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
         external_data_schema_id=schema.id,
     )
 
-    def mock_func(inputs):
-        return {}
+    async def mock_func(inputs):
+        return {"should_trigger_cdp_producer": False}
 
     with (
-        mock.patch("posthog.warehouse.models.table.DataWarehouseTable.get_columns", return_value={"id": "string"}),
+        mock.patch(
+            "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns", return_value={"id": "string"}
+        ),
         mock.patch.object(PipelineNonDLT, "run", mock_func),
     ):
         with (
             override_settings(
                 BUCKET_URL=f"s3://{BUCKET_NAME}",
                 BUCKET_PATH=BUCKET_NAME,
-                AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-                AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-                AIRBYTE_BUCKET_REGION="us-east-1",
-                AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+                DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
             ),
         ):
             async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
                 async with Worker(
                     activity_environment.client,
-                    task_queue=DATA_WAREHOUSE_TASK_QUEUE,
+                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
                     workflows=[ExternalDataJobWorkflow],
                     activities=[
                         create_external_data_job_model_activity,
@@ -710,7 +770,7 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
                         ExternalDataJobWorkflow.run,
                         inputs,
                         id=workflow_id,
-                        task_queue=DATA_WAREHOUSE_TASK_QUEUE,
+                        task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
 
@@ -778,12 +838,12 @@ async def test_run_postgres_job(
     with override_settings(
         BUCKET_URL=f"s3://{BUCKET_NAME}",
         BUCKET_PATH=BUCKET_NAME,
-        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+        DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
     ):
-        await sync_to_async(activity_environment.run)(import_data_activity_sync, job_1_inputs)
+        await activity_environment.run(import_data_activity_sync, job_1_inputs)
 
         folder_path = await sync_to_async(job_1.folder_path)()
         job_1_team_objects = minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/posthog_test/")

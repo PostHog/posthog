@@ -18,8 +18,6 @@ from django_structlog.celery import signals
 from django_structlog.celery.steps import DjangoStructLogInitStep
 from prometheus_client import Counter, Histogram
 
-from posthog.cloud_utils import is_cloud
-
 logger = structlog.get_logger(__name__)
 
 
@@ -61,6 +59,11 @@ CELERY_TASK_DURATION_HISTOGRAM = Histogram(
     buckets=(1, 5, 10, 30, 60, 120, 600, 1200, float("inf")),
 )
 
+CELERY_TASK_INITIALIZATION_FAILURE_COUNTER = Counter(
+    "posthog_celery_task_initialization_failure",
+    "Number of times task initialization failed",
+)
+
 
 # Using a string here means the worker doesn't have to serialize
 # the configuration object to child processes.
@@ -78,6 +81,37 @@ app.conf.broker_pool_limit = 0
 app.steps["worker"].add(DjangoStructLogInitStep)
 
 task_timings: dict[str, float] = {}
+
+
+def _initialize_worker_metrics() -> None:
+    """Initialize metrics that need to survive pod restarts."""
+    # Only initialize cohort metrics on long-running workers that handle cohort calculations
+    if not _is_longrunning_worker():
+        return
+
+    try:
+        # Initialize cohort backlog metric from database state
+        from posthog.tasks.calculate_cohort import (
+            COHORT_RECALCULATIONS_BACKLOG_GAUGE,
+            get_cohort_calculation_candidates_queryset,
+        )
+
+        backlog = get_cohort_calculation_candidates_queryset().count()
+        COHORT_RECALCULATIONS_BACKLOG_GAUGE.set(backlog)
+
+        logger.info("worker_metrics_initialized", cohort_backlog=backlog)
+    except Exception as e:
+        # Don't let metric initialization break worker startup
+        logger.warning("failed_to_initialize_worker_metrics", error=str(e))
+
+
+def _is_longrunning_worker() -> bool:
+    """Check if this is a long-running worker that handles cohort calculations."""
+    from posthog.tasks.utils import CeleryQueue
+
+    # Check if LONG_RUNNING queue is in the worker's queue list
+    worker_queues = os.environ.get("CELERY_WORKER_QUEUES", "").split(",")
+    return CeleryQueue.LONG_RUNNING.value in worker_queues
 
 
 @setup_logging.connect
@@ -105,6 +139,9 @@ def on_worker_start(**kwargs) -> None:
 
     setup()  # makes sure things like exception autocapture are initialised
     start_http_server(int(os.getenv("CELERY_METRICS_PORT", "8001")))
+
+    # Initialize metrics that need to survive pod restarts
+    _initialize_worker_metrics()
 
 
 # Set up clickhouse query instrumentation
@@ -155,18 +192,11 @@ def retry_signal_handler(sender, reason, **kwargs):
 
 @app.on_after_finalize.connect
 def setup_periodic_tasks(sender: Celery, **kwargs):
-    from posthog.pagerduty.pd import create_incident
     from posthog.tasks.scheduled import setup_periodic_tasks
 
     try:
         setup_periodic_tasks(sender)
     except Exception as exc:
         # Setup fails silently. Alert the team if a configuration error is detected in periodic tasks.
-        if is_cloud():
-            create_incident(
-                f"Periodic tasks setup failed: {exc}",
-                "posthog.celery.setup_periodic_tasks",
-                "critical",
-            )
-        else:
-            logger.exception("Periodic tasks setup failed", exception=exc)
+        CELERY_TASK_INITIALIZATION_FAILURE_COUNTER.inc()
+        logger.exception("Periodic tasks setup failed", exception=exc)

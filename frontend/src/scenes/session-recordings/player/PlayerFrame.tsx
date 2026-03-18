@@ -1,4 +1,5 @@
 import './PlayerFrame.scss'
+import './PlayerFrameLLMHighlight.scss'
 
 import useSize from '@react-hook/size'
 import clsx from 'clsx'
@@ -9,9 +10,11 @@ import { Handler, viewportResizeDimension } from '@posthog/rrweb-types'
 
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
+const BASE_CLICK_INDICATOR_DURATION_S = 1 / 3
+
 export const PlayerFrame = (): JSX.Element => {
     const replayDimensionRef = useRef<viewportResizeDimension>()
-    const { player, sessionRecordingId, maskingWindow } = useValues(sessionRecordingPlayerLogic)
+    const { player, sessionRecordingId, maskingWindow, speed } = useValues(sessionRecordingPlayerLogic)
     const { setScale, setRootFrame } = useActions(sessionRecordingPlayerLogic)
 
     const frameRef = useRef<HTMLDivElement | null>(null)
@@ -34,10 +37,13 @@ export const PlayerFrame = (): JSX.Element => {
 
             const parentDimensions = frameRef.current.parentElement.getBoundingClientRect()
 
+            // Cap at 0.999 instead of 1 to avoid a Chrome GPU compositing bug where
+            // an identity transform (scale(1)) causes the iframe layer to paint outside
+            // its clipping bounds, overlapping the rest of the UI.
             const scale = Math.min(
                 parentDimensions.width / replayDimensions.width,
                 parentDimensions.height / replayDimensions.height,
-                1
+                0.999
             )
 
             player.replayer.wrapper.style.transform = `scale(${scale})`
@@ -79,7 +85,18 @@ export const PlayerFrame = (): JSX.Element => {
     }, [containerDimensions, windowResize])
 
     return (
-        <div ref={containerRef} className="PlayerFrame ph-no-capture">
+        // Adding the LLM highlight class to override clicks animation, in case we decide to make it conditional.
+        // The initial approach was conditional, but everyone liked how it looked, so we decided to make it the default.
+        // Click indicator duration scales with playback speed: 1/3s at 1x, 1/6s at 2x, etc.
+        <div
+            ref={containerRef}
+            className={clsx('PlayerFrame ph-no-capture PlayerFrame--llm-highlight')}
+            style={
+                {
+                    '--player-frame-click-duration': `${BASE_CLICK_INDICATOR_DURATION_S / speed}s`,
+                } as React.CSSProperties
+            }
+        >
             <div
                 className={clsx('PlayerFrame__content', maskingWindow && 'PlayerFrame__content--masking-window')}
                 ref={frameRef}

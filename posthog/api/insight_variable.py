@@ -1,8 +1,9 @@
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import pagination, serializers, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 from posthog.models.insight_variable import InsightVariable
 
 
@@ -14,21 +15,27 @@ class InsightVariableSerializer(serializers.ModelSerializer):
 
         read_only_fields = ["id", "code_name", "created_by", "created_at"]
 
+    def validate(self, attrs):
+        variable_type = attrs.get("type", getattr(self.instance, "type", None))
+        if variable_type == InsightVariable.Type.LIST:
+            values = attrs.get("values", getattr(self.instance, "values", None))
+            if values is None:
+                attrs["values"] = []
+
+        return attrs
+
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
 
-        # Strips non alphanumeric values from name (other than spaces and underscores)
         validated_data["code_name"] = (
-            "".join(n for n in validated_data["name"] if n.isalnum() or n == " " or n == "_").replace(" ", "_").lower()
+            "".join(c for c in validated_data["name"] if c.isalnum() or c == " " or c == "_").replace(" ", "_").lower()
         )
 
-        count = InsightVariable.objects.filter(
-            team_id=self.context["team_id"], code_name=validated_data["code_name"]
-        ).count()
-
-        if count > 0:
-            raise ValidationError("Variable with name already exists")
+        if InsightVariable.objects.filter(
+            team_id=validated_data["team_id"], code_name=validated_data["code_name"]
+        ).exists():
+            raise ValidationError("Variable with this code name already exists")
 
         return InsightVariable.objects.create(**validated_data)
 
@@ -38,11 +45,20 @@ class InsightVariablePagination(pagination.PageNumberPagination):
 
 
 class InsightVariableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "insight_variable"
     queryset = InsightVariable.objects.all()
     pagination_class = InsightVariablePagination
     serializer_class = InsightVariableSerializer
     filter_backends = [DjangoFilterBackend]
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+
+        if isinstance(
+            request.successful_authenticator,
+            SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
+        ):
+            raise PermissionDenied("Insight variables cannot be accessed via sharing authentication")
 
 
 def map_stale_to_latest(stale_variables: dict, latest_variables: list[InsightVariable]) -> dict:

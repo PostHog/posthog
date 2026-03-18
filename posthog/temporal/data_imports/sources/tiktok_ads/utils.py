@@ -5,6 +5,8 @@ from typing import Any, Optional
 
 import structlog
 from dateutil import parser
+from dlt.common.configuration import configspec
+from dlt.common.typing import TSecretStrValue
 from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.auth import AuthConfigBase
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
@@ -402,6 +404,7 @@ class TikTokAdsPaginator(BasePaginator):
         request.params["page"] = self.current_page
 
 
+@configspec
 class TikTokAdsAuth(AuthConfigBase):
     """
     TikTok Ads API authentication handler for dlt REST client.
@@ -410,9 +413,13 @@ class TikTokAdsAuth(AuthConfigBase):
     'Authorization: Bearer' pattern, so we can't use dlt's built-in BearerTokenAuth.
     """
 
-    def __init__(self, access_token: str):
-        super().__init__()
-        self.access_token = access_token
+    access_token: TSecretStrValue = None
+
+    def parse_native_representation(self, value: Any) -> None:
+        if isinstance(value, str):
+            self.access_token = value
+        else:
+            raise ValueError(f"TikTok Ads access token must be a string, got {type(value)}")
 
     def __call__(self, request: PreparedRequest) -> PreparedRequest:
         """Add TikTok Ads authentication headers to the request."""

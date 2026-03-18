@@ -15,3 +15,10 @@ export const defaultConversionGoalFilter: ConversionGoalFilter = {
         distinct_id_field: 'distinct_id',
     },
 }
+
+export const conversionGoalDescription =
+    'Define conversion goals by selecting events or data warehouse tables. These goals can be used to track and analyze user conversions in your marketing analytics. '
+
+export const conversionGoalNamePlaceholder = 'Conversion goal name, e.g. purchase, sign up, download'
+
+export const getConfiguredConversionGoalsLabel = (count: number): string => `Configured conversion goals (${count})`

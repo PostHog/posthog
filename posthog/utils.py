@@ -12,9 +12,10 @@ import hashlib
 import secrets
 import datetime
 import datetime as dt
+import ipaddress
 import dataclasses
 from collections.abc import Callable, Generator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from enum import Enum
 from functools import lru_cache, wraps
 from operator import itemgetter
@@ -26,6 +27,7 @@ from django.apps import apps
 from django.conf import settings
 from django.core.cache import cache
 from django.db import ProgrammingError
+from django.db.models.functions import Lower
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
@@ -170,6 +172,7 @@ def relative_date_parse_with_delta_mapping(
     human_friendly_comparison_periods: bool = False,
     now: Optional[datetime.datetime] = None,
     increase: bool = False,
+    team_week_start_day: Optional[int] = 0,
 ) -> tuple[datetime.datetime, Optional[dict[str, int]], str | None]:
     """
     Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string.
@@ -195,17 +198,27 @@ def relative_date_parse_with_delta_mapping(
             parsed_dt = parsed_dt.astimezone(timezone_info)
         return parsed_dt, None, None
 
-    regex = r"\-?(?P<number>[0-9]+)?(?P<kind>[hdwmqyHDWMQY])(?P<position>Start|End)?"
+    regex = r"\-?(?P<number>[0-9]+)?(?P<kind>[hdwmqysHDWMQY])(?P<position>Start|End)?"
     match = re.search(regex, input)
     parsed_dt = (now or dt.datetime.now()).astimezone(timezone_info)
     delta_mapping: dict[str, int] = {}
     if not match:
         return parsed_dt, delta_mapping, None
 
+    match_group_dict = match.groupdict()
+
     delta_mapping = get_delta_mapping_for(
-        **match.groupdict(),
+        **match_group_dict,
         human_friendly_comparison_periods=human_friendly_comparison_periods,
     )
+
+    if match_group_dict["kind"] == "w":
+        weekday_index = get_weekday_index(team_week_start_day, timezone_info, now)
+        if match_group_dict["position"] == "Start":
+            parsed_dt -= datetime.timedelta(days=weekday_index)
+        elif match_group_dict["position"] == "End":
+            days_to_add = 6 - weekday_index
+            parsed_dt += datetime.timedelta(days=days_to_add)
 
     if increase:
         parsed_dt += relativedelta(**delta_mapping)  # type: ignore
@@ -220,6 +233,24 @@ def relative_date_parse_with_delta_mapping(
         else:
             parsed_dt = parsed_dt.replace(hour=0, minute=0, second=0, microsecond=0)
     return parsed_dt, delta_mapping, match.group("position") or None
+
+
+def get_weekday_index(
+    team_week_start_day: Optional[int], timezone_info: ZoneInfo, now: Optional[datetime.datetime]
+) -> int:
+    # We default to 0 for None cases
+    start_day = team_week_start_day or 0
+    current_dt = (now or dt.datetime.now()).astimezone(timezone_info)
+    if start_day == 1:
+        return current_dt.weekday()
+    # Start day should either be 0 or 1, but in the case where its more than 1 we will default to 0
+    # Get the weekday index using iso date (Monday=1, Sunday=7)
+    weekday_index = current_dt.isoweekday()
+    # Should return 0 if week start day is sunday, we also default to sunday
+    if weekday_index == 7:
+        return 0
+    else:
+        return weekday_index
 
 
 def get_delta_mapping_for(
@@ -271,6 +302,9 @@ def get_delta_mapping_for(
     elif kind == "M":
         if number:
             delta_mapping["minutes"] = int(number)
+    elif kind == "s":
+        if number:
+            delta_mapping["seconds"] = int(number)
     elif kind == "q":
         if number:
             delta_mapping["weeks"] = 13 * int(number)
@@ -297,6 +331,7 @@ def relative_date_parse(
     human_friendly_comparison_periods: bool = False,
     now: Optional[datetime.datetime] = None,
     increase: bool = False,
+    team_week_start_day: Optional[int] = None,
 ) -> datetime.datetime:
     return relative_date_parse_with_delta_mapping(
         input,
@@ -305,6 +340,7 @@ def relative_date_parse(
         human_friendly_comparison_periods=human_friendly_comparison_periods,
         now=now,
         increase=increase,
+        team_week_start_day=team_week_start_day,
     )[0]
 
 
@@ -328,6 +364,8 @@ def get_js_url(request: HttpRequest) -> str:
     it is necessary to set the JS_URL host based on the calling origin.
     """
     if settings.DEBUG and settings.JS_URL == "http://localhost:8234":
+        # given the strict usage of 'get_host()', this string is not susceptible to xss
+        # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
         return f"http://{request.get_host().split(':')[0]}:8234"
     return settings.JS_URL
 
@@ -370,8 +408,6 @@ def get_context_for_template(
         <script type="module" src="http://localhost:8234/@vite/client"></script>
         <script type="module" src="http://localhost:8234/{source_path}"></script>"""
 
-    context["js_posthog_ui_host"] = ""
-
     if settings.E2E_TESTING:
         context["e2e_testing"] = True
         context["js_posthog_api_key"] = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"
@@ -388,8 +424,6 @@ def get_context_for_template(
         context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
-    context["js_kea_verbose_logging"] = settings.KEA_VERBOSE_LOGGING
-    context["js_app_state_logging_sample_rate"] = settings.APP_STATE_LOGGING_SAMPLE_RATE
     context["js_url"] = get_js_url(request)
 
     posthog_app_context: dict[str, Any] = {
@@ -402,10 +436,12 @@ def get_context_for_template(
 
     # Set the frontend app context
     if not request.GET.get("no-preloaded-app-context"):
+        from posthog.api.file_system.user_product_list import UserProductListSerializer
         from posthog.api.project import ProjectSerializer
         from posthog.api.shared import TeamPublicSerializer
         from posthog.api.team import TeamSerializer
         from posthog.api.user import UserSerializer
+        from posthog.models.file_system.user_product_list import UserProductList
         from posthog.rbac.user_access_control import ACCESS_CONTROL_RESOURCES, UserAccessControl
         from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
@@ -416,6 +452,7 @@ def get_context_for_template(
             "current_team": None,
             "preflight": json.loads(preflight_check(request).getvalue()),
             "default_event_name": "$pageview",
+            "custom_products": [],
             "switched_team": getattr(request, "switched_team", None),
             "suggested_users_with_access": getattr(request, "suggested_users_with_access", None),
             "commit_sha": context["git_rev"],
@@ -430,6 +467,7 @@ def get_context_for_template(
             ).data
         elif request.user.pk:
             user = cast("User", request.user)
+
             user_permissions = UserPermissions(user=user, team=user.team)
             user_access_control = UserAccessControl(user=user, team=user.team)
             posthog_app_context["effective_resource_access_control"] = {
@@ -440,6 +478,7 @@ def get_context_for_template(
                 resource: user_access_control.access_level_for_resource(resource)
                 for resource in ACCESS_CONTROL_RESOURCES
             }
+
             user_serialized = UserSerializer(
                 request.user,
                 context={
@@ -451,6 +490,7 @@ def get_context_for_template(
             )
             posthog_app_context["current_user"] = user_serialized.data
             posthog_distinct_id = user_serialized.data.get("distinct_id")
+
             if user.team:
                 team_serialized = TeamSerializer(
                     user.team,
@@ -462,6 +502,7 @@ def get_context_for_template(
                     many=False,
                 )
                 posthog_app_context["current_team"] = team_serialized.data
+
                 project_serialized = ProjectSerializer(
                     user.team.project,
                     context={"request": request, "user_permissions": user_permissions},
@@ -469,7 +510,18 @@ def get_context_for_template(
                 )
                 posthog_app_context["current_project"] = project_serialized.data
                 posthog_app_context["frontend_apps"] = get_frontend_apps(user.team.pk)
-                posthog_app_context["default_event_name"] = get_default_event_name(user.team)
+                event_info = get_default_event_info(user.team)
+                posthog_app_context["default_event_name"] = event_info["default_event_name"]
+                posthog_app_context["has_pageview"] = event_info["has_pageview"]
+                posthog_app_context["has_screen"] = event_info["has_screen"]
+
+                user_product_list = UserProductListSerializer(
+                    UserProductList.objects.filter(team=user.team, user=user, enabled=True).order_by(
+                        Lower("product_path")
+                    ),
+                    many=True,
+                )
+                posthog_app_context["custom_products"] = user_product_list.data
 
     # JSON dumps here since there may be objects like Queries
     # that are not serializable by Django's JSON serializer
@@ -567,14 +619,33 @@ async def initialize_self_capture_api_token():
         posthoganalytics.host = settings.SITE_URL
 
 
-def get_default_event_name(team: "Team"):
+def get_default_event_info(team: "Team") -> dict:
     from posthog.models import EventDefinition
 
-    if EventDefinition.objects.filter(team=team, name="$pageview").exists():
-        return "$pageview"
-    elif EventDefinition.objects.filter(team=team, name="$screen").exists():
-        return "$screen"
-    return "$pageview"
+    existing_names = set(
+        EventDefinition.objects.filter(team=team, name__in=["$pageview", "$screen"]).values_list("name", flat=True)
+    )
+    has_pageview = "$pageview" in existing_names
+    has_screen = "$screen" in existing_names
+
+    if has_pageview:
+        default_event_name = "$pageview"
+    elif has_screen:
+        default_event_name = "$screen"
+    elif EventDefinition.objects.filter(team=team).exists():
+        default_event_name = None
+    else:
+        default_event_name = "$pageview"
+
+    return {
+        "default_event_name": default_event_name,
+        "has_pageview": has_pageview,
+        "has_screen": has_screen,
+    }
+
+
+def get_default_event_name(team: "Team") -> str | None:
+    return get_default_event_info(team)["default_event_name"]
 
 
 def get_frontend_apps(team_id: int) -> dict[int, dict[str, Any]]:
@@ -632,24 +703,48 @@ def friendly_time(seconds: float):
     ).strip()
 
 
+def _is_valid_ip_address(ip: str) -> bool:
+    """Validate that a string is a properly formatted IP address."""
+    try:
+        ipaddress.ip_address(ip)
+        return True
+    except ValueError:
+        return False
+
+
 def get_ip_address(request: HttpRequest) -> str:
     """use requestobject to fetch client machine's IP Address"""
-    x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+    x_forwarded_for = request.headers.get("x-forwarded-for")
     if x_forwarded_for:
-        ip = x_forwarded_for.split(",")[0]
+        ip: str | None = x_forwarded_for.split(",")[0].strip()
     else:
         ip = request.META.get("REMOTE_ADDR")  # Real IP address of client Machine
 
+    if not ip:
+        return ""
+
     # Strip port from ip address as Azure gateway handles x-forwarded-for incorrectly
-    if ip and len(ip.split(":")) == 2:
+    # IPv6 with port: [2001:db8::1]:8080 -> 2001:db8::1
+    # IPv4 with port: 192.168.1.1:8080 -> 192.168.1.1
+    if ip.startswith("["):
+        # IPv6 with brackets, possibly with port
+        bracket_end = ip.find("]")
+        if bracket_end != -1:
+            ip = ip[1:bracket_end]
+    elif ip.count(":") == 1:
+        # IPv4 with port (single colon)
         ip = ip.split(":")[0]
+
+    # Validate IP format to prevent malformed input from reaching downstream code
+    if not _is_valid_ip_address(ip):
+        return ""
 
     return ip
 
 
 def get_short_user_agent(request: HttpRequest) -> str:
     """Returns browser and OS info from user agent, eg: 'Chrome 135.0.0 on macOS 10.15'"""
-    user_agent_str = request.META.get("HTTP_USER_AGENT")
+    user_agent_str = request.headers.get("user-agent")
     if not user_agent_str:
         return ""
 
@@ -659,6 +754,8 @@ def get_short_user_agent(request: HttpRequest) -> str:
     browser_version = ".".join(str(x) for x in user_agent.browser.version[:3])
     os_version = ".".join(str(x) for x in user_agent.os.version[:2])
 
+    # this value is not directly returned by an http route
+    # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
     return f"{user_agent.browser.family} {browser_version} on {user_agent.os.family} {os_version}"
 
 
@@ -724,8 +821,8 @@ def get_compare_period_dates(
     return new_date_from, new_date_to
 
 
-def generate_cache_key(stringified: str) -> str:
-    return "cache_" + hashlib.md5(stringified.encode("utf-8")).hexdigest()
+def generate_cache_key(team_pk: int, stringified: str) -> str:
+    return f"cache_{team_pk}_{hashlib.sha256(stringified.encode('utf-8')).hexdigest()}"
 
 
 def get_celery_heartbeat() -> Union[str, int]:
@@ -869,6 +966,7 @@ def get_machine_id() -> str:
     """A MAC address-dependent ID. Useful for PostHog instance analytics."""
     # MAC addresses are 6 bits long, so overflow shouldn't happen
     # hashing here as we don't care about the actual address, just it being rather consistent
+    # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
     return hashlib.md5(uuid.getnode().to_bytes(6, "little")).hexdigest()
 
 
@@ -985,7 +1083,7 @@ def get_instance_realm() -> str:
 
 def get_instance_region() -> Optional[str]:
     """
-    Returns the region for the current Cloud instance. `US` or `EU`.
+    Returns the region for the current Cloud instance. `US`, `EU` or `DEV`.
     """
     return settings.CLOUD_DEPLOYMENT
 
@@ -1115,6 +1213,24 @@ def get_safe_cache(cache_key: str):
     return None
 
 
+def safe_cache_set(cache_key: str, value: Any, timeout: int | None = None) -> None:
+    """Best-effort cache write. Logs a warning on failure so Redis blips
+    are visible during incidents without breaking the calling request."""
+    try:
+        cache.set(cache_key, value, timeout)
+    except Exception:
+        logger.warning("safe_cache_set_failure", cache_key=cache_key, exc_info=True)
+
+
+def safe_cache_delete(cache_key: str) -> None:
+    """Best-effort cache delete. Logs a warning on failure so Redis blips
+    are visible during incidents without breaking the calling request."""
+    try:
+        cache.delete(cache_key)
+    except Exception:
+        logger.warning("safe_cache_delete_failure", cache_key=cache_key, exc_info=True)
+
+
 def is_anonymous_id(distinct_id: str) -> bool:
     # Our anonymous ids are _not_ uuids, but a random collection of strings
     return bool(re.match(ANONYMOUS_REGEX, distinct_id))
@@ -1185,13 +1301,15 @@ def cache_requested_by_client(request: Request) -> bool | str:
 
 
 def filters_override_requested_by_client(request: Request, dashboard: Optional["Dashboard"]) -> dict:
-    from posthog.auth import SharingAccessTokenAuthentication
+    from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
     dashboard_filters = dashboard.filters if dashboard else {}
     raw_override = request.query_params.get("filters_override")
 
     # Security: Don't allow overrides when accessing via sharing tokens
-    if not raw_override or isinstance(request.successful_authenticator, SharingAccessTokenAuthentication):
+    if not raw_override or isinstance(
+        request.successful_authenticator, (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication)
+    ):
         return dashboard_filters
 
     try:
@@ -1206,13 +1324,19 @@ def variables_override_requested_by_client(
     request: Optional[Request], dashboard: Optional["Dashboard"], variables: list["InsightVariable"]
 ) -> Optional[dict[str, dict]]:
     from posthog.api.insight_variable import map_stale_to_latest
-    from posthog.auth import SharingAccessTokenAuthentication
+    from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
     dashboard_variables = (dashboard and dashboard.variables) or {}
     raw_override = request.query_params.get("variables_override") if request else None
 
     # Security: Don't allow overrides when accessing via sharing tokens
-    if not raw_override or (request and isinstance(request.successful_authenticator, SharingAccessTokenAuthentication)):
+    if not raw_override or (
+        request
+        and isinstance(
+            request.successful_authenticator,
+            (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication),
+        )
+    ):
         return map_stale_to_latest(dashboard_variables, variables)
 
     try:
@@ -1224,13 +1348,15 @@ def variables_override_requested_by_client(
 
 
 def tile_filters_override_requested_by_client(request: Request, tile: Optional["DashboardTile"]) -> dict:
-    from posthog.auth import SharingAccessTokenAuthentication
+    from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
     tile_filters = tile.filters_overrides if tile and tile.filters_overrides else {}
     raw_override = request.query_params.get("tile_filters_override")
 
     # Security: Don't allow overrides when accessing via sharing tokens
-    if not raw_override or isinstance(request.successful_authenticator, SharingAccessTokenAuthentication):
+    if not raw_override or isinstance(
+        request.successful_authenticator, (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication)
+    ):
         return tile_filters
 
     try:
@@ -1261,6 +1387,16 @@ def _request_has_key_set(key: str, request: Request, allowed_values: Optional[li
         assert isinstance(value, str)
         return value
     return False
+
+
+def str_to_int_set(value: Any) -> set[int]:
+    """Return a set of integers"""
+    if not value:
+        return set[int]([])
+    with suppress(Exception):
+        as_json = json.loads(str(value))
+        return {int(v) for v in as_json}
+    return set[int]([])
 
 
 def str_to_bool(value: Any) -> bool:
@@ -1608,9 +1744,12 @@ def patchable(fn):
 
 
 def label_for_team_id_to_track(team_id: int) -> str:
-    team_id_filter: list[str] = settings.DECIDE_TRACK_TEAM_IDS
-
+    """
+    LEGACY: Only used by flag_matching.py (cohort creation background task).
+    Returns empty string to avoid tracking specific team IDs in metrics.
+    """
     team_id_as_string = str(team_id)
+    team_id_filter: list[str] = []  # No longer tracking specific teams
 
     if "all" in team_id_filter:
         return team_id_as_string

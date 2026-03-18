@@ -32,9 +32,6 @@ from posthog.session_recordings.queries.test.session_replay_sql import produce_r
 from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
-MAX_STEP_COLUMN = 0
-COUNT_COLUMN = 1
-PERSON_ID_COLUMN = 2
 
 
 def get_actors(
@@ -74,8 +71,7 @@ def get_actors(
     return response.results
 
 
-class BaseTestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
-    __test__ = False
+class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def _setup_basic_test(self):
@@ -222,60 +218,6 @@ class BaseTestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
             [str(val[1]["id"]) for val in serialized_actors],
             [*failure_target_persons, str(person_succ.uuid)],
         )
-
-    # @patch("posthog.tasks.calculate_cohort.insert_cohort_from_insight_filter.delay")
-    # def test_create_funnel_correlation_cohort(self, _insert_cohort_from_insight_filter):
-    #     (
-    #         filter,
-    #         success_target_persons,
-    #         failure_target_persons,
-    #         person_fail,
-    #         person_succ,
-    #     ) = self._setup_basic_test()
-
-    #     params = {
-    #         "events": [
-    #             {"id": "user signed up", "type": "events", "order": 0},
-    #             {"id": "paid", "type": "events", "order": 1},
-    #         ],
-    #         "insight": INSIGHT_FUNNELS,
-    #         "date_from": "2020-01-01",
-    #         "date_to": "2020-01-14",
-    #         "funnel_correlation_type": "events",
-    #         "funnel_correlation_person_entity": {
-    #             "id": "positively_related",
-    #             "type": "events",
-    #         },
-    #         "funnel_correlation_person_converted": "TrUe",
-    #     }
-
-    #     response = self.client.post(
-    #         f"/api/projects/{self.team.id}/cohorts/?{urllib.parse.urlencode(params)}",
-    #         {"name": "test", "is_static": True},
-    #     ).json()
-
-    #     cohort_id = response["id"]
-
-    #     _insert_cohort_from_insight_filter.assert_called_once_with(
-    #         cohort_id,
-    #         {
-    #             "events": "[{'id': 'user signed up', 'type': 'events', 'order': 0}, {'id': 'paid', 'type': 'events', 'order': 1}]",
-    #             "insight": "FUNNELS",
-    #             "date_from": "2020-01-01",
-    #             "date_to": "2020-01-14",
-    #             "funnel_correlation_type": "events",
-    #             "funnel_correlation_person_entity": "{'id': 'positively_related', 'type': 'events'}",
-    #             "funnel_correlation_person_converted": "TrUe",
-    #         },
-    #     )
-
-    #     insert_cohort_from_insight_filter(cohort_id, params)
-
-    #     cohort = Cohort.objects.get(pk=cohort_id)
-    #     people = Person.objects.filter(cohort__id=cohort.pk)
-    #     self.assertEqual(cohort.errors_calculating, 0)
-    #     self.assertEqual(people.count(), 5)
-    #     self.assertEqual(cohort.count, 5)
 
     def test_people_arent_returned_multiple_times(self):
         people = journeys_for(
@@ -644,7 +586,3 @@ class BaseTestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
                 }
             ],
         )
-
-
-class TestFunnelCorrelationActors(BaseTestFunnelCorrelationActors):
-    __test__ = True

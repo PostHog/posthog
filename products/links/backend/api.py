@@ -3,10 +3,13 @@ from typing import Any
 from django.db.models import QuerySet
 
 import structlog
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+
+from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -52,6 +55,7 @@ class LinkSerializer(serializers.ModelSerializer):
         return link
 
 
+@extend_schema(tags=[ProductKey.LINKS])
 class LinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, read, update, and delete links.

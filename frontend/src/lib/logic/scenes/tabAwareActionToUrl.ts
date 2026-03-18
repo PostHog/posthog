@@ -4,6 +4,8 @@ import { ActionToUrlPayload } from 'kea-router/lib/types'
 
 import { sceneLogic } from 'scenes/sceneLogic'
 
+import { trackUrlChange } from './urlChangeTracker'
+
 export const tabAwareActionToUrl = <L extends Logic = Logic>(
     input: ActionToUrlPayload<L> | ((logic: BuiltLogic<L>) => ActionToUrlPayload<L>)
 ) => {
@@ -14,8 +16,15 @@ export const tabAwareActionToUrl = <L extends Logic = Logic>(
                 k,
                 (payload: Record<string, any>): any => {
                     if (v) {
+                        // Check if sceneLogic is mounted before accessing values
+                        if (!sceneLogic.isMounted()) {
+                            // If sceneLogic is not mounted, just execute the original action
+                            return v(payload)
+                        }
+
                         if (sceneLogic.values.activeTabId === logic.props.tabId) {
                             const response = v(payload)
+                            trackUrlChange(response, logic.pathString, k)
                             return response
                         }
                         // If we want to change the URL, but we're inactive, just update the tab value

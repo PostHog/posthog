@@ -1,300 +1,147 @@
-import colors from 'ansi-colors'
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import posthog from 'posthog-js'
 
-import { IconClock, IconFilter, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonCheckbox,
-    LemonSegmentedButton,
-    LemonSelect,
-    LemonTable,
-    LemonTag,
-    LemonTagType,
-    SpinnerOverlay,
-} from '@posthog/lemon-ui'
+import { IconGear } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
-import { Sparkline } from 'lib/components/Sparkline'
-import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
-import { IconRefresh } from 'lib/lemon-ui/icons'
-import { cn } from 'lib/utils/css-classes'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { IconFeedback } from 'lib/lemon-ui/icons'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { Settings } from 'scenes/settings/Settings'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { LogMessage } from '~/queries/schema/schema-general'
-import { PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
 
-import { AttributeBreakdowns } from './AttributeBreakdowns'
-import { AttributesFilter } from './filters/AttributesFilter'
-import { DateRangeFilter } from './filters/DateRangeFilter'
-import { SearchTermFilter } from './filters/SearchTermFilter'
-import { ServiceFilter } from './filters/ServiceFilter'
-import { SeverityLevelsFilter } from './filters/SeverityLevelsFilter'
-import { logsLogic } from './logsLogic'
+import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
+import { logsIngestionLogic } from 'products/logs/frontend/components/SetupPrompt/logsIngestionLogic'
+import { LogsSetupPrompt } from 'products/logs/frontend/components/SetupPrompt/SetupPrompt'
+
+import { useOpenLogsSettingsPanel } from './hooks/useOpenLogsSettingsPanel'
+import { LogsSceneActiveTab, logsSceneLogic } from './logsSceneLogic'
+
+export const LOGS_LOGIC_KEY = 'logs'
 
 export const scene: SceneExport = {
     component: LogsScene,
+    logic: logsSceneLogic,
+    productKey: ProductKey.LOGS,
 }
 
 export function LogsScene(): JSX.Element {
-    const { wrapBody, logs, sparklineData, logsLoading, sparklineLoading, timestampFormat } = useValues(logsLogic)
-    const { runQuery, setDateRangeFromSparkline } = useActions(logsLogic)
-
-    useEffect(() => {
-        runQuery()
-    }, [runQuery])
-
-    const onSelectionChange = (selection: { startIndex: number; endIndex: number }): void => {
-        setDateRangeFromSparkline(selection.startIndex, selection.endIndex)
-    }
-
-    const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'> =
-        timestampFormat === 'absolute'
-            ? {
-                  formatDate: 'YYYY-MM-DD',
-                  formatTime: 'HH:mm:ss',
-              }
-            : {}
+    const useTabbedView = useFeatureFlag('LOGS_TABBED_VIEW')
 
     return (
-        <SceneContent className="h-screen">
+        <SceneContent className="h-[calc(var(--scene-layout-rect-height,_100vh)_-_1rem)]">
+            {useTabbedView ? <LogsSceneTabbedContent /> : <LogsSceneContent />}
+        </SceneContent>
+    )
+}
+
+const LogsSceneContent = (): JSX.Element => {
+    const { tabId } = useValues(logsSceneLogic)
+    const { hasLogs, teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
+    const openLogsSettings = useOpenLogsSettingsPanel()
+
+    return (
+        <>
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Logs].name}
                 description={sceneConfigurations[Scene.Logs].description}
                 resourceType={{
                     type: sceneConfigurations[Scene.Logs].iconType || 'default_icon_type',
                 }}
+                actions={
+                    <>
+                        {hasLogs && <LogsSceneFeedbackButton />}
+                        <LemonButton size="small" type="secondary" icon={<IconGear />} onClick={openLogsSettings}>
+                            Settings
+                        </LemonButton>
+                    </>
+                }
             />
-            <SceneDivider />
-            <Filters />
-            <div className="relative h-40 flex flex-col">
-                {sparklineData.data.length > 0 ? (
-                    <Sparkline
-                        labels={sparklineData.labels}
-                        data={sparklineData.data}
-                        className="w-full flex-1"
-                        onSelectionChange={onSelectionChange}
-                    />
-                ) : !sparklineLoading ? (
-                    <div className="flex-1 text-muted flex items-center justify-center">
-                        No results matching filters
-                    </div>
-                ) : null}
-                {sparklineLoading && <SpinnerOverlay />}
-            </div>
-            <SceneDivider />
-            <DisplayOptions />
-            <div className="flex-1 overflow-y-auto border rounded bg-bg-light">
-                <LemonTable
-                    hideScrollbar
-                    dataSource={logs}
-                    loading={logsLoading}
-                    size="small"
-                    embedded
-                    columns={[
-                        {
-                            title: 'Timestamp',
-                            key: 'timestamp',
-                            dataIndex: 'timestamp',
-                            width: 0,
-                            render: (_, { timestamp }) => <TZLabel time={timestamp} {...tzLabelFormat} />,
-                        },
-                        {
-                            title: 'Level',
-                            key: 'severity_text',
-                            dataIndex: 'severity_text',
-                            width: 0,
-                            render: (_, record) => <LogTag level={record.severity_text} />,
-                        },
-                        {
-                            title: 'Message',
-                            key: 'body',
-                            dataIndex: 'body',
-                            render: (_, { body }) => (
-                                <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>{colors.unstyle(body)}</div>
-                            ),
-                        },
-                    ]}
-                    expandable={{
-                        noIndent: true,
-                        expandedRowRender: (log) => <ExpandedLog log={log} />,
+            {teamHasLogsCheckFailed && (
+                <LemonBanner
+                    type="info"
+                    dismissKey="logs-setup-hint-banner"
+                    action={{
+                        to: 'https://posthog.com/docs/logs/',
+                        targetBlank: true,
+                        children: 'Setup guide',
                     }}
-                />
-            </div>
-        </SceneContent>
-    )
-}
-
-const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
-    const { filterGroup, expandedAttributeBreaksdowns } = useValues(logsLogic)
-    const { setFilterGroup, toggleAttributeBreakdown } = useActions(logsLogic)
-
-    const attributes = log.attributes
-    const rows = Object.entries(attributes).map(([key, value]) => ({ key, value }))
-
-    const addFilter = (key: string, value: string, operator = PropertyOperator.Exact): void => {
-        const newGroup = { ...filterGroup.values[0] } as UniversalFiltersGroup
-
-        newGroup.values.push({
-            key,
-            value: [value],
-            operator: operator,
-            type: PropertyFilterType.Log,
-        })
-
-        setFilterGroup({ ...filterGroup, values: [newGroup] }, false)
-    }
-
-    return (
-        <LemonTable
-            embedded
-            showHeader={false}
-            columns={[
-                {
-                    key: 'actions',
-                    width: 0,
-                    render: (_, record) => (
-                        <div className="flex gap-x-0">
-                            <LemonButton
-                                tooltip="Add as filter"
-                                size="xsmall"
-                                onClick={() => addFilter(record.key, record.value)}
-                            >
-                                <IconPlusSquare />
-                            </LemonButton>
-                            <LemonButton
-                                tooltip="Exclude as filter"
-                                size="xsmall"
-                                onClick={() => addFilter(record.key, record.value, PropertyOperator.IsNot)}
-                            >
-                                <IconMinusSquare />
-                            </LemonButton>
-                            <LemonButton
-                                tooltip="Show breakdown"
-                                size="xsmall"
-                                onClick={() => toggleAttributeBreakdown(record.key)}
-                            >
-                                <IconFilter />
-                            </LemonButton>
-                        </div>
-                    ),
-                },
-                {
-                    title: 'Key',
-                    key: 'key',
-                    dataIndex: 'key',
-                    width: 0,
-                },
-                {
-                    title: 'Value',
-                    key: 'value',
-                    dataIndex: 'value',
-                },
-            ]}
-            dataSource={rows}
-            expandable={{
-                noIndent: true,
-                showRowExpansionToggle: false,
-                isRowExpanded: (record) => expandedAttributeBreaksdowns.includes(record.key),
-                expandedRowRender: (record) => <AttributeBreakdowns attribute={record.key} addFilter={addFilter} />,
-            }}
-        />
-    )
-}
-
-const LogTag = ({ level }: { level: LogMessage['severity_text'] }): JSX.Element => {
-    const type =
-        (
-            {
-                debug: 'muted',
-                info: 'default',
-                warn: 'warning',
-                error: 'danger',
-                fatal: 'danger',
-            } as Record<LogMessage['severity_text'], LemonTagType>
-        )[level] ?? 'muted'
-
-    return <LemonTag type={type}>{level}</LemonTag>
-}
-
-const Filters = (): JSX.Element => {
-    const { logsLoading } = useValues(logsLogic)
-    const { runQuery, zoomDateRange } = useActions(logsLogic)
-
-    return (
-        <div className="flex flex-col gap-y-1.5">
-            <div className="flex justify-between gap-y-2 flex-wrap-reverse">
-                <div className="flex gap-x-1 gap-y-2 flex-wrap">
-                    <SeverityLevelsFilter />
-                    <ServiceFilter />
-                    <AttributesFilter />
+                >
+                    Unable to verify logs setup. If you haven't configured logging yet, check out our setup guide.
+                </LemonBanner>
+            )}
+            <LogsSetupPrompt>
+                <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
+                    <LogsViewer id={tabId} />
                 </div>
-                <div className="flex gap-x-1">
-                    <LemonButton
-                        size="small"
-                        icon={<IconMinusSquare />}
-                        type="secondary"
-                        onClick={() => zoomDateRange(2)}
-                    />
-                    <LemonButton
-                        size="small"
-                        icon={<IconPlusSquare />}
-                        type="secondary"
-                        onClick={() => zoomDateRange(0.5)}
-                    />
-                    <DateRangeFilter />
-                    <LemonButton
-                        size="small"
-                        icon={<IconRefresh />}
-                        type="secondary"
-                        onClick={() => runQuery()}
-                        loading={logsLoading}
-                    >
-                        {logsLoading ? 'Loading...' : 'Search'}
-                    </LemonButton>
-                </div>
-            </div>
-            <SearchTermFilter />
-        </div>
+            </LogsSetupPrompt>
+        </>
     )
 }
 
-const DisplayOptions = (): JSX.Element => {
-    const { orderBy, wrapBody, timestampFormat } = useValues(logsLogic)
-    const { setOrderBy, setWrapBody, setTimestampFormat } = useActions(logsLogic)
+const LogsSceneTabbedContent = (): JSX.Element => {
+    const { tabId, activeTab } = useValues(logsSceneLogic)
+    const { setActiveTab } = useActions(logsSceneLogic)
+    const { hasLogs, teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
 
     return (
-        <div className="flex gap-2">
-            <LemonSegmentedButton
-                value={orderBy}
-                onChange={setOrderBy}
-                options={[
-                    {
-                        value: 'earliest',
-                        label: 'Earliest',
-                    },
-                    {
-                        value: 'latest',
-                        label: 'Latest',
-                    },
-                ]}
-                size="small"
+        <>
+            <SceneTitleSection
+                name={sceneConfigurations[Scene.Logs].name}
+                resourceType={{
+                    type: sceneConfigurations[Scene.Logs].iconType || 'default_icon_type',
+                }}
+                actions={<>{hasLogs && <LogsSceneFeedbackButton />}</>}
             />
-            <LemonCheckbox checked={wrapBody} bordered onChange={setWrapBody} label="Wrap message" size="small" />
-            <LemonSelect
-                value={timestampFormat}
-                icon={<IconClock />}
-                onChange={(value) => setTimestampFormat(value)}
-                size="small"
-                type="secondary"
-                options={[
-                    { value: 'absolute', label: 'Absolute' },
-                    { value: 'relative', label: 'Relative' },
+            {teamHasLogsCheckFailed && (
+                <LemonBanner
+                    type="info"
+                    dismissKey="logs-setup-hint-banner"
+                    action={{
+                        to: 'https://posthog.com/docs/logs/',
+                        targetBlank: true,
+                        children: 'Setup guide',
+                    }}
+                >
+                    Unable to verify logs setup. If you haven't configured logging yet, check out our setup guide.
+                </LemonBanner>
+            )}
+            <LemonTabs<LogsSceneActiveTab>
+                activeKey={activeTab}
+                onChange={(key) => setActiveTab(key)}
+                tabs={[
+                    { key: 'viewer', label: 'Viewer' },
+                    { key: 'configuration', label: 'Configuration' },
                 ]}
+                sceneInset
             />
-        </div>
+            {activeTab === 'viewer' && (
+                <LogsSetupPrompt>
+                    <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
+                        <LogsViewer id={tabId} />
+                    </div>
+                </LogsSetupPrompt>
+            )}
+            {activeTab === 'configuration' && (
+                <Settings logicKey={LOGS_LOGIC_KEY} sectionId="environment-logs" settingId="logs" handleLocally />
+            )}
+        </>
+    )
+}
+
+const LogsSceneFeedbackButton = (): JSX.Element => {
+    return (
+        <LemonButton
+            size="small"
+            type="secondary"
+            icon={<IconFeedback />}
+            onClick={() => posthog.displaySurvey('019a7d95-3810-0000-34dc-404a58075f17')}
+        >
+            Feedback
+        </LemonButton>
     )
 }

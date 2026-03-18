@@ -100,7 +100,7 @@ def snowflake_cursor(snowflake_config):
     with snowflake.connector.connect(
         user=snowflake_config["user"],
         password=password,
-        role=snowflake_config["role"],
+        role=f'"{snowflake_config["role"]}"' if snowflake_config["role"] is not None else None,
         account=snowflake_config["account"],
         warehouse=snowflake_config["warehouse"],
         private_key=private_key,
@@ -333,7 +333,7 @@ async def test_snowflake_schema_without_permissions(
 ):
     """Test whether a Snowflake schema test fails without permissions."""
     # Grant database USAGE privilege otherwise we will fail before checking schema.
-    snowflake_cursor.execute(f"GRANT USAGE ON DATABASE \"{snowflake_config['database']}\" TO ROLE {role}")
+    snowflake_cursor.execute(f'GRANT USAGE ON DATABASE "{snowflake_config["database"]}" TO ROLE {role}')
 
     test_step = SnowflakeSchemaTestStep(
         account=snowflake_config["account"],

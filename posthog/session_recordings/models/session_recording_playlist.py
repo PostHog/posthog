@@ -63,12 +63,17 @@ class SessionRecordingPlaylist(FileSystemSyncMixin, models.Model):
         return cls._filter_unfiled_queryset(base_qs, team, type="session_recording_playlist", ref_field="short_id")
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
+        href = (
+            f"/replay/home?savedFilterId={self.short_id}"
+            if self.type == self.PlaylistType.FILTERS
+            else f"/replay/playlists/{self.short_id}"
+        )
         return FileSystemRepresentation(
             base_folder=self._get_assigned_folder("Unfiled/Replay playlists"),
             type="session_recording_playlist",  # sync with APIScopeObject in scopes.py
             ref=str(self.short_id),
             name=self.name or self.derived_name or "Untitled",
-            href=f"/replay/playlists/{self.short_id}",
+            href=href,
             meta={
                 "created_at": str(self.created_at),
                 "created_by": self.created_by_id,

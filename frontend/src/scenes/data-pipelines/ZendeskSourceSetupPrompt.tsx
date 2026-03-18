@@ -1,0 +1,62 @@
+import { BuiltLogic, LogicWrapper, useValues } from 'kea'
+
+import { IconPlusSmall } from '@posthog/icons'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
+
+import { SupportHeroHog } from 'lib/components/hedgehogs'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
+import { urls } from 'scenes/urls'
+
+import { ProductKey } from '~/queries/schema/schema-general'
+
+interface ZendeskSourceSetupPromptProps {
+    children: React.ReactNode
+    className?: string
+    attachTo?: BuiltLogic | LogicWrapper
+}
+
+export function ZendeskSourceSetupPrompt({
+    children,
+    className,
+    attachTo,
+}: ZendeskSourceSetupPromptProps): JSX.Element {
+    const builtDataWarehouseSettingsLogic = dataWarehouseSettingsLogic()
+    const { hasZendeskSource, dataWarehouseSourcesLoading } = useValues(builtDataWarehouseSettingsLogic)
+    useAttachedLogic(builtDataWarehouseSettingsLogic, attachTo)
+
+    return dataWarehouseSourcesLoading ? (
+        <div className="flex justify-center">
+            <Spinner />
+        </div>
+    ) : !hasZendeskSource ? (
+        <SetupPrompt className={className} />
+    ) : (
+        <>{children}</>
+    )
+}
+
+function SetupPrompt({ className }: Pick<ZendeskSourceSetupPromptProps, 'className'>): JSX.Element {
+    return (
+        <ProductIntroduction
+            customHog={SupportHeroHog}
+            productName="Data Warehouse Source"
+            titleOverride="Bring your data from Zendesk"
+            productKey={ProductKey.DATA_WAREHOUSE}
+            thingName="data source"
+            className={className}
+            description="Use data warehouse sources to import data from Zendesk into PostHog."
+            isEmpty={true}
+            docsURL="https://posthog.com/docs/data-warehouse"
+            actionElementOverride={
+                <LemonButton
+                    icon={<IconPlusSmall />}
+                    type="primary"
+                    to={urls.dataWarehouseSourceNew('Zendesk')}
+                    children="Create Zendesk source"
+                />
+            }
+        />
+    )
+}

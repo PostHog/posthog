@@ -17,7 +17,7 @@ echo "🚀 Starting services..."
 docker compose -f docker-compose.dev.yml -p evals up -d db clickhouse objectstorage
 
 echo "🔄 Waiting for services to start..."
-bin/check_postgres_up & bin/check_kafka_clickhouse_up
+docker compose -f docker-compose.dev.yml -p evals up -d --wait db clickhouse objectstorage
 
 echo "🏃 Running evaluation..."
 if [ -z "$EVAL_SCRIPT" ]; then

@@ -1,4 +1,0 @@
-import os
-
-MAILJET_PUBLIC_KEY = os.getenv("MAILJET_PUBLIC_KEY", "")
-MAILJET_SECRET_KEY = os.getenv("MAILJET_SECRET_KEY", "")

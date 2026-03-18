@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -7,21 +7,13 @@ import { TriggerExportProps, downloadBlob, downloadExportedAsset } from 'lib/com
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { delay } from 'lib/utils'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { AnyDataNode } from '~/queries/schema/schema-general'
-import {
-    APIErrorType,
-    CohortType,
-    ExportContext,
-    ExportedAssetType,
-    ExporterFormat,
-    LocalExportContext,
-    SidePanelTab,
-} from '~/types'
+import { APIErrorType, CohortType, ExportContext, ExportedAssetType, ExporterFormat, LocalExportContext } from '~/types'
 
 import type { exportsLogicType } from './exportsLogicType'
 
@@ -42,6 +34,7 @@ export const exportsLogic = kea<exportsLogicType>([
         removeFresh: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
         createStaticCohort: (name: string, query: AnyDataNode) => ({ query, name }),
         setAssetFormat: (format: ExporterFormat | null) => ({ format }),
+        setHasReachedExportFullVideoLimit: (hasReached: boolean) => ({ hasReached }),
         startReplayExport: (
             sessionRecordingId: string,
             format?: ExporterFormat,
@@ -57,10 +50,6 @@ export const exportsLogic = kea<exportsLogicType>([
         ) => ({ sessionRecordingId, format, timestamp, duration, mode, options }),
         startHeatmapExport: (export_context: ExportContext) => ({ export_context }),
     }),
-
-    connect(() => ({
-        actions: [sidePanelStateLogic, ['openSidePanel']],
-    })),
 
     reducers({
         exports: [
@@ -83,19 +72,25 @@ export const exportsLogic = kea<exportsLogicType>([
                 removeFresh: (state, { exportedAsset }) => state.filter((asset) => asset.id !== exportedAsset.id),
             },
         ],
+        hasReachedExportFullVideoLimit: [
+            false,
+            {
+                setHasReachedExportFullVideoLimit: (_, { hasReached }) => hasReached,
+            },
+        ],
     }),
 
     listeners(({ actions }) => ({
         startExport: async ({ exportData }) => {
             if (isLocalExport(exportData.export_context)) {
                 try {
-                    downloadBlob(
-                        new Blob([exportData.export_context.localData], { type: exportData.export_context.mediaType }),
-                        exportData.export_context.filename
-                    )
+                    const blob = new Blob([exportData.export_context.localData], {
+                        type: exportData.export_context.mediaType,
+                    })
+                    downloadBlob(blob, exportData.export_context.filename)
                     lemonToast.success('Export complete!')
-                } catch {
-                    lemonToast.error('Export failed!')
+                } catch (e: any) {
+                    lemonToast.error(`Export failed with error: ${e.message}`)
                 }
                 return
             }
@@ -103,8 +98,13 @@ export const exportsLogic = kea<exportsLogicType>([
             actions.createExport({ exportData })
         },
         createExportSuccess: () => {
-            actions.openSidePanel(SidePanelTab.Exports)
-            lemonToast.info('Export starting...')
+            lemonToast.info('Export starting...', {
+                button: {
+                    label: 'View exports',
+                    action: () => newInternalTab(urls.exports()),
+                },
+                autoClose: false,
+            })
             actions.loadExports()
         },
         loadExportsSuccess: async (_, breakpoint) => {
@@ -177,7 +177,7 @@ export const exportsLogic = kea<exportsLogicType>([
         },
     })),
 
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         exports: [
             [] as ExportedAssetType[],
             {
@@ -212,9 +212,9 @@ export const exportsLogic = kea<exportsLogicType>([
                                 expires_after: dayjs().add(6, 'hour').toJSON(),
                             })
 
-                            const currentExports = exportsLogic.values.exports
+                            const currentExports = values.exports
                             const updatedExports = [response, ...currentExports.filter((e) => e.id !== response.id)]
-                            exportsLogic.actions.loadExportsSuccess(updatedExports)
+                            actions.loadExportsSuccess(updatedExports)
 
                             // If this was a blocking export, we should download it now
                             if (response && response.has_content) {
@@ -226,7 +226,9 @@ export const exportsLogic = kea<exportsLogicType>([
                             const apiError = error as { data?: APIErrorType }
                             // Show a survey when the user reaches the export limit
                             if (apiError?.data?.attr === 'export_limit_exceeded') {
+                                actions.setHasReachedExportFullVideoLimit(true)
                                 lemonToast.error(apiError?.data?.detail || 'You reached your export limit.', {
+                                    autoClose: false,
                                     button: {
                                         label: 'I want more',
                                         className: 'replay-export-limit-reached-button',

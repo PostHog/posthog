@@ -14,8 +14,8 @@
                           array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', '')) AS relevant_property_values,
                           lagInFrame(relevant_property_values) OVER (
                                                                      ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
-                                                                    row_number() OVER (
-                                                                                       ORDER BY timestamp ASC) AS start_event_number
+                          row_number() OVER (
+                                             ORDER BY timestamp ASC) AS start_event_number
         FROM (
                 (SELECT e.timestamp AS timestamp,
                         e."person_properties" AS "person_properties"
@@ -50,8 +50,8 @@
                           array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', '')) AS relevant_property_values,
                           lagInFrame(relevant_property_values) OVER (
                                                                      ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
-                                                                    row_number() OVER (
-                                                                                       ORDER BY timestamp ASC) AS start_event_number
+                          row_number() OVER (
+                                             ORDER BY timestamp ASC) AS start_event_number
         FROM (
                 (SELECT e.timestamp AS timestamp,
                         e."person_properties" AS "person_properties"
@@ -85,8 +85,8 @@
                           array() AS relevant_property_values,
                           lagInFrame(relevant_property_values) OVER (
                                                                      ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
-                                                                    row_number() OVER (
-                                                                                       ORDER BY timestamp ASC) AS start_event_number
+                          row_number() OVER (
+                                             ORDER BY timestamp ASC) AS start_event_number
         FROM (
                 (SELECT e.timestamp AS timestamp,
                         e."person_properties" AS "person_properties"
@@ -121,8 +121,8 @@
                           array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', '')) AS relevant_property_values,
                           lagInFrame(relevant_property_values) OVER (
                                                                      ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
-                                                                    row_number() OVER (
-                                                                                       ORDER BY timestamp ASC) AS start_event_number
+                          row_number() OVER (
+                                             ORDER BY timestamp ASC) AS start_event_number
         FROM (
                 (SELECT e.timestamp AS timestamp,
                         e."person_properties" AS "person_properties"
@@ -157,8 +157,8 @@
                           array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', '')) AS relevant_property_values,
                           lagInFrame(relevant_property_values) OVER (
                                                                      ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
-                                                                    row_number() OVER (
-                                                                                       ORDER BY timestamp ASC) AS start_event_number
+                          row_number() OVER (
+                                             ORDER BY timestamp ASC) AS start_event_number
         FROM (
                 (SELECT e.timestamp AS timestamp,
                         e."person_properties" AS "person_properties"
@@ -193,8 +193,8 @@
                           array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', '')) AS relevant_property_values,
                           lagInFrame(relevant_property_values) OVER (
                                                                      ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
-                                                                    row_number() OVER (
-                                                                                       ORDER BY timestamp ASC) AS start_event_number
+                          row_number() OVER (
+                                             ORDER BY timestamp ASC) AS start_event_number
         FROM (
                 (SELECT e.timestamp AS timestamp,
                         e."person_properties" AS "person_properties"
@@ -229,8 +229,8 @@
                           array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', '')) AS relevant_property_values,
                           lagInFrame(relevant_property_values) OVER (
                                                                      ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
-                                                                    row_number() OVER (
-                                                                                       ORDER BY timestamp ASC) AS start_event_number
+                          row_number() OVER (
+                                             ORDER BY timestamp ASC) AS start_event_number
         FROM (
                 (SELECT e.timestamp AS timestamp,
                         e."person_properties" AS "person_properties"
@@ -265,8 +265,8 @@
                           array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', '')) AS relevant_property_values,
                           lagInFrame(relevant_property_values) OVER (
                                                                      ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
-                                                                    row_number() OVER (
-                                                                                       ORDER BY timestamp ASC) AS start_event_number
+                          row_number() OVER (
+                                             ORDER BY timestamp ASC) AS start_event_number
         FROM (
                 (SELECT e.timestamp AS timestamp,
                         e."person_properties" AS "person_properties"
@@ -301,8 +301,8 @@
                           array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', '')) AS relevant_property_values,
                           lagInFrame(relevant_property_values) OVER (
                                                                      ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
-                                                                    row_number() OVER (
-                                                                                       ORDER BY timestamp ASC) AS start_event_number
+                          row_number() OVER (
+                                             ORDER BY timestamp ASC) AS start_event_number
         FROM (
                 (SELECT e.timestamp AS timestamp,
                         e."person_properties" AS "person_properties"
@@ -337,8 +337,8 @@
                           array("mat_pp_bar") AS relevant_property_values,
                           lagInFrame(relevant_property_values) OVER (
                                                                      ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
-                                                                    row_number() OVER (
-                                                                                       ORDER BY timestamp ASC) AS start_event_number
+                          row_number() OVER (
+                                             ORDER BY timestamp ASC) AS start_event_number
         FROM (
                 (SELECT e.timestamp AS timestamp,
                         e."mat_pp_bar" AS "mat_pp_bar",
@@ -375,8 +375,8 @@
                           array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', '')) AS relevant_property_values,
                           lagInFrame(relevant_property_values) OVER (
                                                                      ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
-                                                                    row_number() OVER (
-                                                                                       ORDER BY timestamp ASC) AS start_event_number
+                          row_number() OVER (
+                                             ORDER BY timestamp ASC) AS start_event_number
         FROM (
                 (SELECT e.timestamp AS timestamp,
                         e."person_properties" AS "person_properties"
@@ -411,8 +411,8 @@
                           array("mat_pp_bar") AS relevant_property_values,
                           lagInFrame(relevant_property_values) OVER (
                                                                      ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
-                                                                    row_number() OVER (
-                                                                                       ORDER BY timestamp ASC) AS start_event_number
+                          row_number() OVER (
+                                             ORDER BY timestamp ASC) AS start_event_number
         FROM (
                 (SELECT e.timestamp AS timestamp,
                         e."mat_pp_bar" AS "mat_pp_bar",
@@ -449,8 +449,8 @@
                           array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', ''), replaceRegexpAll(JSONExtractRaw(person_properties, 'foo'), '^"|"$', '')) AS relevant_property_values,
                           lagInFrame(relevant_property_values) OVER (
                                                                      ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
-                                                                    row_number() OVER (
-                                                                                       ORDER BY timestamp ASC) AS start_event_number
+                          row_number() OVER (
+                                             ORDER BY timestamp ASC) AS start_event_number
         FROM (
                 (SELECT e.timestamp AS timestamp,
                         e."person_properties" AS "person_properties"
@@ -485,8 +485,8 @@
                           array("mat_pp_bar", "mat_pp_foo") AS relevant_property_values,
                           lagInFrame(relevant_property_values) OVER (
                                                                      ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
-                                                                    row_number() OVER (
-                                                                                       ORDER BY timestamp ASC) AS start_event_number
+                          row_number() OVER (
+                                             ORDER BY timestamp ASC) AS start_event_number
         FROM (
                 (SELECT e.timestamp AS timestamp,
                         e."mat_pp_bar" AS "mat_pp_bar",
@@ -525,8 +525,8 @@
                           array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', ''), replaceRegexpAll(JSONExtractRaw(person_properties, 'foo'), '^"|"$', '')) AS relevant_property_values,
                           lagInFrame(relevant_property_values) OVER (
                                                                      ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
-                                                                    row_number() OVER (
-                                                                                       ORDER BY timestamp ASC) AS start_event_number
+                          row_number() OVER (
+                                             ORDER BY timestamp ASC) AS start_event_number
         FROM (
                 (SELECT e.timestamp AS timestamp,
                         e."person_properties" AS "person_properties"
@@ -561,8 +561,8 @@
                           array("mat_pp_bar", "mat_pp_foo") AS relevant_property_values,
                           lagInFrame(relevant_property_values) OVER (
                                                                      ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
-                                                                    row_number() OVER (
-                                                                                       ORDER BY timestamp ASC) AS start_event_number
+                          row_number() OVER (
+                                             ORDER BY timestamp ASC) AS start_event_number
         FROM (
                 (SELECT e.timestamp AS timestamp,
                         e."mat_pp_bar" AS "mat_pp_bar",

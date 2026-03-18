@@ -1,6 +1,6 @@
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconType } from '~/queries/schema/schema-general'
+import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
@@ -60,6 +60,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Early access features',
+            intents: [ProductKey.EARLY_ACCESS_FEATURES],
             category: 'Features',
             type: 'early_access_feature',
             href: urls.earlyAccessFeatures(),

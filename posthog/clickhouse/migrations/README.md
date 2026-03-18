@@ -1,3 +1,11 @@
+## Creating ClickHouse schema changes
+
+**Important:** ClickHouse schema changes should be created as a separate PR from application code changes. This allows for:
+
+- Independent review and testing of schema migrations
+- Safer rollout of database changes
+- Clear separation between infrastructure and application logic changes
+
 ## About migrations
 
 Not all migrations are intended to run on all nodes every time, because of the topologies we run. Some nodes are intended to only perform compute operations and do not contain sharded tables.
@@ -52,8 +60,8 @@ When you want to pull data from Kafka into ClickHouse, you should:
 
 1. Create a Kafka table.
 2. Create a writable table only on ingestion nodes. It should be a Distributed table with your data table.
-    1. If your data table is non-sharded, you should point it to one shard: `Distributed(..., cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)`, without using any sharding key.
-    2. If your data table is sharded, you should point it to all shards: `Distributed(..., cluster=settings.CLICKHOUSE_CLUSTER, sharding_key="...")`, using a sharding key.
+   1. If your data table is non-sharded, you should point it to one shard: `Distributed(..., cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)`, without using any sharding key.
+   2. If your data table is sharded, you should point it to all shards: `Distributed(..., cluster=settings.CLICKHOUSE_CLUSTER, sharding_key="...")`, using a sharding key.
 3. Create a materialized view between Kafka table and the writable table.
 
 Example PR for non-sharded table: https://github.com/PostHog/posthog/pull/38890/files

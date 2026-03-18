@@ -9,7 +9,7 @@ interface MetricsChartLayoutProps {
     tickValues: number[]
     chartBound: number
     metricTitlePanel: ReactNode
-    chartContent: ReactNode
+    chartContent: ReactNode | ((chartSvgRef: React.RefObject<SVGSVGElement>) => JSX.Element)
     viewBoxWidth?: number
     horizontalPadding?: number
     tickPanelHeight?: number

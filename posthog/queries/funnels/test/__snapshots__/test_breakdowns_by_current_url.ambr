@@ -34,10 +34,9 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time ,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time ,
+               prop
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -49,10 +48,9 @@
              (SELECT aggregation_target, timestamp, step_0,
                                                     latest_0,
                                                     step_1,
-                                                    min(latest_1) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_1) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                                                       if(has([['https://example.com/home'], ['https://example.com'], ['/']], prop), prop, ['Other']) as prop
+                                                    if(has([['https://example.com/home'], ['https://example.com'], ['/']], prop), prop, ['Other']) as prop
               FROM
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
@@ -96,6 +94,9 @@
               prop
      HAVING steps = max(max_steps))
   GROUP BY prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
+  LIMIT 100
   '''
 # ---
 # name: TestBreakdownsByCurrentURL.test_breakdown_by_pathname
@@ -133,10 +134,9 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time ,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time ,
+               prop
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -148,10 +148,9 @@
              (SELECT aggregation_target, timestamp, step_0,
                                                     latest_0,
                                                     step_1,
-                                                    min(latest_1) over (PARTITION by aggregation_target,
-                                                                                     prop
+                                                    min(latest_1) over (PARTITION by aggregation_target, prop
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                                                       if(has([['/'], ['/home']], prop), prop, ['Other']) as prop
+                                                    if(has([['/'], ['/home']], prop), prop, ['Other']) as prop
               FROM
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
@@ -195,5 +194,8 @@
               prop
      HAVING steps = max(max_steps))
   GROUP BY prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
+  LIMIT 100
   '''
 # ---

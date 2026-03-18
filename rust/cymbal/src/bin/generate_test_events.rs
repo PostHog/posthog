@@ -6,7 +6,7 @@ use common_kafka::{
 };
 use common_types::ClickHouseEvent;
 
-use cymbal::pipeline::exception::get_props;
+use cymbal::types::{event::AnyEvent, exception_properties::ExceptionProperties};
 use envconfig::Envconfig;
 use health::HealthRegistry;
 
@@ -23,7 +23,7 @@ async fn main() {
 
     let exception: ClickHouseEvent = serde_json::from_str(EXCEPTION_DATA).unwrap();
     let exceptions = (0..10000).map(|_| exception.clone()).collect::<Vec<_>>();
-    get_props(&exception).unwrap();
+    ExceptionProperties::try_from(AnyEvent::try_from(exception).unwrap()).unwrap();
 
     loop {
         println!("Sending {} exception kafka", exceptions.len());

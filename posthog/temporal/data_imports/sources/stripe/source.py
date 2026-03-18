@@ -1,50 +1,127 @@
-from typing import cast
+from typing import TYPE_CHECKING, Optional, cast
+
+import posthoganalytics
+
+from posthog.exceptions_capture import capture_exception
+from posthog.temporal.data_imports.sources.common.webhook_s3 import WAREHOUSE_WEBHOOK_FLAG, WebhookSourceManager
+
+if TYPE_CHECKING:
+    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SuggestedTable,
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource, WebhookSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import StripeSourceConfig
+from posthog.temporal.data_imports.sources.stripe.constants import (
+    CHARGE_RESOURCE_NAME,
+    CUSTOMER_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME,
+    PRODUCT_RESOURCE_NAME,
+    SUBSCRIPTION_RESOURCE_NAME,
+)
 from posthog.temporal.data_imports.sources.stripe.settings import (
     ENDPOINTS as STRIPE_ENDPOINTS,
     INCREMENTAL_FIELDS as STRIPE_INCREMENTAL_FIELDS,
 )
 from posthog.temporal.data_imports.sources.stripe.stripe import (
     StripePermissionError,
+    StripeResumeConfig,
     stripe_source,
     validate_credentials as validate_stripe_credentials,
 )
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
+
+STRIPE_BASE_URL = "https://dashboard.stripe.com"
+STRIPE_ACCOUNT_URL = f"{STRIPE_BASE_URL}/settings/account"
+
+# The API keys URL will pre-fill the form with the account ID, key name and also all the required permissions.
+PERMISSIONS = [
+    "rak_balance_transaction_source_read",
+    "rak_charge_read",
+    "rak_customer_read",
+    "rak_dispute_read",
+    "rak_payout_read",
+    "rak_product_read",
+    "rak_credit_note_read",
+    "rak_invoice_read",
+    "rak_plan_read",  # This is `price` in the UI, but `plan` in their API
+    "rak_subscription_read",
+    "rak_application_fee_read",
+    "rak_transfer_read",
+    "rak_connected_account_read",
+    "rak_payment_method_read",
+]
+STRIPE_API_KEYS_URL = f"{STRIPE_BASE_URL}/apikeys/create?name=PostHog&{'&'.join([f'permissions[{i}]={permission}' for i, permission in enumerate(PERMISSIONS)])}"
+
+
+def _is_webhook_feature_flag_enabled(team_id: int) -> bool:
+    from posthog.models import Team
+
+    try:
+        team = Team.objects.only("uuid", "organization_id").get(id=team_id)
+    except Team.DoesNotExist:
+        return False
+
+    try:
+        enabled = posthoganalytics.feature_enabled(
+            WAREHOUSE_WEBHOOK_FLAG,
+            str(team.uuid),
+            groups={
+                "organization": str(team.organization_id),
+                "project": str(team.id),
+            },
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.id)},
+            },
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
+        return bool(enabled)
+    except Exception as e:
+        capture_exception(e)
+        return False
 
 
 @SourceRegistry.register
-class StripeSource(BaseSource[StripeSourceConfig]):
+class StripeSource(ResumableSource[StripeSourceConfig, StripeResumeConfig], WebhookSource[StripeSourceConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.STRIPE
 
     @property
+    def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:
+        from posthog.temporal.data_imports.sources.stripe.webhook_template import template
+
+        return template
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
-            caption="""Enter your Stripe credentials to automatically pull your Stripe data into the PostHog Data warehouse.
+            caption=f"""Enter your Stripe credentials to automatically pull your Stripe data into the PostHog Data warehouse. You will need your [Stripe account ID]({STRIPE_ACCOUNT_URL}), and create a [restricted API key]({STRIPE_API_KEYS_URL}).
 
-You can find your account ID [in your Stripe dashboard](https://dashboard.stripe.com/settings/account), and create a secret key [here](https://dashboard.stripe.com/apikeys/create).
-
-Currently, **read permissions are required** for the following resources:
+By clicking the link above, you will be taken to a form that pre-fills everything you need to get started to match the required permissions.
+""",
+            permissionsCaption="""Currently, **read permissions are required** for the following resources:
 
 - Under the **Core** resource type, select *read* for **Balance transaction sources**, **Charges**, **Customers**, **Disputes**, **Payouts**, and **Products**
 - Under the **Billing** resource type, select *read* for **Credit notes**, **Invoices**, **Prices**, and **Subscriptions**
-- Under the **Connect** resource type, select *read* for either the **entire resource** or **Application Fees** and **Transfers**
+- Under the **Connect** resource type, select *read* for the **entire resource**
 
-You can also simplify the setup by selecting **read** for the **entire resource** under **Core**, **Billing**, and **Connect**.
+These permissions are automatically pre-filled in the API key creation form if you use the link above, so all you need to do is scroll down and click "Create Key".
 """,
             iconPath="/static/services/stripe.png",
             docsUrl="https://posthog.com/docs/cdp/sources/stripe",
@@ -67,23 +144,64 @@ You can also simplify the setup by selecting **read** for the **entire resource*
                     ),
                 ],
             ),
+            suggestedTables=[
+                SuggestedTable(
+                    table=CUSTOMER_RESOURCE_NAME,
+                    tooltip="Enable for the best Revenue analytics experience.",
+                ),
+                SuggestedTable(
+                    table=CHARGE_RESOURCE_NAME,
+                    tooltip="Enable for the best Revenue analytics experience.",
+                ),
+                SuggestedTable(
+                    table=INVOICE_RESOURCE_NAME,
+                    tooltip="Enable for the best Revenue analytics experience.",
+                ),
+                SuggestedTable(
+                    table=SUBSCRIPTION_RESOURCE_NAME,
+                    tooltip="Enable for the best Revenue analytics experience.",
+                ),
+                SuggestedTable(
+                    table=PRODUCT_RESOURCE_NAME,
+                    tooltip="Enable for the best Revenue analytics experience.",
+                ),
+            ],
+            featured=True,
         )
 
-    def get_schemas(self, config: StripeSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
-        return [
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "401 Client Error: Unauthorized for url: https://api.stripe.com": "Your API key does not have permissions to access endpoint. Please check your API key configuration and permissions in Stripe, then try again.",
+            "403 Client Error: Forbidden for url: https://api.stripe.com": "Your API key does not have permissions to access endpoint. Please check your API key configuration and permissions in Stripe, then try again.",
+            "Expired API Key provided": "Your Stripe API key has expired. Please create a new key and reconnect.",
+            "Invalid API Key provided": None,
+            "PermissionError": "Your API key does not have permissions to access endpoint. Please check your API key configuration and permissions in Stripe, then try again.",
+        }
+
+    def get_schemas(
+        self, config: StripeSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
+        schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=False,
+                supports_incremental=_is_webhook_feature_flag_enabled(team_id)
+                and STRIPE_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 # nested resources are only full refresh and are not in STRIPE_INCREMENTAL_FIELDS
                 supports_append=STRIPE_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 incremental_fields=STRIPE_INCREMENTAL_FIELDS.get(endpoint, []),
             )
             for endpoint in STRIPE_ENDPOINTS
         ]
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+        return schemas
 
-    def validate_credentials(self, config: StripeSourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: StripeSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         try:
-            if validate_stripe_credentials(config.stripe_secret_key):
+            if validate_stripe_credentials(config.stripe_secret_key, schema_name):
                 return True, None
             else:
                 return False, "Invalid Stripe credentials"
@@ -93,7 +211,20 @@ You can also simplify the setup by selecting **read** for the **entire resource*
         except Exception as e:
             return False, str(e)
 
-    def source_for_pipeline(self, config: StripeSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[StripeResumeConfig]:
+        return ResumableSourceManager[StripeResumeConfig](inputs, StripeResumeConfig)
+
+    def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
+        return WebhookSourceManager(inputs, inputs.logger)
+
+    def source_for_pipeline(
+        self,
+        config: StripeSourceConfig,
+        resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        webhook_source_manager = self.get_webhook_source_manager(inputs)
+
         return stripe_source(
             api_key=config.stripe_secret_key,
             account_id=config.stripe_account_id,
@@ -102,4 +233,6 @@ You can also simplify the setup by selecting **read** for the **entire resource*
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
             db_incremental_field_earliest_value=inputs.db_incremental_field_earliest_value,
             logger=inputs.logger,
+            resumable_source_manager=resumable_source_manager,
+            webhook_source_manager=webhook_source_manager,
         )

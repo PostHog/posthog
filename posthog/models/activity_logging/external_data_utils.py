@@ -1,6 +1,6 @@
 from typing import Optional
 
-from posthog.warehouse.models.external_data_source import ExternalDataSource
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 
 
 def get_external_data_source_detail_name(external_data_source: ExternalDataSource) -> str:

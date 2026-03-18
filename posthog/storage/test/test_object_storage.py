@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from boto3 import resource
 from botocore.client import Config
+from botocore.exceptions import ClientError
 
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -15,6 +16,7 @@ from posthog.settings import (
 )
 from posthog.storage.object_storage import (
     ObjectStorage,
+    ObjectStorageError,
     copy_objects,
     get_presigned_post,
     get_presigned_url,
@@ -184,3 +186,30 @@ class TestStorage(APIBaseTest):
         result = storage.read_bytes("test-bucket", "test-key")
         mock_client.get_object.assert_called_with(Bucket="test-bucket", Key="test-key")
         assert result == b"test content"
+
+    def test_read_bytes_returns_none_for_nosuchkey_when_missing_ok(self):
+        mock_client = MagicMock()
+        error_response = {"Error": {"Code": "NoSuchKey", "Message": "The specified key does not exist."}}
+        mock_client.get_object.side_effect = ClientError(error_response, "GetObject")  # type: ignore[arg-type]
+        storage = ObjectStorage(mock_client)
+
+        result = storage.read_bytes("test-bucket", "nonexistent-key", missing_ok=True)
+        assert result is None
+
+    def test_read_bytes_raises_for_nosuchkey_by_default(self):
+        mock_client = MagicMock()
+        error_response = {"Error": {"Code": "NoSuchKey", "Message": "The specified key does not exist."}}
+        mock_client.get_object.side_effect = ClientError(error_response, "GetObject")  # type: ignore[arg-type]
+        storage = ObjectStorage(mock_client)
+
+        with self.assertRaises(ObjectStorageError):
+            storage.read_bytes("test-bucket", "nonexistent-key")
+
+    def test_read_bytes_raises_for_other_client_errors(self):
+        mock_client = MagicMock()
+        error_response = {"Error": {"Code": "AccessDenied", "Message": "Access Denied"}}
+        mock_client.get_object.side_effect = ClientError(error_response, "GetObject")  # type: ignore[arg-type]
+        storage = ObjectStorage(mock_client)
+
+        with self.assertRaises(ObjectStorageError):
+            storage.read_bytes("test-bucket", "test-key")

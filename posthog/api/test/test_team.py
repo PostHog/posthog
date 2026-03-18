@@ -1,30 +1,37 @@
 import json
-from datetime import UTC, datetime
-from typing import Any, Optional
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries_context
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call, patch
 
+from django.conf import settings
 from django.core.cache import cache
+from django.db import OperationalError
 from django.http import HttpResponse
+from django.test import override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status, test
 from temporalio.service import RPCError
 
+from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.api.test.batch_exports.conftest import start_test_worker
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog
-from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.dashboard import Dashboard
+from posthog.models.group_type_mapping import GROUP_TYPES_CACHE_KEY_PREFIX, GROUP_TYPES_STALE_CACHE_KEY_PREFIX
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.product_intent import ProductIntent
 from posthog.models.project import Project
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
@@ -37,10 +44,10 @@ from ee.models.rbac.access_control import AccessControl
 
 
 def team_api_test_factory():
-    class TestTeamAPI(APIBaseTest):
+    class TestTeamAPI(APIBaseTest, QueryMatchingTest):
         """Tests for /api/environments/."""
 
-        def _assert_activity_log(self, expected: list[dict], team_id: Optional[int] = None) -> None:
+        def _assert_activity_log(self, expected: list[dict], team_id: int | None = None) -> None:
             if not team_id:
                 team_id = self.team.pk
 
@@ -114,6 +121,10 @@ def team_api_test_factory():
                 project=self.project, team=other_team, group_type="place", group_type_index=1
             )
 
+            # Clear both cache keys so the next request fetches from DB
+            cache.delete(f"{GROUP_TYPES_CACHE_KEY_PREFIX}{self.team.project_id}")
+            cache.delete(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{self.team.project_id}")
+
             response = self.client.get("/api/environments/@current/")
             response_data = response.json()
 
@@ -152,6 +163,53 @@ def team_api_test_factory():
                 ],
             )
 
+        def test_group_types_graceful_degradation_on_db_failure(self):
+            """When the persons DB is unreachable and no stale data exists, the
+            endpoint still returns 200 with empty group types rather than a 500."""
+            with patch("posthog.models.group_type_mapping.GroupTypeMapping.objects") as mock_objects:
+                mock_objects.filter.return_value.order_by.return_value.values.side_effect = OperationalError(
+                    "could not connect to server"
+                )
+                cache.delete(f"{GROUP_TYPES_CACHE_KEY_PREFIX}{self.team.project_id}")
+                cache.delete(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{self.team.project_id}")
+
+                response = self.client.get("/api/environments/@current/")
+                response_data = response.json()
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
+                self.assertEqual(response_data["has_group_types"], False)
+                self.assertEqual(response_data["group_types"], [])
+
+        def test_group_types_stale_cache_survives_prolonged_db_outage(self):
+            """After the primary 5-minute cache expires during a prolonged DB outage,
+            the stale fallback key (24h TTL) keeps serving last known good data."""
+            other_team = Team.objects.create(organization=self.organization, project=self.project)
+            create_group_type_mapping_without_created_at(
+                project=self.project, team=other_team, group_type="company", group_type_index=0
+            )
+
+            # First request populates both primary and stale cache
+            cache.delete(f"{GROUP_TYPES_CACHE_KEY_PREFIX}{self.team.project_id}")
+            cache.delete(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{self.team.project_id}")
+            response = self.client.get("/api/environments/@current/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["has_group_types"], True)
+
+            # Simulate prolonged outage: primary cache expired, but stale key remains
+            cache.delete(f"{GROUP_TYPES_CACHE_KEY_PREFIX}{self.team.project_id}")
+
+            with patch("posthog.models.group_type_mapping.GroupTypeMapping.objects") as mock_objects:
+                mock_objects.filter.return_value.order_by.return_value.values.side_effect = OperationalError(
+                    "could not connect to server"
+                )
+
+                response = self.client.get("/api/environments/@current/")
+                response_data = response.json()
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
+                self.assertEqual(response_data["has_group_types"], True)
+                self.assertEqual(response_data["group_types"][0]["group_type"], "company")
+
         def test_cant_retrieve_team_from_another_org(self):
             org = Organization.objects.create(name="New Org")
             team = Team.objects.create(organization=org, name="Default project")
@@ -159,86 +217,6 @@ def team_api_test_factory():
             response = self.client.get(f"/api/environments/{team.pk}/")
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
             self.assertEqual(response.json(), self.not_found_response())
-
-        @patch("posthog.api.project.get_geoip_properties")
-        @patch("posthog.api.team.get_geoip_properties")
-        def test_ip_location_is_used_for_new_team_week_day_start(
-            self, get_geoip_properties_mock: MagicMock, get_geoip_properties_legacy_endpoint: MagicMock
-        ):
-            if self.client_class is EnvironmentToProjectRewriteClient:
-                get_geoip_properties_mock = get_geoip_properties_legacy_endpoint
-
-            self.organization.available_product_features = [
-                {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": AvailableFeature.ORGANIZATIONS_PROJECTS},
-                {"key": AvailableFeature.ENVIRONMENTS, "name": AvailableFeature.ENVIRONMENTS},
-            ]
-            self.organization.save()
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
-            get_geoip_properties_mock.return_value = {}
-            response = self.client.post("/api/projects/@current/environments/", {"name": "Test World"})
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            self.assertLessEqual({"name": "Test World", "week_start_day": None}.items(), response.json().items())
-
-            get_geoip_properties_mock.return_value = {"$geoip_country_code": "US"}
-            response = self.client.post("/api/projects/@current/environments/", {"name": "Test US"})
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            self.assertLessEqual({"name": "Test US", "week_start_day": 0}.items(), response.json().items())
-
-            get_geoip_properties_mock.return_value = {"$geoip_country_code": "PL"}
-            response = self.client.post("/api/projects/@current/environments/", {"name": "Test PL"})
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            self.assertLessEqual({"name": "Test PL", "week_start_day": 1}.items(), response.json().items())
-
-            get_geoip_properties_mock.return_value = {"$geoip_country_code": "IR"}
-            response = self.client.post("/api/projects/@current/environments/", {"name": "Test IR"})
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            self.assertLessEqual({"name": "Test IR", "week_start_day": 0}.items(), response.json().items())
-
-        def test_cant_create_team_without_license_on_selfhosted(self):
-            with self.is_cloud(False):
-                response = self.client.post("/api/projects/@current/environments/", {"name": "Test"})
-                self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-                self.assertEqual(Team.objects.count(), 1)
-                response = self.client.post("/api/projects/@current/environments/", {"name": "Test"})
-                self.assertEqual(Team.objects.count(), 1)
-
-        def test_cant_create_a_second_team_without_license(self):
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-            self.assertEqual(Team.objects.count(), 1)
-
-            response = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox", "is_demo": False})
-            self.assertEqual(response.status_code, 403)
-            response_data = response.json()
-            self.assertEqual(
-                response_data.get("detail"),
-                (
-                    "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
-                    if self.client_class is not EnvironmentToProjectRewriteClient
-                    else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
-                ),
-            )
-            self.assertEqual(response_data.get("type"), "authentication_error")
-            self.assertEqual(response_data.get("code"), "permission_denied")
-            self.assertEqual(Team.objects.count(), 1)
-
-            # another request without the is_demo parameter
-            response = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox"})
-            self.assertEqual(response.status_code, 403)
-            response_data = response.json()
-            self.assertEqual(
-                response_data.get("detail"),
-                (
-                    "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
-                    if self.client_class is not EnvironmentToProjectRewriteClient
-                    else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
-                ),
-            )
-            self.assertEqual(response_data.get("type"), "authentication_error")
-            self.assertEqual(response_data.get("code"), "permission_denied")
-            self.assertEqual(Team.objects.count(), 1)
 
         @freeze_time("2022-02-08")
         def test_update_team_timezone(self):
@@ -296,6 +274,68 @@ def team_api_test_factory():
             self.team.refresh_from_db()
             self.assertEqual(self.team.test_account_filters_default_checked, True)
 
+        def test_retrieve_receive_org_level_activity_logs(self):
+            response = self.client.get("/api/environments/@current/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            response_data = response.json()
+            self.assertEqual(response_data["receive_org_level_activity_logs"], False)
+
+        def test_update_receive_org_level_activity_logs(self):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            response = self.client.patch("/api/environments/@current/", {"receive_org_level_activity_logs": True})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            response_data = response.json()
+            self.assertEqual(response_data["receive_org_level_activity_logs"], True)
+
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.receive_org_level_activity_logs, True)
+
+        def test_update_receive_org_level_activity_logs_requires_admin(self):
+            member_user = User.objects.create_user(email="member@posthog.com", password="password", first_name="Member")
+            OrganizationMembership.objects.create(
+                user=member_user,
+                organization=self.organization,
+                level=OrganizationMembership.Level.MEMBER,
+            )
+            self.client.force_login(member_user)
+
+            response = self.client.patch("/api/environments/@current/", {"receive_org_level_activity_logs": True})
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertEqual(
+                response.json(),
+                {
+                    "type": "authentication_error",
+                    "code": "permission_denied",
+                    "detail": "Only organization owners and admins can modify the receive_org_level_activity_logs setting.",
+                    "attr": None,
+                },
+            )
+
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.receive_org_level_activity_logs, False)
+
+        def test_update_receive_org_level_activity_logs_allows_admin(self):
+            admin_user = User.objects.create_user(email="admin@posthog.com", password="password", first_name="Admin")
+            OrganizationMembership.objects.create(
+                user=admin_user,
+                organization=self.organization,
+                level=OrganizationMembership.Level.ADMIN,
+            )
+            self.client.force_login(admin_user)
+
+            response = self.client.patch("/api/environments/@current/", {"receive_org_level_activity_logs": True})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            response_data = response.json()
+            self.assertEqual(response_data["receive_org_level_activity_logs"], True)
+
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.receive_org_level_activity_logs, True)
+
         def test_cannot_set_invalid_timezone_for_team(self):
             response = self.client.patch("/api/environments/@current/", {"timezone": "America/I_Dont_Exist"})
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -311,6 +351,38 @@ def team_api_test_factory():
 
             self.team.refresh_from_db()
             self.assertNotEqual(self.team.timezone, "America/I_Dont_Exist")
+
+        @parameterized.expand(
+            [
+                ("null_value", None, True),
+                ("empty_string", "", True),
+                ("valid_slack_url", "https://hooks.slack.com/services/T00/B00/XXX", True),
+                ("valid_external_url", "https://example.com/webhook", True),
+                ("localhost", "http://localhost/webhook", False),
+                ("localhost_with_port", "http://localhost:8080/webhook", False),
+                ("loopback_ip", "http://127.0.0.1/webhook", False),
+                ("internal_ip_192", "http://192.168.1.1/webhook", False),
+                ("internal_ip_10", "http://10.0.0.1/webhook", False),
+                ("internal_ip_172", "http://172.16.0.1/webhook", False),
+            ]
+        )
+        @override_settings(DEBUG=False)
+        def test_slack_incoming_webhook_ssrf_validation(
+            self, _name: str, webhook_url: str | None, should_succeed: bool
+        ):
+            """Test that slack_incoming_webhook rejects internal/private IPs (CVE-2025-1521)."""
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"slack_incoming_webhook": webhook_url},
+            )
+            if should_succeed:
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.team.refresh_from_db()
+                self.assertEqual(self.team.slack_incoming_webhook, webhook_url if webhook_url else None)
+            else:
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                response_data = response.json()
+                self.assertIn("Invalid webhook URL", response_data.get("detail", "") or str(response_data))
 
         def test_cant_update_team_from_another_org(self):
             org = Organization.objects.create(name="New Org")
@@ -427,35 +499,28 @@ def team_api_test_factory():
                 )
             assert activity == expected_activity
 
-        @patch("posthog.api.project.delete_bulky_postgres_data")
-        @patch("posthog.api.team.delete_bulky_postgres_data")
+        @patch("posthog.api.project.delete_project_data_and_notify_task")
+        @patch("posthog.tasks.tasks.delete_project_data_and_notify_task")
         @patch("posthoganalytics.capture")
         def test_delete_team_own_second(
             self,
             mock_capture: MagicMock,
-            mock_delete_bulky_postgres_data: MagicMock,
-            mock_delete_bulky_postgres_data_legacy_endpoint: MagicMock,
+            mock_delete_task_team: MagicMock,
+            mock_delete_task_project: MagicMock,
         ):
-            if self.client_class is EnvironmentToProjectRewriteClient:
-                mock_delete_bulky_postgres_data = mock_delete_bulky_postgres_data_legacy_endpoint
-
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
 
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+            team_pk = team.pk
 
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
 
             response = self.client.delete(f"/api/environments/{team.id}")
 
             self.assertEqual(response.status_code, 204)
-            self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
-            self.assertEqual(
-                AsyncDeletion.objects.filter(
-                    team_id=team.id, deletion_type=DeletionType.Team, key=str(team.id)
-                ).count(),
-                1,
-            )
+            # Team deletion happens async in the (mocked) Celery task, so team still exists
+            # We only verify the task was queued correctly
             expected_capture_calls = [
                 call(
                     distinct_id=self.user.distinct_id,
@@ -466,7 +531,7 @@ def team_api_test_factory():
                 call(
                     distinct_id=self.user.distinct_id,
                     event="team deleted",
-                    properties={},
+                    properties=mock.ANY,
                     groups=mock.ANY,
                 ),
             ]
@@ -475,12 +540,24 @@ def team_api_test_factory():
                     call(
                         distinct_id=self.user.distinct_id,
                         event="project deleted",
-                        properties={"project_name": "Default project"},
+                        properties=mock.ANY,
                         groups=mock.ANY,
                     )
                 )
+                mock_delete_task_project.delay.assert_called_once_with(
+                    team_ids=[team_pk],
+                    project_id=team_pk,
+                    user_id=self.user.id,
+                    project_name="Default project",
+                )
+            else:
+                mock_delete_task_team.delay.assert_called_once_with(
+                    team_ids=[team_pk],
+                    project_id=None,
+                    user_id=self.user.id,
+                    project_name="Default project",
+                )
             assert mock_capture.call_args_list == expected_capture_calls
-            mock_delete_bulky_postgres_data.assert_called_once_with(team_ids=[team.pk])
 
         def test_delete_bulky_postgres_data(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -507,7 +584,6 @@ def team_api_test_factory():
                 team=team,
                 name="test",
                 key="test",
-                rollout_percentage=50,
                 created_by=self.user,
             )
             FeatureFlagHashKeyOverride.objects.create(
@@ -526,7 +602,10 @@ def team_api_test_factory():
             )
 
             # if something is missing then teardown fails
-            response = self.client.delete(f"/api/environments/{team.id}")
+            with snapshot_postgres_queries_context(
+                self, custom_query_matcher=lambda query: "DELETE" in query and "posthog_person" in query
+            ):
+                response = self.client.delete(f"/api/environments/{team.id}")
             self.assertEqual(response.status_code, 204)
 
         def test_delete_batch_exports(self):
@@ -573,6 +652,108 @@ def team_api_test_factory():
 
                 with self.assertRaises(RPCError):
                     describe_schedule(temporal, batch_export_id)
+
+        def test_delete_team_with_already_deleted_batch_export(self):
+            """Team deletion should succeed even if batch exports were already soft-deleted."""
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            self.organization.save()
+            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+
+            destination_data = {
+                "type": "S3",
+                "config": {
+                    "bucket_name": "my-production-s3-bucket",
+                    "region": "us-east-1",
+                    "prefix": "posthog-events/",
+                    "aws_access_key_id": "abc123",
+                    "aws_secret_access_key": "secret",
+                },
+            }
+
+            batch_export_data = {
+                "name": "my-production-s3-bucket-destination",
+                "destination": destination_data,
+                "interval": "hour",
+            }
+
+            temporal = sync_connect()
+
+            with start_test_worker(temporal):
+                response = self.client.post(
+                    f"/api/environments/{team.id}/batch_exports",
+                    json.dumps(batch_export_data),
+                    content_type="application/json",
+                )
+                assert response.status_code == 201, response.json()
+
+                batch_export = response.json()
+                batch_export_id = batch_export["id"]
+
+                # Delete the batch export first (this soft-deletes it and removes the Temporal schedule)
+                response = self.client.delete(f"/api/environments/{team.id}/batch_exports/{batch_export_id}")
+                assert response.status_code == 204
+
+                # Verify the schedule is gone
+                with self.assertRaises(RPCError):
+                    describe_schedule(temporal, batch_export_id)
+
+                # Now delete the team - this should succeed
+                response = self.client.delete(f"/api/environments/{team.id}")
+                assert response.status_code == 204
+
+        @patch("posthog.temporal.common.schedule.delete_schedule")
+        @patch("posthog.models.team.util.sync_connect")
+        def test_delete_data_modeling_schedules(self, mock_sync_connect, mock_delete_schedule):
+            from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+
+            saved_query = DataWarehouseSavedQuery.objects.create(
+                team=team,
+                name="test_scheduled_query",
+                query={"kind": "HogQLQuery", "query": "SELECT 1"},
+                sync_frequency_interval=timedelta(hours=1),
+            )
+
+            mock_temporal = MagicMock()
+            mock_sync_connect.return_value = mock_temporal
+
+            response = self.client.delete(f"/api/environments/{team.id}")
+            assert response.status_code == 204
+
+            mock_delete_schedule.assert_called_once_with(mock_temporal, schedule_id=str(saved_query.id))
+
+        @patch("posthog.temporal.common.schedule.delete_schedule")
+        @patch("posthog.models.team.util.sync_connect")
+        def test_delete_data_modeling_schedules_handles_not_found(self, mock_sync_connect, mock_delete_schedule):
+            import temporalio.service
+
+            from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+
+            DataWarehouseSavedQuery.objects.create(
+                team=team,
+                name="test_missing_schedule",
+                query={"kind": "HogQLQuery", "query": "SELECT 1"},
+                sync_frequency_interval=timedelta(hours=1),
+            )
+
+            mock_temporal = MagicMock()
+            mock_sync_connect.return_value = mock_temporal
+
+            rpc_error = temporalio.service.RPCError("not found", temporalio.service.RPCStatusCode.NOT_FOUND, b"")
+            mock_delete_schedule.side_effect = rpc_error
+
+            response = self.client.delete(f"/api/environments/{team.id}")
+            assert response.status_code == 204
 
         @freeze_time("2022-02-08")
         def test_reset_token(self):
@@ -915,27 +1096,6 @@ def team_api_test_factory():
             response = self.client.get(f"/api/environments/{self.team.id}/is_generating_demo_data/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(response.json(), {"is_generating_demo_data": False})
-
-        @patch("posthog.demo.matrix.manager.MatrixManager.run_on_team")  # We don't actually need demo data, it's slow
-        def test_org_member_can_create_demo_project(self, mock_create_data_for_demo_team: MagicMock):
-            self.organization.available_product_features = [
-                {
-                    "key": AvailableFeature.ENVIRONMENTS,
-                    "name": "Environments",
-                    "limit": 2,
-                },
-                {
-                    "key": AvailableFeature.ORGANIZATIONS_PROJECTS,
-                    "name": "Projects",
-                    "limit": 2,
-                },
-            ]
-            self.organization.save()
-            self.organization_membership.level = OrganizationMembership.Level.MEMBER
-            self.organization_membership.save()
-            response = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox", "is_demo": True})
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-            mock_create_data_for_demo_team.assert_called_once()
 
         @freeze_time("2022-02-08")
         def test_team_float_config_can_be_serialized_to_activity_log(self):
@@ -1376,12 +1536,91 @@ def team_api_test_factory():
             # and the existing second level nesting is not preserved
             self._assert_replay_config_is({"ai_config": {"opt_in": None, "included_event_properties": ["and another"]}})
 
+        def test_modifiers_are_merged_on_patch(self) -> None:
+            # Set initial modifiers with personsOnEventsMode
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {"modifiers": {"personsOnEventsMode": "person_id_override_properties_on_events"}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["modifiers"] == {"personsOnEventsMode": "person_id_override_properties_on_events"}
+
+            # Patch with customChannelTypeRules - should preserve personsOnEventsMode
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {
+                    "modifiers": {
+                        "customChannelTypeRules": [
+                            {"id": "test", "channel_type": "Direct", "combiner": "AND", "items": []}
+                        ]
+                    }
+                },
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["modifiers"]["personsOnEventsMode"] == "person_id_override_properties_on_events"
+            assert response.json()["modifiers"]["customChannelTypeRules"] == [
+                {"id": "test", "channel_type": "Direct", "combiner": "AND", "items": []}
+            ]
+
+            # Patch with a different personsOnEventsMode - should update it while keeping customChannelTypeRules
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {"modifiers": {"personsOnEventsMode": "person_id_override_properties_joined"}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["modifiers"]["personsOnEventsMode"] == "person_id_override_properties_joined"
+            assert response.json()["modifiers"]["customChannelTypeRules"] == [
+                {"id": "test", "channel_type": "Direct", "combiner": "AND", "items": []}
+            ]
+
+        @parameterized.expand(
+            [
+                (1, True),
+                (-1, False),
+                (60, True),
+                (120, True),
+                (1.5, True),
+                (None, True),
+                (0, False),
+                (121, False),
+                (999999999, False),
+                ("not-a-number", False),
+            ]
+        )
+        def test_modifiers_bounceRateDurationSeconds_validation(self, value: Any, should_succeed: bool) -> None:
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {"modifiers": {"bounceRateDurationSeconds": value}},
+            )
+
+            if should_succeed:
+                assert response.status_code == status.HTTP_200_OK, response.json()
+                assert response.json()["modifiers"]["bounceRateDurationSeconds"] == value
+            else:
+                assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+        def test_modifiers_rejects_nested_objects(self) -> None:
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {"modifiers": {"bounceRateDurationSeconds": {"nested": "object"}}},
+            )
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        def test_modifiers_rejects_unknown_keys(self) -> None:
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {"modifiers": {"unknownField": True}},
+            )
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+
         @patch("posthog.event_usage.report_user_action")
         @freeze_time("2024-01-01T00:00:00Z")
         def test_can_add_product_intent(self, mock_report_user_action: MagicMock) -> None:
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/add_product_intent/",
-                {"product_type": "product_analytics", "intent_context": "onboarding product selected"},
+                {"product_type": "product_analytics", "intent_context": "onboarding product selected - primary"},
                 headers={"Referer": "https://posthogtest.com/my-url", "X-Posthog-Session-Id": "test_session_id"},
             )
             assert response.status_code == status.HTTP_201_CREATED
@@ -1396,7 +1635,7 @@ def team_api_test_factory():
                     "$current_url": "https://posthogtest.com/my-url",
                     "$session_id": "test_session_id",
                     "$set_once": {},
-                    "intent_context": "onboarding product selected",
+                    "intent_context": "onboarding product selected - primary",
                     "is_first_intent_for_product": True,
                     "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                     "intent_updated_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
@@ -1442,7 +1681,7 @@ def team_api_test_factory():
                         "$current_url": "https://posthogtest.com/my-url",
                         "$session_id": "test_session_id",
                         "$set_once": {},
-                        "intent_context": "unknown",
+                        "intent_context": None,
                         "is_first_intent_for_product": False,
                         "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                         "intent_updated_at": datetime(2024, 1, 2, 0, 0, 0, tzinfo=UTC),
@@ -1476,14 +1715,13 @@ def team_api_test_factory():
                 "product onboarding completed",
                 {
                     "product_key": "product_analytics",
-                    "$current_url": "https://posthogtest.com/my-url",
-                    "$session_id": "test_session_id",
-                    "intent_context": "unknown",
+                    "intent_context": None,
                     "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                     "intent_updated_at": datetime(2024, 1, 5, 0, 0, 0, tzinfo=UTC),
                     "realm": get_instance_realm(),
                 },
                 team=self.team,
+                request=ANY,
             )
 
         @patch("posthog.api.project.report_user_action")
@@ -1532,14 +1770,13 @@ def team_api_test_factory():
                 "product onboarding completed",
                 {
                     "product_key": "product_analytics",
-                    "$current_url": "https://posthogtest.com/my-url",
-                    "$session_id": "test_session_id",
-                    "intent_context": "unknown",
+                    "intent_context": None,
                     "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                     "intent_updated_at": datetime(2024, 1, 5, 0, 0, 0, tzinfo=UTC),
                     "realm": get_instance_realm(),
                 },
                 team=self.team,
+                request=ANY,
             )
 
         def _create_other_org_and_team(
@@ -1635,35 +1872,6 @@ def team_api_test_factory():
             response = self.client.patch("/api/environments/@current/", {"session_recording_linked_flag": config})
             assert response.status_code == expected_status, response.json()
             return response
-
-        @patch("posthoganalytics.capture_exception")
-        def test_access_control_field_deprecated_on_create(self, mock_capture_exception):
-            """Test that access_control field is deprecated and cannot be used when creating a team."""
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
-            self.organization.available_product_features = [
-                {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "limit": 100},
-                {"key": AvailableFeature.ENVIRONMENTS, "limit": 100},
-            ]
-            self.organization.save()
-
-            response = self.client.post(
-                "/api/projects/@current/environments/",
-                {"name": "Test Environment", "access_control": True},
-            )
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            error_data = response.json()
-            self.assertIn("deprecated", error_data["detail"])
-            self.assertIn("https://posthog.com/docs/settings/access-control", error_data["detail"])
-
-            # Verify that the exception was captured
-            mock_capture_exception.assert_called_once()
-            call_args = mock_capture_exception.call_args
-            self.assertEqual(call_args[0][0].args[0], "Deprecated access control field used")
-            self.assertEqual(call_args[1]["properties"]["field"], "access_control")
-            self.assertEqual(call_args[1]["properties"]["value"], "True")
-            self.assertEqual(call_args[1]["properties"]["user_id"], self.user.id)
 
         @patch("posthoganalytics.capture_exception")
         def test_access_control_field_deprecated_on_update(self, mock_capture_exception):
@@ -1788,6 +1996,348 @@ def team_api_test_factory():
             else:
                 assert actual_value == expected_output
 
+        def test_conversations_settings_filters_null_widget_domains(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"widget_domains": ["https://example.com", None, "https://test.com", None]}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["conversations_settings"]["widget_domains"] == [
+                "https://example.com",
+                "https://test.com",
+            ]
+
+        def test_conversations_settings_merges_with_existing(self):
+            self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"widget_greeting_text": "Hello!"}},
+            )
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"widget_color": "#ff0000"}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            settings = response.json()["conversations_settings"]
+            assert settings["widget_greeting_text"] == "Hello!"
+            assert settings["widget_color"] == "#ff0000"
+
+        def test_conversations_widget_position_setting(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"widget_position": "top_left"}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["conversations_settings"]["widget_position"] == "top_left"
+
+        def test_conversations_identification_settings(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {
+                    "conversations_settings": {
+                        "widget_require_email": True,
+                        "widget_collect_name": True,
+                        "widget_identification_form_title": "Before we start...",
+                        "widget_identification_form_description": "Please provide your details.",
+                        "widget_placeholder_text": "Type your message...",
+                    }
+                },
+            )
+            assert response.status_code == status.HTTP_200_OK
+            settings = response.json()["conversations_settings"]
+            assert settings["widget_require_email"] is True
+            assert settings["widget_collect_name"] is True
+            assert settings["widget_identification_form_title"] == "Before we start..."
+            assert settings["widget_identification_form_description"] == "Please provide your details."
+            assert settings["widget_placeholder_text"] == "Type your message..."
+
+        def test_enabling_conversations_auto_generates_token(self):
+            self.team.conversations_enabled = False
+            self.team.conversations_settings = None
+            self.team.save()
+
+            response = self.client.patch("/api/environments/@current/", {"conversations_enabled": True})
+            assert response.status_code == status.HTTP_200_OK
+            settings = response.json()["conversations_settings"]
+            assert settings is not None
+            assert settings.get("widget_public_token") is not None
+            assert len(settings["widget_public_token"]) > 20
+
+        def test_enabling_conversations_preserves_existing_token(self):
+            self.team.conversations_enabled = False
+            self.team.conversations_settings = {"widget_public_token": "existing_token_123"}
+            self.team.save()
+
+            response = self.client.patch("/api/environments/@current/", {"conversations_enabled": True})
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["conversations_settings"]["widget_public_token"] == "existing_token_123"
+
+        def test_disabling_conversations_clears_token(self):
+            self.team.conversations_enabled = True
+            self.team.conversations_settings = {"widget_public_token": "some_token", "widget_color": "#123456"}
+            self.team.save()
+
+            response = self.client.patch("/api/environments/@current/", {"conversations_enabled": False})
+            assert response.status_code == status.HTTP_200_OK
+            settings = response.json()["conversations_settings"]
+            assert settings["widget_public_token"] is None
+            assert settings["widget_color"] == "#123456"
+
+        def test_generate_conversations_public_token(self):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            self.team.conversations_settings = {"widget_color": "#123456"}
+            self.team.save()
+
+            response = self.client.post(f"/api/environments/{self.team.id}/generate_conversations_public_token/")
+            assert response.status_code == status.HTTP_200_OK
+            settings = response.json()["conversations_settings"]
+            assert settings["widget_public_token"] is not None
+            assert len(settings["widget_public_token"]) > 20
+            assert settings["widget_color"] == "#123456"
+
+        def test_generate_conversations_public_token_requires_admin(self):
+            response = self.client.post(f"/api/environments/{self.team.id}/generate_conversations_public_token/")
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+
+        def test_logs_settings_retention_24_hour_restriction(self):
+            # Set initial retention - first update doesn't set retention_last_updated
+            with freeze_time("2025-01-01T00:00:00Z"):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": 16}},
+                )
+                assert response.status_code == status.HTTP_200_OK
+                assert not hasattr(response.json()["logs_settings"], "retention_last_updated")
+
+            # update retention, should set retention_last_updated
+            with freeze_time("2025-01-01T00:00:00Z"):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": 15}},
+                )
+                assert response.status_code == status.HTTP_200_OK
+                assert response.json()["logs_settings"]["retention_last_updated"] is not None
+
+            # Try to update retention within 24 hours - should fail
+            with freeze_time("2025-01-01T12:00:00Z"):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": 20}},
+                )
+                assert response.status_code == status.HTTP_400_BAD_REQUEST
+                assert "24 hours" in response.json()["detail"]
+
+            # Try to update retention after 24 hours - should succeed
+            with freeze_time("2025-01-02T00:00:01Z"):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": 20}},
+                )
+                assert response.status_code == status.HTTP_200_OK
+
+        def test_logs_settings_non_retention_changes_not_restricted(self):
+            # Set initial retention
+            with freeze_time("2025-01-01T00:00:00Z"):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": 16}},
+                )
+                assert response.status_code == status.HTTP_200_OK
+
+            with freeze_time("2025-01-01T00:00:00Z"):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": 15}},
+                )
+                assert response.status_code == status.HTTP_200_OK
+
+            # Change other settings within 24 hours - should succeed
+            with freeze_time("2025-01-01T12:00:00Z"):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {
+                        "logs_settings": {
+                            "retention_days": 15,  # Same retention
+                            "json_parse_logs": True,
+                        }
+                    },
+                )
+                assert response.status_code == status.HTTP_200_OK
+
+            # Change retention after 24 hours - should succeed
+            with freeze_time("2025-01-02T00:00:01Z"):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {
+                        "logs_settings": {
+                            "retention_days": 16,
+                        }
+                    },
+                )
+                assert response.status_code == status.HTTP_200_OK
+
+        def test_read_only_api_key_cannot_update_team_config_fields(self):
+            """API keys with only project:read scope should not be able to modify config fields."""
+            api_key = self.create_personal_api_key_with_scopes(["project:read"])
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"timezone": "Europe/Lisbon"},
+                headers={"authorization": f"Bearer {api_key}"},
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertIn("project:write", response.json().get("detail", ""))
+
+            # Verify no changes were made
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.timezone, "UTC")
+
+        def test_write_api_key_can_update_team_config_fields(self):
+            """API keys with project:write scope should be able to modify config fields."""
+            api_key = self.create_personal_api_key_with_scopes(["project:write"])
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
+                headers={"authorization": f"Bearer {api_key}"},
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            # Verify changes were made
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.timezone, "Europe/Lisbon")
+            self.assertEqual(self.team.session_recording_opt_in, True)
+
+        def _get_model_for_name_field(self):
+            """Returns the model whose 'name' field is updated by the current endpoint.
+
+            /api/environments/ updates Team.name, /api/projects/ updates Project.name.
+            This allows tests to work correctly when inherited by TestProjectAPI.
+            """
+            if isinstance(self.client, EnvironmentToProjectRewriteClient):
+                return self.project
+            return self.team
+
+        def test_read_only_api_key_cannot_update_team_non_config_fields(self):
+            """API keys with only project:read scope should not be able to modify non-config fields like name."""
+            api_key = self.create_personal_api_key_with_scopes(["project:read"])
+            model = self._get_model_for_name_field()
+            original_name = model.name
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"name": "New Team Name"},
+                headers={"authorization": f"Bearer {api_key}"},
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+            # Verify no changes were made
+            model.refresh_from_db()
+            self.assertEqual(model.name, original_name)
+
+        def test_write_api_key_can_update_team_non_config_fields(self):
+            """API keys with project:write scope should be able to modify non-config fields like name."""
+            api_key = self.create_personal_api_key_with_scopes(["project:write"])
+            model = self._get_model_for_name_field()
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"name": "New Team Name"},
+                headers={"authorization": f"Bearer {api_key}"},
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            # Verify changes were made
+            model.refresh_from_db()
+            self.assertEqual(model.name, "New Team Name")
+
+        def test_session_auth_member_can_still_update_config_fields(self):
+            """Session-based auth (browser users) with member role should still be able to update config fields.
+
+            This test ensures we didn't break existing UI behavior while fixing the API key issue.
+            """
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            # Verify changes were made
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.timezone, "Europe/Lisbon")
+            self.assertEqual(self.team.session_recording_opt_in, True)
+
+        @override_settings(DEBUG=True)
+        def test_update_proactive_tasks_enabled_true_creates_signal_source_config(self):
+            from products.signals.backend.models import SignalSourceConfig
+
+            response = self.client.patch("/api/environments/@current/", {"proactive_tasks_enabled": True})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            self.assertTrue(
+                SignalSourceConfig.objects.filter(
+                    team=self.team,
+                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+                    enabled=True,
+                ).exists()
+            )
+
+        @override_settings(DEBUG=True)
+        def test_update_proactive_tasks_enabled_false_deletes_signal_source_config(self):
+            from products.signals.backend.models import SignalSourceConfig
+
+            SignalSourceConfig.objects.create(
+                team=self.team,
+                source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+                source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+                enabled=True,
+                config={},
+            )
+
+            response = self.client.patch("/api/environments/@current/", {"proactive_tasks_enabled": False})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            self.assertFalse(
+                SignalSourceConfig.objects.filter(
+                    team=self.team,
+                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+                ).exists()
+            )
+
+        @override_settings(DEBUG=True)
+        def test_update_proactive_tasks_enabled_true_is_idempotent(self):
+            from products.signals.backend.models import SignalSourceConfig
+
+            SignalSourceConfig.objects.create(
+                team=self.team,
+                source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+                source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+                enabled=True,
+                config={},
+            )
+
+            response = self.client.patch("/api/environments/@current/", {"proactive_tasks_enabled": True})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            self.assertEqual(
+                SignalSourceConfig.objects.filter(
+                    team=self.team,
+                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+                ).count(),
+                1,
+            )
+
     return TestTeamAPI
 
 
@@ -1845,16 +2395,20 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
             scoped_teams=[other_team_in_project.id],
+            scopes=["*"],
         )
 
-        response = self.client.get("/api/environments/", HTTP_AUTHORIZATION=f"Bearer {personal_api_key}")
+        # Team-scoped keys cannot list all environments — they can only access specific teams directly
+        response = self.client.get("/api/environments/", headers={"authorization": f"Bearer {personal_api_key}"})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+        # But they can access the scoped team directly
+        response = self.client.get(
+            f"/api/environments/{other_team_in_project.id}/",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            {team["id"] for team in response.json()["results"]},
-            {other_team_in_project.id},
-            "Only the scoped team listed here, the other two should be excluded",
-        )
+        self.assertEqual(response.json()["id"], other_team_in_project.id)
 
     def test_teams_outside_personal_api_key_scoped_organizations_not_listed(self):
         other_org, __, team_in_other_org = Organization.objects.bootstrap(self.user)
@@ -1865,9 +2419,10 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
             scoped_organizations=[other_org.id],
+            scopes=["*"],
         )
 
-        response = self.client.get("/api/environments/", HTTP_AUTHORIZATION=f"Bearer {personal_api_key}")
+        response = self.client.get("/api/environments/", headers={"authorization": f"Bearer {personal_api_key}"})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
@@ -1876,67 +2431,102 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             "Only the team belonging to the scoped organization should be listed, the other one should be excluded",
         )
 
-    def test_can_create_team_with_valid_environments_limit(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        self.organization.available_product_features = [
-            {
-                "key": AvailableFeature.ENVIRONMENTS,
-                "name": "Environments",
-                "limit": 5,
-            }
-        ]
-        self.organization.save()
-        self.assertEqual(Team.objects.count(), 1)
-
-        response = self.client.post("/api/projects/@current/environments/", {"name": "New environment"})
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(Team.objects.count(), 2)
-
-    def test_cant_create_team_when_at_environments_limit(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        self.organization.available_product_features = [
-            {
-                "key": AvailableFeature.ENVIRONMENTS,
-                "name": "Environments",
-                "limit": 1,
-            }
-        ]
-        self.organization.save()
-        self.assertEqual(Team.objects.count(), 1)
-
-        response = self.client.post("/api/projects/@current/environments/", {"name": "New environment"})
-        self.assertEqual(response.status_code, 403)
-        response_data = response.json()
-        self.assertEqual(
-            response_data.get("detail"),
-            (
-                "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
-                if self.client_class is not EnvironmentToProjectRewriteClient
-                else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
-            ),
+    @override_settings(
+        OAUTH2_PROVIDER={
+            **settings.OAUTH2_PROVIDER,
+            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+        }
+    )
+    def test_teams_outside_oauth_scoped_teams_causes_403(self):
+        # TODO: This should filter out the teams to the scoped teams, but it causes a 403 due to a bug in APIScopePermission for list endpoints.
+        other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
+        _, team_in_other_project = Project.objects.create_with_team(
+            organization=self.organization, initiating_user=self.user
         )
-        self.assertEqual(response_data.get("type"), "authentication_error")
-        self.assertEqual(response_data.get("code"), "permission_denied")
-        self.assertEqual(Team.objects.count(), 1)
 
-    def test_can_create_team_with_unlimited_environments_feature(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ENVIRONMENTS, "name": "Environments", "limit": None}
-        ]
-        self.organization.save()
-        self.assertEqual(Team.objects.count(), 1)
+        oauth_app = OAuthApplication.objects.create(
+            name="Test OAuth App",
+            client_id="test_client_id",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
 
-        response = self.client.post("/api/projects/@current/environments/", {"name": "New environment"})
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(Team.objects.count(), 2)
+        access_token = OAuthAccessToken.objects.create(
+            application=oauth_app,
+            user=self.user,
+            token="pha_test_oauth_token",
+            scope="*",
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_teams=[other_team_in_project.id],
+        )
 
-        response = self.client.post("/api/projects/@current/environments/", {"name": "New environment 2"})
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(Team.objects.count(), 3)
+        response = self.client.get("/api/environments/", headers={"authorization": f"Bearer {access_token.token}"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @override_settings(
+        OAUTH2_PROVIDER={
+            **settings.OAUTH2_PROVIDER,
+            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+        }
+    )
+    def test_teams_outside_oauth_scoped_organizations_not_listed(self):
+        other_org, __, team_in_other_org = Organization.objects.bootstrap(self.user)
+
+        oauth_app = OAuthApplication.objects.create(
+            name="Test OAuth App",
+            client_id="test_client_id",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
+
+        access_token = OAuthAccessToken.objects.create(
+            application=oauth_app,
+            user=self.user,
+            token="pha_test_oauth_token",
+            scope="*",
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_organizations=[str(other_org.id)],
+        )
+
+        response = self.client.get("/api/environments/", headers={"authorization": f"Bearer {access_token.token}"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {team["id"] for team in response.json()["results"]},
+            {team_in_other_org.id},
+            "Only the team belonging to the scoped organization should be listed, the other one should be excluded",
+        )
+
+    @override_settings(SITE_URL="https://eu.posthog.com", CLOUD_DEPLOYMENT="EU")
+    def test_new_eu_organization_defaults_to_anonymize_ips_true(self):
+        """New organizations on EU cloud should default to default_anonymize_ips=True"""
+        new_org = Organization.objects.create(name="EU Test Org")
+
+        # Should automatically be True for EU cloud
+        self.assertTrue(new_org.default_anonymize_ips)
+
+    @override_settings(SITE_URL="https://us.posthog.com", CLOUD_DEPLOYMENT="US")
+    def test_new_us_organization_defaults_to_anonymize_ips_false(self):
+        """New organizations on US cloud should default to default_anonymize_ips=False"""
+        new_org = Organization.objects.create(name="US Test Org")
+
+        # Should be False for US cloud
+        self.assertFalse(new_org.default_anonymize_ips)
+
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT=None)
+    def test_new_selfhosted_organization_defaults_to_anonymize_ips_false(self):
+        """New organizations on self-hosted should default to default_anonymize_ips=False"""
+        new_org = Organization.objects.create(name="Self-Hosted Test Org")
+
+        # Should be False for self-hosted
+        self.assertFalse(new_org.default_anonymize_ips)
 
     def test_team_member_can_write_to_team_config_with_member_access_control(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -2117,3 +2707,80 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         self.team.refresh_from_db()
         self.assertEqual(self.team.timezone, "Europe/Lisbon")
         self.assertEqual(self.team.session_recording_opt_in, True)
+
+    @freeze_time("2025-01-01T00:00:00Z")
+    def test_settings_as_of_requires_at_param(self):
+        response = self.client.get("/api/environments/@current/settings_as_of/")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        # Response may contain either a DRF detail or field-specific error
+        payload = response.json()
+        assert (payload.get("detail")) or (payload.get("at"))
+
+    def test_settings_as_of_returns_snapshot_with_scope(self):
+        # Initial state at T0 is UTC (default)
+        with freeze_time("2025-01-01T00:00:00Z"):
+            # no change, timezone remains "UTC"
+            pass
+
+        # Change timezone at T1
+        with freeze_time("2025-01-02T00:00:00Z"):
+            patch_response = self.client.patch("/api/environments/@current/", {"timezone": "Europe/Lisbon"})
+            assert patch_response.status_code == status.HTTP_200_OK, patch_response.json()
+
+        # Query snapshot as of T0 + 12h - expect UTC
+        response = self.client.get(
+            "/api/environments/@current/settings_as_of/?at=2025-01-01T12:00:00Z"
+            "&scope=timezone&scope=session_recording_sample_rate"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert set(data.keys()) == {"timezone", "session_recording_sample_rate"}
+        assert data["timezone"] == "UTC"
+        # May be null if not set at that time
+        assert "session_recording_sample_rate" in data
+
+    def test_settings_as_of_full_snapshot_and_filtering(self):
+        # Set some configs over time to create activity
+        with freeze_time("2025-02-01T00:00:00Z"):
+            # Set opt_in true
+            r1 = self.client.patch("/api/environments/@current/", {"session_recording_opt_in": True})
+            assert r1.status_code == status.HTTP_200_OK
+
+        with freeze_time("2025-02-02T00:00:00Z"):
+            # Set sample rate and masking config
+            r2 = self.client.patch(
+                "/api/environments/@current/",
+                {
+                    "session_recording_sample_rate": 0.5,
+                    "session_recording_masking_config": {"maskAllInputs": True},
+                },
+            )
+            assert r2.status_code == status.HTTP_200_OK
+
+        # Snapshot as of between the two changes - should include first change, not the second
+        response = self.client.get(
+            "/api/environments/@current/settings_as_of/?at=2025-02-01T12:00:00Z"
+            "&scope=session_recording_opt_in&scope=session_recording_sample_rate&scope=session_recording_masking_config"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        # opt_in should be True (set on 2025-02-01)
+        assert data["session_recording_opt_in"] is True
+        # sample_rate and masking_config should reflect pre-change values at that time
+        assert "session_recording_sample_rate" in data
+        assert data["session_recording_masking_config"] is None
+
+    def test_settings_as_of_scope_only_includes_requested_keys(self):
+        with freeze_time("2025-03-01T00:00:00Z"):
+            r = self.client.patch(
+                "/api/environments/@current/",
+                {"timezone": "Europe/London", "session_recording_opt_in": False},
+            )
+            assert r.status_code == status.HTTP_200_OK
+
+        # Ask only for timezone key
+        response = self.client.get("/api/environments/@current/settings_as_of/?at=2025-03-01T00:00:01Z&scope=timezone")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert sorted(data.keys()) == ["timezone"]
+        assert data["timezone"] in ("UTC", "Europe/London")

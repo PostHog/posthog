@@ -12,6 +12,7 @@ import type { twilioSetupModalLogicType } from './twilioSetupModalLogicType'
 export interface TwilioSetupModalLogicProps {
     integration?: IntegrationType | null
     onComplete: (integrationId?: number) => void
+    onClose: () => void
 }
 
 export interface TwilioFormType {
@@ -23,7 +24,6 @@ export const twilioSetupModalLogic = kea<twilioSetupModalLogicType>([
     path(['products', 'workflows', 'frontend', 'TwilioSetup', 'twilioSetupModalLogic']),
     props({} as TwilioSetupModalLogicProps),
     connect(() => ({
-        values: [integrationsLogic, ['integrations', 'integrationsLoading']],
         actions: [integrationsLogic, ['loadIntegrations']],
     })),
     forms(({ props, actions, values }) => ({

@@ -7,6 +7,11 @@ use serde_json::Value;
 use crate::api::errors::FlagError;
 use crate::handler::flags::EvaluationRuntime;
 
+/// Maximum length for distinct_id values.
+/// This limit ensures compatibility with batch export destinations (Redshift, Postgres)
+/// which use VARCHAR(200). The main persons tables allow up to 400 chars.
+pub const MAX_DISTINCT_ID_LEN: usize = 200;
+
 fn deserialize_distinct_id<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where
     D: Deserializer<'de>,
@@ -51,14 +56,16 @@ pub struct FlagRequest {
     // It's mostly used for folks who want to save money on flag evaluations while still using
     // `/flags` to load the rest of their PostHog configuration.
     pub disable_flags: Option<bool>,
-    #[serde(default)]
+    #[serde(default, alias = "$properties")]
     pub person_properties: Option<HashMap<String, Value>>,
-    #[serde(default)]
+    #[serde(default, alias = "$groups")]
     pub groups: Option<HashMap<String, Value>>,
-    #[serde(default)]
+    #[serde(default, alias = "$group_properties")]
     pub group_properties: Option<HashMap<String, HashMap<String, Value>>>,
     #[serde(alias = "$anon_distinct_id", skip_serializing_if = "Option::is_none")]
     pub anon_distinct_id: Option<String>,
+    #[serde(alias = "$device_id", skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<String>,
     pub ip_address: Option<String>,
     #[serde(default, alias = "flag_keys_to_evaluate")]
     pub flag_keys: Option<Vec<String>>,
@@ -66,8 +73,8 @@ pub struct FlagRequest {
     pub timezone: Option<String>,
     #[serde(default)]
     pub cookieless_hash_extra: Option<String>,
-    #[serde(default)]
-    pub evaluation_environments: Option<Vec<String>>,
+    #[serde(default, alias = "evaluation_environments")]
+    pub evaluation_contexts: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evaluation_runtime: Option<EvaluationRuntime>,
 }
@@ -161,8 +168,8 @@ impl FlagRequest {
         };
 
         match distinct_id.len() {
-            0..=200 => Ok(distinct_id.to_owned()),
-            _ => Ok(distinct_id.chars().take(200).collect()),
+            0..=MAX_DISTINCT_ID_LEN => Ok(distinct_id.to_owned()),
+            _ => Ok(distinct_id.chars().take(MAX_DISTINCT_ID_LEN).collect()),
         }
     }
 
@@ -191,12 +198,14 @@ mod tests {
 
     use crate::api::errors::FlagError;
 
-    use crate::flags::flag_request::FlagRequest;
+    use crate::flags::flag_request::{FlagRequest, MAX_DISTINCT_ID_LEN};
     use crate::flags::flag_service::FlagService;
     use crate::utils::test_utils::{
-        insert_new_team_in_redis, setup_pg_reader_client, setup_redis_client,
+        insert_new_team_in_redis, setup_hypercache_reader, setup_pg_reader_client,
+        setup_redis_client, setup_team_hypercache_reader,
     };
     use bytes::Bytes;
+    use common_cache::NegativeCache;
     use serde_json::json;
 
     #[test]
@@ -218,14 +227,17 @@ mod tests {
     #[test]
     fn too_large_distinct_id_is_truncated() {
         let json = json!({
-            "distinct_id": "a".repeat(210),
+            "distinct_id": "a".repeat(MAX_DISTINCT_ID_LEN + 10),
             "token": "my_token1",
         });
         let bytes = Bytes::from(json.to_string());
 
         let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
 
-        assert_eq!(flag_payload.extract_distinct_id().unwrap().len(), 200);
+        assert_eq!(
+            flag_payload.extract_distinct_id().unwrap().len(),
+            MAX_DISTINCT_ID_LEN
+        );
     }
 
     #[test]
@@ -458,7 +470,7 @@ mod tests {
     #[tokio::test]
     async fn token_is_returned_correctly() {
         let redis_client = setup_redis_client(None).await;
-        let pg_client = setup_pg_reader_client(None).await;
+        let pg_client = setup_pg_reader_client(None);
         let team = insert_new_team_in_redis(redis_client.clone())
             .await
             .expect("Failed to insert new team in Redis");
@@ -475,23 +487,29 @@ mod tests {
             .extract_token()
             .expect("failed to extract token");
 
+        let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
+        let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
+
         let flag_service = FlagService::new(
             redis_client.clone(),
-            redis_client.clone(),
             pg_client.clone(),
+            team_hypercache_reader,
+            hypercache_reader,
+            NegativeCache::new(100, 300),
         );
 
-        match flag_service.verify_token(&token).await {
-            Ok(extracted_token) => assert_eq!(extracted_token, team.api_token),
+        match flag_service.verify_token_and_get_team(&token).await {
+            Ok(verified_team) => assert_eq!(verified_team.api_token, team.api_token),
             Err(e) => panic!("Failed to extract and verify token: {e:?}"),
         };
     }
 
     #[tokio::test]
     async fn test_error_cases() {
-        let redis_reader_client = setup_redis_client(None).await;
-        let redis_writer_client = setup_redis_client(None).await;
-        let pg_client = setup_pg_reader_client(None).await;
+        let redis_client = setup_redis_client(None).await;
+        let pg_client = setup_pg_reader_client(None);
+        let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
+        let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
 
         // Test invalid token
         let flag_request = FlagRequest {
@@ -503,12 +521,14 @@ mod tests {
             .expect("failed to extract token");
 
         let flag_service = FlagService::new(
-            redis_reader_client.clone(),
-            redis_writer_client.clone(),
+            redis_client.clone(),
             pg_client.clone(),
+            team_hypercache_reader,
+            hypercache_reader,
+            NegativeCache::new(100, 300),
         );
         assert!(matches!(
-            flag_service.verify_token(&result).await,
+            flag_service.verify_token_and_get_team(&result).await,
             Err(FlagError::TokenValidationError)
         ));
 
@@ -643,5 +663,92 @@ mod tests {
             flag_payload.evaluation_runtime,
             Some(EvaluationRuntime::Client)
         );
+    }
+
+    #[test]
+    fn test_groups_field_accepts_groups() {
+        let json = json!({
+            "distinct_id": "user123",
+            "token": "my_token1",
+            "groups": {
+                "organization": "org_123",
+                "company": "company_456"
+            }
+        });
+        let bytes = Bytes::from(json.to_string());
+
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+
+        assert!(flag_payload.groups.is_some());
+        let groups = flag_payload.groups.unwrap();
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups.get("organization").unwrap(), &json!("org_123"));
+        assert_eq!(groups.get("company").unwrap(), &json!("company_456"));
+    }
+
+    #[test]
+    fn test_groups_field_accepts_dollar_groups_for_backwards_compatibility() {
+        let json = json!({
+            "distinct_id": "user123",
+            "token": "my_token1",
+            "$groups": {
+                "organization": "org_123",
+                "company": "company_456"
+            }
+        });
+        let bytes = Bytes::from(json.to_string());
+
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+
+        assert!(flag_payload.groups.is_some());
+        let groups = flag_payload.groups.unwrap();
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups.get("organization").unwrap(), &json!("org_123"));
+        assert_eq!(groups.get("company").unwrap(), &json!("company_456"));
+    }
+
+    #[test]
+    fn test_person_properties_field_accepts_dollar_properties_for_backwards_compatibility() {
+        let json = json!({
+            "distinct_id": "user123",
+            "token": "my_token1",
+            "$properties": {
+                "email": "user@example.com",
+                "age": 25
+            }
+        });
+        let bytes = Bytes::from(json.to_string());
+
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+
+        assert!(flag_payload.person_properties.is_some());
+        let props = flag_payload.person_properties.unwrap();
+        assert_eq!(props.len(), 2);
+        assert_eq!(props.get("email").unwrap(), &json!("user@example.com"));
+        assert_eq!(props.get("age").unwrap(), &json!(25));
+    }
+
+    #[test]
+    fn test_group_properties_field_accepts_dollar_group_properties_for_backwards_compatibility() {
+        let json = json!({
+            "distinct_id": "user123",
+            "token": "my_token1",
+            "$group_properties": {
+                "organization": {
+                    "name": "ACME Corp",
+                    "size": 100
+                }
+            }
+        });
+        let bytes = Bytes::from(json.to_string());
+
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+
+        assert!(flag_payload.group_properties.is_some());
+        let group_props = flag_payload.group_properties.unwrap();
+        assert_eq!(group_props.len(), 1);
+        let org_props = group_props.get("organization").unwrap();
+        assert_eq!(org_props.get("name").unwrap(), &json!("ACME Corp"));
+        assert_eq!(org_props.get("size").unwrap(), &json!(100));
     }
 }

@@ -1,5 +1,5 @@
 use crate::{
-    api::types::FlagsResponse,
+    api::{errors::FlagError, types::FlagsResponse},
     database::PostgresRouter,
     flags::{flag_group_type_mapping::GroupTypeMappingCache, flag_matching::FeatureFlagMatcher},
 };
@@ -11,8 +11,8 @@ use super::types::FeatureFlagEvaluationContext;
 pub async fn evaluate_feature_flags(
     context: FeatureFlagEvaluationContext,
     request_id: Uuid,
-) -> FlagsResponse {
-    let group_type_mapping_cache = GroupTypeMappingCache::new(context.project_id);
+) -> Result<FlagsResponse, FlagError> {
+    let group_type_mapping_cache = GroupTypeMappingCache::new(context.team_id);
 
     // Create router from the context
     let router = PostgresRouter::new(
@@ -24,13 +24,16 @@ pub async fn evaluate_feature_flags(
 
     let mut matcher = FeatureFlagMatcher::new(
         context.distinct_id,
+        context.device_id,
         context.team_id,
-        context.project_id,
         router,
         context.cohort_cache,
         Some(group_type_mapping_cache),
         context.groups,
-    );
+    )
+    .with_parallel_eval_threshold(context.parallel_eval_threshold)
+    .with_rayon_dispatcher(context.rayon_dispatcher)
+    .with_skip_writes(context.skip_writes);
 
     matcher
         .evaluate_all_feature_flags(
@@ -40,6 +43,7 @@ pub async fn evaluate_feature_flags(
             context.hash_key_override, // Aka $anon_distinct_id
             request_id,
             context.flag_keys,
+            context.optimize_experience_continuity_lookups,
         )
         .await
 }

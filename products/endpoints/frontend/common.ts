@@ -1,61 +1,42 @@
 import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 
-import { QuerySchema } from '~/queries/schema/schema-general'
-import { InsightLogicProps } from '~/types'
+import { NodeKind } from '~/queries/schema/schema-general'
 
-export const INITIAL_DATE_FROM = '-7d' as string
-export const INITIAL_DATE_TO = null as string | null
-export const INITIAL_REQUEST_NAME_BREAKDOWN_ENABLED = false as boolean
+/** Must match ENDPOINT_NAME_REGEX in products/endpoints/backend/api.py */
+const ENDPOINT_NAME_REGEX = /^[a-zA-Z][a-zA-Z0-9_-]{0,127}$/
 
-export interface EndpointsUsageTileLayout {
-    /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
-    colSpanClassName?: `md:col-span-${number}` | 'md:col-span-full'
-    /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
-    rowSpanClassName?: `md:row-span-${number}`
-    /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
-    orderWhenLargeClassName?: `xxl:order-${number}`
-    className?: string
+export function validateEndpointName(name: string): string | undefined {
+    if (!name) {
+        return 'Endpoint name is required'
+    }
+    if (name.length > 128) {
+        return `Name is too long (${name.length}/128 characters).`
+    }
+    if (!/^[a-zA-Z]/.test(name)) {
+        return 'Name must start with a letter.'
+    }
+    // Allow spaces (slugify converts them to hyphens) but catch truly unsupported chars like . , ! @ etc.
+    const invalidChars = name.match(/[^a-zA-Z0-9_\s-]/g)
+    if (invalidChars) {
+        const unique = [...new Set(invalidChars)]
+        return `Name contains unsupported characters: ${unique.map((c) => `"${c}"`).join(', ')}. Only letters, numbers, hyphens, and underscores are allowed.`
+    }
+    if (!ENDPOINT_NAME_REGEX.test(name) && !ENDPOINT_NAME_REGEX.test(name.replace(/\s+/g, '-'))) {
+        return 'Name must start with a letter, contain only letters, numbers, hyphens, or underscores, and be between 1 and 128 characters.'
+    }
+    return undefined
 }
 
-export enum EndpointsUsageTileId {
-    API_QUERIES_COUNT = 'API_QUERIES_COUNT',
-    API_READ_TB = 'API_READ_TB',
-    API_CPU_SECONDS = 'API_CPU_SECONDS',
-    API_QUERIES_PER_KEY = 'API_QUERIES_PER_KEY',
-    API_LAST_20_QUERIES = 'API_LAST_20_QUERIES',
-    API_EXPENSIVE_QUERIES = 'API_EXPENSIVE_QUERIES',
-    API_FAILED_QUERIES = 'API_FAILED_QUERIES',
-}
-
-export const loadPriorityMap: Record<EndpointsUsageTileId, number> = {
-    [EndpointsUsageTileId.API_QUERIES_COUNT]: 1,
-    [EndpointsUsageTileId.API_READ_TB]: 2,
-    [EndpointsUsageTileId.API_CPU_SECONDS]: 3,
-    [EndpointsUsageTileId.API_QUERIES_PER_KEY]: 4,
-    [EndpointsUsageTileId.API_LAST_20_QUERIES]: 5,
-    [EndpointsUsageTileId.API_EXPENSIVE_QUERIES]: 6,
-    [EndpointsUsageTileId.API_FAILED_QUERIES]: 7,
-}
-
-export interface EndpointsUsageBaseTile {
-    tileId: EndpointsUsageTileId
-    layout: EndpointsUsageTileLayout
-    docs?: EndpointsDocs
+/**
+ * Converts a NodeKind query type to a user-friendly display name by removing the 'Query' suffix.
+ * Examples: 'HogQLQuery' -> 'HogQL', 'TrendsQuery' -> 'Trends', 'FunnelsQuery' -> 'Funnels'
+ */
+export function humanizeQueryKind(kind: NodeKind | string): string {
+    return kind.endsWith('Query') ? kind.slice(0, -5) : kind
 }
 
 export interface EndpointsDocs {
     url?: PostHogComDocsURL
     title: string
     description: string | JSX.Element
-}
-
-export interface EndpointsUsageQueryTile extends EndpointsUsageBaseTile {
-    kind: 'query'
-    title?: string
-    query: QuerySchema
-    showIntervalSelect?: boolean
-    control?: JSX.Element
-    insightProps: InsightLogicProps
-    canOpenModal?: boolean
-    canOpenInsight?: boolean
 }

@@ -3,6 +3,7 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -12,6 +13,8 @@ import { featurePreviewsLogic } from './featurePreviewsLogic'
 
 // Mock posthog-js
 jest.mock('posthog-js')
+// Mock lemonToast
+jest.mock('lib/lemon-ui/LemonToast')
 
 // Set up the mock methods that various parts of the code need
 const mockedPosthog = posthog as jest.Mocked<typeof posthog>
@@ -89,5 +92,94 @@ describe('featurePreviewsLogic - updateEarlyAccessFeatureEnrollment', () => {
         // Test alpha stage
         logic.actions.updateEarlyAccessFeatureEnrollment('alpha-flag', true, 'alpha')
         expect(mockUpdateEnrollment).toHaveBeenCalledWith('alpha-flag', true, 'alpha')
+    })
+})
+
+describe('featurePreviewsLogic - conceptEnrollments reducer', () => {
+    let logic: ReturnType<typeof featurePreviewsLogic.build>
+
+    beforeEach(() => {
+        jest.clearAllMocks()
+        ;(posthog as any).updateEarlyAccessFeatureEnrollment = jest.fn()
+
+        useMocks({
+            post: {
+                'https://posthoghelp.zendesk.com/api/v2/requests.json': [200, {}],
+            },
+        })
+        initKeaTests()
+        logic = featurePreviewsLogic()
+        logic.mount()
+        userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+    })
+
+    test.each([
+        ['concept', true, { 'concept-flag': true }],
+        ['beta', true, {}],
+        ['concept', false, { 'concept-flag': false }],
+    ])('stage=%s enabled=%s → conceptEnrollments=%j', async (stage, enabled, expected) => {
+        logic.actions.updateEarlyAccessFeatureEnrollment('concept-flag', enabled, stage)
+        await expectLogic(logic).toMatchValues({ conceptEnrollments: expected })
+    })
+
+    test('tracks multiple concept enrollments', async () => {
+        logic.actions.updateEarlyAccessFeatureEnrollment('concept-a', true, 'concept')
+        logic.actions.updateEarlyAccessFeatureEnrollment('concept-b', true, 'concept')
+
+        await expectLogic(logic).toMatchValues({
+            conceptEnrollments: { 'concept-a': true, 'concept-b': true },
+        })
+    })
+})
+
+describe('featurePreviewsLogic - updateEarlyAccessFeatureEnrollment (impersonated session)', () => {
+    let logic: ReturnType<typeof featurePreviewsLogic.build>
+    const mockUpdateEnrollment = jest.fn()
+    let originalImpersonatedSession: boolean | undefined
+
+    beforeEach(() => {
+        jest.clearAllMocks()
+
+        // Mock window.IMPERSONATED_SESSION
+        originalImpersonatedSession = window.IMPERSONATED_SESSION
+        window.IMPERSONATED_SESSION = true
+
+        // Set up the mock implementation for posthog
+        ;(posthog as any).updateEarlyAccessFeatureEnrollment = mockUpdateEnrollment
+
+        useMocks({
+            post: {
+                'https://posthoghelp.zendesk.com/api/v2/requests.json': [200, {}],
+            },
+        })
+        initKeaTests()
+        logic = featurePreviewsLogic()
+        logic.mount()
+        userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+    })
+
+    afterEach(() => {
+        window.IMPERSONATED_SESSION = originalImpersonatedSession
+        jest.restoreAllMocks()
+    })
+
+    test('shows error toast when trying to update enrollment while impersonating', () => {
+        logic.actions.updateEarlyAccessFeatureEnrollment('test-flag', true)
+
+        expect(mockUpdateEnrollment).not.toHaveBeenCalled()
+        expect(lemonToast.error).toHaveBeenCalledWith(
+            'Cannot update early access feature enrollment while impersonating a user'
+        )
+    })
+
+    test('shows error toast for all update attempts during impersonation', () => {
+        logic.actions.updateEarlyAccessFeatureEnrollment('test-flag', false)
+        logic.actions.updateEarlyAccessFeatureEnrollment('beta-flag', true, 'beta')
+
+        expect(mockUpdateEnrollment).not.toHaveBeenCalled()
+        expect(lemonToast.error).toHaveBeenCalledTimes(2)
+        expect(lemonToast.error).toHaveBeenCalledWith(
+            'Cannot update early access feature enrollment while impersonating a user'
+        )
     })
 })

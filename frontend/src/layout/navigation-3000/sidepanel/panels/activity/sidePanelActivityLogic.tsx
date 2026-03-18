@@ -9,7 +9,6 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { ActivityScope, UserBasicType } from '~/types'
 
-import { sidePanelStateLogic } from '../../sidePanelStateLogic'
 import { SidePanelSceneContext } from '../../types'
 import { sidePanelContextLogic } from '../sidePanelContextLogic'
 import type { sidePanelActivityLogicType } from './sidePanelActivityLogicType'
@@ -32,27 +31,12 @@ export type ActivityFilters = {
     user?: UserBasicType['id']
 }
 
-export interface ChangesResponse {
-    results: ActivityLogItem[]
-    next: string | null
-    last_read: string
-}
-
-export enum SidePanelActivityTab {
-    Unread = 'unread',
-    All = 'all',
-    Metalytics = 'metalytics',
-    Subscriptions = 'subscriptions',
-}
-
 export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelActivityLogic']),
     connect(() => ({
         values: [sidePanelContextLogic, ['sceneSidePanelContext'], projectLogic, ['currentProjectId']],
-        actions: [sidePanelStateLogic, ['openSidePanel']],
     })),
     actions({
-        setActiveTab: (tab: SidePanelActivityTab) => ({ tab }),
         loadAllActivity: true,
         loadOlderActivity: true,
         maybeLoadOlderActivity: true,
@@ -60,13 +44,6 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
         setContextFromPage: (filters: ActivityFilters | null) => ({ filters }),
     }),
     reducers({
-        activeTab: [
-            SidePanelActivityTab.Unread as SidePanelActivityTab,
-            { persist: true },
-            {
-                setActiveTab: (_, { tab }) => tab,
-            },
-        ],
         activeFilters: [
             null as ActivityFilters | null,
             {
@@ -110,19 +87,9 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     })),
 
     listeners(({ values, actions }) => ({
-        setActiveTab: ({ tab }) => {
-            if (tab === SidePanelActivityTab.All && !values.allActivityResponseLoading) {
-                actions.loadAllActivity()
-            }
-        },
         maybeLoadOlderActivity: () => {
             if (!values.allActivityResponseLoading && values.allActivityResponse?.next) {
                 actions.loadOlderActivity()
-            }
-        },
-        openSidePanel: ({ options }) => {
-            if (options) {
-                actions.setActiveTab(options as SidePanelActivityTab)
             }
         },
     })),
@@ -142,7 +109,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
         ],
     }),
 
-    subscriptions(({ actions, values }) => ({
+    subscriptions(({ actions }) => ({
         sceneSidePanelContext: (sceneSidePanelContext: SidePanelSceneContext) => {
             const newFilters = sceneSidePanelContext
                 ? {
@@ -155,9 +122,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
             actions.setActiveFilters(newFilters)
         },
         activeFilters: () => {
-            if (values.activeTab === SidePanelActivityTab.All) {
-                actions.loadAllActivity()
-            }
+            actions.loadAllActivity()
         },
     })),
 

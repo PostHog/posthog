@@ -1,10 +1,10 @@
-import equal from 'fast-deep-equal'
 import { actions, connect, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual, sortedKeys } from 'lib/utils'
+import { RequiredExcept } from 'lib/utils/types'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '~/queries/nodes/DataTable/queryFeatures'
@@ -19,7 +19,6 @@ import {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { isDataTableNode, isEventsQuery } from '~/queries/utils'
-import { RequiredExcept } from '~/types'
 
 import type { dataTableLogicType } from './dataTableLogicType'
 import { getColumnsForQuery, removeExpressionComment } from './utils'
@@ -76,6 +75,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
         ],
     })),
     selectors({
+        context: [() => [(_, props) => props.context], (context) => context],
         sourceKind: [(_, p) => [p.query], (query): NodeKind | null => query.source?.kind],
         sourceFeatures: [
             (_, p) => [p.query, (_, props) => props.context],
@@ -107,27 +107,22 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 response && 'columns' in response && Array.isArray(response.columns) ? response?.columns : null,
         ],
         dataTableRows: [
-            (s) => [s.sourceKind, s.orderBy, s.response, s.columnsInQuery, s.columnsInResponse],
+            (s) => [s.sourceKind, s.orderBy, s.response, s.columnsInResponse, (_, props) => props.context],
             (
-                sourceKind,
-                orderBy,
+                sourceKind: NodeKind | null,
+                orderBy: string[] | null,
                 response: AnyDataNode['response'],
-                columnsInQuery,
-                columnsInResponse
+                columnsInResponse: string[] | null,
+                context: QueryContext<DataTableNode> | undefined
             ): DataTableRow[] | null => {
                 if (response && sourceKind === NodeKind.EventsQuery) {
-                    const eventsQueryResponse = response as AnyResponseType
-                    if (eventsQueryResponse) {
-                        // must be loading
-                        if (!equal(columnsInQuery, columnsInResponse)) {
-                            return []
-                        }
-
+                    const queryResponse = response as AnyResponseType
+                    if (queryResponse) {
                         let results: any[] | null = []
-                        if ('results' in eventsQueryResponse) {
-                            results = eventsQueryResponse.results
-                        } else if ('result' in eventsQueryResponse) {
-                            results = eventsQueryResponse.result
+                        if ('results' in queryResponse) {
+                            results = queryResponse.results
+                        } else if ('result' in queryResponse) {
+                            results = queryResponse.result
                         }
 
                         if (!results) {
@@ -144,7 +139,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                                     removeExpressionComment(column) === `-${orderKey}`
                             ) ?? -1
 
-                        // Add a label between results if the day changed
+                        // Add a label between results if the day changed for events with timestamp
                         if (orderKey === 'timestamp' && orderKeyIndex !== -1) {
                             let lastResult: any = null
                             const newResults: DataTableRow[] = []
@@ -175,7 +170,8 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         ? response.result
                         : null
 
-                return results ? (results.map((result: any) => ({ result })) ?? null) : null
+                const rows = results ? (results.map((result: any) => ({ result })) ?? null) : null
+                return context?.dataTableRowsTransformer ? context.dataTableRowsTransformer(rows ?? []) : rows
             },
         ],
         queryWithDefaults: [
@@ -185,7 +181,10 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 columnsInQuery,
                 featureFlags,
                 context
-            ): RequiredExcept<Omit<DataTableNode, 'response'>, 'version' | 'tags'> => {
+            ): RequiredExcept<
+                Omit<DataTableNode, 'response'>,
+                'version' | 'tags' | 'defaultColumns' | 'contextKey'
+            > => {
                 const { kind, columns: _columns, source, ...rest } = query
                 const showIfFull = !!query.full
                 const flagQueryRunningTimeEnabled = !!featureFlags[FEATURE_FLAGS.QUERY_RUNNING_TIME]
@@ -207,6 +206,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         propertiesViaUrl: query.propertiesViaUrl ?? false,
                         showPropertyFilter: query.showPropertyFilter ?? showIfFull,
                         showEventFilter: query.showEventFilter ?? showIfFull,
+                        showEventsFilter: query.showEventsFilter ?? false,
                         showSearch: query.showSearch ?? showIfFull,
                         showActions: query.showActions ?? true,
                         showDateRange: query.showDateRange ?? showIfFull,
@@ -222,6 +222,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         showPersistentColumnConfigurator: query.showPersistentColumnConfigurator ?? false,
                         showSavedQueries: query.showSavedQueries ?? false,
                         showSavedFilters: query.showSavedFilters ?? false,
+                        showTableViews: query.showTableViews ?? false,
                         showHogQLEditor: query.showHogQLEditor ?? showIfFull,
                         allowSorting: query.allowSorting ?? true,
                         showOpenEditorButton:
@@ -229,6 +230,9 @@ export const dataTableLogic = kea<dataTableLogicType>([
                                 ? context.showOpenEditorButton
                                 : (query.showOpenEditorButton ?? true),
                         showResultsTable: query.showResultsTable ?? true,
+                        showRecordingColumn: query.showRecordingColumn ?? false,
+                        showSourceQueryOptions: query.showSourceQueryOptions ?? true,
+                        showCount: query.showCount ?? false,
                     }),
                 }
             },

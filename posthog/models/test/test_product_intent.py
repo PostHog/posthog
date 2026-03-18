@@ -5,9 +5,12 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from posthog.schema import ProductIntentContext, ProductKey
+
 from posthog.models.dashboard import Dashboard
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
+from posthog.models.file_system.user_product_list import UserProductList
 from posthog.models.insight import Insight
 from posthog.models.product_intent.product_intent import ProductIntent, calculate_product_activation
 from posthog.models.surveys.survey import Survey
@@ -18,7 +21,7 @@ from posthog.utils import get_instance_realm
 class TestProductIntent(BaseTest):
     def setUp(self):
         super().setUp()
-        self.product_intent = ProductIntent.objects.create(team=self.team, product_type="data_warehouse")
+        self.product_intent = ProductIntent.objects.create(team=self.team, product_type=ProductKey.DATA_WAREHOUSE)
 
     def test_str_representation(self):
         self.assertEqual(str(self.product_intent), f"{self.team.name} - data_warehouse")
@@ -26,49 +29,50 @@ class TestProductIntent(BaseTest):
     def test_unique_constraint(self):
         # Test that we can't create duplicate product intents for same team/product
         with pytest.raises(Exception):
-            ProductIntent.objects.create(team=self.team, product_type="data_warehouse")
+            ProductIntent.objects.create(team=self.team, product_type=ProductKey.DATA_WAREHOUSE)
 
     def test_can_create_intent_with_register(self):
-        ProductIntent.register(self.team, "session_replay", "test", self.user)
-
-        intent = ProductIntent.objects.filter(team=self.team, product_type="session_replay").first()
+        ProductIntent.register(
+            self.team, ProductKey.SESSION_REPLAY, ProductIntentContext.QUICK_START_PRODUCT_SELECTED, self.user
+        )
+        intent = ProductIntent.objects.filter(team=self.team, product_type=ProductKey.SESSION_REPLAY).first()
         assert intent is not None
-        assert intent.contexts == {"test": 1}
+        assert intent.contexts == {ProductIntentContext.QUICK_START_PRODUCT_SELECTED: 1}
 
-        ProductIntent.register(self.team, "session_replay", "test", self.user)
-
+        ProductIntent.register(
+            self.team, ProductKey.SESSION_REPLAY, ProductIntentContext.QUICK_START_PRODUCT_SELECTED, self.user
+        )
         intent.refresh_from_db()
-
         assert intent is not None
-        assert intent.contexts == {"test": 2}
+        assert intent.contexts == {ProductIntentContext.QUICK_START_PRODUCT_SELECTED: 2}
 
     @freeze_time("2024-01-01T12:00:00Z")
     def test_register_with_onboarding_sets_onboarding_completed_at(self):
         ProductIntent.register(
             team=self.team,
-            product_type="product_analytics",
-            context="onboarding product selected - primary",
+            product_type=ProductKey.PRODUCT_ANALYTICS,
+            context=ProductIntentContext.ONBOARDING_PRODUCT_SELECTED___PRIMARY,
             user=self.user,
             is_onboarding=True,
         )
 
-        intent = ProductIntent.objects.get(team=self.team, product_type="product_analytics")
+        intent = ProductIntent.objects.get(team=self.team, product_type=ProductKey.PRODUCT_ANALYTICS)
         assert intent.onboarding_completed_at == datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
-        assert intent.contexts == {"onboarding product selected - primary": 1}
+        assert intent.contexts == {ProductIntentContext.ONBOARDING_PRODUCT_SELECTED___PRIMARY: 1}
 
     @freeze_time("2024-01-01T12:00:00Z")
     def test_register_without_onboarding_does_not_set_onboarding_completed_at(self):
         ProductIntent.register(
             team=self.team,
-            product_type="product_analytics",
-            context="test context",
+            product_type=ProductKey.PRODUCT_ANALYTICS,
+            context=ProductIntentContext.TAXONOMIC_FILTER_EMPTY_STATE,
             user=self.user,
             is_onboarding=False,
         )
 
-        intent = ProductIntent.objects.get(team=self.team, product_type="product_analytics")
+        intent = ProductIntent.objects.get(team=self.team, product_type=ProductKey.PRODUCT_ANALYTICS)
         assert intent.onboarding_completed_at is None
-        assert intent.contexts == {"test context": 1}
+        assert intent.contexts == {ProductIntentContext.TAXONOMIC_FILTER_EMPTY_STATE: 1}
 
     @freeze_time("2024-06-15T12:00:00Z")
     def test_has_activated_data_warehouse_with_valid_query(self):
@@ -227,7 +231,9 @@ class TestProductIntent(BaseTest):
 
         # Create a product intent with the filters set
         ProductIntent.objects.create(
-            team=self.team, product_type="session_replay", contexts={"session_replay_set_filters": 1}
+            team=self.team,
+            product_type=ProductKey.SESSION_REPLAY,
+            contexts={ProductIntentContext.SESSION_REPLAY_SET_FILTERS: 1},
         )
 
         self.assertTrue(self.product_intent.has_activated_session_replay())
@@ -236,7 +242,9 @@ class TestProductIntent(BaseTest):
     def test_has_not_activated_session_replay_with_less_than_five_recordings(self):
         # Create a product intent with the filters set
         ProductIntent.objects.create(
-            team=self.team, product_type="session_replay", contexts={"session_replay_set_filters": 1}
+            team=self.team,
+            product_type=ProductKey.SESSION_REPLAY,
+            contexts={ProductIntentContext.SESSION_REPLAY_SET_FILTERS: 1},
         )
 
         # Create only 4 recordings and mark them as viewed
@@ -254,7 +262,9 @@ class TestProductIntent(BaseTest):
     def test_has_not_activated_session_replay_with_unviewed_recordings(self):
         # Create a product intent with the filters set
         ProductIntent.objects.create(
-            team=self.team, product_type="session_replay", contexts={"session_replay_set_filters": 1}
+            team=self.team,
+            product_type=ProductKey.SESSION_REPLAY,
+            contexts={ProductIntentContext.SESSION_REPLAY_SET_FILTERS: 1},
         )
 
         for i in range(3):
@@ -276,7 +286,7 @@ class TestProductIntent(BaseTest):
         assert self.product_intent.has_activated_session_replay() is False
 
     def test_has_not_activated_session_replay_without_filters_set(self):
-        ProductIntent.objects.create(team=self.team, product_type="session_replay")
+        ProductIntent.objects.create(team=self.team, product_type=ProductKey.SESSION_REPLAY)
 
         assert self.product_intent.has_activated_session_replay() is False
 
@@ -296,8 +306,8 @@ class TestProductIntent(BaseTest):
     def test_register_reports_correct_user_action_for_onboarding(self, mock_report_user_action):
         ProductIntent.register(
             team=self.team,
-            product_type="product_analytics",
-            context="onboarding product selected - primary",
+            product_type=ProductKey.PRODUCT_ANALYTICS,
+            context=ProductIntentContext.ONBOARDING_PRODUCT_SELECTED___PRIMARY,
             user=self.user,
             metadata={"extra": "data"},
             is_onboarding=True,
@@ -308,9 +318,9 @@ class TestProductIntent(BaseTest):
             "user showed product intent",
             {
                 "extra": "data",
-                "product_key": "product_analytics",
-                "$set_once": {"first_onboarding_product_selected": "product_analytics"},
-                "intent_context": "onboarding product selected - primary",
+                "product_key": ProductKey.PRODUCT_ANALYTICS,
+                "$set_once": {"first_onboarding_product_selected": ProductKey.PRODUCT_ANALYTICS},
+                "intent_context": ProductIntentContext.ONBOARDING_PRODUCT_SELECTED___PRIMARY,
                 "is_first_intent_for_product": True,
                 "intent_created_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
                 "intent_updated_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
@@ -324,8 +334,8 @@ class TestProductIntent(BaseTest):
     def test_register_reports_correct_user_action_for_non_onboarding(self, mock_report_user_action):
         ProductIntent.register(
             team=self.team,
-            product_type="product_analytics",
-            context="test context",
+            product_type=ProductKey.PRODUCT_ANALYTICS,
+            context=ProductIntentContext.QUICK_START_PRODUCT_SELECTED,
             user=self.user,
             metadata={"extra": "data"},
             is_onboarding=False,
@@ -336,9 +346,9 @@ class TestProductIntent(BaseTest):
             "user showed product intent",
             {
                 "extra": "data",
-                "product_key": "product_analytics",
+                "product_key": ProductKey.PRODUCT_ANALYTICS,
                 "$set_once": {},
-                "intent_context": "test context",
+                "intent_context": ProductIntentContext.QUICK_START_PRODUCT_SELECTED,
                 "is_first_intent_for_product": True,
                 "intent_created_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
                 "intent_updated_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
@@ -348,7 +358,7 @@ class TestProductIntent(BaseTest):
         )
 
     def test_has_activated_product_analytics_with_all_criteria(self):
-        self.product_intent.product_type = "product_analytics"
+        self.product_intent.product_type = ProductKey.PRODUCT_ANALYTICS
         self.product_intent.save()
 
         for i in range(3):
@@ -362,7 +372,7 @@ class TestProductIntent(BaseTest):
         assert self.product_intent.has_activated_product_analytics() is True
 
     def test_has_not_activated_product_analytics_without_enough_insights(self):
-        self.product_intent.product_type = "product_analytics"
+        self.product_intent.product_type = ProductKey.PRODUCT_ANALYTICS
         self.product_intent.save()
 
         for i in range(2):
@@ -379,7 +389,7 @@ class TestProductIntent(BaseTest):
         assert self.product_intent.has_activated_product_analytics() is True
 
     def test_has_not_activated_product_analytics_without_dashboard(self):
-        self.product_intent.product_type = "product_analytics"
+        self.product_intent.product_type = ProductKey.PRODUCT_ANALYTICS
         self.product_intent.save()
 
         for i in range(3):
@@ -395,7 +405,7 @@ class TestProductIntent(BaseTest):
         assert self.product_intent.has_activated_product_analytics() is True
 
     def test_has_not_activated_product_analytics_with_default_dashboard(self):
-        self.product_intent.product_type = "product_analytics"
+        self.product_intent.product_type = ProductKey.PRODUCT_ANALYTICS
         self.product_intent.save()
 
         for i in range(3):
@@ -413,7 +423,7 @@ class TestProductIntent(BaseTest):
         assert self.product_intent.has_activated_product_analytics() is True
 
     def test_has_not_activated_product_analytics_with_default_insights(self):
-        self.product_intent.product_type = "product_analytics"
+        self.product_intent.product_type = ProductKey.PRODUCT_ANALYTICS
         self.product_intent.save()
 
         Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
@@ -431,7 +441,7 @@ class TestProductIntent(BaseTest):
         assert self.product_intent.has_activated_product_analytics() is True
 
     def test_has_not_activated_product_analytics_without_ingested_events(self):
-        self.product_intent.product_type = "product_analytics"
+        self.product_intent.product_type = ProductKey.PRODUCT_ANALYTICS
         self.product_intent.save()
 
         for i in range(3):
@@ -460,13 +470,13 @@ class TestProductIntent(BaseTest):
         # Register intent which should activate immediately
         ProductIntent.register(
             team=self.team,
-            product_type="data_warehouse",
-            context="initial context",
+            product_type=ProductKey.DATA_WAREHOUSE,
+            context=ProductIntentContext.ONBOARDING_PRODUCT_SELECTED___PRIMARY,
             user=self.user,
         )
 
         # Verify the intent was activated
-        intent = ProductIntent.objects.get(team=self.team, product_type="data_warehouse")
+        intent = ProductIntent.objects.get(team=self.team, product_type=ProductKey.DATA_WAREHOUSE)
         assert intent.activated_at is not None
 
         # Clear the mock to count only subsequent calls
@@ -475,8 +485,8 @@ class TestProductIntent(BaseTest):
         # Register intent again with a different context
         ProductIntent.register(
             team=self.team,
-            product_type="data_warehouse",
-            context="another context",
+            product_type=ProductKey.DATA_WAREHOUSE,
+            context=ProductIntentContext.ONBOARDING_PRODUCT_SELECTED___SECONDARY,
             user=self.user,
             metadata={"source": "dashboard"},
         )
@@ -487,9 +497,9 @@ class TestProductIntent(BaseTest):
             "user showed product intent",
             {
                 "source": "dashboard",
-                "product_key": "data_warehouse",
+                "product_key": ProductKey.DATA_WAREHOUSE,
                 "$set_once": {},
-                "intent_context": "another context",
+                "intent_context": ProductIntentContext.ONBOARDING_PRODUCT_SELECTED___SECONDARY,
                 "is_first_intent_for_product": False,
                 "intent_created_at": intent.created_at,
                 "intent_updated_at": intent.updated_at,
@@ -499,20 +509,20 @@ class TestProductIntent(BaseTest):
         )
 
     def test_has_activated_surveys_with_launched(self):
-        self.product_intent.product_type = "surveys"
+        self.product_intent.product_type = ProductKey.SURVEYS
         self.product_intent.save()
 
         Survey.objects.create(team=self.team, name="Survey Test", start_date=datetime.now(tz=UTC))
         assert self.product_intent.has_activated_surveys() is True
 
     def test_has_not_activated_surveys_with_no_surveys(self):
-        self.product_intent.product_type = "surveys"
+        self.product_intent.product_type = ProductKey.SURVEYS
         self.product_intent.save()
 
         assert self.product_intent.has_activated_surveys() is False
 
     def test_has_not_activated_surveys_with_unlaunched_survey(self):
-        self.product_intent.product_type = "surveys"
+        self.product_intent.product_type = ProductKey.SURVEYS
         self.product_intent.save()
 
         Survey.objects.create(team=self.team, name="Survey Test")
@@ -547,3 +557,161 @@ class TestProductIntent(BaseTest):
         assert self.product_intent.activated_at is None  # Still not activated
         assert self.product_intent.activation_last_checked_at == datetime(2024, 6, 15, 12, 0, 0, tzinfo=UTC)
         assert self.product_intent.activation_last_checked_at != initial_last_checked
+
+    def test_register_creates_user_product_list_entries_for_single_product_intent(self):
+        ProductIntent.register(
+            self.team, ProductKey.SESSION_REPLAY, ProductIntentContext.SESSION_REPLAY_SET_FILTERS, self.user
+        )
+
+        user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
+        assert user_product_lists.count() == 1
+
+        upl = user_product_lists.get()
+        assert upl.product_path == "Session replay"
+        assert upl.enabled is True
+        assert upl.reason == UserProductList.Reason.PRODUCT_INTENT
+
+    def test_register_creates_user_product_list_entries_for_multiple_product_intent(self):
+        ProductIntent.register(
+            self.team, ProductKey.DATA_WAREHOUSE, ProductIntentContext.DATA_WAREHOUSE_SOURCES_TABLE, self.user
+        )
+
+        user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team).order_by("product_path")
+        assert user_product_lists.count() == 2
+
+        product_paths = {upl.product_path for upl in user_product_lists}
+        assert product_paths == {"Data warehouse", "SQL editor"}
+
+        enabled = [upl.enabled for upl in user_product_lists]
+        assert all(enabled)
+
+        reasons = [upl.reason for upl in user_product_lists]
+        assert all(reason == UserProductList.Reason.PRODUCT_INTENT for reason in reasons)
+
+    def test_register_ignores_product_key_without_products(self):
+        ProductIntent.register(
+            self.team, ProductKey.ANNOTATIONS, ProductIntentContext.DATA_WAREHOUSE_SOURCES_TABLE, self.user
+        )
+
+        user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
+        assert user_product_lists.count() == 0
+
+    def test_register_respects_allow_sidebar_suggestions_false(self):
+        self.user.allow_sidebar_suggestions = False
+        self.user.save()
+
+        ProductIntent.register(
+            self.team, ProductKey.DATA_WAREHOUSE, ProductIntentContext.DATA_WAREHOUSE_SOURCES_TABLE, self.user
+        )
+
+        user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
+        assert user_product_lists.count() == 0
+
+    def test_register_does_not_create_duplicates_on_multiple_calls(self):
+        assert UserProductList.objects.filter(user=self.user, team=self.team).count() == 0
+
+        ProductIntent.register(
+            self.team, ProductKey.SESSION_REPLAY, ProductIntentContext.ONBOARDING_PRODUCT_SELECTED___PRIMARY, self.user
+        )
+        assert UserProductList.objects.filter(user=self.user, team=self.team).count() == 1
+
+        ProductIntent.register(
+            self.team, ProductKey.SESSION_REPLAY, ProductIntentContext.QUICK_START_PRODUCT_SELECTED, self.user
+        )
+        assert UserProductList.objects.filter(user=self.user, team=self.team).count() == 1
+
+    def test_register_creates_user_product_list_for_different_intents(self):
+        ProductIntent.register(
+            self.team, ProductKey.SESSION_REPLAY, ProductIntentContext.QUICK_START_PRODUCT_SELECTED, self.user
+        )
+        assert UserProductList.objects.filter(user=self.user, team=self.team).count() == 1
+
+        ProductIntent.register(
+            self.team, ProductKey.PRODUCT_ANALYTICS, ProductIntentContext.QUICK_START_PRODUCT_SELECTED, self.user
+        )
+        user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
+        assert user_product_lists.count() == 3
+
+        product_paths = {upl.product_path for upl in user_product_lists}
+        assert product_paths == {"Session replay", "Dashboards", "Product analytics"}
+
+    def test_register_allows_creation_when_allow_sidebar_suggestions_is_none(self):
+        self.user.allow_sidebar_suggestions = None
+        self.user.save()
+
+        ProductIntent.register(
+            self.team, ProductKey.SURVEYS, ProductIntentContext.QUICK_START_PRODUCT_SELECTED, self.user
+        )
+
+        user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
+        assert user_product_lists.count() == 1
+        assert user_product_lists.get().product_path == "Surveys"
+
+    def test_register_allows_creation_when_allow_sidebar_suggestions_is_true(self):
+        self.user.allow_sidebar_suggestions = True
+        self.user.save()
+
+        ProductIntent.register(
+            self.team, ProductKey.SURVEYS, ProductIntentContext.QUICK_START_PRODUCT_SELECTED, self.user
+        )
+
+        user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
+        assert user_product_lists.count() == 1
+        assert user_product_lists.get().product_path == "Surveys"
+
+    def test_register_rejects_creation_when_allow_sidebar_suggestions_is_false(self):
+        self.user.allow_sidebar_suggestions = False
+        self.user.save()
+
+        ProductIntent.register(
+            self.team, ProductKey.SURVEYS, ProductIntentContext.QUICK_START_PRODUCT_SELECTED, self.user
+        )
+        assert UserProductList.objects.filter(user=self.user, team=self.team).count() == 0
+
+    def test_register_with_onboarding_context_creates_user_product_list_with_onboarding_reason(self):
+        self.user.allow_sidebar_suggestions = True
+        self.user.save()
+
+        ProductIntent.register(
+            team=self.team,
+            product_type=ProductKey.SESSION_REPLAY,
+            context=ProductIntentContext.ONBOARDING_PRODUCT_SELECTED___PRIMARY,
+            user=self.user,
+            is_onboarding=True,
+        )
+
+        user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
+        assert user_product_lists.count() == 1
+        assert user_product_lists.get().reason == UserProductList.Reason.ONBOARDING
+
+    def test_register_with_quick_start_context_creates_user_product_list_with_onboarding_reason(self):
+        self.user.allow_sidebar_suggestions = True
+        self.user.save()
+
+        ProductIntent.register(
+            team=self.team,
+            product_type=ProductKey.SESSION_REPLAY,
+            context=ProductIntentContext.QUICK_START_PRODUCT_SELECTED,
+            user=self.user,
+            is_onboarding=True,
+        )
+
+        user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
+        assert user_product_lists.count() == 1
+        assert user_product_lists.get().reason == UserProductList.Reason.ONBOARDING
+
+    def test_register_without_onboarding_context_creates_user_product_list_with_product_intent_reason(self):
+        self.user.allow_sidebar_suggestions = True
+        self.user.save()
+
+        ProductIntent.register(
+            team=self.team,
+            product_type=ProductKey.SESSION_REPLAY,
+            context=ProductIntentContext.SESSION_REPLAY_SET_FILTERS,
+            user=self.user,
+            is_onboarding=False,
+        )
+
+        user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
+        assert user_product_lists.count() == 1
+        assert user_product_lists.get().reason == UserProductList.Reason.PRODUCT_INTENT

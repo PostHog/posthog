@@ -1,3 +1,4 @@
+from difflib import get_close_matches
 from typing import TypeVar
 
 from posthog.schema import HogQLVariable
@@ -32,11 +33,11 @@ class ReplaceVariables(CloningVisitor):
         if node.chain and node.chain[0] == "variables":
             variable_code_name = node.chain[1]
             if not self.variables:
-                raise QueryError(f"Variable {variable_code_name} is missing from query")
+                raise self._missing_variable_error(variable_code_name)
 
             matching_variables = [variable for variable in self.variables if variable.code_name == variable_code_name]
             if not matching_variables:
-                raise QueryError(f"Variable {variable_code_name} is missing from query")
+                raise self._missing_variable_error(variable_code_name)
 
             matching_variable = matching_variables[0]
 
@@ -58,3 +59,16 @@ class ReplaceVariables(CloningVisitor):
             return ast.Constant(value=value)
 
         return super().visit_placeholder(node)
+
+    def _missing_variable_error(self, variable_code_name: str) -> QueryError:
+        suggestions = self._get_variable_suggestions(variable_code_name)
+        if suggestions:
+            suggestion_list = ", ".join(suggestions)
+            return QueryError(f"Variable {variable_code_name} is missing from query. Did you mean: {suggestion_list}?")
+        return QueryError(f"Variable {variable_code_name} is missing from query")
+
+    def _get_variable_suggestions(self, variable_code_name: str) -> list[str]:
+        available_variables: list[str] = [str(variable.code_name) for variable in self.insight_variables if variable]
+        if not available_variables:
+            return []
+        return get_close_matches(variable_code_name, available_variables, n=3, cutoff=0.6)

@@ -88,6 +88,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "recording_ttl": 29,
             "start_time": self.base_time,
             "snapshot_source": "web",
+            "snapshot_library": None,
         }
 
     def test_get_metadata_with_block(self) -> None:
@@ -112,6 +113,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "recording_ttl": 89,
             "mouse_activity_count": 300,
             "snapshot_source": "web",
+            "snapshot_library": None,
         }
 
     def test_get_metadata_with_multiple_blocks(self) -> None:
@@ -142,6 +144,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "retention_period_days": 365,
             "recording_ttl": 364,
             "snapshot_source": "web",
+            "snapshot_library": None,
         }
 
     def test_get_nonexistent_metadata(self) -> None:
@@ -187,6 +190,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "recording_ttl": 29,
             "start_time": self.base_time,
             "snapshot_source": "web",
+            "snapshot_library": None,
         }
         assert metadata_dict["2"] == {
             "active_seconds": 1.234,
@@ -208,6 +212,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "retention_period_days": 90,
             "recording_ttl": 89,
             "snapshot_source": "web",
+            "snapshot_library": None,
         }
 
     def test_get_group_metadata_handles_nonexistent_sessions(self) -> None:
@@ -264,3 +269,55 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
         assert sessions == {"2"}
         assert min_ts == self.base_time
         assert max_ts == self.base_time + relativedelta(seconds=2)
+
+    def test_sessions_found_with_timestamps_excludes_sessions_without_events(self) -> None:
+        # Create a session replay without any events
+        produce_replay_summary(
+            session_id="no_events_session",
+            team_id=self.team.pk,
+            first_timestamp=self.base_time,
+            last_timestamp=self.base_time + relativedelta(seconds=5),
+            distinct_id="u_no_events",
+            first_url="https://example.io/no-events",
+            retention_period_days=30,
+            ensure_analytics_event_in_session=False,
+        )
+        # Should not include the session without events
+        sessions, min_ts, max_ts = SessionReplayEvents().sessions_found_with_timestamps(
+            session_ids=["1", "no_events_session"],
+            team=self.team,
+        )
+        assert sessions == {"1"}
+        assert min_ts == self.base_time
+        assert max_ts == self.base_time
+
+    def test_sessions_found_with_timestamps_all_sessions_without_events(self) -> None:
+        # Create sessions without events
+        produce_replay_summary(
+            session_id="no_events_1",
+            team_id=self.team.pk,
+            first_timestamp=self.base_time,
+            last_timestamp=self.base_time,
+            distinct_id="u_no_events_1",
+            first_url="https://example.io/no-events-1",
+            retention_period_days=30,
+            ensure_analytics_event_in_session=False,
+        )
+        produce_replay_summary(
+            session_id="no_events_2",
+            team_id=self.team.pk,
+            first_timestamp=self.base_time,
+            last_timestamp=self.base_time,
+            distinct_id="u_no_events_2",
+            first_url="https://example.io/no-events-2",
+            retention_period_days=30,
+            ensure_analytics_event_in_session=False,
+        )
+        # Should return empty when all sessions lack events
+        sessions, min_ts, max_ts = SessionReplayEvents().sessions_found_with_timestamps(
+            session_ids=["no_events_1", "no_events_2"],
+            team=self.team,
+        )
+        assert sessions == set()
+        assert min_ts is None
+        assert max_ts is None

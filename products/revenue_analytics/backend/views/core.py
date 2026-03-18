@@ -8,7 +8,8 @@ from posthog.schema import DatabaseSchemaManagedViewTableKind, RevenueAnalyticsE
 from posthog.hogql import ast
 
 from posthog.models.team.team import Team
-from posthog.warehouse.models.external_data_source import ExternalDataSource
+
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 
 
 @dataclass

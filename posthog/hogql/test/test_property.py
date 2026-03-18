@@ -1,9 +1,18 @@
+from collections.abc import Iterable
 from typing import Any, Literal, Optional, Union, cast
 
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest, BaseTest, _create_event, cleanup_materialized_columns
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import EmptyPropertyFilter, HogQLPropertyFilter, RetentionEntity
+from parameterized import parameterized
+
+from posthog.schema import (
+    EmptyPropertyFilter,
+    FlagPropertyFilter,
+    HogQLPropertyFilter,
+    PropertyOperator,
+    RetentionEntity,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
@@ -16,13 +25,17 @@ from posthog.hogql.property import (
     selector_to_expr,
     tag_name_to_expr,
 )
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import clear_locations
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, PropertyOperatorType
 from posthog.models import Cohort, Property, PropertyDefinition, Team
 from posthog.models.property import PropertyGroup
-from posthog.models.property_definition import PropertyType
-from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseJoin, DataWarehouseTable
+
+from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseJoin, DataWarehouseTable
+from products.event_definitions.backend.models.property_definition import PropertyType
+
+from ee.clickhouse.materialized_columns.columns import materialize
 
 elements_chain_match = lambda x: parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(x))})
 elements_chain_imatch = lambda x: parse_expr("elements_chain =~* {regex}", {"regex": ast.Constant(value=str(x))})
@@ -79,7 +92,7 @@ class TestProperty(BaseTest):
             self._parse_expr("group_3.properties.a = 'b'"),
         )
         self.assertEqual(
-            self._parse_expr("group_0.properties.a = NULL OR (NOT JSONHas(group_0.properties, 'a'))"),
+            self._parse_expr("group_0.properties.a = NULL"),
             self._property_to_expr(
                 {"type": "group", "group_type_index": 0, "key": "a", "value": "b", "operator": "is_not_set"}
             ),
@@ -143,7 +156,7 @@ class TestProperty(BaseTest):
             self._parse_expr("properties.a != NULL"),
         )
         self.assertEqual(
-            self._parse_expr("properties.a = NULL OR (NOT JSONHas(properties, 'a'))"),
+            self._parse_expr("properties.a = NULL"),
             self._property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "is_not_set"}),
         )
         self.assertEqual(
@@ -180,7 +193,7 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "regex"}),
-            self._parse_expr("ifNull(match(properties.a, '.*'), 0)"),
+            self._parse_expr("ifNull(match(toString(properties.a), '.*'), 0)"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "not_regex"}),
@@ -245,6 +258,35 @@ class TestProperty(BaseTest):
                 "properties.unknown_prop = 'true'"  # We don't have a type for unknown_prop, so string comparison it is
             ),
         )
+        # Python boolean True (not string "true") should also work
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event", "key": "boolean_prop", "value": True},
+                team=self.team,
+            ),
+            self._parse_expr("properties.boolean_prop = true"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event", "key": "string_prop", "value": True},
+                team=self.team,
+            ),
+            self._parse_expr("properties.string_prop = 'true'"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event", "key": "boolean_prop", "value": False},
+                team=self.team,
+            ),
+            self._parse_expr("properties.boolean_prop = false"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event", "key": "unknown_prop", "value": True},
+                team=self.team,
+            ),
+            self._parse_expr("properties.unknown_prop = 'true'"),
+        )
 
     def test_property_to_expr_event_list(self):
         # positive
@@ -261,12 +303,14 @@ class TestProperty(BaseTest):
                     "operator": "icontains",
                 }
             ),
-            self._parse_expr("toString(properties.a) ilike '%b%' or toString(properties.a) ilike '%c%'"),
+            self._parse_expr("multiSearchAnyCaseInsensitive(toString(properties.a), ['b', 'c']) > 0"),
         )
         a = self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "regex"})
         self.assertEqual(
             a,
-            self._parse_expr("ifNull(match(properties.a, 'b'), 0) or ifNull(match(properties.a, 'c'), 0)"),
+            self._parse_expr(
+                "ifNull(match(toString(properties.a), 'b'), 0) or ifNull(match(toString(properties.a), 'c'), 0)"
+            ),
         )
         # Want to make sure this returns 0, not false. Clickhouse uses UInt8s primarily for booleans.
         self.assertIs(0, a.exprs[1].args[1].value)
@@ -284,7 +328,7 @@ class TestProperty(BaseTest):
                     "operator": "not_icontains",
                 }
             ),
-            self._parse_expr("toString(properties.a) not ilike '%b%' and toString(properties.a) not ilike '%c%'"),
+            self._parse_expr("multiSearchAnyCaseInsensitive(toString(properties.a), ['b', 'c']) = 0"),
         )
         a = self._property_to_expr(
             {
@@ -367,6 +411,109 @@ class TestProperty(BaseTest):
                 "arrayExists(v -> ifNull(not(match(toString(v), 'ValidationError')), 1), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
             ),
         )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "$exception_types",
+                    "value": "ValidationError",
+                    "operator": "icontains",
+                }
+            ),
+            self._parse_expr(
+                "arrayExists(v -> toString(v) ILIKE '%ValidationError%', JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "$exception_types",
+                    "value": "ValidationError",
+                    "operator": "not_icontains",
+                }
+            ),
+            self._parse_expr(
+                "arrayExists(v -> toString(v) NOT ILIKE '%ValidationError%', JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "$exception_types",
+                    "value": ["ReferenceError", "TypeError"],
+                    "operator": "icontains",
+                }
+            ),
+            self._parse_expr(
+                "arrayExists(v -> multiSearchAnyCaseInsensitive(toString(v), ['ReferenceError', 'TypeError']) > 0, JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "$exception_types",
+                    "value": ["ReferenceError", "TypeError"],
+                    "operator": "not_icontains",
+                }
+            ),
+            self._parse_expr(
+                "arrayExists(v -> multiSearchAnyCaseInsensitive(toString(v), ['ReferenceError', 'TypeError']) = 0, JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
+        )
+
+    def test_property_to_expr_multiSearch_edge_cases(self):
+        # Test empty array with icontains - falls back to single value logic
+        result = self._property_to_expr(
+            {
+                "type": "event",
+                "key": "a",
+                "value": [],
+                "operator": "icontains",
+            }
+        )
+        # Empty arrays are treated as single values, converted to string representation
+        expected = self._parse_expr("toString(properties.a) ILIKE '%[]%'")
+        self.assertEqual(result, expected)
+
+        # Test single-element array with icontains - should use ILIKE, not multiSearch
+        result = self._property_to_expr(
+            {
+                "type": "event",
+                "key": "a",
+                "value": ["single"],
+                "operator": "icontains",
+            }
+        )
+        expected = self._parse_expr("toString(properties.a) ILIKE '%single%'")
+        self.assertEqual(result, expected)
+
+        # Test single-element array with not_icontains - should use NOT ILIKE, not multiSearch
+        result = self._property_to_expr(
+            {
+                "type": "event",
+                "key": "a",
+                "value": ["single"],
+                "operator": "not_icontains",
+            }
+        )
+        expected = self._parse_expr("toString(properties.a) NOT ILIKE '%single%'")
+        self.assertEqual(result, expected)
+
+        # Test non-string values being stringified
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "a",
+                    "value": [123, 456.78, True],
+                    "operator": "icontains",
+                }
+            ),
+            self._parse_expr("multiSearchAnyCaseInsensitive(toString(properties.a), ['123', '456.78', 'True']) > 0"),
+        )
 
     def test_property_to_expr_element(self):
         self.assertEqual(
@@ -444,7 +591,9 @@ class TestProperty(BaseTest):
                     "operator": "regex",
                 }
             ),
-            self._parse_expr("arrayExists(text -> ifNull(match(text, 'text-text.'), 0), elements_chain_texts)"),
+            self._parse_expr(
+                "arrayExists(text -> ifNull(match(toString(text), 'text-text.'), 0), elements_chain_texts)"
+            ),
         )
 
     def test_property_groups(self):
@@ -714,15 +863,11 @@ class TestProperty(BaseTest):
 
     def test_entity_to_expr_events_type_with_id(self):
         entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_EVENTS, "id": "event_id"})
-        result = entity_to_expr(entity, self.team)
-        expected = ast.And(
-            exprs=[
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["events", "event"]),
-                    right=ast.Constant(value="event_id"),
-                )
-            ]
+        result = clear_locations(entity_to_expr(entity, self.team))
+        expected = ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["events", "event"]),
+            right=ast.Constant(value="event_id"),
         )
         self.assertEqual(result, expected)
 
@@ -743,6 +888,22 @@ class TestProperty(BaseTest):
                 scope="event",
             ),
             self._parse_expr("session.$session_duration = 10"),
+        )
+
+    def test_session_boolean_property(self):
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "session", "key": "$is_bounce", "value": "true", "operator": "exact"},
+                scope="event",
+            ),
+            self._parse_expr("session.$is_bounce = true"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "session", "key": "$is_bounce", "value": "false", "operator": "exact"},
+                scope="event",
+            ),
+            self._parse_expr("session.$is_bounce = false"),
         )
 
     def test_data_warehouse_person_property(self):
@@ -885,20 +1046,20 @@ class TestProperty(BaseTest):
         ) == self._parse_expr("$virt_initial_channel_type = 'Organic Search'")
 
         assert self._property_to_expr(
-            {"type": "person", "key": "$virt_revenue_last_30_days", "value": 100, "operator": "exact"}, scope="person"
-        ) == self._parse_expr("$virt_revenue_last_30_days = 100")
+            {"type": "person", "key": "$virt_mrr", "value": 100, "operator": "exact"}, scope="person"
+        ) == self._parse_expr("$virt_mrr = 100")
 
     def test_virtual_group_properties_on_group_scope(self):
         assert self._property_to_expr(
             {
                 "type": "group",
-                "key": "$virt_revenue_last_30_days",
+                "key": "$virt_mrr",
                 "value": 100,
                 "operator": "exact",
                 "group_type_index": 0,
             },
             scope="group",
-        ) == self._parse_expr("$virt_revenue_last_30_days = 100")
+        ) == self._parse_expr("$virt_mrr = 100")
 
     def test_virtual_person_properties_on_event_scope(self):
         assert self._property_to_expr(
@@ -967,3 +1128,498 @@ class TestProperty(BaseTest):
             self._property_to_expr(
                 {"type": "event_metadata", "key": "$group_3", "operator": "exact", "value": ["1", "2"]}, scope="group"
             )
+
+    def test_property_to_expr_between_operator(self):
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [18, 65]}),
+            self._parse_expr("(properties.age >= 18 AND properties.age <= 65)"),
+        )
+
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "age", "operator": "between", "value": [25, 50]}),
+            self._parse_expr("(person.properties.age >= 25 AND person.properties.age <= 50)"),
+        )
+
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "score", "operator": "not_between", "value": [0, 100]}),
+            self._parse_expr("(properties.score < 0 OR properties.score > 100)"),
+        )
+
+    def test_property_to_expr_between_operator_validation(self):
+        with self.assertRaisesMessage(QueryError, "between operator requires a two-element array [min, max]"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": 25})
+
+        with self.assertRaisesMessage(QueryError, "between operator requires a two-element array [min, max]"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [18]})
+
+        with self.assertRaisesMessage(QueryError, "between operator requires a two-element array [min, max]"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [18, 25, 65]})
+
+        with self.assertRaisesMessage(QueryError, "not_between operator requires a two-element array [min, max]"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "not_between", "value": 1})
+
+        with self.assertRaisesMessage(
+            QueryError, "between operator requires min value to be less than or equal to max value"
+        ):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [10, 1]})
+
+        with self.assertRaisesMessage(
+            QueryError, "not_between operator requires min value to be less than or equal to max value"
+        ):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "not_between", "value": [10, 1]})
+
+        with self.assertRaisesMessage(QueryError, "between operator requires numeric values"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": ["abc", "def"]})
+
+        with self.assertRaisesMessage(QueryError, "not_between operator requires numeric values"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "not_between", "value": ["xyz", "123"]})
+
+        with self.assertRaisesMessage(QueryError, "between operator requires numeric values"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [None, 10]})
+
+    def test_property_to_expr_min_max_operators(self):
+        # Test MIN operator (alias for GTE)
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "age", "operator": "min", "value": 18}),
+            self._parse_expr("properties.age >= 18"),
+        )
+
+        # Test MAX operator (alias for LTE)
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "age", "operator": "max", "value": 65}),
+            self._parse_expr("properties.age <= 65"),
+        )
+
+        # Test MIN with person properties
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "age", "operator": "min", "value": 25}),
+            self._parse_expr("person.properties.age >= 25"),
+        )
+
+        # Test MAX with person properties
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "score", "operator": "max", "value": 100}),
+            self._parse_expr("person.properties.score <= 100"),
+        )
+
+    def test_property_to_expr_semver_operators(self):
+        # Test semver_eq
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "app_version", "operator": "semver_eq", "value": "1.2.3"}),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('1.2.3')"),
+        )
+
+        # Test semver_gt
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "app_version", "operator": "semver_gt", "value": "1.2.3"}),
+            self._parse_expr("sortableSemver(person.properties.app_version) > sortableSemver('1.2.3')"),
+        )
+
+        # Test semver_gte
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_gte", "value": "1.2.3"}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) >= sortableSemver('1.2.3')"),
+        )
+
+        # Test semver_lt
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "app_version", "operator": "semver_lt", "value": "1.2.3"}),
+            self._parse_expr("sortableSemver(person.properties.app_version) < sortableSemver('1.2.3')"),
+        )
+
+        # Test semver_lte
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_lte", "value": "1.2.3"}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) <= sortableSemver('1.2.3')"),
+        )
+
+        # Test semver_tilde (~1.2.3 means >=1.2.3 <1.3.0)
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_tilde", "value": "1.2.3"}
+            ),
+            self._parse_expr(
+                "(sortableSemver(person.properties.app_version) >= sortableSemver('1.2.3') AND sortableSemver(person.properties.app_version) < sortableSemver('1.3.0'))"
+            ),
+        )
+
+        # Test semver_caret (^1.2.3 means >=1.2.3 <2.0.0)
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_caret", "value": "1.2.3"}
+            ),
+            self._parse_expr(
+                "(sortableSemver(person.properties.app_version) >= sortableSemver('1.2.3') AND sortableSemver(person.properties.app_version) < sortableSemver('2.0.0'))"
+            ),
+        )
+
+        # Test semver_caret with 0.x.y versions (^0.2.3 means >=0.2.3 <0.3.0)
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_caret", "value": "0.2.3"}
+            ),
+            self._parse_expr(
+                "(sortableSemver(person.properties.app_version) >= sortableSemver('0.2.3') AND sortableSemver(person.properties.app_version) < sortableSemver('0.3.0'))"
+            ),
+        )
+
+        # Test semver_caret with 0.0.x versions (^0.0.3 means >=0.0.3 <0.0.4)
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_caret", "value": "0.0.3"}
+            ),
+            self._parse_expr(
+                "(sortableSemver(person.properties.app_version) >= sortableSemver('0.0.3') AND sortableSemver(person.properties.app_version) < sortableSemver('0.0.4'))"
+            ),
+        )
+
+        # Test semver_wildcard (1.2.* means >=1.2.0 <1.3.0)
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_wildcard", "value": "1.2.*"}
+            ),
+            self._parse_expr(
+                "(sortableSemver(person.properties.app_version) >= sortableSemver('1.2.0') AND sortableSemver(person.properties.app_version) < sortableSemver('1.3.0'))"
+            ),
+        )
+
+        # Test semver_wildcard with major version (1.* means >=1.0.0 <2.0.0)
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_wildcard", "value": "1.*"}
+            ),
+            self._parse_expr(
+                "(sortableSemver(person.properties.app_version) >= sortableSemver('1.0.0') AND sortableSemver(person.properties.app_version) < sortableSemver('2.0.0'))"
+            ),
+        )
+
+    def test_property_to_expr_semver_validation(self):
+        # Test tilde with bare major (~1 means >=1.0.0 <2.0.0)
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "version", "operator": "semver_tilde", "value": "1"}),
+            self._parse_expr(
+                "(sortableSemver(person.properties.version) >= sortableSemver('1.0.0') AND sortableSemver(person.properties.version) < sortableSemver('2.0.0'))"
+            ),
+        )
+
+        # Test caret requires valid semver
+        with self.assertRaisesMessage(QueryError, "Caret operator requires a valid semver string"):
+            self._property_to_expr({"type": "person", "key": "version", "operator": "semver_caret", "value": "abc.def"})
+
+        # Test wildcard requires valid pattern
+        with self.assertRaisesMessage(QueryError, "Wildcard operator requires a valid semver string (e.g., '1.2.3')"):
+            self._property_to_expr({"type": "person", "key": "version", "operator": "semver_wildcard", "value": "*"})
+
+        # Test wildcard requires valid pattern
+        with self.assertRaisesMessage(QueryError, "Wildcard operator requires a valid semver string (e.g., '1.2.3')"):
+            self._property_to_expr({"type": "person", "key": "version", "operator": "semver_wildcard", "value": ".*"})
+
+    def test_property_to_expr_semver_edge_cases(self):
+        """Test edge cases to document expected behavior with various version formats"""
+        # Minimal version (0.0.0)
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "app_version", "operator": "semver_eq", "value": "0.0.0"}),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('0.0.0')"),
+        )
+
+        # Prerelease versions (1.2.3-alpha) - Not officially supported yet but sortableSemver handles them
+        # We pass through to ClickHouse's sortableSemver function which should handle the parsing
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_eq", "value": "1.2.3-alpha"}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('1.2.3-alpha')"),
+        )
+
+        # v-prefix (v1.2.3) - sortableSemver should handle this
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_eq", "value": "v1.2.3"}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('v1.2.3')"),
+        )
+
+        # Leading space ( 1.2.3) - sortableSemver will receive it as-is
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_eq", "value": " 1.2.3"}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver(' 1.2.3')"),
+        )
+
+        # Trailing space (1.2.3 ) - sortableSemver will receive it as-is
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_eq", "value": "1.2.3 "}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('1.2.3 ')"),
+        )
+
+        # Leading zeros (01.02.03) - Should be treated same as 1.2.3 by sortableSemver
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_eq", "value": "01.02.03"}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('01.02.03')"),
+        )
+
+        # Too many version numbers (1.2.3.4) - Common in .NET, sortableSemver will handle or fail
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_eq", "value": "1.2.3.4"}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('1.2.3.4')"),
+        )
+
+        # Empty component (1..2.3) - sortableSemver will handle or fail
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_eq", "value": "1..2.3"}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('1..2.3')"),
+        )
+
+        # Trailing dot (1.2.3.) - sortableSemver will handle or fail
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_eq", "value": "1.2.3."}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('1.2.3.')"),
+        )
+
+        # Leading dot (.1.2.3) - sortableSemver will handle or fail
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_eq", "value": ".1.2.3"}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('.1.2.3')"),
+        )
+
+        # Negative version part (1.-2.3) - Invalid semver, sortableSemver will handle or fail
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_eq", "value": "1.-2.3"}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('1.-2.3')"),
+        )
+
+        # Tilde with bare major zero (~0 means >=0.0.0 <1.0.0)
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "version", "operator": "semver_tilde", "value": "0"}),
+            self._parse_expr(
+                "(sortableSemver(person.properties.version) >= sortableSemver('0.0.0') AND sortableSemver(person.properties.version) < sortableSemver('1.0.0'))"
+            ),
+        )
+
+        # Caret with leading zeros should still work (our code extracts numeric values)
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_caret", "value": "01.02.03"}
+            ),
+            self._parse_expr(
+                "(sortableSemver(person.properties.app_version) >= sortableSemver('01.02.03') AND sortableSemver(person.properties.app_version) < sortableSemver('2.0.0'))"
+            ),
+        )
+
+        # Wildcard with too many parts (1.2.3.*) - Our code should handle this
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_wildcard", "value": "1.2.3.*"}
+            ),
+            self._parse_expr(
+                "(sortableSemver(person.properties.app_version) >= sortableSemver('1.2.3.0') AND sortableSemver(person.properties.app_version) < sortableSemver('1.2.4.0'))"
+            ),
+        )
+
+    # -- Operator coverage: every PropertyOperator must be handled by property_to_expr --
+
+    # Test values appropriate for each operator type
+    OPERATOR_TEST_VALUES: dict[PropertyOperator, Any] = {
+        PropertyOperator.IS_SET: "",
+        PropertyOperator.IS_NOT_SET: "",
+        PropertyOperator.BETWEEN: [1, 10],
+        PropertyOperator.NOT_BETWEEN: [1, 10],
+        PropertyOperator.IN_: ["a", "b"],
+        PropertyOperator.NOT_IN: ["a", "b"],
+        PropertyOperator.SEMVER_EQ: "1.2.3",
+        PropertyOperator.SEMVER_NEQ: "1.2.3",
+        PropertyOperator.SEMVER_GT: "1.2.3",
+        PropertyOperator.SEMVER_GTE: "1.2.3",
+        PropertyOperator.SEMVER_LT: "1.2.3",
+        PropertyOperator.SEMVER_LTE: "1.2.3",
+        PropertyOperator.SEMVER_TILDE: "1.2.3",
+        PropertyOperator.SEMVER_CARET: "1.2.3",
+        PropertyOperator.SEMVER_WILDCARD: "1.*",
+        PropertyOperator.ICONTAINS_MULTI: ["a", "b"],
+        PropertyOperator.NOT_ICONTAINS_MULTI: ["a", "b"],
+    }
+
+    # FLAG_EVALUATES_TO is dispatched via FlagPropertyFilter, not _expr_to_compare_op
+    @parameterized.expand([(op.value,) for op in PropertyOperator if op not in {PropertyOperator.FLAG_EVALUATES_TO}])
+    def test_operator_coverage(self, operator_value: str):
+        value = self.OPERATOR_TEST_VALUES.get(PropertyOperator(operator_value), "test_value")
+        result = self._property_to_expr(
+            {"type": "event", "key": "test_prop", "value": value, "operator": operator_value}
+        )
+        self.assertIsInstance(result, ast.Expr)
+
+    def test_flag_evaluates_to_produces_neutral_expr(self):
+        prop = FlagPropertyFilter(type="flag", key="my-flag", value="true", operator="flag_evaluates_to")
+        result = property_to_expr([prop], self.team)
+        self.assertEqual(result, ast.Constant(value=1))
+
+
+class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
+    # Sentinel to indicate a property should not be included in the event
+    NOT_SET: Any = object()
+
+    # Expected is_set value can be True, False, or a callable(is_materialized) -> bool
+    # When materialized, empty string and "null" string become NULL due to nullIf wrapping
+    # (this is a long-standing bug, and it's ok to change these tests if you fix it!)
+    ONLY_WHEN_NOT_MATERIALIZED = staticmethod(lambda m: not m)
+
+    def setUp(self):
+        super().setUp()
+        self.event_name = "test_is_set_event"
+
+        # (property_name, value, property_type, expected_is_set)
+        # expected_is_set: True, False, or callable(is_materialized) -> bool
+        self.test_cases: list[tuple[str, Any, PropertyType, Any]] = [
+            # String type: value, empty, "null" literal, null, not set
+            ("string_value_prop", "hello", PropertyType.String, True),
+            ("string_empty_prop", "", PropertyType.String, self.ONLY_WHEN_NOT_MATERIALIZED),
+            ("string_null_literal_prop", "null", PropertyType.String, self.ONLY_WHEN_NOT_MATERIALIZED),
+            ("string_null_prop", None, PropertyType.String, False),
+            ("string_not_set_prop", self.NOT_SET, PropertyType.String, False),
+            # Numeric type: zero, non-zero int, non-zero float, string values, null, not set
+            # Type coercion converts invalid strings to NULL
+            ("numeric_zero_prop", 0, PropertyType.Numeric, True),
+            ("numeric_int_prop", 42, PropertyType.Numeric, True),
+            ("numeric_float_prop", 3.14, PropertyType.Numeric, True),
+            ("numeric_string_valid_prop", "42", PropertyType.Numeric, True),
+            ("numeric_string_invalid_prop", "invalid_number", PropertyType.Numeric, False),
+            ("numeric_string_empty_prop", "", PropertyType.Numeric, False),
+            ("numeric_null_prop", None, PropertyType.Numeric, False),
+            ("numeric_not_set_prop", self.NOT_SET, PropertyType.Numeric, False),
+            # Boolean type: true, false, string variants, invalid, null, not set
+            # Only lowercase "true"/"false" strings are recognized
+            ("bool_true_prop", True, PropertyType.Boolean, True),
+            ("bool_false_prop", False, PropertyType.Boolean, True),
+            ("bool_string_true_lower_prop", "true", PropertyType.Boolean, True),
+            ("bool_string_true_title_prop", "True", PropertyType.Boolean, False),
+            ("bool_string_true_upper_prop", "TRUE", PropertyType.Boolean, False),
+            ("bool_string_false_lower_prop", "false", PropertyType.Boolean, True),
+            ("bool_string_invalid_prop", "invalid_bool", PropertyType.Boolean, False),
+            ("bool_string_empty_prop", "", PropertyType.Boolean, False),
+            ("bool_null_prop", None, PropertyType.Boolean, False),
+            ("bool_not_set_prop", self.NOT_SET, PropertyType.Boolean, False),
+        ]
+
+        # Create PropertyDefinitions for each property
+        for prop_name, _, prop_type, _ in self.test_cases:
+            PropertyDefinition.objects.create(
+                team=self.team,
+                name=prop_name,
+                type=PropertyDefinition.Type.EVENT,
+                property_type=prop_type,
+            )
+
+        # Create a single event with all properties (except NOT_SET ones)
+        properties = {prop_name: value for prop_name, value, _, _ in self.test_cases if value is not self.NOT_SET}
+
+        _create_event(
+            team=self.team,
+            event=self.event_name,
+            distinct_id="test_user",
+            properties=properties,
+        )
+
+    def _expected_is_set_values(self, is_materialized: bool) -> dict[str, int]:
+        result = {}
+        for prop_name, _, _, expected in self.test_cases:
+            if callable(expected):
+                result[prop_name] = 1 if expected(is_materialized) else 0
+            else:
+                result[prop_name] = 1 if expected else 0
+        return result
+
+    def _expected_is_not_set_values(self, is_materialized: bool) -> dict[str, int]:
+        return {k: 1 - v for k, v in self._expected_is_set_values(is_materialized).items()}
+
+    @parameterized.expand([("not_materialized", False), ("materialized", True)])
+    def test_is_set_operator(self, _name: str, is_materialized: bool):
+        if is_materialized:
+            self.addCleanup(cleanup_materialized_columns)
+            for prop_name, _, _, _ in self.test_cases:
+                materialize("events", prop_name)
+
+        select_exprs: list[ast.Expr] = [
+            ast.Alias(
+                alias=prop_name,
+                expr=property_to_expr(
+                    {"type": "event", "key": prop_name, "operator": "is_set"},
+                    team=self.team,
+                    scope="event",
+                ),
+            )
+            for prop_name, _, _, _ in self.test_cases
+        ]
+
+        query_ast = ast.SelectQuery(
+            select=select_exprs,
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["event"]),
+                right=ast.Constant(value=self.event_name),
+            ),
+        )
+
+        result = execute_hogql_query(team=self.team, query=query_ast)
+        assert result.columns
+        row: Iterable[Any] = result.results[0]
+        assert row
+        results = dict(zip(result.columns, row))
+
+        assert results == self._expected_is_set_values(is_materialized)
+
+    @parameterized.expand([("not_materialized", False), ("materialized", True)])
+    def test_is_not_set_operator(self, _name: str, is_materialized: bool):
+        if is_materialized:
+            self.addCleanup(cleanup_materialized_columns)
+            for prop_name, _, _, _ in self.test_cases:
+                materialize("events", prop_name)
+
+        select_exprs: list[ast.Expr] = [
+            ast.Alias(
+                alias=prop_name,
+                expr=property_to_expr(
+                    {"type": "event", "key": prop_name, "operator": "is_not_set"},
+                    team=self.team,
+                    scope="event",
+                ),
+            )
+            for prop_name, _, _, _ in self.test_cases
+        ]
+
+        query_ast = ast.SelectQuery(
+            select=select_exprs,
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["event"]),
+                right=ast.Constant(value=self.event_name),
+            ),
+        )
+
+        result = execute_hogql_query(team=self.team, query=query_ast)
+        assert result.columns
+        row: Iterable[Any] = result.results[0]
+        assert row
+        results = dict(zip(result.columns, row))
+
+        assert results == self._expected_is_not_set_values(is_materialized)

@@ -1,0 +1,70 @@
+import dataclasses
+
+from structlog import get_logger
+from structlog.contextvars import bind_contextvars
+from temporalio import activity
+
+from posthog.sync import database_sync_to_async
+
+from products.data_modeling.backend.models import Node
+from products.data_warehouse.backend.models import DataModelingJob
+from products.data_warehouse.backend.models.data_modeling_job import DataModelingJobStatus
+
+from .utils import strip_hostname_from_error, update_node_system_properties
+
+LOGGER = get_logger(__name__)
+
+
+@dataclasses.dataclass
+class FailMaterializationInputs:
+    team_id: int
+    node_id: str
+    dag_id: str
+    job_id: str
+    error: str
+    cancelled: bool = False
+
+
+@database_sync_to_async
+def _fail_node_and_data_modeling_job(inputs: FailMaterializationInputs):
+    # strip hostnames from error for user-facing storage while preserving original for logging
+    sanitized_error = strip_hostname_from_error(inputs.error)
+
+    node = Node.objects.get(id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id)
+    status = DataModelingJobStatus.CANCELLED if inputs.cancelled else DataModelingJobStatus.FAILED
+    update_node_system_properties(
+        node,
+        status=status,
+        job_id=inputs.job_id,
+        error=sanitized_error,
+    )
+    node.save()
+
+    job = DataModelingJob.objects.get(id=inputs.job_id)
+    job.status = status
+    job.error = sanitized_error
+    job.save()
+
+    if job.saved_query_id:
+        try:
+            from posthog.tasks.email import send_saved_query_materialization_failure
+
+            send_saved_query_materialization_failure(str(job.saved_query_id))
+        except Exception:
+            LOGGER.exception("Failed to send materialization failure notification email")
+
+    return node, job
+
+
+@activity.defn
+async def fail_materialization_activity(inputs: FailMaterializationInputs) -> None:
+    """Mark materialization as failed and update node properties."""
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
+
+    node, job = await _fail_node_and_data_modeling_job(inputs)
+
+    await logger.aerror(
+        f"Failed materialization job: node={node.id} dag={inputs.dag_id} job={job.id} "
+        f"workflow={job.workflow_id} workflow_run={job.workflow_run_id} error={inputs.error}"
+    )

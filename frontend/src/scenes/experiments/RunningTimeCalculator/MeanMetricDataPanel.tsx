@@ -10,9 +10,9 @@ import {
 import { runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
 
 export const MeanMetricDataPanel = (): JSX.Element => {
-    const { experimentId } = useValues(experimentLogic)
+    const { experiment } = useValues(experimentLogic)
     const { uniqueUsers, averageEventsPerUser, averagePropertyValuePerUser, standardDeviation } = useValues(
-        runningTimeCalculatorLogic({ experimentId })
+        runningTimeCalculatorLogic({ experiment })
     )
 
     return (

@@ -1,0 +1,9 @@
+.WorkflowTemplateChooser {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 0.5em;
+
+    .TemplateItem {
+        height: 210px;
+    }
+}

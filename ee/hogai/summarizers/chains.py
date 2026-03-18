@@ -29,6 +29,7 @@ async def abatch_summarize_actions(
             **props,
             "batch_processing": True,
             "domain": "actions",
+            "ai_product": "posthog_ai",
         },
         trace_id=trace_id,
     )

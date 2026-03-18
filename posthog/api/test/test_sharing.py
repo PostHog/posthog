@@ -1,5 +1,7 @@
+import json
 from datetime import timedelta
 from functools import wraps
+from urllib.parse import quote
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
@@ -294,13 +296,13 @@ class TestSharing(APIBaseTest):
         ]
     )
     @patch("posthog.api.exports.exporter.export_asset.delay")
-    @patch("posthog.models.exported_asset.object_storage.read_bytes")
+    @patch("posthog.models.exported_asset.object_storage.get_presigned_url")
     @patch("posthog.api.sharing.asset_for_token")
     def test_can_get_shared_dashboard_asset_with_no_content_but_content_location(
         self,
         url: str,
         patched_asset_for_token,
-        patched_object_storage,
+        patched_get_presigned_url,
         _patched_exporter_task: Mock,
     ) -> None:
         asset = ExportedAsset.objects.create(
@@ -311,21 +313,25 @@ class TestSharing(APIBaseTest):
         )
         patched_asset_for_token.return_value = asset
 
-        patched_object_storage.return_value = b"the image bytes"
+        patched_get_presigned_url.return_value = "https://s3.example.com/presigned-url"
 
         response = self.client.get(url)
 
-        assert response.status_code == 200
-        assert response.headers.get("Content-Type") == "image/png"
-        assert response.content == b"the image bytes"
+        assert response.status_code == 302
+        assert response["Location"] == "https://s3.example.com/presigned-url"
+        patched_get_presigned_url.assert_called_once_with(
+            "some object url",
+            content_type="image/png",
+            content_disposition=None,
+        )
 
     @parameterized.expand(["insights", "dashboards"])
-    @patch("posthog.models.exported_asset.object_storage.read_bytes")
+    @patch("posthog.models.exported_asset.object_storage.get_presigned_url")
     @patch("posthog.api.exports.exporter.export_asset.delay")
     def test_shared_thing_can_generate_open_graph_image(
-        self, type: str, patched_exporter_task: Mock, patched_object_storage: Mock
+        self, type: str, patched_exporter_task: Mock, patched_get_presigned_url: Mock
     ) -> None:
-        patched_object_storage.return_value = b"the image bytes"
+        patched_get_presigned_url.return_value = "https://s3.example.com/presigned-url"
 
         target = self.insight if type == "insights" else self.dashboard
 
@@ -342,17 +348,16 @@ class TestSharing(APIBaseTest):
         item_opengraph_image = self.client.get("/shared/" + access_token + ".png")
 
         assert ExportedAsset.objects.count() == 1
-        assert item_opengraph_image.status_code == 200
-        assert item_opengraph_image.headers["Content-Type"] == "image/png"
-        assert item_opengraph_image.content == b"the image bytes"
+        assert item_opengraph_image.status_code == 302
+        assert item_opengraph_image["Location"] == "https://s3.example.com/presigned-url"
 
     @parameterized.expand(["insights", "dashboards"])
-    @patch("posthog.models.exported_asset.object_storage.read_bytes")
+    @patch("posthog.models.exported_asset.object_storage.get_presigned_url")
     @patch("posthog.api.exports.exporter.export_asset.delay")
     def test_shared_thing_can_reuse_existing_generated_open_graph_image(
-        self, type: str, patched_exporter_task: Mock, patched_object_storage: Mock
+        self, type: str, patched_exporter_task: Mock, patched_get_presigned_url: Mock
     ) -> None:
-        patched_object_storage.return_value = b"the image bytes"
+        patched_get_presigned_url.return_value = "https://s3.example.com/presigned-url"
 
         self._setup_patched_exporter(patched_exporter_task)
 
@@ -373,9 +378,8 @@ class TestSharing(APIBaseTest):
         patched_exporter_task.assert_not_called()
 
         assert ExportedAsset.objects.count() == 1
-        assert item_opengraph_image.status_code == 200
-        assert item_opengraph_image.headers["Content-Type"] == "image/png"
-        assert item_opengraph_image.content == b"the image bytes"
+        assert item_opengraph_image.status_code == 302
+        assert item_opengraph_image["Location"] == "https://s3.example.com/presigned-url"
 
     def _setup_patched_exporter(self, patched_exporter_task):
         def add_content_location_on_task_run(*args, **kwargs):
@@ -388,36 +392,35 @@ class TestSharing(APIBaseTest):
         patched_exporter_task.side_effect = add_content_location_on_task_run
 
     @parameterized.expand(["insights", "dashboards"])
-    @patch("posthog.models.exported_asset.object_storage.read_bytes")
+    @patch("posthog.models.exported_asset.object_storage.get_presigned_url")
     @patch("posthog.api.exports.exporter.export_asset.delay")
     def test_shared_insight_can_regenerate_stale_existing_generated_open_graph_image(
-        self, type: str, patched_exporter_task: Mock, patched_object_storage: Mock
+        self, type: str, patched_exporter_task: Mock, patched_get_presigned_url: Mock
     ) -> None:
-        patched_object_storage.return_value = b"the image bytes"
+        patched_get_presigned_url.return_value = "https://s3.example.com/presigned-url"
         self._setup_patched_exporter(patched_exporter_task)
 
         target = self.insight if type == "insights" else self.dashboard
 
-        # the existing asset is stale because it is more than 3 hours old
-        time_in_the_past = now() - timedelta(hours=4)
+        # Create an asset that's past its expiry (PNG assets expire after 180 days)
+        time_in_the_past = now() - timedelta(days=181)
         with freeze_time(time_in_the_past):
             share_response = self.client.patch(
                 f"/api/projects/{self.team.id}/{type}/{target.pk}/sharing",
                 {"enabled": True},
             )
-            # enabling creates an asset
-            assert ExportedAsset.objects.count() == 1
-            original_asset = ExportedAsset.objects.first()
+            # enabling creates an asset with expires_after set to 180 days from creation
+            assert ExportedAsset.objects_including_ttl_deleted.count() == 1
+            original_asset = ExportedAsset.objects_including_ttl_deleted.first()
 
         access_token = share_response.json()["access_token"]
 
-        # times passes and the asset is stale
+        # Asset is now expired and filtered out by the default manager
         assert ExportedAsset.objects.count() == 0
 
         item_opengraph_image = self.client.get("/shared/" + access_token + ".png")
-        assert item_opengraph_image.status_code == 200
-        assert item_opengraph_image.headers["Content-Type"] == "image/png"
-        assert item_opengraph_image.content == b"the image bytes"
+        assert item_opengraph_image.status_code == 302
+        assert item_opengraph_image["Location"] == "https://s3.example.com/presigned-url"
 
         assert ExportedAsset.objects.count() == 1
         final_asset = ExportedAsset.objects.first()
@@ -1029,6 +1032,7 @@ class TestSharePasswordLogging(APIBaseTest):
         # Mock request with IP
         mock_request = Mock()
         mock_request.META = {"REMOTE_ADDR": "192.168.1.100"}
+        mock_request.headers = {}
 
         # Clear any existing activity logs
         ActivityLog.objects.filter(scope="Dashboard").delete()
@@ -1074,6 +1078,7 @@ class TestSharePasswordLogging(APIBaseTest):
         # Mock request with different IP
         mock_request = Mock()
         mock_request.META = {"REMOTE_ADDR": "10.0.0.5"}
+        mock_request.headers = {}
 
         # Clear any existing activity logs
         ActivityLog.objects.filter(scope="Dashboard").delete()
@@ -1110,3 +1115,94 @@ class TestSharePasswordLogging(APIBaseTest):
         assert change_data["success"] is False
         assert change_data["resource_type"] == "dashboard"
         assert "password_id" not in change_data  # No password_id for failed attempts
+
+
+class TestExportCacheKeyFlow(APIBaseTest):
+    """Test that cache_keys parameter is correctly parsed and passed to InsightSerializer."""
+
+    insight: Insight
+    sharing_config: SharingConfiguration
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        super().setUpTestData()
+        cls.insight = Insight.objects.create(
+            team=cls.team,
+            name="Test Insight",
+            query={"kind": "TrendsQuery", "series": [{"event": "$pageview"}]},
+        )
+        cls.sharing_config = SharingConfiguration.objects.create(
+            team=cls.team,
+            insight=cls.insight,
+            enabled=True,
+        )
+
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    @patch("posthog.api.insight.fetch_cached_response_by_key")
+    @mock_exporter_template
+    def test_cache_keys_parameter_triggers_direct_cache_lookup(self, mock_fetch_cached, mock_calculate):
+        """Test that cache_keys param causes InsightSerializer to use direct cache lookup and skip calculation."""
+        cached_response = {
+            "results": [{"count": 42}],
+            "cache_key": "expected_cache_key_abc123",
+            "last_refresh": "2024-01-01T00:00:00Z",
+            "timezone": "UTC",
+        }
+        mock_fetch_cached.return_value = cached_response
+
+        cache_keys = {str(self.insight.id): "expected_cache_key_abc123"}
+        cache_keys_param = quote(json.dumps(cache_keys))
+
+        response = self.client.get(f"/shared/{self.sharing_config.access_token}?cache_keys={cache_keys_param}")
+
+        assert response.status_code == 200
+        mock_fetch_cached.assert_called_once_with("expected_cache_key_abc123", team_id=self.insight.team_id)
+        mock_calculate.assert_not_called()
+
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    @patch("posthog.api.insight.fetch_cached_response_by_key")
+    @mock_exporter_template
+    def test_cache_miss_falls_back_to_normal_calculation(self, mock_fetch_cached, mock_calculate):
+        """Test that cache miss on expected key falls back to normal calculation."""
+        from posthog.caching.fetch_from_cache import InsightResult
+
+        mock_fetch_cached.return_value = None  # Cache miss
+        mock_calculate.return_value = InsightResult(
+            result=[{"count": 50}],
+            cache_key="calculated_cache_key",
+            is_cached=False,
+            last_refresh=None,
+            timezone="UTC",
+        )
+
+        cache_keys = {str(self.insight.id): "missing_cache_key"}
+        cache_keys_param = quote(json.dumps(cache_keys))
+
+        response = self.client.get(f"/shared/{self.sharing_config.access_token}?cache_keys={cache_keys_param}")
+
+        assert response.status_code == 200
+        mock_fetch_cached.assert_called_once_with("missing_cache_key", team_id=self.insight.team_id)
+        mock_calculate.assert_called_once()
+
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    @patch("posthog.api.insight.fetch_cached_response_by_key")
+    @mock_exporter_template
+    def test_invalid_cache_keys_param_continues_without_it(self, mock_fetch_cached, mock_calculate):
+        """Test that invalid cache_keys parameter is ignored and normal flow continues."""
+        from posthog.caching.fetch_from_cache import InsightResult
+
+        mock_calculate.return_value = InsightResult(
+            result=[{"count": 25}],
+            cache_key="normal_cache_key",
+            is_cached=False,
+            last_refresh=None,
+            timezone="UTC",
+        )
+
+        # Pass invalid JSON as cache_keys
+        response = self.client.get(f"/shared/{self.sharing_config.access_token}?cache_keys=not_valid_json")
+
+        assert response.status_code == 200
+        # fetch_cached_response_by_key should not be called since cache_keys parsing failed
+        mock_fetch_cached.assert_not_called()
+        mock_calculate.assert_called_once()

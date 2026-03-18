@@ -6,19 +6,28 @@ import { forwardRef, useCallback, useEffect, useRef } from 'react'
 import { cn } from 'lib/utils/css-classes'
 
 export const textInputVariants = cva({
-    base: 'text-input-primitive w-full rounded border border-primary p-2 text-sm outline-none focus-visible:border-secondary',
+    base: 'text-input-primitive w-full rounded border text-sm outline-none relative',
     variants: {
         variant: {
-            default: 'border-primary bg-surface-primary hover:border-secondary',
+            default: 'border-primary bg-surface-primary',
+            invisible: 'border-transparent bg-transparent hover:border-transparent',
         },
         size: {
-            sm: 'text-input-primitive--height-sm',
-            default: 'text-input-primitive--height-base',
-            lg: 'text-input-primitive--height-lg',
+            sm: '',
+            default: '',
+            lg: '',
             auto: '',
+        },
+        hasSuffix: {
+            true: 'pr-10',
+            false: '',
         },
         error: {
             true: 'border-error bg-fill-error-highlight hover:border-error focus-visible:border-error',
+            false: '',
+        },
+        hideFocus: {
+            true: 'shadow-none',
             false: '',
         },
     },
@@ -26,7 +35,47 @@ export const textInputVariants = cva({
         variant: 'default',
         size: 'default',
         error: false,
+        hideFocus: false,
     },
+    compoundVariants: [
+        // Paddings
+        {
+            variant: 'default',
+            size: 'sm',
+            className: 'text-input-primitive--padding-sm',
+        },
+        {
+            variant: 'invisible',
+            size: 'default',
+            className: 'text-input-primitive--padding-base',
+        },
+        {
+            variant: 'default',
+            size: 'lg',
+            className: 'text-input-primitive--padding-lg',
+        },
+        // Heights
+        {
+            variant: 'default',
+            size: 'sm',
+            className: 'text-input-primitive--height-sm',
+        },
+        {
+            variant: 'default',
+            size: 'default',
+            className: 'text-input-primitive--height-base',
+        },
+        {
+            variant: 'default',
+            size: 'lg',
+            className: 'text-input-primitive--height-lg',
+        },
+        {
+            variant: 'invisible',
+            size: ['sm', 'default', 'lg'],
+            className: 'h-full',
+        },
+    ],
 })
 
 export type TextInputBaseProps = {
@@ -34,14 +83,25 @@ export type TextInputBaseProps = {
     autoFocus?: boolean
     dataAttr?: string
     className?: string
+    suffix?: React.ReactNode
+    showFocusPulse?: boolean
 } & VariantProps<typeof textInputVariants>
 
 export interface TextInputPrimitiveProps
-    extends TextInputBaseProps,
-        Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'> {}
+    extends TextInputBaseProps, Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'> {}
 
 export const TextInputPrimitive = forwardRef<HTMLInputElement, TextInputPrimitiveProps>((props, ref) => {
-    const { autoFocus, variant, size = 'default', type = 'text', className, ...rest } = props
+    const {
+        autoFocus,
+        variant,
+        size = 'default',
+        type = 'text',
+        className,
+        suffix,
+        showFocusPulse = true,
+        hideFocus = false,
+        ...rest
+    } = props
 
     const internalRef = useRef<HTMLInputElement>(null)
 
@@ -70,18 +130,32 @@ export const TextInputPrimitive = forwardRef<HTMLInputElement, TextInputPrimitiv
     }, [autoFocus])
 
     return (
-        <input
-            ref={mergedRef}
-            type={type}
+        <div
             className={cn(
                 textInputVariants({
                     variant,
                     size,
+                    hideFocus,
                 }),
+                'input-like',
                 className
             )}
-            {...rest}
-        />
+        >
+            <input
+                ref={mergedRef}
+                type={type}
+                className={cn(
+                    textInputVariants({
+                        size,
+                        variant: 'invisible',
+                        hasSuffix: suffix ? true : false,
+                    }),
+                    'flex-1'
+                )}
+                {...rest}
+            />
+            {suffix && <div className="absolute right-0 top-0 bottom-0 flex items-center pr-[5px]">{suffix}</div>}
+        </div>
     )
 })
 

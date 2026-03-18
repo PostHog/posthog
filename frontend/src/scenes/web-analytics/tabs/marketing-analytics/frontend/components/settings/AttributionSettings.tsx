@@ -4,12 +4,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { debounce } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { AttributionMode } from '~/queries/schema/schema-general'
-import { teamLogic } from '~/scenes/teamLogic'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import {
@@ -27,8 +29,15 @@ const ATTRIBUTION_MODE_OPTIONS = [
 
 export function AttributionSettings(): JSX.Element {
     const { marketingAnalyticsConfig } = useValues(marketingAnalyticsSettingsLogic)
-    const { updateCurrentTeam } = useActions(marketingAnalyticsSettingsLogic)
+    const {
+        updateAttributionWindowDays: updateAttributionWindowDaysAction,
+        updateAttributionMode: updateAttributionModeAction,
+    } = useActions(marketingAnalyticsSettingsLogic)
     const { currentTeamLoading } = useValues(teamLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     // Get attribution settings from config with defaults
     const attribution_window_days = marketingAnalyticsConfig?.attribution_window_days ?? DEFAULT_ATTRIBUTION_WINDOW_DAYS
@@ -56,34 +65,10 @@ export function AttributionSettings(): JSX.Element {
         setLocalAttributionMode(attribution_mode)
     }, [attribution_mode])
 
-    const updateAttributionWindowDays = useCallback(
-        (days: number): void => {
-            updateCurrentTeam({
-                marketing_analytics_config: {
-                    ...marketingAnalyticsConfig,
-                    attribution_window_days: days,
-                },
-            })
-        },
-        [updateCurrentTeam, marketingAnalyticsConfig]
-    )
-
-    const updateAttributionMode = useCallback(
-        (mode: AttributionMode): void => {
-            updateCurrentTeam({
-                marketing_analytics_config: {
-                    ...marketingAnalyticsConfig,
-                    attribution_mode: mode,
-                },
-            })
-        },
-        [updateCurrentTeam, marketingAnalyticsConfig]
-    )
-
     // Debounce the team update to avoid excessive API calls
     const debouncedUpdateDays = useMemo(
-        () => debounce((days: number) => updateAttributionWindowDays(days), 500),
-        [updateAttributionWindowDays]
+        () => debounce((days: number) => updateAttributionWindowDaysAction(days), 500),
+        [updateAttributionWindowDaysAction]
     )
 
     // Handle dropdown change: update UI immediately, debounce team update
@@ -105,9 +90,9 @@ export function AttributionSettings(): JSX.Element {
     const handleAttributionModeChange = useCallback(
         (mode: AttributionMode): void => {
             setLocalAttributionMode(mode)
-            updateAttributionMode(mode)
+            updateAttributionModeAction(mode)
         },
-        [updateAttributionMode]
+        [updateAttributionModeAction]
     )
 
     const handleCustomInputChange = useCallback((value: number | undefined): void => {
@@ -158,6 +143,7 @@ export function AttributionSettings(): JSX.Element {
                             options={ATTRIBUTION_WINDOW_OPTIONS}
                             data-attr="attribution-window-select"
                             className="w-50"
+                            disabledReason={restrictedReason}
                         />
                         <LemonInput
                             type="number"
@@ -170,6 +156,7 @@ export function AttributionSettings(): JSX.Element {
                             className="w-32"
                             status={hasError ? 'danger' : undefined}
                             data-attr="attribution-window-custom-input"
+                            disabledReason={restrictedReason}
                         />
                         <LemonButton
                             type="primary"
@@ -180,7 +167,7 @@ export function AttributionSettings(): JSX.Element {
                                     ? `Please enter a valid value between ${MIN_ATTRIBUTION_WINDOW_DAYS} and ${MAX_ATTRIBUTION_WINDOW_DAYS} days`
                                     : localDays === attribution_window_days
                                       ? 'No changes to save'
-                                      : undefined
+                                      : restrictedReason
                             }
                             data-attr="attribution-window-save-button"
                         >
@@ -211,6 +198,7 @@ export function AttributionSettings(): JSX.Element {
                                     onClick={() => handleAttributionModeChange(option.value)}
                                     data-attr={`attribution-mode-${option.value.toLowerCase().replace('_', '-')}`}
                                     className="flex-1"
+                                    disabledReason={restrictedReason}
                                 >
                                     {option.label}
                                 </LemonButton>

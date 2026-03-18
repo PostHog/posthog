@@ -45,7 +45,10 @@ export function useThemedHtml(overflowHidden = true): void {
                 : style.getPropertyValue('--color-bg-bridge')
 
             document.head.querySelector('meta[name="theme-color"]')?.remove()
-            document.head.insertAdjacentHTML('beforeend', `<meta name="theme-color" content="${backgroundColor}">`)
+            const meta = document.createElement('meta')
+            meta.name = 'theme-color'
+            meta.content = backgroundColor
+            document.head.appendChild(meta)
         } catch (e) {
             console.warn('Failed to set theme-color meta tag. This could indicate the variables no longer exist', e)
             posthog.captureException(new Error('Failed to set theme-color meta tag'), { extra: { error: e } })

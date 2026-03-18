@@ -1,12 +1,13 @@
 import * as d3 from 'd3'
-import * as Sankey from 'd3-sankey'
 import { Dispatch, RefObject, SetStateAction } from 'react'
 
+import sankey, { sankeyJustify, sankeyLinkHorizontal, type SankeyLink, type SankeyLayout } from 'lib/d3/sankey'
 import { D3Selector } from 'lib/hooks/useD3'
 import { stripHTTP } from 'lib/utils'
 
 import { FunnelPathsFilter, PathsFilter } from '~/queries/schema/schema-general'
 
+// eslint-disable-next-line import/no-cycle
 import { FALLBACK_CANVAS_WIDTH, HIDE_PATH_CARD_HEIGHT } from './Paths'
 import { PathNodeData, PathTargetLink, isSelectedPathStartOrEnd, roundedRect } from './pathUtils'
 import { Paths } from './types'
@@ -21,11 +22,10 @@ const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, heigh
         .style('height', `${height}px`)
 }
 
-const createSankeyGenerator = (width: number, height: number): Sankey.SankeyLayout<any, any, any> => {
-    // @ts-expect-error - d3 sankey typing things
-    return new Sankey.sankey()
-        .nodeId((d: PathNodeData) => d.name)
-        .nodeAlign(Sankey.sankeyJustify)
+const createSankeyGenerator = (width: number, height: number): SankeyLayout<PathNodeData, {}> => {
+    return sankey<PathNodeData, {}>()
+        .nodeId((d) => d.name)
+        .nodeAlign(sankeyJustify)
         .nodeSort(null)
         .nodeWidth(15)
         .size([width, height])
@@ -100,7 +100,7 @@ const appendDropoffs = (svg: D3Selector): void => {
 
 const appendPathLinks = (
     svg: any,
-    links: PathNodeData[],
+    links: SankeyLink<PathNodeData, {}>[],
     nodes: PathNodeData[],
     setNodeCards: Dispatch<SetStateAction<PathNodeData[]>>
 ): void => {
@@ -114,7 +114,7 @@ const appendPathLinks = (
         .attr('opacity', 0.35)
 
     link.append('path')
-        .attr('d', Sankey.sankeyLinkHorizontal())
+        .attr('d', sankeyLinkHorizontal())
         .attr('id', (d: PathNodeData) => `path-${d.index}`)
         .attr('stroke-width', (d: PathNodeData) => {
             return Math.max(1, d.width)

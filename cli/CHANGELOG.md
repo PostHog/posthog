@@ -1,5 +1,128 @@
 # posthog-cli
 
+# 0.7.2
+
+- feat: allow reading files and directories from stdin
+
+# 0.7.1
+
+- feat: track upload started and upload finished events
+
+# 0.7.0
+
+- feat: promote dsym, hermes, and proguard commands from experimental to top-level
+- feat: keep backward-compat aliases under `exp` (hidden from help)
+
+# 0.6.2
+
+- fix: endpoints now save to YAML with proper newlines
+
+# 0.6.1
+
+- chore: bump `cargo-dist` version
+
+# 0.6.0
+
+- Add experimental dSYM upload for iOS/macOS crash symbolication
+
+# 0.5.30
+
+- Add experimental dSYM upload for iOS/macOS crash symbolication
+
+# 0.5.29
+
+- chore: introduce env variable `POSTHOG_CLI_API_KEY` and `POSTHOG_CLI_PROJECT_ID` (backwards compatible)
+
+# 0.5.28
+
+- chore: introduce `--release-name` and `--release-version` options (backwards compatible)
+
+# 0.5.27
+
+- fix: only warns on release id mismatch errors
+
+# 0.5.26
+
+- feat: use env variables provided by github actions when available
+
+# 0.5.24
+
+- chore: add endpoints use case to cli auth flow
+
+# 0.5.23
+
+- feat: add experimental commands for endpoints management
+
+# 0.5.22
+
+- feat: add `--project` and `--version` to upload command to define release
+
+# 0.5.20
+
+- chore: add global `--rate-limit` option for Posthog client
+
+# 0.5.19
+
+- chore: upgrade cargo-dist to 0.30.3
+
+# 0.5.18
+
+- fix: fix git info parsing in vercel environment
+
+# 0.5.17
+
+- feat: add --file option to target built files directly
+
+# 0.5.16
+
+- fix: cut a new version for fixing compromised package
+
+# 0.5.15
+
+- Compromised
+
+# 0.5.14
+
+- Fix authentication issue on sourcemap upload
+
+# 0.5.13
+
+- Add `--include` option on sourcemap commands to match specific files inside directory
+
+# 0.5.12
+
+- Bug fixes and improvements
+
+# 0.5.11
+
+- Do not read bundle files as part of hermes sourcemap commands
+- Change hermes clone command to take two file paths (for the minified and composed maps respectively)
+
+# 0.5.10
+
+- Add terminal checks for login and query command
+
+# 0.5.9
+
+- Improve error handling from api
+- Reduce logs for sourcemap processing
+
+# 0.5.8
+
+- Adding experimental support for proguard mappings
+
+# 0.5.7
+
+- Fix bug where files point to the same sourcemap
+
+# 0.5.6
+
+- Adding experimental support for hermes sourcemaps
+
+# 0.5.5
+
+- When running inject command multiple times, we only update chunk ids when releases are different
+
 # 0.5.4
 
 - Added no fail flag to disable non-zero exit codes on errors.

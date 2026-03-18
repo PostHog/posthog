@@ -21,7 +21,8 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     REFUND_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
 )
-from posthog.warehouse.types import IncrementalField, IncrementalFieldType
+
+from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 
 ENDPOINTS = (
     BALANCE_TRANSACTION_RESOURCE_NAME,

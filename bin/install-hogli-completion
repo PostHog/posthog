@@ -1,0 +1,46 @@
+#!/bin/bash
+# Install hogli shell completions
+
+set -e
+
+SHELL_NAME="${1:-bash}"
+COMPLETION_DIR=""
+
+case "$SHELL_NAME" in
+  bash)
+    # Try common completion directories
+    if [ -d /etc/bash_completion.d ]; then
+      COMPLETION_DIR="/etc/bash_completion.d"
+    elif [ -d "$HOME/.bash_completion.d" ]; then
+      COMPLETION_DIR="$HOME/.bash_completion.d"
+    else
+      COMPLETION_DIR="$HOME/.bash_completion.d"
+      mkdir -p "$COMPLETION_DIR"
+    fi
+
+    echo "Installing bash completion to $COMPLETION_DIR/hogli..."
+    python -m hogli.completion --shell bash > "$COMPLETION_DIR/hogli"
+    chmod 644 "$COMPLETION_DIR/hogli"
+    echo "✅ Bash completion installed. Restart your shell or run: source $COMPLETION_DIR/hogli"
+    ;;
+  zsh)
+    # Try common zsh completion directories
+    if [ -d /usr/local/share/zsh/site-functions ]; then
+      COMPLETION_DIR="/usr/local/share/zsh/site-functions"
+    elif [ -d "$HOME/.zsh/completions" ]; then
+      COMPLETION_DIR="$HOME/.zsh/completions"
+    else
+      COMPLETION_DIR="$HOME/.zsh/completions"
+      mkdir -p "$COMPLETION_DIR"
+    fi
+
+    echo "Installing zsh completion to $COMPLETION_DIR/_hogli..."
+    python -m hogli.completion --shell zsh > "$COMPLETION_DIR/_hogli"
+    chmod 644 "$COMPLETION_DIR/_hogli"
+    echo "✅ Zsh completion installed. Restart your shell or run: rehash"
+    ;;
+  *)
+    echo "Usage: $0 {bash|zsh}"
+    exit 1
+    ;;
+esac

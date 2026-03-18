@@ -1,8 +1,8 @@
 import uuid
+from typing import Any
 
+import pytest
 from posthog.test.base import ClickhouseTestMixin
-
-from inline_snapshot import snapshot
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.zapier.template_zapier import template as template_zapier
@@ -15,7 +15,9 @@ from ee.api.test.base import APILicensedTest
 from ee.models.hook import Hook
 
 
+@pytest.mark.usefixtures("unittest_snapshot")
 class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
+    snapshot: Any
     action: Action
 
     def setUp(self):
@@ -77,93 +79,7 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
             "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 32, "$pageview", 32, "event", 1, 1, 11],
         }
 
-        assert hog_function.hog == snapshot(
-            """\
-let hook_path := inputs.hook;
-let prefix := 'https://hooks.zapier.com/';
-// Remove the prefix if it exists
-if (position(hook_path, prefix) == 1) {
-  hook_path := replaceOne(hook_path, prefix, '');
-}
-
-// Remove leading slash if present to avoid double slashes
-if (position(hook_path, '/') == 1) {
-  hook_path := replaceOne(hook_path, '/', '');
-}
-
-let res := fetch(f'https://hooks.zapier.com/{hook_path}', {
-  'method': 'POST',
-  'body': inputs.body
-});
-
-if (inputs.debug) {
-  print('Response', res.status, res.body);
-}\
-"""
-        )
-
-        assert hog_function.inputs == snapshot(
-            {
-                "body": {
-                    "order": 1,
-                    "value": {
-                        "data": {
-                            "event": "{event.event}",
-                            "person": {"uuid": "{person.id}", "properties": "{person.properties}"},
-                            "teamId": "{project.id}",
-                            "eventUuid": "{event.uuid}",
-                            "timestamp": "{event.timestamp}",
-                            "distinctId": "{event.distinct_id}",
-                            "properties": "{event.properties}",
-                        },
-                        "hook": {
-                            "id": "{event.uuid}",
-                            "event": "{event.event}",
-                            "target": "https://hooks.zapier.com/{inputs.hook}",
-                        },
-                    },
-                    "bytecode": {
-                        "data": {
-                            "event": ["_H", 1, 32, "event", 32, "event", 1, 2],
-                            "person": {
-                                "uuid": ["_H", 1, 32, "id", 32, "person", 1, 2],
-                                "properties": ["_H", 1, 32, "properties", 32, "person", 1, 2],
-                            },
-                            "teamId": ["_H", 1, 32, "id", 32, "project", 1, 2],
-                            "eventUuid": ["_H", 1, 32, "uuid", 32, "event", 1, 2],
-                            "timestamp": ["_H", 1, 32, "timestamp", 32, "event", 1, 2],
-                            "distinctId": ["_H", 1, 32, "distinct_id", 32, "event", 1, 2],
-                            "properties": ["_H", 1, 32, "properties", 32, "event", 1, 2],
-                        },
-                        "hook": {
-                            "id": ["_H", 1, 32, "uuid", 32, "event", 1, 2],
-                            "event": ["_H", 1, 32, "event", 32, "event", 1, 2],
-                            "target": [
-                                "_H",
-                                1,
-                                32,
-                                "https://hooks.zapier.com/",
-                                32,
-                                "hook",
-                                32,
-                                "inputs",
-                                1,
-                                2,
-                                2,
-                                "concat",
-                                2,
-                            ],
-                        },
-                    },
-                },
-                "hook": {
-                    "order": 0,
-                    "value": "hooks/standard/1234/abcd",
-                    "bytecode": ["_H", 1, 32, "hooks/standard/1234/abcd"],
-                },
-                "debug": None,
-            }
-        )
+        assert (hog_function.hog, hog_function.inputs) == self.snapshot
 
     def test_delete_hog_function_via_hook(self):
         data = {

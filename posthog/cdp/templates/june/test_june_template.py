@@ -1,5 +1,3 @@
-from inline_snapshot import snapshot
-
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.june.template_june import template as template_june
 
@@ -59,58 +57,56 @@ class TestTemplateJune(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_fetch_calls()[0] == snapshot(
-            (
-                "https://api.june.so/sdk/page",
-                {
-                    "method": "POST",
-                    "headers": {
-                        "Authorization": "Basic abcdef123456",
-                        "Content-Type": "application/json",
-                    },
-                    "body": {
-                        "properties": {
-                            "url": "https://hedgebox.net/faq?billing",
-                            "path": "/faq",
-                            "title": "Hedgebox",
-                            "referrer": "test15",
-                            "search": "?billing",
-                        },
-                        "traits": {"name": "Max AI", "email": "max@posthog.com"},
-                        "timestamp": "2024-10-24T23:03:50.941Z",
-                        "context": {
-                            "app": {"build": "1.0.0", "version": "2.0", "name": "PostHog"},
-                            "campaign": {
-                                "name": "test1",
-                                "content": "test2",
-                                "medium": "test3",
-                                "source": "test4",
-                                "term": "test5",
-                            },
-                            "device": {
-                                "id": "test6",
-                                "manufacturer": "test7",
-                                "model": "test8",
-                                "name": "test9",
-                                "version": "test10",
-                                "type": "test11",
-                            },
-                            "os": {"name": "test14", "version": "test10"},
-                            "referrer": {"url": "test15"},
-                            "screen": {
-                                "height": "test16",
-                                "width": "test17",
-                            },
-                            "ip": "test12",
-                            "locale": "test13",
-                            "timezone": "test18",
-                            "userAgent": "test19",
-                        },
-                        "messageId": "151234234",
-                        "userId": "abc123",
-                    },
+        assert self.get_mock_fetch_calls()[0] == (
+            "https://api.june.so/sdk/page",
+            {
+                "method": "POST",
+                "headers": {
+                    "Authorization": "Basic abcdef123456",
+                    "Content-Type": "application/json",
                 },
-            )
+                "body": {
+                    "properties": {
+                        "url": "https://hedgebox.net/faq?billing",
+                        "path": "/faq",
+                        "title": "Hedgebox",
+                        "referrer": "test15",
+                        "search": "?billing",
+                    },
+                    "traits": {"name": "Max AI", "email": "max@posthog.com"},
+                    "timestamp": "2024-10-24T23:03:50.941Z",
+                    "context": {
+                        "app": {"build": "1.0.0", "version": "2.0", "name": "PostHog"},
+                        "campaign": {
+                            "name": "test1",
+                            "content": "test2",
+                            "medium": "test3",
+                            "source": "test4",
+                            "term": "test5",
+                        },
+                        "device": {
+                            "id": "test6",
+                            "manufacturer": "test7",
+                            "model": "test8",
+                            "name": "test9",
+                            "version": "test10",
+                            "type": "test11",
+                        },
+                        "os": {"name": "test14", "version": "test10"},
+                        "referrer": {"url": "test15"},
+                        "screen": {
+                            "height": "test16",
+                            "width": "test17",
+                        },
+                        "ip": "test12",
+                        "locale": "test13",
+                        "timezone": "test18",
+                        "userAgent": "test19",
+                    },
+                    "messageId": "151234234",
+                    "userId": "abc123",
+                },
+            },
         )
 
     def test_body_includes_all_properties_if_set(self):
@@ -132,37 +128,35 @@ class TestTemplateJune(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_fetch_calls()[0] == snapshot(
-            (
-                "https://api.june.so/sdk/page",
-                {
-                    "method": "POST",
-                    "headers": {
-                        "Authorization": "Basic abcdef123456",
-                        "Content-Type": "application/json",
-                    },
-                    "body": {
-                        "properties": {
-                            "url": "https://hedgebox.net/faq?billing",
-                            "path": "/faq",
-                            "title": "Hedgebox",
-                            "search": "?billing",
-                        },
-                        "traits": {"name": "Max AI", "email": "max@posthog.com", "title": "Hedgebox"},
-                        "timestamp": "2024-10-24T23:03:50.941Z",
-                        "context": {
-                            "app": {},
-                            "campaign": {},
-                            "device": {},
-                            "os": {},
-                            "referrer": {},
-                            "screen": {},
-                        },
-                        "messageId": "151234234",
-                        "userId": "abc123",
-                    },
+        assert self.get_mock_fetch_calls()[0] == (
+            "https://api.june.so/sdk/page",
+            {
+                "method": "POST",
+                "headers": {
+                    "Authorization": "Basic abcdef123456",
+                    "Content-Type": "application/json",
                 },
-            )
+                "body": {
+                    "properties": {
+                        "url": "https://hedgebox.net/faq?billing",
+                        "path": "/faq",
+                        "title": "Hedgebox",
+                        "search": "?billing",
+                    },
+                    "traits": {"name": "Max AI", "email": "max@posthog.com", "title": "Hedgebox"},
+                    "timestamp": "2024-10-24T23:03:50.941Z",
+                    "context": {
+                        "app": {},
+                        "campaign": {},
+                        "device": {},
+                        "os": {},
+                        "referrer": {},
+                        "screen": {},
+                    },
+                    "messageId": "151234234",
+                    "userId": "abc123",
+                },
+            },
         )
 
         self.run_function(
@@ -183,40 +177,38 @@ class TestTemplateJune(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_fetch_calls()[0] == snapshot(
-            (
-                "https://api.june.so/sdk/page",
-                {
-                    "method": "POST",
-                    "headers": {
-                        "Authorization": "Basic abcdef123456",
-                        "Content-Type": "application/json",
-                    },
-                    "body": {
-                        "properties": {
-                            "url": "https://hedgebox.net/faq?billing",
-                            "path": "/faq",
-                            "title": "Hedgebox",
-                            "search": "?billing",
-                        },
-                        "traits": {
-                            "name": "Max AI",
-                            "email": "max@posthog.com",
-                        },
-                        "timestamp": "2024-10-24T23:03:50.941Z",
-                        "context": {
-                            "app": {},
-                            "campaign": {},
-                            "device": {},
-                            "os": {},
-                            "referrer": {},
-                            "screen": {},
-                        },
-                        "messageId": "151234234",
-                        "userId": "abc123",
-                    },
+        assert self.get_mock_fetch_calls()[0] == (
+            "https://api.june.so/sdk/page",
+            {
+                "method": "POST",
+                "headers": {
+                    "Authorization": "Basic abcdef123456",
+                    "Content-Type": "application/json",
                 },
-            )
+                "body": {
+                    "properties": {
+                        "url": "https://hedgebox.net/faq?billing",
+                        "path": "/faq",
+                        "title": "Hedgebox",
+                        "search": "?billing",
+                    },
+                    "traits": {
+                        "name": "Max AI",
+                        "email": "max@posthog.com",
+                    },
+                    "timestamp": "2024-10-24T23:03:50.941Z",
+                    "context": {
+                        "app": {},
+                        "campaign": {},
+                        "device": {},
+                        "os": {},
+                        "referrer": {},
+                        "screen": {},
+                    },
+                    "messageId": "151234234",
+                    "userId": "abc123",
+                },
+            },
         )
 
     def test_automatic_type_mapping(self):
@@ -256,37 +248,35 @@ class TestTemplateJune(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_fetch_calls()[0] == snapshot(
-            (
-                "https://api.june.so/sdk/page",
-                {
-                    "method": "POST",
-                    "headers": {
-                        "Authorization": "Basic abcdef123456",
-                        "Content-Type": "application/json",
-                    },
-                    "body": {
-                        "properties": {
-                            "url": "https://hedgebox.net/faq?billing",
-                            "path": "/faq",
-                            "title": "Hedgebox",
-                            "search": "?billing",
-                        },
-                        "traits": {"name": "Max AI", "email": "max@posthog.com"},
-                        "timestamp": "2024-10-24T23:03:50.941Z",
-                        "context": {
-                            "app": {},
-                            "campaign": {},
-                            "device": {},
-                            "os": {},
-                            "referrer": {},
-                            "screen": {},
-                        },
-                        "messageId": "151234234",
-                        "userId": "abc123",
-                    },
+        assert self.get_mock_fetch_calls()[0] == (
+            "https://api.june.so/sdk/page",
+            {
+                "method": "POST",
+                "headers": {
+                    "Authorization": "Basic abcdef123456",
+                    "Content-Type": "application/json",
                 },
-            )
+                "body": {
+                    "properties": {
+                        "url": "https://hedgebox.net/faq?billing",
+                        "path": "/faq",
+                        "title": "Hedgebox",
+                        "search": "?billing",
+                    },
+                    "traits": {"name": "Max AI", "email": "max@posthog.com"},
+                    "timestamp": "2024-10-24T23:03:50.941Z",
+                    "context": {
+                        "app": {},
+                        "campaign": {},
+                        "device": {},
+                        "os": {},
+                        "referrer": {},
+                        "screen": {},
+                    },
+                    "messageId": "151234234",
+                    "userId": "abc123",
+                },
+            },
         )
 
         self.run_function(
@@ -308,35 +298,33 @@ class TestTemplateJune(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_fetch_calls()[0] == snapshot(
-            (
-                "https://api.june.so/sdk/page",
-                {
-                    "method": "POST",
-                    "headers": {
-                        "Authorization": "Basic abcdef123456",
-                        "Content-Type": "application/json",
-                    },
-                    "body": {
-                        "properties": {
-                            "url": "https://hedgebox.net/faq?billing",
-                            "path": "/faq",
-                            "title": "Hedgebox",
-                            "search": "?billing",
-                        },
-                        "traits": {"name": "Max AI", "email": "max@posthog.com"},
-                        "timestamp": "2024-10-24T23:03:50.941Z",
-                        "context": {
-                            "app": {},
-                            "campaign": {},
-                            "device": {},
-                            "os": {},
-                            "referrer": {},
-                            "screen": {},
-                        },
-                        "messageId": "151234234",
-                        "anonymousId": "abc123",
-                    },
+        assert self.get_mock_fetch_calls()[0] == (
+            "https://api.june.so/sdk/page",
+            {
+                "method": "POST",
+                "headers": {
+                    "Authorization": "Basic abcdef123456",
+                    "Content-Type": "application/json",
                 },
-            )
+                "body": {
+                    "properties": {
+                        "url": "https://hedgebox.net/faq?billing",
+                        "path": "/faq",
+                        "title": "Hedgebox",
+                        "search": "?billing",
+                    },
+                    "traits": {"name": "Max AI", "email": "max@posthog.com"},
+                    "timestamp": "2024-10-24T23:03:50.941Z",
+                    "context": {
+                        "app": {},
+                        "campaign": {},
+                        "device": {},
+                        "os": {},
+                        "referrer": {},
+                        "screen": {},
+                    },
+                    "messageId": "151234234",
+                    "anonymousId": "abc123",
+                },
+            },
         )

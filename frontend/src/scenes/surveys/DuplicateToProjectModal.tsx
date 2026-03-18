@@ -4,24 +4,14 @@ import { useMemo, useState } from 'react'
 import { LemonButton, LemonCheckbox, LemonModal, LemonTag } from '@posthog/lemon-ui'
 
 import { organizationLogic } from 'scenes/organizationLogic'
-import { surveyLogic } from 'scenes/surveys/surveyLogic'
+import { surveysLogic } from 'scenes/surveys/surveysLogic'
 import { teamLogic } from 'scenes/teamLogic'
-
-export function DuplicateToProjectTrigger(): JSX.Element {
-    const { setIsDuplicateToProjectModalOpen } = useActions(surveyLogic)
-
-    return (
-        <LemonButton fullWidth onClick={() => setIsDuplicateToProjectModalOpen(true)}>
-            Duplicate
-        </LemonButton>
-    )
-}
 
 export function DuplicateToProjectModal(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { duplicateToProject, setIsDuplicateToProjectModalOpen, duplicateSurvey } = useActions(surveyLogic)
-    const { isDuplicateToProjectModalOpen, survey, duplicatedToProjectSurveyLoading } = useValues(surveyLogic)
+    const { duplicateToProjects, setSurveyToDuplicate, duplicateSurvey } = useActions(surveysLogic)
+    const { surveyToDuplicate, duplicatedSurveyLoading } = useValues(surveysLogic)
     const [selectedTeamIds, setSelectedTeamIds] = useState<Set<number>>(new Set())
 
     const availableTeams = useMemo(
@@ -35,7 +25,7 @@ export function DuplicateToProjectModal(): JSX.Element {
     const someSelected = selectedTeamIds.size > 0 && selectedTeamIds.size < availableTeams.length
 
     const handleCloseModal = (): void => {
-        setIsDuplicateToProjectModalOpen(false)
+        setSurveyToDuplicate(null)
         setSelectedTeamIds(new Set())
     }
 
@@ -58,26 +48,28 @@ export function DuplicateToProjectModal(): JSX.Element {
     }
 
     const handleDuplicate = (): void => {
-        const selectedTeamIdsArray = Array.from(selectedTeamIds)
-
-        // Check if only current team is selected
-        if (selectedTeamIdsArray.length === 1 && selectedTeamIdsArray[0] === currentTeam?.id) {
-            return duplicateSurvey()
+        if (!surveyToDuplicate) {
+            return
         }
 
-        // Use bulk duplication for all selected teams
-        duplicateToProject({ sourceSurvey: survey, targetTeamIds: selectedTeamIdsArray })
+        const selectedTeamIdsArray = Array.from(selectedTeamIds)
+
+        if (selectedTeamIdsArray.length === 1 && selectedTeamIdsArray[0] === currentTeam?.id) {
+            return duplicateSurvey(surveyToDuplicate)
+        }
+
+        duplicateToProjects({ survey: surveyToDuplicate, targetTeamIds: selectedTeamIdsArray })
     }
 
     return (
         <LemonModal
             title="Duplicate survey"
             onClose={handleCloseModal}
-            isOpen={isDuplicateToProjectModalOpen}
+            isOpen={surveyToDuplicate !== null}
             footer={
                 <>
                     <LemonButton
-                        disabledReason={duplicatedToProjectSurveyLoading ? 'Duplicating...' : undefined}
+                        disabledReason={duplicatedSurveyLoading ? 'Duplicating...' : undefined}
                         type="secondary"
                         onClick={handleCloseModal}
                     >
@@ -86,7 +78,7 @@ export function DuplicateToProjectModal(): JSX.Element {
                     <LemonButton
                         type="primary"
                         onClick={handleDuplicate}
-                        loading={duplicatedToProjectSurveyLoading}
+                        loading={duplicatedSurveyLoading}
                         disabledReason={selectedTeamIds.size === 0 ? 'Select at least one project' : undefined}
                     >
                         Duplicate to {selectedTeamIds.size} project{selectedTeamIds.size !== 1 ? 's' : ''}

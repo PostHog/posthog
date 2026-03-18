@@ -1,29 +1,34 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { LemonBanner, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonBanner, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
-import { SceneExport } from 'scenes/sceneTypes'
-import { Scene } from 'scenes/sceneTypes'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
-import { ProductKey } from '~/types'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { Onboarding } from './Onboarding'
 import { RevenueAnalyticsFilters } from './RevenueAnalyticsFilters'
 import { REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID, revenueAnalyticsLogic } from './revenueAnalyticsLogic'
+import { RevenueAnalyticsViewStatusIcon } from './RevenueAnalyticsViewStatusIcon'
 import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettingsLogic'
 import { GrossRevenueTile, MRRTile, MetricsTile, OverviewTile, TopCustomersTile } from './tiles'
 
 export const scene: SceneExport = {
     component: RevenueAnalyticsScene,
     logic: revenueAnalyticsLogic,
-    settingSectionId: 'environment-revenue-analytics',
+    productKey: ProductKey.REVENUE_ANALYTICS,
 }
 
 export const PRODUCT_KEY = ProductKey.REVENUE_ANALYTICS
@@ -32,6 +37,7 @@ export const PRODUCT_THING_NAME = 'revenue source'
 export function RevenueAnalyticsScene(): JSX.Element {
     const { dataWarehouseSources } = useValues(revenueAnalyticsSettingsLogic)
     const { revenueEnabledDataWarehouseSources } = useValues(revenueAnalyticsLogic)
+    const { featureFlags: enabledFlags } = useValues(enabledFeaturesLogic)
 
     const sourceRunningForTheFirstTime = revenueEnabledDataWarehouseSources?.find(
         (source) => source.status === 'Running' && !source.last_run_at
@@ -51,26 +57,19 @@ export function RevenueAnalyticsScene(): JSX.Element {
                     resourceType={{
                         type: sceneConfigurations[Scene.RevenueAnalytics].iconType || 'default',
                     }}
+                    actions={<RevenueAnalyticsViewStatusIcon />}
                 />
-                <SceneDivider />
 
-                <LemonBanner
-                    type="info"
-                    action={{ children: 'Send feedback', id: 'revenue-analytics-feedback-button' }}
-                >
-                    <p>
-                        Revenue Analytics is in beta. Please let us know what you'd like to see here and/or report any
-                        issues directly to us!
-                    </p>
-                    <p>
-                        At this stage, Revenue Analytics is optimized for small/medium-sized companies. If you process
-                        more than 20,000 transactions/month you might have performance issues.
-                    </p>
-                    <p>
-                        Similarly, at this stage we're optimized for customers running on a subscription model (mostly
-                        SaaS). If you're running a business where your revenue is not coming from recurring payments,
-                        you might find Revenue analytics to be less useful/more empty than expected.
-                    </p>
+                <LemonBanner type="info" className="mb-4">
+                    <strong>Revenue analytics is currently in maintenance mode.</strong> This product is not being
+                    actively developed at the moment, so bug reports and fixes might be far and between. Revenue
+                    analytics will be re-released in the future as part of{' '}
+                    {enabledFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] ? (
+                        <Link to={urls.customerAnalytics()}>Customer analytics</Link>
+                    ) : (
+                        <Link to={urls.earlyAccessFeatures()}>Customer analytics (early access)</Link>
+                    )}
+                    .
                 </LemonBanner>
 
                 {sourceRunningForTheFirstTime && (
@@ -95,6 +94,16 @@ export function RevenueAnalyticsScene(): JSX.Element {
 const RevenueAnalyticsSceneContent = (): JSX.Element => {
     const [isOnboarding, setIsOnboarding] = useState(false)
     const { hasRevenueTables, hasRevenueEvents } = useValues(revenueAnalyticsLogic)
+    const { reportRevenueAnalyticsViewed } = useActions(eventUsageLogic)
+    const { addProductIntent } = useActions(teamLogic)
+
+    useOnMountEffect(() => {
+        reportRevenueAnalyticsViewed()
+        addProductIntent({
+            product_type: ProductKey.REVENUE_ANALYTICS,
+            intent_context: ProductIntentContext.REVENUE_ANALYTICS_VIEWED,
+        })
+    })
 
     // Turn onboarding on if we haven't connected any revenue sources or events yet
     // We'll keep that stored in the state to make sure we don't "leave" the onboarding state
@@ -114,7 +123,7 @@ const RevenueAnalyticsSceneContent = (): JSX.Element => {
     // Also, once we've entered the onboarding state, we'll stay in it until we purposefully leave it
     // rather than leaving as soon as we've connected a revenue source or event
     if (isOnboarding || (!hasRevenueTables && !hasRevenueEvents)) {
-        return <Onboarding closeOnboarding={() => setIsOnboarding(false)} />
+        return <Onboarding completeOnboarding={() => setIsOnboarding(false)} />
     }
 
     return (

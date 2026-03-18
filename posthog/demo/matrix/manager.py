@@ -88,6 +88,7 @@ class MatrixManager:
                     OrganizationMembership.Level.ADMIN,
                     is_staff=is_staff,
                     theme_mode="system",
+                    role_at_organization="engineering",
                 )
                 team = self.create_team(organization)
             self.run_on_team(team, new_user)

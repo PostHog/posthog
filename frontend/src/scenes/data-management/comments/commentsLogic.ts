@@ -6,6 +6,7 @@ import { LemonSelectOption, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { getRecordingLinkInfo } from 'scenes/comments/commentUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -23,12 +24,13 @@ SCOPE_OPTIONS.unshift({
     label: 'Any',
 })
 
+const replayUrlWithTimestamp = (c: CommentType): string | null => getRecordingLinkInfo(c)?.url ?? null
+
 const openUrls: Partial<Record<ActivityScope, (c: CommentType) => string | null>> = {
     [ActivityScope.INSIGHT]: (c) =>
         c.item_context?.short_id ? urls.insightView(c.item_context?.short_id as InsightShortId) : null,
-    // TODO we only support this in modal apparently, but we should be able to open these at the timestamp of the comment
-    [ActivityScope.REPLAY]: (c) => (c.item_id ? urls.replaySingle(c.item_id as string) : null),
-    [ActivityScope.RECORDING]: (c) => (c.item_id ? urls.replaySingle(c.item_id as string) : null),
+    [ActivityScope.REPLAY]: replayUrlWithTimestamp,
+    [ActivityScope.RECORDING]: replayUrlWithTimestamp,
     [ActivityScope.DASHBOARD]: (c) => (c.item_id ? urls.dashboard(c.item_id) : null),
     [ActivityScope.FEATURE_FLAG]: (c) => (c.item_id ? urls.featureFlag(c.item_id) : null),
     [ActivityScope.EXPERIMENT]: (c) => (c.item_id ? urls.experiment(c.item_id) : null),

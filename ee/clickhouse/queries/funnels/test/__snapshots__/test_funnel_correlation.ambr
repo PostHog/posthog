@@ -17,10 +17,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -120,10 +120,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -216,10 +216,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -308,10 +308,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -400,10 +400,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -492,10 +492,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -584,10 +584,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -680,10 +680,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -772,10 +772,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -864,10 +864,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -956,10 +956,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -1048,10 +1048,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -1135,10 +1135,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -1222,10 +1222,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -1301,10 +1301,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -1377,10 +1377,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -1453,10 +1453,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -1529,10 +1529,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -1605,10 +1605,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -1692,10 +1692,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -1776,10 +1776,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -1860,10 +1860,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -1948,10 +1948,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -2033,10 +2033,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -2118,10 +2118,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -2203,10 +2203,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -2288,10 +2288,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -2384,10 +2384,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -2477,10 +2477,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -2570,10 +2570,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -2651,10 +2651,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -2724,10 +2724,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -2797,10 +2797,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -2870,10 +2870,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -2943,10 +2943,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -3024,10 +3024,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -3105,10 +3105,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -3178,10 +3178,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -3251,10 +3251,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -3324,10 +3324,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -3397,10 +3397,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -3478,10 +3478,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -3561,10 +3561,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -3636,10 +3636,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -3711,10 +3711,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -3786,10 +3786,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -3861,10 +3861,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -3944,10 +3944,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -4027,10 +4027,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -4102,10 +4102,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -4177,10 +4177,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -4252,10 +4252,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -4327,10 +4327,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -4410,10 +4410,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -4500,10 +4500,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -4582,10 +4582,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -4664,10 +4664,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -4746,10 +4746,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
@@ -4828,10 +4828,10 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
-                                  latest_0,
-                                  latest_1,
-                                  latest_0
+                  step_1_conversion_time ,
+                  latest_0,
+                  latest_1,
+                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1

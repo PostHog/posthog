@@ -15,9 +15,13 @@ interface FirstSurveyHelperProps {
 export function FirstSurveyHelper({ onTabChange }: FirstSurveyHelperProps): JSX.Element | null {
     const { survey } = useValues(surveyLogic)
     const { editingSurvey, setSelectedSection, setSurveyValue } = useActions(surveyLogic)
-    const { data } = useValues(surveysLogic)
+    const { data, dataLoading } = useValues(surveysLogic)
 
     const hasOnlyOneSurvey = data.surveys.length <= 1
+
+    if (dataLoading) {
+        return null
+    }
 
     // Only show for first-time users with unstarted surveys
     if (!hasOnlyOneSurvey || survey.start_date) {

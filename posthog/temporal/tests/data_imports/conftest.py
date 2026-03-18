@@ -12,7 +12,6 @@ from django.test import override_settings
 import aioboto3
 import pytest_asyncio
 from asgiref.sync import sync_to_async
-from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -21,13 +20,14 @@ from posthog.schema import HogQLQueryResponse
 
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
+from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.utils import ExternalDataWorkflowInputs
-from posthog.warehouse.models import ExternalDataJob
-from posthog.warehouse.models.external_data_job import get_latest_run_if_exists
-from posthog.warehouse.models.external_table_definitions import external_tables
+
+from products.data_warehouse.backend.models import ExternalDataJob
+from products.data_warehouse.backend.models.external_data_job import get_latest_run_if_exists
+from products.data_warehouse.backend.models.external_table_definitions import external_tables
 
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()
@@ -54,28 +54,6 @@ async def minio_client():
         yield minio_client
 
 
-def _mock_to_session_credentials(class_self):
-    return {
-        "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-        "aws_session_token": None,
-        "AWS_ALLOW_HTTP": "true",
-        "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-    }
-
-
-def _mock_to_object_store_rs_credentials(class_self):
-    return {
-        "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-        "region": "us-east-1",
-        "AWS_ALLOW_HTTP": "true",
-        "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-    }
-
-
 async def run_external_data_job_workflow(
     team,
     external_data_source,
@@ -97,26 +75,22 @@ async def run_external_data_job_workflow(
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
             BUCKET_PATH=BUCKET_NAME,
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
         ),
-        mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline.pipeline.trigger_compaction_job"
-        ) as mock_trigger_compaction_job,
+        mock.patch.object(DeltaTableHelper, "compact_table") as mock_compact_table,
         mock.patch(
             "posthog.temporal.data_imports.external_data_job.get_data_import_finished_metric"
         ) as mock_get_data_import_finished_metric,
         # make sure intended error of line 175 in posthog/warehouse/models/table.py doesn't trigger flag calls
         mock.patch("posthoganalytics.capture_exception", return_value=None),
-        mock.patch.object(AwsCredentials, "to_session_credentials", _mock_to_session_credentials),
-        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", _mock_to_object_store_rs_credentials),
     ):
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
                 activity_environment.client,
-                task_queue=DATA_WAREHOUSE_TASK_QUEUE,
+                task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
                 workflows=[ExternalDataJobWorkflow],
                 activities=ACTIVITIES,  # type: ignore
                 workflow_runner=UnsandboxedWorkflowRunner(),
@@ -127,7 +101,7 @@ async def run_external_data_job_workflow(
                     ExternalDataJobWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=DATA_WAREHOUSE_TASK_QUEUE,
+                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
@@ -139,7 +113,7 @@ async def run_external_data_job_workflow(
     if expected_rows_synced is not None:
         assert run.rows_synced == expected_rows_synced
 
-    mock_trigger_compaction_job.assert_called()
+    mock_compact_table.assert_called()
     mock_get_data_import_finished_metric.assert_called_with(
         source_type=external_data_source.source_type, status=ExternalDataJob.Status.COMPLETED.lower()
     )
@@ -1163,34 +1137,36 @@ def zendesk_sla_policies():
             "previous_page": null,
             "sla_policies": [
                 {
-                "description": "For urgent incidents, we will respond to tickets in 10 minutes",
-                "filter": {
-                    "all": [
+                    "description": "For urgent incidents, we will respond to tickets in 10 minutes",
+                    "filter": {
+                        "all": [
+                            {
+                                "field": "type",
+                                "operator": "is",
+                                "value": "incident"
+                            },
+                            {
+                                "field": "via_id",
+                                "operator": "is",
+                                "value": "4"
+                            }
+                        ],
+                        "any": []
+                    },
+                    "id": 36,
+                    "created_at": "2022-04-25T19:42:18Z",
+                    "updated_at": "2024-05-31T22:10:48Z",
+                    "policy_metrics": [
                         {
-                            "field": "type",
-                            "operator": "is",
-                            "value": "incident"
-                        },
-                        {
-                            "field": "via_id",
-                            "operator": "is",
-                            "value": "4"
+                            "business_hours": false,
+                            "metric": "first_reply_time",
+                            "priority": "low",
+                            "target": 60
                         }
                     ],
-                    "any": []
-                },
-                "id": 36,
-                "policy_metrics": [
-                    {
-                        "business_hours": false,
-                        "metric": "first_reply_time",
-                        "priority": "low",
-                        "target": 60
-                    }
-                ],
-                "position": 3,
-                "title": "Incidents",
-                "url": "https://{subdomain}.zendesk.com/api/v2/slas/policies/36.json"
+                    "position": 3,
+                    "title": "Incidents",
+                    "url": "https://{subdomain}.zendesk.com/api/v2/slas/policies/36.json"
                 }
             ]
         }
@@ -1301,6 +1277,8 @@ def zendesk_ticket_events():
             "ticket_events": [
                 {
                     "id": 926256957613,
+                    "created_at": "2022-04-25T19:42:18Z",
+                    "updated_at": "2024-05-31T22:10:48Z",
                     "instance_id": 1,
                     "metric": "agent_work_time",
                     "ticket_id": 155,

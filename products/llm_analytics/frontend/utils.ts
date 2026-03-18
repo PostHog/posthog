@@ -1,12 +1,18 @@
+import * as PartialJSON from 'partial-json'
+import posthog from 'posthog-js'
+
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 
+import { EVALUATION_SUMMARY_MAX_RUNS } from './evaluations/constants'
 import type { EvaluationRun } from './evaluations/types'
 import type { SpanAggregation } from './llmAnalyticsTraceDataLogic'
 import {
+    AnthropicDocumentMessage,
+    AnthropicImageMessage,
     AnthropicInputMessage,
     AnthropicTextMessage,
     AnthropicThinkingMessage,
@@ -14,15 +20,62 @@ import {
     AnthropicToolResultMessage,
     CompatMessage,
     CompatToolCall,
+    GeminiAudioMessage,
+    GeminiDocumentMessage,
+    GeminiImageMessage,
     LiteLLMChoice,
     LiteLLMResponse,
+    OpenAIAudioMessage,
     OpenAICompletionMessage,
+    OpenAIFileMessage,
+    OpenAIImageURLMessage,
     OpenAIToolCall,
     VercelSDKImageMessage,
     VercelSDKInputImageMessage,
     VercelSDKInputTextMessage,
     VercelSDKTextMessage,
 } from './types'
+
+export interface PagedSearchOrderFilters {
+    page: number
+    search: string
+    order_by: string
+}
+
+export interface SanitizeTraceUrlSearchParamsOptions {
+    removeSearch?: boolean
+}
+
+export function sanitizeTraceUrlSearchParams(
+    searchParams: Record<string, unknown>,
+    options: SanitizeTraceUrlSearchParamsOptions = {}
+): Record<string, unknown> {
+    const sanitizedSearchParams = { ...searchParams }
+
+    delete sanitizedSearchParams.event
+    delete sanitizedSearchParams.timestamp
+    delete sanitizedSearchParams.exception_ts
+    delete sanitizedSearchParams.line
+    delete sanitizedSearchParams.tab
+    delete sanitizedSearchParams.back_to
+
+    if (options.removeSearch) {
+        delete sanitizedSearchParams.search
+    }
+
+    return sanitizedSearchParams
+}
+
+export function cleanPagedSearchOrderParams(
+    filters: PagedSearchOrderFilters,
+    defaultOrderBy: string = '-created_at'
+): Record<string, unknown> {
+    return {
+        page: filters.page === 1 ? undefined : filters.page,
+        search: filters.search || undefined,
+        order_by: filters.order_by === defaultOrderBy ? undefined : filters.order_by,
+    }
+}
 
 function formatUsage(inputTokens: number, outputTokens?: number | null): string | null {
     return `${inputTokens} → ${outputTokens || 0} (∑ ${inputTokens + (outputTokens || 0)})`
@@ -79,8 +132,40 @@ export function formatLLMCost(cost: number): string {
     return usdFormatter.format(cost)
 }
 
+export function formatTokens(tokens: number): string {
+    if (tokens >= 1000000) {
+        return `${(tokens / 1000000).toFixed(1)}M`
+    }
+    if (tokens >= 1000) {
+        return `${(tokens / 1000).toFixed(1)}k`
+    }
+    return tokens.toFixed(0)
+}
+
+export function formatErrorRate(errorRate: number): string {
+    const percentage = errorRate * 100
+    if (percentage === 0) {
+        return '0%'
+    }
+    if (percentage < 0.1) {
+        return '<0.1%'
+    }
+    if (percentage < 1) {
+        return `${percentage.toFixed(1)}%`
+    }
+    return `${Math.round(percentage)}%`
+}
+
 export function isLLMEvent(item: LLMTrace | LLMTraceEvent): item is LLMTraceEvent {
     return 'properties' in item
+}
+
+/**
+ * Checks if the item is a trace-level object (LLMTrace) rather than an individual event.
+ * This is the inverse of isLLMEvent and provides semantic clarity when checking for traces.
+ */
+export function isTraceLevel(item: LLMTrace | LLMTraceEvent): item is LLMTrace {
+    return !isLLMEvent(item)
 }
 
 function normalizeSessionId(value: unknown): string | null {
@@ -270,6 +355,248 @@ export function isVercelSDKInputTextMessage(input: unknown): input is VercelSDKI
     )
 }
 
+export function isOpenAIImageURLMessage(input: unknown): input is OpenAIImageURLMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'image_url' &&
+        'image_url' in input &&
+        typeof input.image_url === 'object' &&
+        input.image_url !== null &&
+        'url' in input.image_url &&
+        typeof input.image_url.url === 'string'
+    )
+}
+
+export function isOpenAIFileMessage(input: unknown): input is OpenAIFileMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'file' &&
+        'file' in input &&
+        typeof input.file === 'object' &&
+        input.file !== null &&
+        'file_data' in input.file &&
+        'filename' in input.file &&
+        typeof input.file.file_data === 'string' &&
+        typeof input.file.filename === 'string'
+    )
+}
+
+export function isOpenAIAudioMessage(input: unknown): input is OpenAIAudioMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'audio' &&
+        'data' in input &&
+        typeof input.data === 'string'
+    )
+}
+
+export function isAnthropicImageMessage(input: unknown): input is AnthropicImageMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'image' &&
+        'source' in input &&
+        typeof input.source === 'object' &&
+        input.source !== null &&
+        'type' in input.source &&
+        input.source.type === 'base64' &&
+        'data' in input.source &&
+        'media_type' in input.source &&
+        typeof input.source.data === 'string' &&
+        typeof input.source.media_type === 'string'
+    )
+}
+
+export function isAnthropicDocumentMessage(input: unknown): input is AnthropicDocumentMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'document' &&
+        'source' in input &&
+        typeof input.source === 'object' &&
+        input.source !== null &&
+        'type' in input.source &&
+        input.source.type === 'base64' &&
+        'data' in input.source &&
+        'media_type' in input.source &&
+        typeof input.source.data === 'string' &&
+        typeof input.source.media_type === 'string'
+    )
+}
+
+/**
+ * Extracts inline data from Gemini messages, supporting both snake_case (Python SDK)
+ * and camelCase (Node SDK) property naming conventions.
+ */
+export function getGeminiInlineData(input: unknown): { data: string; mime_type: string } | null {
+    if (!input || typeof input !== 'object') {
+        return null
+    }
+
+    // Check snake_case first (Python SDK)
+    if ('inline_data' in input && typeof input.inline_data === 'object' && input.inline_data !== null) {
+        const d = input.inline_data as Record<string, unknown>
+        const data = d.data
+        const mimeType = d.mime_type ?? d.mimeType
+        if (typeof data === 'string' && typeof mimeType === 'string') {
+            return { data, mime_type: mimeType }
+        }
+    }
+
+    // Check camelCase (Node SDK)
+    if ('inlineData' in input && typeof input.inlineData === 'object' && input.inlineData !== null) {
+        const d = input.inlineData as Record<string, unknown>
+        const data = d.data
+        const mimeType = d.mimeType ?? d.mime_type
+        if (typeof data === 'string' && typeof mimeType === 'string') {
+            return { data, mime_type: mimeType }
+        }
+    }
+
+    return null
+}
+
+export function isGeminiImageMessage(input: unknown): input is GeminiImageMessage {
+    if (!input || typeof input !== 'object' || !('type' in input) || input.type !== 'image') {
+        return false
+    }
+    const inlineData = getGeminiInlineData(input)
+    return inlineData !== null && inlineData.mime_type.startsWith('image/')
+}
+
+export function isGeminiDocumentMessage(input: unknown): input is GeminiDocumentMessage {
+    if (!input || typeof input !== 'object' || !('type' in input)) {
+        return false
+    }
+    const inlineData = getGeminiInlineData(input)
+    if (!inlineData) {
+        return false
+    }
+    // Accept explicit 'document' type
+    if (input.type === 'document') {
+        return true
+    }
+    // Also accept 'image' type if MIME is not an image (SDK misdetection of PDFs)
+    if (input.type === 'image' && !inlineData.mime_type.startsWith('image/')) {
+        return true
+    }
+    return false
+}
+
+export function isGeminiAudioMessage(input: unknown): input is GeminiAudioMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'audio' &&
+        'data' in input &&
+        'mime_type' in input &&
+        typeof input.data === 'string' &&
+        typeof input.mime_type === 'string'
+    )
+}
+
+interface OTelPart {
+    type: string
+    [key: string]: unknown
+}
+
+interface OTelPartsMessage {
+    role: string
+    parts: OTelPart[]
+    [key: string]: unknown
+}
+
+export function isOTelPartsMessage(input: unknown): input is OTelPartsMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'role' in input &&
+        typeof input.role === 'string' &&
+        'parts' in input &&
+        Array.isArray(input.parts)
+    )
+}
+
+function parseOTelToolCallArguments(args: unknown): Record<string, unknown> | string {
+    if (typeof args === 'string') {
+        try {
+            return JSON.parse(args)
+        } catch {
+            return args
+        }
+    }
+    return (args ?? {}) as Record<string, unknown>
+}
+
+function normalizeOTelPartsMessage(message: OTelPartsMessage, role: string): CompatMessage[] {
+    const { role: _role, parts, ...rest } = message
+
+    const textParts: string[] = []
+    const toolCalls: CompatToolCall[] = []
+    const toolResponses: CompatMessage[] = []
+
+    for (const part of parts) {
+        if (part.type === 'text' && typeof part.content === 'string') {
+            textParts.push(part.content)
+        } else if (part.type === 'tool_call' && typeof part.name === 'string') {
+            toolCalls.push({
+                type: 'function',
+                id: typeof part.id === 'string' ? part.id : undefined,
+                function: {
+                    name: part.name,
+                    arguments: parseOTelToolCallArguments(part.arguments),
+                },
+            })
+        } else if (part.type === 'tool_call_response') {
+            let resultContent: string
+            if (typeof part.result === 'string') {
+                resultContent = part.result
+            } else {
+                try {
+                    resultContent = JSON.stringify(part.result)
+                } catch {
+                    resultContent = String(part.result)
+                }
+            }
+            toolResponses.push({
+                role: 'tool',
+                content: resultContent,
+                tool_call_id: typeof part.id === 'string' ? part.id : undefined,
+            })
+        }
+    }
+
+    if (textParts.length === 0 && toolCalls.length === 0 && toolResponses.length > 0) {
+        return toolResponses
+    }
+
+    const content: CompatMessage['content'] =
+        textParts.length === 1
+            ? textParts[0]
+            : textParts.length > 1
+              ? textParts.map((text) => ({ type: 'text' as const, text }))
+              : ''
+
+    return [
+        {
+            ...rest,
+            role,
+            content,
+            ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+        },
+        ...toolResponses,
+    ]
+}
+
 export function isLiteLLMChoice(input: unknown): input is LiteLLMChoice {
     return (
         !!input &&
@@ -330,7 +657,7 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
 
     // Handle new array-based content format (unified format with structured objects)
     // Only apply this if the array contains objects with 'type' field (not Anthropic-specific formats)
-    // Supported types include: text, output_text, input_text, function, image, input_image
+    // Supported types include: text, output_text, input_text, function, image, input_image, document
     if (
         rawMessage &&
         typeof rawMessage === 'object' &&
@@ -349,7 +676,11 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
                     item.type === 'input_text' ||
                     item.type === 'function' ||
                     item.type === 'image' ||
-                    item.type === 'input_image')
+                    item.type === 'input_image' ||
+                    item.type === 'image_url' ||
+                    item.type === 'file' ||
+                    item.type === 'audio' ||
+                    item.type === 'document')
         )
     ) {
         return [
@@ -454,9 +785,10 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
     }
     // Tool result completion
     if (isAnthropicToolResultMessage(rawMessage)) {
+        const toolResultRole = normalizeRole('assistant (tool result)', roleToUse)
         if (Array.isArray(rawMessage.content)) {
             return rawMessage.content
-                .map((content) => normalizeMessage(content, roleToUse))
+                .map((content) => normalizeMessage(content, toolResultRole))
                 .flat()
                 .map((msg) => ({
                     ...msg,
@@ -465,7 +797,7 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
         }
         return [
             {
-                role: roleToUse,
+                role: toolResultRole,
                 content: rawMessage.content,
                 tool_call_id: rawMessage.tool_use_id,
             },
@@ -474,9 +806,29 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
 
     // Input message
     if (isAnthropicRoleBasedMessage(rawMessage)) {
-        // Content is a nested array (tool responses, etc.)
+        // Check for top-level tool_calls (already normalized by SDK)
+        const topLevelToolCalls =
+            'tool_calls' in rawMessage && isOpenAICompatToolCallsArray(rawMessage.tool_calls)
+                ? parseOpenAIToolCalls(rawMessage.tool_calls)
+                : undefined
+
         if (Array.isArray(rawMessage.content)) {
-            return rawMessage.content.map((content) => normalizeMessage(content, roleToUse)).flat()
+            // If we have top-level tool_calls, skip tool_use blocks in content (they're duplicates with incomplete data)
+            const contentToProcess = topLevelToolCalls
+                ? rawMessage.content.filter((item) => !isAnthropicToolCallMessage(item))
+                : rawMessage.content
+
+            const contentMessages = contentToProcess.map((content) => normalizeMessage(content, roleToUse)).flat()
+
+            if (topLevelToolCalls && topLevelToolCalls.length > 0) {
+                contentMessages.push({
+                    role: roleToUse,
+                    content: '',
+                    tool_calls: topLevelToolCalls,
+                })
+            }
+
+            return contentMessages
         }
 
         return [
@@ -486,8 +838,17 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
             },
         ]
     }
+    // OTel parts format (from OpenTelemetry AI semantic conventions)
+    if (isOTelPartsMessage(rawMessage)) {
+        return normalizeOTelPartsMessage(rawMessage, roleToUse)
+    }
+
     // Unsupported message.
     console.warn("AI message isn't in a shape of any known AI provider", rawMessage)
+    posthog.capture('llma message normalization failed', {
+        message_keys: typeof rawMessage === 'object' && rawMessage !== null ? Object.keys(rawMessage) : [],
+        message_type: typeof rawMessage,
+    })
     let cajoledContent: string // Let's do what we can
     if (typeof rawMessage === 'string') {
         cajoledContent = rawMessage
@@ -535,12 +896,36 @@ export function normalizeMessages(messages: unknown, defaultRole: string, tools?
     return normalizedMessages
 }
 
+const JSON_PREVIEW_LENGTH = 300
+
+// We are deliberately cutting off the JSON instead of the parsed final content
+// because we will soon be sending an actual truncated version of the field
+// through a materialized column. This forces us to handle partial JSON.
+function simulateNaiveTruncation(raw: unknown): string {
+    const jsonStr = typeof raw === 'string' ? raw : JSON.stringify(raw)
+    return jsonStr.slice(0, JSON_PREVIEW_LENGTH)
+}
+
+export function parsePartialJSON(json: string): unknown {
+    const flags = PartialJSON.STR | PartialJSON.OBJ | PartialJSON.ARR
+    return PartialJSON.parse(json, flags)
+}
+
+export function parseJSONPreview(raw: unknown): unknown {
+    const truncated = simulateNaiveTruncation(raw)
+    return parsePartialJSON(truncated)
+}
+
 export function removeMilliseconds(timestamp: string): string {
     return dayjs(timestamp).utc().format('YYYY-MM-DDTHH:mm:ss[Z]')
 }
 
 export function getTraceTimestamp(timestamp: string): string {
     return dayjs(timestamp).utc().subtract(5, 'minutes').format('YYYY-MM-DDTHH:mm:ss[Z]')
+}
+
+export function getSessionStartTimestamp(timestamp: string): string {
+    return dayjs(timestamp).utc().subtract(24, 'hours').format('YYYY-MM-DDTHH:mm:ss[Z]')
 }
 
 export function formatLLMEventTitle(event: LLMTrace | LLMTraceEvent): string {
@@ -631,11 +1016,24 @@ type RawEvaluationRunRow = [
     evaluation_name: string | null,
     generation_id: string,
     trace_id: string,
-    result: boolean | string,
+    result: boolean | string | null,
     reasoning: string | null,
+    applicable: boolean | string | null,
 ]
 
 export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
+    const rawResult = row[6]
+    const applicable = row[8]
+
+    // N/A only when backend explicitly sets applicable=false
+    // Otherwise, convert result to boolean (handle string 'false' from HogQL)
+    let result: boolean | null
+    if (applicable === false || applicable === 'false') {
+        result = null
+    } else {
+        result = rawResult === true || rawResult === 'true'
+    }
+
     return {
         id: row[0],
         timestamp: row[1],
@@ -643,9 +1041,10 @@ export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
         evaluation_name: row[3] || 'Unknown Evaluation',
         generation_id: row[4],
         trace_id: row[5],
-        result: row[6] === true || row[6] === 'true',
+        result,
         reasoning: row[7] || 'No reasoning provided',
         status: 'completed' as const,
+        applicable: applicable === null ? undefined : applicable === 'true' || applicable === true,
     }
 }
 
@@ -672,18 +1071,21 @@ export async function queryEvaluationRuns(params: {
             properties.$ai_target_event_id as generation_id,
             properties.$ai_trace_id as trace_id,
             properties.$ai_evaluation_result as result,
-            properties.$ai_evaluation_reasoning as reasoning
+            properties.$ai_evaluation_reasoning as reasoning,
+            properties.$ai_evaluation_applicable as applicable
         FROM events
         WHERE
             event = '$ai_evaluation'
             AND ${hogql.raw(`properties.${propertyName}`)} = ${propertyValue}
         ORDER BY timestamp DESC
-        LIMIT 100
+        LIMIT ${EVALUATION_SUMMARY_MAX_RUNS}
     `
 
-    const response = await api.queryHogQL(query, {
-        ...(forceRefresh && { refresh: 'force_blocking' }),
-    })
+    const response = await api.queryHogQL(
+        query,
+        { scene: 'LLMAnalytics', productKey: 'llm_analytics' },
+        { ...(forceRefresh && { refresh: 'force_blocking' }) }
+    )
 
     return (response.results || []).map(mapEvaluationRunRow)
 }

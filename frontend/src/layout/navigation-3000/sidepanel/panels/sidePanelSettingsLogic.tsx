@@ -1,6 +1,5 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SettingsLogicProps } from 'scenes/settings/types'
 
 import { SidePanelTab } from '~/types'
@@ -9,9 +8,9 @@ import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import type { sidePanelSettingsLogicType } from './sidePanelSettingsLogicType'
 
 export const sidePanelSettingsLogic = kea<sidePanelSettingsLogicType>([
-    path(['scenes', 'navigation', 'sidepanel', 'sidePanelSettingsLogic']),
+    path(['layout', 'navigation-3000', 'sidepanel', 'panels', 'sidePanelSettingsLogic']),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], sidePanelStateLogic, ['selectedTab', 'sidePanelOpen']],
+        values: [sidePanelStateLogic, ['selectedTab', 'sidePanelOpen']],
         actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
     })),
 
@@ -20,9 +19,10 @@ export const sidePanelSettingsLogic = kea<sidePanelSettingsLogicType>([
         openSettingsPanel: (settingsLogicProps: SettingsLogicProps) => ({
             settingsLogicProps,
         }),
-        setSettings: (settingsLogicProps: SettingsLogicProps) => ({
+        setSettings: (settingsLogicProps: Partial<SettingsLogicProps>) => ({
             settingsLogicProps,
         }),
+        setPreviousTab: (tab: SidePanelTab | null) => ({ tab }),
     }),
 
     reducers(() => ({
@@ -33,10 +33,17 @@ export const sidePanelSettingsLogic = kea<sidePanelSettingsLogicType>([
                 openSettingsPanel: (_, { settingsLogicProps }) => {
                     return settingsLogicProps
                 },
-                setSettings: (_, { settingsLogicProps }) => {
-                    return settingsLogicProps
+                setSettings: (state, { settingsLogicProps }) => {
+                    return { ...state, ...settingsLogicProps }
                 },
                 closeSettingsPanel: () => ({}),
+            },
+        ],
+        previousTab: [
+            null as SidePanelTab | null,
+            {
+                setPreviousTab: (_, { tab }) => tab,
+                closeSettingsPanel: () => null,
             },
         ],
     })),
@@ -48,8 +55,10 @@ export const sidePanelSettingsLogic = kea<sidePanelSettingsLogicType>([
         ],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         openSettingsPanel: () => {
+            // Capture the current tab before switching to settings
+            actions.setPreviousTab(values.selectedTab)
             actions.openSidePanel(SidePanelTab.Settings)
         },
         closeSettingsPanel: () => {

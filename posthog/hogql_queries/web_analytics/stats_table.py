@@ -24,10 +24,18 @@ from posthog.hogql.property import (
 )
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.web_analytics.query_constants.stats_table_queries import (
+    FRUSTRATION_METRICS_INNER_QUERY,
+    MAIN_INNER_QUERY,
+    PATH_BOUNCE_AND_AVG_TIME_QUERY,
+    PATH_BOUNCE_QUERY,
+    PATH_SCROLL_BOUNCE_QUERY,
+)
 from posthog.hogql_queries.web_analytics.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner, map_columns
 
 BREAKDOWN_NULL_DISPLAY = "(none)"
+BREAKDOWN_REFERRER_PREFIX = "referrer:"
 
 
 class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryResponse]):
@@ -55,6 +63,8 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             self.modifiers
             and self.modifiers.useWebAnalyticsPreAggregatedTables
             and self.preaggregated_query_builder.can_use_preaggregated_tables()
+            and not self.query.includeAvgTimeOnPage
+            and not self.query.conversionGoal
         )
 
         if should_use_preaggregated:
@@ -66,6 +76,8 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 return self.to_main_query(self._counts_breakdown_value())
             elif self.query.includeScrollDepth and self.query.includeBounceRate:
                 return self.to_path_scroll_bounce_query()
+            elif self.query.includeAvgTimeOnPage:
+                return self.to_path_bounce_and_avg_time_query()
             elif self.query.includeBounceRate:
                 return self.to_path_bounce_query()
 
@@ -133,6 +145,41 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
 
         return query
 
+    def to_path_bounce_and_avg_time_query(self) -> ast.SelectQuery:
+        if self.query.breakdownBy not in [WebStatsBreakdown.PAGE, WebStatsBreakdown.INITIAL_PAGE]:
+            raise NotImplementedError("Time on page is only supported for page breakdowns")
+
+        with self.timings.measure("stats_table_time_on_page_query"):
+            query = parse_select(
+                PATH_BOUNCE_AND_AVG_TIME_QUERY,
+                timings=self.timings,
+                placeholders={
+                    "breakdown_value": self._counts_breakdown_value(),
+                    "where_breakdown": self.where_breakdown(),
+                    "session_properties": self._session_properties(),
+                    "event_properties": self._event_properties(),
+                    "time_on_page_event_properties": self._event_properties_for_scroll(),
+                    "time_on_page_breakdown_value": self._scroll_prev_pathname_breakdown(),
+                    "bounce_event_properties": self._event_properties_for_bounce_rate(),
+                    "bounce_breakdown_value": self._bounce_entry_pathname_breakdown(),
+                    "current_period": self._current_period_expression(),
+                    "previous_period": self._previous_period_expression(),
+                    "avg_current_period": self._current_period_expression("timestamp"),
+                    "avg_previous_period": self._previous_period_expression("timestamp"),
+                    "inside_periods": self._periods_expression(),
+                },
+            )
+        assert isinstance(query, ast.SelectQuery)
+
+        columns = [select.alias for select in query.select if isinstance(select, ast.Alias)]
+        query.order_by = self._order_by(columns)
+
+        fill_fraction = self._fill_fraction(query.order_by)
+        if fill_fraction:
+            query.select.append(fill_fraction)
+
+        return query
+
     def to_entry_bounce_query(self) -> ast.SelectQuery:
         query = self.to_main_query(self._bounce_entry_pathname_breakdown())
         return query
@@ -140,97 +187,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
     def to_path_scroll_bounce_query(self) -> ast.SelectQuery:
         with self.timings.measure("stats_table_bounce_query"):
             query = parse_select(
-                """
-SELECT
-    counts.breakdown_value AS "context.columns.breakdown_value",
-    tuple(counts.visitors, counts.previous_visitors) AS "context.columns.visitors",
-    tuple(counts.views, counts.previous_views) AS "context.columns.views",
-    tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS "context.columns.bounce_rate",
-    tuple(scroll.average_scroll_percentage, scroll.previous_average_scroll_percentage) AS "context.columns.average_scroll_percentage",
-    tuple(scroll.scroll_gt80_percentage, scroll.previous_scroll_gt80_percentage) AS "context.columns.scroll_gt80_percentage",
-FROM (
-    SELECT
-        breakdown_value,
-        uniqIf(filtered_person_id, {current_period}) AS visitors,
-        uniqIf(filtered_person_id, {previous_period}) AS previous_visitors,
-        sumIf(filtered_pageview_count, {current_period}) AS views,
-        sumIf(filtered_pageview_count, {previous_period}) AS previous_views
-    FROM (
-        SELECT
-            any(person_id) AS filtered_person_id,
-            count() AS filtered_pageview_count,
-            {breakdown_value} AS breakdown_value,
-            session.session_id AS session_id,
-            min(session.$start_timestamp ) AS start_timestamp
-        FROM events
-        WHERE and(
-            or(events.event == '$pageview', events.event == '$screen'),
-            breakdown_value IS NOT NULL,
-            {inside_periods},
-            {event_properties},
-            {session_properties},
-        )
-        GROUP BY session_id, breakdown_value
-    )
-    GROUP BY breakdown_value
-) AS counts
-LEFT JOIN (
-    SELECT
-        breakdown_value,
-        avgIf(is_bounce, {current_period}) AS bounce_rate,
-        avgIf(is_bounce, {previous_period}) AS previous_bounce_rate
-    FROM (
-        SELECT
-            {bounce_breakdown_value} AS breakdown_value, -- use $entry_pathname to find the bounce rate for sessions that started on this pathname
-            any(session.`$is_bounce`) AS is_bounce,
-            session.session_id AS session_id,
-            min(session.$start_timestamp) as start_timestamp
-        FROM events
-        WHERE and(
-            or(events.event == '$pageview', events.event == '$screen'),
-            breakdown_value IS NOT NULL,
-            {inside_periods},
-            {event_properties},
-            {session_properties},
-        )
-        GROUP BY session_id, breakdown_value
-    )
-    GROUP BY breakdown_value
-) AS bounce
-ON counts.breakdown_value = bounce.breakdown_value
-LEFT JOIN (
-    SELECT
-        breakdown_value,
-        avgMergeIf(average_scroll_percentage_state, {current_period}) AS average_scroll_percentage,
-        avgMergeIf(average_scroll_percentage_state, {previous_period}) AS previous_average_scroll_percentage,
-        avgMergeIf(scroll_gt80_percentage_state, {current_period}) AS scroll_gt80_percentage,
-        avgMergeIf(scroll_gt80_percentage_state, {previous_period}) AS previous_scroll_gt80_percentage
-    FROM (
-        SELECT
-            {scroll_breakdown_value} AS breakdown_value, -- use $prev_pageview_pathname to find the scroll depth when leaving this pathname
-            avgState(CASE
-                WHEN toFloat(events.properties.`$prev_pageview_max_content_percentage`) IS NULL THEN NULL
-                WHEN toFloat(events.properties.`$prev_pageview_max_content_percentage`) > 0.8 THEN 1
-                ELSE 0
-                END
-            ) AS scroll_gt80_percentage_state,
-            avgState(toFloat(events.properties.`$prev_pageview_max_scroll_percentage`)) as average_scroll_percentage_state,
-            session.session_id AS session_id,
-            min(session.$start_timestamp) AS start_timestamp
-        FROM events
-        WHERE and(
-            or(events.event == '$pageview', events.event == '$pageleave', events.event == '$screen'),
-            breakdown_value IS NOT NULL,
-            {inside_periods},
-            {event_properties_for_scroll},
-            {session_properties},
-        )
-        GROUP BY session_id, breakdown_value
-    )
-    GROUP BY breakdown_value
-) AS scroll
-ON counts.breakdown_value = scroll.breakdown_value
-""",
+                PATH_SCROLL_BOUNCE_QUERY,
                 timings=self.timings,
                 placeholders={
                     "session_properties": self._session_properties(),
@@ -262,63 +219,7 @@ ON counts.breakdown_value = scroll.breakdown_value
 
         with self.timings.measure("stats_table_scroll_query"):
             query = parse_select(
-                """
-SELECT
-    counts.breakdown_value AS "context.columns.breakdown_value",
-    tuple(counts.visitors, counts.previous_visitors) AS "context.columns.visitors",
-    tuple(counts.views, counts.previous_views) AS "context.columns.views",
-    tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS "context.columns.bounce_rate",
-FROM (
-    SELECT
-        breakdown_value,
-        uniqIf(filtered_person_id, {current_period}) AS visitors,
-        uniqIf(filtered_person_id, {previous_period}) AS previous_visitors,
-        sumIf(filtered_pageview_count, {current_period}) AS views,
-        sumIf(filtered_pageview_count, {previous_period}) AS previous_views
-    FROM (
-        SELECT
-            any(person_id) AS filtered_person_id,
-            count() AS filtered_pageview_count,
-            {breakdown_value} AS breakdown_value,
-            session.session_id AS session_id,
-            min(session.$start_timestamp) AS start_timestamp
-        FROM events
-        WHERE and(
-            or(events.event == '$pageview', events.event == '$screen'),
-            {inside_periods},
-            {event_properties},
-            {session_properties},
-            {where_breakdown},
-        )
-        GROUP BY session_id, breakdown_value
-    )
-    GROUP BY breakdown_value
-) as counts
-LEFT JOIN (
-    SELECT
-        breakdown_value,
-        avgIf(is_bounce, {current_period}) AS bounce_rate,
-        avgIf(is_bounce, {previous_period}) AS previous_bounce_rate
-    FROM (
-        SELECT
-            {bounce_breakdown_value} AS breakdown_value, -- use $entry_pathname to find the bounce rate for sessions that started on this pathname
-            any(session.`$is_bounce`) AS is_bounce,
-            session.session_id AS session_id,
-            min(session.$start_timestamp) AS start_timestamp
-        FROM events
-        WHERE and(
-            or(events.event == '$pageview', events.event == '$screen'),
-            breakdown_value IS NOT NULL,
-            {inside_periods},
-            {bounce_event_properties}, -- Using filtered properties but excluding pathname
-            {session_properties}
-        )
-        GROUP BY session_id, breakdown_value
-    )
-    GROUP BY breakdown_value
-) as bounce
-ON counts.breakdown_value = bounce.breakdown_value
-""",
+                PATH_BOUNCE_QUERY,
                 timings=self.timings,
                 placeholders={
                     "breakdown_value": self._counts_breakdown_value(),
@@ -358,6 +259,7 @@ ON counts.breakdown_value = bounce.breakdown_value
                 select=selects,
                 select_from=ast.JoinExpr(table=self._frustration_metrics_inner_query()),
                 group_by=[ast.Field(chain=["context.columns.breakdown_value"])],
+                having=self._frustration_metrics_having(),
                 order_by=self._frustration_metrics_order_by(),
             )
 
@@ -365,20 +267,7 @@ ON counts.breakdown_value = bounce.breakdown_value
 
     def _frustration_metrics_inner_query(self):
         query = parse_select(
-            """
-            SELECT
-                any(person_id) AS filtered_person_id,
-                countIf(events.event = '$pageview' OR events.event = '$screen') AS filtered_pageview_count,
-                {breakdown_value} AS breakdown_value,
-                countIf(events.event = '$exception') AS errors_count,
-                countIf(events.event = '$rageclick') AS rage_clicks_count,
-                countIf(events.event = '$dead_click') AS dead_clicks_count,
-                session.session_id AS session_id,
-                min(session.$start_timestamp) as start_timestamp
-            FROM events
-            WHERE and({inside_periods}, {event_where}, {all_properties}, {where_breakdown})
-            GROUP BY session_id, breakdown_value
-            """,
+            FRUSTRATION_METRICS_INNER_QUERY,
             timings=self.timings,
             placeholders={
                 "breakdown_value": self._counts_breakdown_value(),
@@ -394,6 +283,28 @@ ON counts.breakdown_value = bounce.breakdown_value
         assert isinstance(query, ast.SelectQuery)
         return query
 
+    def _frustration_metrics_having(self) -> ast.Expr:
+        zero_tuple = ast.Tuple(exprs=[ast.Constant(value=0), ast.Constant(value=0)])
+        return ast.Or(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Gt,
+                    left=ast.Field(chain=["context.columns.rage_clicks"]),
+                    right=zero_tuple,
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Gt,
+                    left=ast.Field(chain=["context.columns.dead_clicks"]),
+                    right=zero_tuple,
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Gt,
+                    left=ast.Field(chain=["context.columns.errors"]),
+                    right=zero_tuple,
+                ),
+            ]
+        )
+
     def _frustration_metrics_order_by(self) -> list[ast.OrderExpr] | None:
         return [
             ast.OrderExpr(expr=ast.Field(chain=["context.columns.errors"]), order="DESC"),
@@ -403,18 +314,7 @@ ON counts.breakdown_value = bounce.breakdown_value
 
     def _main_inner_query(self, breakdown):
         query = parse_select(
-            """
-SELECT
-    any(person_id) AS filtered_person_id,
-    count() AS filtered_pageview_count,
-    {breakdown_value} AS breakdown_value,
-    session.session_id AS session_id,
-    any(session.$is_bounce) AS is_bounce,
-    min(session.$start_timestamp) as start_timestamp
-FROM events
-WHERE and({inside_periods}, {event_where}, {all_properties}, {where_breakdown})
-GROUP BY session_id, breakdown_value
-""",
+            MAIN_INNER_QUERY,
             timings=self.timings,
             placeholders={
                 "breakdown_value": breakdown,
@@ -568,7 +468,9 @@ GROUP BY session_id, breakdown_value
 
     def _event_properties(self) -> ast.Expr:
         properties = [
-            p for p in self.query.properties + self._test_account_filters if get_property_type(p) in ["event", "person"]
+            p
+            for p in self.query.properties + self._test_account_filters
+            if get_property_type(p) in ["event", "person", "cohort"]
         ]
         return property_to_expr(properties, team=self.team, scope="event")
 
@@ -585,7 +487,7 @@ GROUP BY session_id, breakdown_value
         properties = [
             map_scroll_property(p)
             for p in self.query.properties + self._test_account_filters
-            if get_property_type(p) in ["event", "person"]
+            if get_property_type(p) in ["event", "person", "cohort"]
         ]
         return property_to_expr(properties, team=self.team, scope="event")
 
@@ -686,14 +588,35 @@ GROUP BY session_id, breakdown_value
 
         return f"{breakdown_value}-{row[3]}"  # Fourth value is the aggregation value
 
+    def _prepend_host(self, host_expr: ast.Expr, path_expr: ast.Expr) -> ast.Expr:
+        return ast.Call(
+            name="nullIf",
+            args=[
+                ast.Call(
+                    name="concat",
+                    args=[host_expr, path_expr],
+                ),
+                ast.Constant(value=""),
+            ],
+        )
+
     def _counts_breakdown_value(self):
         match self.query.breakdownBy:
             case WebStatsBreakdown.PAGE:
-                return self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$pathname"]))
+                path = self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$pathname"]))
+                if self.query.includeHost:
+                    return self._prepend_host(ast.Field(chain=["events", "properties", "$host"]), path)
+                return path
             case WebStatsBreakdown.INITIAL_PAGE:
-                return self._apply_path_cleaning(ast.Field(chain=["session", "$entry_pathname"]))
+                path = self._apply_path_cleaning(ast.Field(chain=["session", "$entry_pathname"]))
+                if self.query.includeHost:
+                    return self._prepend_host(ast.Field(chain=["session", "$entry_hostname"]), path)
+                return path
             case WebStatsBreakdown.EXIT_PAGE:
-                return self._apply_path_cleaning(ast.Field(chain=["session", "$end_pathname"]))
+                path = self._apply_path_cleaning(ast.Field(chain=["session", "$end_pathname"]))
+                if self.query.includeHost:
+                    return self._prepend_host(ast.Field(chain=["session", "$end_hostname"]), path)
+                return path
             case WebStatsBreakdown.EXIT_CLICK:
                 return ast.Field(chain=["session", "$last_external_click_url"])
             case WebStatsBreakdown.PREVIOUS_PAGE:
@@ -727,6 +650,11 @@ GROUP BY session_id, breakdown_value
                 return ast.Field(chain=["events", "properties", "$screen_name"])
             case WebStatsBreakdown.INITIAL_REFERRING_DOMAIN:
                 return ast.Field(chain=["session", "$entry_referring_domain"])
+            case WebStatsBreakdown.INITIAL_REFERRING_URL:
+                return ast.Call(
+                    name="cutQueryStringAndFragment",
+                    args=[ast.Field(chain=["events", "properties", "$session_entry_referrer"])],
+                )
             case WebStatsBreakdown.INITIAL_UTM_SOURCE:
                 return ast.Field(chain=["session", "$entry_utm_source"])
             case WebStatsBreakdown.INITIAL_UTM_CAMPAIGN:
@@ -740,14 +668,40 @@ GROUP BY session_id, breakdown_value
             case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
                 return ast.Field(chain=["session", "$channel_type"])
             case WebStatsBreakdown.INITIAL_UTM_SOURCE_MEDIUM_CAMPAIGN:
+                # The source part uses a prefix so the frontend can distinguish
+                # whether the value came from $entry_utm_source or $entry_referring_domain
+                source_expr = ast.Call(
+                    name="if",
+                    args=[
+                        ast.Call(
+                            name="isNotNull",
+                            args=[ast.Field(chain=["session", "$entry_utm_source"])],
+                        ),
+                        ast.Field(chain=["session", "$entry_utm_source"]),
+                        ast.Call(
+                            name="if",
+                            args=[
+                                ast.Call(
+                                    name="isNotNull",
+                                    args=[ast.Field(chain=["session", "$entry_referring_domain"])],
+                                ),
+                                ast.Call(
+                                    name="concat",
+                                    args=[
+                                        ast.Constant(value=BREAKDOWN_REFERRER_PREFIX),
+                                        ast.Field(chain=["session", "$entry_referring_domain"]),
+                                    ],
+                                ),
+                                ast.Constant(value=BREAKDOWN_NULL_DISPLAY),
+                            ],
+                        ),
+                    ],
+                )
                 return ast.Call(
                     name="concatWithSeparator",
                     args=[
                         ast.Constant(value=" / "),
-                        coalesce_with_null_display(
-                            ast.Field(chain=["session", "$entry_utm_source"]),
-                            ast.Field(chain=["session", "$entry_referring_domain"]),
-                        ),
+                        source_expr,
                         coalesce_with_null_display(ast.Field(chain=["session", "$entry_utm_medium"])),
                         coalesce_with_null_display(ast.Field(chain=["session", "$entry_utm_campaign"])),
                     ],
@@ -829,10 +783,16 @@ GROUP BY session_id, breakdown_value
                 return parse_expr("breakdown_value IS NOT NULL")
 
     def _scroll_prev_pathname_breakdown(self):
-        return self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$prev_pageview_pathname"]))
+        path = self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$prev_pageview_pathname"]))
+        if self.query.includeHost:
+            return self._prepend_host(ast.Field(chain=["events", "properties", "$host"]), path)
+        return path
 
     def _bounce_entry_pathname_breakdown(self):
-        return self._apply_path_cleaning(ast.Field(chain=["session", "$entry_pathname"]))
+        path = self._apply_path_cleaning(ast.Field(chain=["session", "$entry_pathname"]))
+        if self.query.includeHost:
+            return self._prepend_host(ast.Field(chain=["session", "$entry_hostname"]), path)
+        return path
 
 
 def coalesce_with_null_display(*exprs: ast.Expr) -> ast.Expr:

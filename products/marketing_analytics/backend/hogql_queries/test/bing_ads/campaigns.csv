@@ -1,0 +1,9 @@
+id,name,status,budget_type,daily_budget,campaign_type,languages,time_zone
+123456,SpringSale2024,Active,DailyBudgetStandard,50.00,Search,en,PacificTimeUSCanadaTijuana
+123457,SummerPromo2024,Active,DailyBudgetStandard,75.00,Search,en,PacificTimeUSCanadaTijuana
+123458,FallCampaign2024,Active,DailyBudgetStandard,60.00,Search,en,PacificTimeUSCanadaTijuana
+123459,WinterSpecial2024,Active,DailyBudgetStandard,80.00,Search,en,PacificTimeUSCanadaTijuana
+123460,BrandAwareness,Active,DailyBudgetStandard,40.00,Search,en,PacificTimeUSCanadaTijuana
+123461,LeadGeneration,Active,DailyBudgetStandard,55.00,Search,en,PacificTimeUSCanadaTijuana
+123462,ProductLaunch,Active,DailyBudgetStandard,90.00,Search,en,PacificTimeUSCanadaTijuana
+123463,RetargetingCampaign,Active,DailyBudgetStandard,45.00,DynamicSearchAds,en,PacificTimeUSCanadaTijuana

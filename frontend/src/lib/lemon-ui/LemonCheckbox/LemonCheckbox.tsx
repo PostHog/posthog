@@ -3,6 +3,8 @@ import './LemonCheckbox.scss'
 import clsx from 'clsx'
 import { ChangeEvent, useEffect, useMemo, useState } from 'react'
 
+import { IconInfo } from '@posthog/icons'
+
 import { Tooltip } from '../Tooltip'
 
 export interface LemonCheckboxProps {
@@ -14,6 +16,8 @@ export interface LemonCheckboxProps {
     disabledReason?: string | null | false
     onChange?: (value: boolean, event: ChangeEvent<HTMLInputElement>) => void
     label?: string | JSX.Element
+    /** Tooltip shown next to the label with an info icon. */
+    info?: React.ReactNode
     id?: string
     className?: string
     labelClassName?: string
@@ -45,6 +49,7 @@ export function LemonCheckbox({
     disabledReason,
     onChange,
     label,
+    info,
     id: rawId,
     className,
     labelClassName,
@@ -132,6 +137,11 @@ export function LemonCheckbox({
                         <path d={!wasIndeterminateLast ? 'm3.5 8 3 3 6-6' : 'm3.5 8h9'} strokeWidth="2" />
                     </svg>
                     {label && <span className="LemonCheckbox__label">{label}</span>}
+                    {info && (
+                        <Tooltip title={info}>
+                            <IconInfo className="text-xl text-secondary shrink-0 ml-0.5" />
+                        </Tooltip>
+                    )}
                 </label>
             </span>
         </Tooltip>

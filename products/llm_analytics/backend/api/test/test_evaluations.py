@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from rest_framework import status
 
@@ -44,7 +45,10 @@ class TestEvaluationConfigsApi(APIBaseTest):
                 "name": "Test Evaluation",
                 "description": "Test Description",
                 "enabled": True,
-                "prompt": "Test prompt",
+                "evaluation_type": "llm_judge",
+                "evaluation_config": {"prompt": "Test prompt"},
+                "output_type": "boolean",
+                "output_config": {},
                 "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
             },
         )
@@ -56,7 +60,10 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(evaluation_config.name, "Test Evaluation")
         self.assertEqual(evaluation_config.description, "Test Description")
         self.assertEqual(evaluation_config.enabled, True)
-        self.assertEqual(evaluation_config.prompt, "Test prompt")
+        self.assertEqual(evaluation_config.evaluation_type, "llm_judge")
+        self.assertEqual(evaluation_config.evaluation_config, {"prompt": "Test prompt"})
+        self.assertEqual(evaluation_config.output_type, "boolean")
+        self.assertEqual(evaluation_config.output_config, {"allows_na": False})
         self.assertEqual(len(evaluation_config.conditions), 1)
         self.assertEqual(evaluation_config.conditions[0]["id"], "test-condition")
         self.assertEqual(evaluation_config.team, self.team)
@@ -64,8 +71,24 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(evaluation_config.deleted, False)
 
     def test_can_retrieve_list_of_evaluation_configs(self):
-        Evaluation.objects.create(name="Evaluation 1", prompt="Prompt 1", team=self.team, created_by=self.user)
-        Evaluation.objects.create(name="Evaluation 2", prompt="Prompt 2", team=self.team, created_by=self.user)
+        Evaluation.objects.create(
+            name="Evaluation 1",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Prompt 1"},
+            output_type="boolean",
+            output_config={},
+            team=self.team,
+            created_by=self.user,
+        )
+        Evaluation.objects.create(
+            name="Evaluation 2",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Prompt 2"},
+            output_type="boolean",
+            output_config={},
+            team=self.team,
+            created_by=self.user,
+        )
 
         response = self.client.get(f"/api/environments/{self.team.id}/evaluations/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -80,7 +103,10 @@ class TestEvaluationConfigsApi(APIBaseTest):
             name="Test Evaluation",
             description="Test Description",
             enabled=True,
-            prompt="Test prompt",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Test prompt"},
+            output_type="boolean",
+            output_config={},
             conditions=[{"id": "test", "rollout_percentage": 100, "properties": []}],
             team=self.team,
             created_by=self.user,
@@ -91,11 +117,18 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(response.data["name"], "Test Evaluation")
         self.assertEqual(response.data["description"], "Test Description")
         self.assertEqual(response.data["enabled"], True)
-        self.assertEqual(response.data["prompt"], "Test prompt")
+        self.assertEqual(response.data["evaluation_type"], "llm_judge")
+        self.assertEqual(response.data["evaluation_config"], {"prompt": "Test prompt"})
 
     def test_can_edit_evaluation_config(self):
         evaluation_config = Evaluation.objects.create(
-            name="Original Name", prompt="Original prompt", team=self.team, created_by=self.user
+            name="Original Name",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Original prompt"},
+            output_type="boolean",
+            output_config={},
+            team=self.team,
+            created_by=self.user,
         )
 
         response = self.client.patch(
@@ -104,7 +137,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
                 "name": "Updated Name",
                 "description": "Updated Description",
                 "enabled": False,
-                "prompt": "Updated prompt",
+                "evaluation_config": {"prompt": "Updated prompt"},
             },
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -113,11 +146,17 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(evaluation_config.name, "Updated Name")
         self.assertEqual(evaluation_config.description, "Updated Description")
         self.assertEqual(evaluation_config.enabled, False)
-        self.assertEqual(evaluation_config.prompt, "Updated prompt")
+        self.assertEqual(evaluation_config.evaluation_config, {"prompt": "Updated prompt"})
 
     def test_delete_method_returns_405(self):
         evaluation_config = Evaluation.objects.create(
-            name="Test Evaluation", prompt="Test prompt", team=self.team, created_by=self.user
+            name="Test Evaluation",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Test prompt"},
+            output_type="boolean",
+            output_config={},
+            team=self.team,
+            created_by=self.user,
         )
 
         response = self.client.delete(f"/api/environments/{self.team.id}/evaluations/{evaluation_config.id}/")
@@ -127,14 +166,20 @@ class TestEvaluationConfigsApi(APIBaseTest):
         Evaluation.objects.create(
             name="Accuracy Evaluation",
             description="Tests accuracy",
-            prompt="Test prompt",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Test prompt"},
+            output_type="boolean",
+            output_config={},
             team=self.team,
             created_by=self.user,
         )
         Evaluation.objects.create(
             name="Performance Evaluation",
             description="Tests performance",
-            prompt="Test prompt",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Test prompt"},
+            output_type="boolean",
+            output_config={},
             team=self.team,
             created_by=self.user,
         )
@@ -153,10 +198,24 @@ class TestEvaluationConfigsApi(APIBaseTest):
 
     def test_can_filter_by_enabled_status(self):
         Evaluation.objects.create(
-            name="Enabled Evaluation", prompt="Test prompt", enabled=True, team=self.team, created_by=self.user
+            name="Enabled Evaluation",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Test prompt"},
+            output_type="boolean",
+            output_config={},
+            enabled=True,
+            team=self.team,
+            created_by=self.user,
         )
         Evaluation.objects.create(
-            name="Disabled Evaluation", prompt="Test prompt", enabled=False, team=self.team, created_by=self.user
+            name="Disabled Evaluation",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Test prompt"},
+            output_type="boolean",
+            output_config={},
+            enabled=False,
+            team=self.team,
+            created_by=self.user,
         )
 
         # Filter for enabled only
@@ -177,7 +236,10 @@ class TestEvaluationConfigsApi(APIBaseTest):
         # Create evaluation config for other team
         other_evaluation = Evaluation.objects.create(
             name="Other Team Evaluation",
-            prompt="Test prompt",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Test prompt"},
+            output_type="boolean",
+            output_config={},
             team=other_team,
             created_by=self.user,
         )
@@ -191,27 +253,54 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data["results"]), 0)
 
-    def test_validation_requires_name_and_prompt(self):
+    def test_validation_requires_required_fields(self):
         # Missing name
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/",
-            {"prompt": "Test prompt"},
+            {
+                "evaluation_type": "llm_judge",
+                "evaluation_config": {"prompt": "Test prompt"},
+                "output_type": "boolean",
+                "output_config": {},
+            },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data["attr"], "name")
 
-        # Missing prompt
+        # Missing evaluation_type
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/",
-            {"name": "Test Evaluation"},
+            {
+                "name": "Test Evaluation",
+                "evaluation_config": {"prompt": "Test prompt"},
+                "output_type": "boolean",
+                "output_config": {},
+            },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data["attr"], "prompt")
+        self.assertEqual(response.data["attr"], "evaluation_type")
+
+        # Empty evaluation_config should fail validation
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Test Evaluation",
+                "evaluation_type": "llm_judge",
+                "evaluation_config": {},
+                "output_type": "boolean",
+                "output_config": {},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["attr"], "config")
 
     def test_deleted_evaluation_configs_not_returned(self):
         evaluation_config = Evaluation.objects.create(
             name="Deleted Evaluation",
-            prompt="Test prompt",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Test prompt"},
+            output_type="boolean",
+            output_config={},
             team=self.team,
             created_by=self.user,
             deleted=True,
@@ -231,7 +320,10 @@ class TestEvaluationConfigsApi(APIBaseTest):
             f"/api/environments/{self.team.id}/evaluations/",
             {
                 "name": "Test with Properties",
-                "prompt": "Evaluate this",
+                "evaluation_type": "llm_judge",
+                "evaluation_config": {"prompt": "Evaluate this"},
+                "output_type": "boolean",
+                "output_config": {},
                 "conditions": [
                     {
                         "id": "cond-1",
@@ -255,3 +347,79 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(response.data["conditions"][0]["rollout_percentage"], 50)
         self.assertEqual(len(response.data["conditions"][0]["properties"]), 1)
         self.assertEqual(response.data["conditions"][0]["properties"][0]["key"], "$ai_model_name")
+
+
+class TestTestHogEndpoint(APIBaseTest):
+    def _mock_hogql_response(self, count=1):
+        from posthog.hogql.query import HogQLQueryResponse
+
+        rows = [
+            (
+                str(uuid4()),
+                "$ai_generation",
+                {"$ai_input": "What is 2+2?", "$ai_output": "4"},
+                "user-1",
+            )
+            for _ in range(count)
+        ]
+        return HogQLQueryResponse(results=rows, columns=["uuid", "event", "properties", "distinct_id"])
+
+    @patch("posthog.hogql.query.execute_hogql_query")
+    def test_test_hog_compiles_and_executes(self, mock_query):
+        mock_query.return_value = self._mock_hogql_response(2)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_hog/",
+            {"source": "return length(output) > 0", "sample_count": 2},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 2)
+        for r in results:
+            self.assertIn("event_uuid", r)
+            self.assertIn("result", r)
+            self.assertIn("reasoning", r)
+            self.assertIn("error", r)
+            self.assertTrue(r["result"])
+            self.assertIsNone(r["error"])
+
+    def test_test_hog_compilation_error(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_hog/",
+            {"source": "this is not valid hog {{{{"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Compilation error", response.json()["error"])
+
+    def test_test_hog_empty_source_rejected(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_hog/",
+            {"source": ""},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("posthog.hogql.query.execute_hogql_query")
+    def test_test_hog_no_events(self, mock_query):
+        mock_query.return_value = self._mock_hogql_response(0)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_hog/",
+            {"source": "return true"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], [])
+        self.assertIn("message", response.json())
+
+    @patch("posthog.hogql.query.execute_hogql_query")
+    def test_test_hog_handles_runtime_error(self, mock_query):
+        mock_query.return_value = self._mock_hogql_response(1)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_hog/",
+            {"source": "return 42"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertIsNone(results[0]["result"])
+        self.assertIn("Must return boolean", results[0]["error"])

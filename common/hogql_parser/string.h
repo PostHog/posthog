@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include "antlr4-runtime.h"
 
@@ -11,3 +12,11 @@ std::string parse_string_literal_text(std::string text);
 std::string parse_string_literal_ctx(antlr4::tree::TerminalNode* node);
 
 std::string parse_string_text_ctx(antlr4::tree::TerminalNode* node, bool escape_quotes);
+
+std::string join(const std::vector<std::string>& tokens, const std::string& sep);
+
+void to_lower(std::string& s);
+
+std::string to_lower_copy(const std::string& s);
+
+void replace_all(std::string& str, const std::string& from, const std::string& to);

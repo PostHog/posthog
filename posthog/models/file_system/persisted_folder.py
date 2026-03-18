@@ -21,11 +21,13 @@ class PersistedFolder(models.Model):
 
     TYPE_HOME = "home"
     TYPE_PINNED = "pinned"
+    TYPE_CUSTOM_PRODUCTS = "custom_products"
     type: models.CharField = models.CharField(
         max_length=32,
         choices=[
             (TYPE_HOME, "Home"),
             (TYPE_PINNED, "Pinned"),
+            (TYPE_CUSTOM_PRODUCTS, "Custom Products"),
         ],
     )
 

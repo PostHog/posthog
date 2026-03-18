@@ -2,8 +2,10 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
+import { CombinedLocation } from 'kea-router/lib/utils'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -121,6 +123,8 @@ export const actionEditLogic = kea<actionEditLogicType>([
                 actions.resetAction(updatedAction)
                 refreshTreeItem('action', String(action.id))
                 if (!props.id) {
+                    // Mark task complete when creating a new action
+                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.DefineActions)
                     router.actions.push(urls.action(action.id))
                 } else {
                     const id = parseInt(props.id.toString()) // props.id can be a string
@@ -231,7 +235,18 @@ export const actionEditLogic = kea<actionEditLogicType>([
     })),
 
     beforeUnload((logic) => ({
-        enabled: () => (logic.isMounted() ? logic.values.actionChanged : false),
+        enabled: (newLocation?: CombinedLocation) => {
+            if (!logic.isMounted() || !logic.values.actionChanged) {
+                return false
+            }
+
+            // Ignore in-page URL updates such as opening the side panel
+            if (newLocation && newLocation.pathname === router.values.location.pathname) {
+                return false
+            }
+
+            return true
+        },
         message: 'Leave action?\nChanges you made will be discarded.',
         onConfirm: () => {
             logic.actions.resetAction()

@@ -1,5 +1,6 @@
 import typing
 import datetime as dt
+from collections.abc import Iterable
 
 import pytest
 from unittest import mock
@@ -14,7 +15,8 @@ from posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads import (
     linkedin_ads_client,
     linkedin_ads_source,
 )
-from posthog.warehouse.types import IncrementalFieldType
+
+from products.data_warehouse.backend.types import IncrementalFieldType
 
 
 class TestLinkedinAdsHelperFunctions:
@@ -256,7 +258,9 @@ class TestLinkedinAdsSource:
         )
 
         # Process the rows to trigger the client call
-        rows = list(result.items)
+        items = result.items()
+        assert isinstance(items, Iterable)
+        rows = list(items)
         assert len(rows) == 1
 
         # Verify client was called with correct date parameters

@@ -6,9 +6,6 @@ import {
     ExperimentTrendsQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { SignificanceText, WinningVariantText } from '~/scenes/experiments/ExperimentView/Overview'
-import { SummaryTable } from '~/scenes/experiments/ExperimentView/SummaryTable'
-import { LegacyExploreButton, LegacyResultsQuery } from '~/scenes/experiments/ExperimentView/components'
 import {
     ExploreAsInsightButton,
     ResultsBreakdown,
@@ -16,7 +13,10 @@ import {
     ResultsInsightInfoBanner,
     ResultsQuery,
 } from '~/scenes/experiments/components/ResultsBreakdown'
-import type { Experiment, ExperimentIdType } from '~/types'
+import { LegacyExploreButton, LegacyResultsQuery } from '~/scenes/experiments/ExperimentView/components'
+import { SignificanceText, WinningVariantText } from '~/scenes/experiments/ExperimentView/Overview'
+import { SummaryTable } from '~/scenes/experiments/ExperimentView/SummaryTable'
+import type { Experiment } from '~/types'
 
 interface ChartModalProps {
     isOpen: boolean
@@ -25,7 +25,6 @@ interface ChartModalProps {
     displayOrder: number
     isSecondary: boolean
     result: any
-    experimentId: ExperimentIdType
     experiment: Experiment
 }
 
@@ -36,7 +35,6 @@ export function ChartModal({
     displayOrder,
     isSecondary,
     result,
-    experimentId,
     experiment,
 }: ChartModalProps): JSX.Element {
     const isLegacyResult =
@@ -61,7 +59,7 @@ export function ChartModal({
                     </div>
                     <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
                         <div className="items-center inline-flex flex-wrap">
-                            <WinningVariantText result={result} experimentId={experimentId} />
+                            <WinningVariantText result={result} />
                             <SignificanceText metricUuid={metric.uuid || ''} isSecondary={isSecondary} />
                         </div>
                     </LemonBanner>
@@ -90,7 +88,7 @@ export function ChartModal({
                             )}
                             <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
                                 <div className="items-center inline-flex flex-wrap">
-                                    <WinningVariantText result={result} experimentId={experimentId} />
+                                    <WinningVariantText result={result} />
                                     <SignificanceText metricUuid={metric.uuid || ''} isSecondary={isSecondary} />
                                 </div>
                             </LemonBanner>

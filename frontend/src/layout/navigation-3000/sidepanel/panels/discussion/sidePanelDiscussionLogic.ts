@@ -3,7 +3,6 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CommentsLogicProps } from 'scenes/comments/commentsLogic'
 
@@ -34,11 +33,7 @@ export const sidePanelDiscussionLogic = kea<sidePanelDiscussionLogicType>([
             0,
             {
                 loadCommentCount: async (_, breakpoint) => {
-                    if (
-                        !values.featureFlags[FEATURE_FLAGS.DISCUSSIONS] ||
-                        !values.commentsLogicProps ||
-                        values.commentsLogicProps.disabled
-                    ) {
+                    if (!values.commentsLogicProps || values.commentsLogicProps.disabled) {
                         return 0
                     }
 

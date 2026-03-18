@@ -1,3 +1,6 @@
+// False positive: struct fields used by miette's Diagnostic derive macro appear as "unused assignments"
+#![allow(unused_assignments)]
+
 use anyhow::Error;
 use clap::Subcommand;
 use miette::{Diagnostic, SourceSpan};
@@ -43,9 +46,6 @@ pub enum QueryCommand {
 }
 
 pub fn query_command(query: &QueryCommand) -> Result<(), Error> {
-    let creds = context().token.clone();
-    let host = creds.get_host();
-
     match query {
         QueryCommand::Editor {
             no_print,
@@ -54,13 +54,12 @@ pub fn query_command(query: &QueryCommand) -> Result<(), Error> {
         } => {
             // Given this is an interactive command, we're happy enough to not join the capture handle
             context().capture_command_invoked("query_editor");
-            let res = start_query_editor(&host, creds.clone(), *debug)?;
+            let res = start_query_editor(*debug)?;
             if !no_print {
                 println!("Final query: {res}");
             }
             if *execute {
-                let query_endpoint = format!("{}/api/environments/{}/query", host, creds.env_id);
-                let res = run_query(&query_endpoint, &creds.token, &res)??;
+                let res = run_query(&res)??;
                 for result in res.results {
                     println!("{}", serde_json::to_string(&result)?);
                 }
@@ -69,8 +68,7 @@ pub fn query_command(query: &QueryCommand) -> Result<(), Error> {
         QueryCommand::Run { query, debug } => {
             // Given this is an interactive command, we're happy enough to not join the capture handle
             context().capture_command_invoked("query_run");
-            let query_endpoint = format!("{}/api/environments/{}/query", host, creds.env_id);
-            let res = run_query(&query_endpoint, &creds.token, query)??;
+            let res = run_query(query)??;
             if *debug {
                 println!("{}", serde_json::to_string_pretty(&res)?);
             } else {
@@ -81,8 +79,7 @@ pub fn query_command(query: &QueryCommand) -> Result<(), Error> {
         }
         QueryCommand::Check { query, raw } => {
             context().capture_command_invoked("query_check");
-            let query_endpoint = format!("{}/api/environments/{}/query", host, creds.env_id);
-            let res = check_query(&query_endpoint, &creds.token, query)?;
+            let res = check_query(query)?;
             if *raw {
                 println!("{}", serde_json::to_string_pretty(&res)?);
             } else {
@@ -94,8 +91,8 @@ pub fn query_command(query: &QueryCommand) -> Result<(), Error> {
     Ok(())
 }
 
-#[derive(thiserror::Error, Debug, Diagnostic)]
-#[error("Query checked")]
+// These structs use miette's Diagnostic derive macro which reads the fields.
+#[derive(Debug, Diagnostic)]
 #[diagnostic()]
 struct CheckDiagnostic {
     #[source_code]
@@ -109,8 +106,22 @@ struct CheckDiagnostic {
     notices: Vec<CheckNotice>,
 }
 
-#[derive(thiserror::Error, Debug, Diagnostic)]
-#[error("Error")]
+impl std::fmt::Display for CheckDiagnostic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Query checked ({} bytes): {} errors, {} warnings, {} notices",
+            self.source_code.len(),
+            self.errors.len(),
+            self.warnings.len(),
+            self.notices.len()
+        )
+    }
+}
+
+impl std::error::Error for CheckDiagnostic {}
+
+#[derive(Debug, Diagnostic)]
 #[diagnostic(severity(Error))]
 struct CheckError {
     #[help]
@@ -119,8 +130,15 @@ struct CheckError {
     err_span: SourceSpan,
 }
 
-#[derive(thiserror::Error, Debug, Diagnostic)]
-#[error("Warning")]
+impl std::fmt::Display for CheckError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} (at {:?})", self.message, self.err_span)
+    }
+}
+
+impl std::error::Error for CheckError {}
+
+#[derive(Debug, Diagnostic)]
 #[diagnostic(severity(Warning))]
 struct CheckWarning {
     #[help]
@@ -129,8 +147,15 @@ struct CheckWarning {
     err_span: SourceSpan,
 }
 
-#[derive(thiserror::Error, Debug, Diagnostic)]
-#[error("Notice")]
+impl std::fmt::Display for CheckWarning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} (at {:?})", self.message, self.err_span)
+    }
+}
+
+impl std::error::Error for CheckWarning {}
+
+#[derive(Debug, Diagnostic)]
 #[diagnostic(severity(Info))]
 struct CheckNotice {
     #[help]
@@ -138,6 +163,14 @@ struct CheckNotice {
     #[label]
     err_span: SourceSpan,
 }
+
+impl std::fmt::Display for CheckNotice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} (at {:?})", self.message, self.err_span)
+    }
+}
+
+impl std::error::Error for CheckNotice {}
 
 // We use miette to pretty print notices, warnings and errors across the original query.
 fn pretty_print_check_response(query: &str, res: MetadataResponse) -> Result<(), Error> {

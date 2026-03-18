@@ -259,3 +259,40 @@ class TestFeatureFlagDependencyDeletion(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_dependent_flags_with_no_dependencies(self):
+        """Test dependent_flags returns empty list with 0 dependent flags."""
+        flag = self.create_flag("standalone_flag")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/dependent_flags/",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), [])
+
+    def test_dependent_flags_with_active_dependencies(self):
+        """Test dependent_flags returns list with 1 active dependent flag."""
+        base_flag = self.create_flag("base_flag")
+        self.create_flag("dependent_flag", dependencies=[base_flag.id])
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/{base_flag.id}/dependent_flags/",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()), 1)
+
+    def test_dependent_flags_with_inactive_dependencies(self):
+        """Test dependent_flags returns empty list when dependent flags are inactive."""
+        base_flag = self.create_flag("base_flag")
+        dependent_flag = self.create_flag("dependent_flag", dependencies=[base_flag.id])
+        dependent_flag.active = False
+        dependent_flag.save()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/{base_flag.id}/dependent_flags/",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), [])

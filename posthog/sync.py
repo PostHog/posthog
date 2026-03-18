@@ -42,7 +42,6 @@ class DatabaseSyncToAsync(SyncToAsync):
                 execution_time = time() - start_time
                 fun_name = getattr(self.func, "__name__", "unknown")
                 DATABASE_SYNC_TO_ASYNC_TIME.labels(function_name=fun_name).observe(execution_time)
-                logger.debug(f"database_sync_to_async {fun_name} took {execution_time} seconds")
 
     def thread_handler(self, loop, *args, **kwargs):
         # Don't close the connection in tests
@@ -92,5 +91,47 @@ def database_sync_to_async(
     return DatabaseSyncToAsync(
         func,
         thread_sensitive=thread_sensitive,
+        executor=executor,
+    )
+
+
+@overload
+def database_sync_to_async_pool(
+    *,
+    executor: Optional["ThreadPoolExecutor"] = None,
+) -> Callable[[Callable[_P, _R]], Callable[_P, Coroutine[Any, Any, _R]]]: ...
+
+
+@overload
+def database_sync_to_async_pool(
+    func: Callable[_P, _R],
+    *,
+    executor: Optional["ThreadPoolExecutor"] = None,
+) -> Callable[_P, Coroutine[Any, Any, _R]]: ...
+
+
+def database_sync_to_async_pool(
+    func: Optional[Callable[_P, _R]] = None,
+    *,
+    executor: Optional["ThreadPoolExecutor"] = None,
+) -> Union[
+    Callable[[Callable[_P, _R]], Callable[_P, Coroutine[Any, Any, _R]]],
+    Callable[_P, Coroutine[Any, Any, _R]],
+]:
+    """Like database_sync_to_async but runs on the general thread pool (thread_sensitive=False).
+
+    Use this in Temporal activities where the default thread_sensitive=True would serialize
+    all calls onto a single shared thread, creating a bottleneck across concurrent activities.
+    """
+
+    if func is None:
+        return lambda f: DatabaseSyncToAsync(
+            f,
+            thread_sensitive=False,
+            executor=executor,
+        )
+    return DatabaseSyncToAsync(
+        func,
+        thread_sensitive=False,
         executor=executor,
     )

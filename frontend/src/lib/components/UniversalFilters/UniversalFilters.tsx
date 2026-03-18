@@ -9,8 +9,8 @@ import { OperatorValueSelectProps } from 'lib/components/PropertyFilters/compone
 import { AnyDataNode } from '~/queries/schema/schema-general'
 import { UniversalFilterValue, UniversalFiltersGroup } from '~/types'
 
-import { PropertyFilters } from '../PropertyFilters/PropertyFilters'
 import { TaxonomicPropertyFilter } from '../PropertyFilters/components/TaxonomicPropertyFilter'
+import { PropertyFilters } from '../PropertyFilters/PropertyFilters'
 import { isValidPropertyFilter } from '../PropertyFilters/utils'
 import { TaxonomicFilter } from '../TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
@@ -24,6 +24,7 @@ type UniversalFiltersProps = {
     onChange: (group: UniversalFiltersGroup) => void
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     children?: React.ReactNode
+    endpointFilters?: Record<string, any>
 }
 
 function UniversalFilters({
@@ -32,6 +33,7 @@ function UniversalFilters({
     onChange,
     taxonomicGroupTypes,
     children,
+    endpointFilters,
 }: UniversalFiltersProps): JSX.Element {
     return (
         <BindLogic
@@ -41,6 +43,7 @@ function UniversalFilters({
                 group,
                 onChange,
                 taxonomicGroupTypes,
+                endpointFilters,
             }}
         >
             {children}
@@ -57,7 +60,7 @@ function Group({
     index: number
     children: React.ReactNode
 }): JSX.Element {
-    const { rootKey, taxonomicGroupTypes } = useValues(universalFiltersLogic)
+    const { rootKey, taxonomicGroupTypes, endpointFilters } = useValues(universalFiltersLogic)
     const { replaceGroupValue } = useActions(universalFiltersLogic)
 
     return (
@@ -67,6 +70,7 @@ function Group({
             group={group}
             onChange={(group) => replaceGroupValue(index, group)}
             taxonomicGroupTypes={taxonomicGroupTypes}
+            endpointFilters={endpointFilters}
         >
             {children}
         </UniversalFilters>
@@ -92,7 +96,7 @@ const Value = ({
     className?: string
     operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']
 }): JSX.Element => {
-    const { rootKey, taxonomicPropertyFilterGroupTypes } = useValues(universalFiltersLogic)
+    const { rootKey, taxonomicPropertyFilterGroupTypes, endpointFilters } = useValues(universalFiltersLogic)
 
     const isEvent = isEventFilter(filter)
     const isEditable = isEditableFilter(filter)
@@ -129,6 +133,7 @@ const Value = ({
                         disablePopover={false}
                         taxonomicGroupTypes={taxonomicPropertyFilterGroupTypes}
                         operatorAllowlist={operatorAllowlist}
+                        endpointFilters={endpointFilters}
                     />
                 ) : null
             }
@@ -153,8 +158,8 @@ const AddFilterButton = (props: Omit<LemonButtonProps, 'onClick' | 'sideAction' 
         <LemonDropdown
             overlay={
                 <TaxonomicFilter
-                    onChange={(taxonomicGroup, value, item, originalQuery) => {
-                        addGroupFilter(taxonomicGroup, value, item, originalQuery)
+                    onChange={(taxonomicGroup, value, item) => {
+                        addGroupFilter(taxonomicGroup, value, item)
                         setDropdownOpen(false)
                     }}
                     taxonomicGroupTypes={taxonomicGroupTypes}
@@ -188,9 +193,9 @@ const PureTaxonomicFilter = ({
     return (
         <TaxonomicFilter
             {...(fullWidth ? { width: '100%' } : {})}
-            onChange={(taxonomicGroup, value, item, originalQuery) => {
+            onChange={(taxonomicGroup, value, item) => {
                 onChange()
-                addGroupFilter(taxonomicGroup, value, item, originalQuery)
+                addGroupFilter(taxonomicGroup, value, item)
             }}
             taxonomicGroupTypes={taxonomicGroupTypes}
         />

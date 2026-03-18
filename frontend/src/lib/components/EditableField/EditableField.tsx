@@ -5,14 +5,13 @@ import { useValues } from 'kea'
 import React, { useEffect, useRef, useState } from 'react'
 import TextareaAutosize from 'react-textarea-autosize'
 
-import { IconPencil } from '@posthog/icons'
+import { IconMarkdownFilled, IconPencil } from '@posthog/icons'
 
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { RawInputAutosize } from 'lib/lemon-ui/LemonInput/RawInputAutosize'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconMarkdown } from 'lib/lemon-ui/icons'
 import { pluralize } from 'lib/utils'
 
 import { AvailableFeature } from '~/types'
@@ -50,6 +49,12 @@ export interface EditableFieldProps {
         icon: React.ReactElement
         tooltip: string
     }
+    /** If true, single click on text enters edit mode (default is double-click). */
+    clickToEdit?: boolean
+    /** If true, uses a smaller pencil icon. */
+    compactIcon?: boolean
+    /** If true, hides the edit icon until hover. */
+    showEditIconOnHover?: boolean
 }
 
 export function EditableField({
@@ -74,6 +79,9 @@ export function EditableField({
     'data-attr': dataAttr,
     saveButtonText = 'Save',
     notice,
+    clickToEdit = false,
+    compactIcon = false,
+    showEditIconOnHover = false,
 }: EditableFieldProps): JSX.Element {
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const [localIsEditing, setLocalIsEditing] = useState(mode === 'edit')
@@ -87,6 +95,24 @@ export function EditableField({
     useEffect(() => {
         setLocalTentativeValue(value)
     }, [value])
+
+    // Save pending changes on unmount (e.g. when a parent popover closes while editing)
+    const saveOnUnmountRef = useRef({ localTentativeValue, value, localIsEditing, onSave, saveOnBlur })
+    saveOnUnmountRef.current = { localTentativeValue, value, localIsEditing, onSave, saveOnBlur }
+    useEffect(() => {
+        return () => {
+            const {
+                localTentativeValue: v,
+                value: orig,
+                localIsEditing: editing,
+                onSave: save,
+                saveOnBlur: sob,
+            } = saveOnUnmountRef.current
+            if (sob && editing && v !== orig) {
+                save?.(v)
+            }
+        }
+    }, [])
 
     useEffect(() => {
         setLocalIsEditing(mode === 'edit')
@@ -150,12 +176,24 @@ export function EditableField({
         }
     }
 
-    const handleDoubleClick = (): void => {
+    const enterEditMode = (): void => {
         if (!isEditing) {
             guardAvailableFeature(paywallFeature, () => {
                 setLocalIsEditing(true)
                 onModeToggle?.('edit')
             })
+        }
+    }
+
+    const handleDoubleClick = (): void => {
+        if (!clickToEdit) {
+            enterEditMode()
+        }
+    }
+
+    const handleClick = (): void => {
+        if (clickToEdit) {
+            enterEditMode()
         }
     }
 
@@ -166,6 +204,7 @@ export function EditableField({
                 multiline && 'EditableField--multiline',
                 isEditing && 'EditableField--editing',
                 editingIndication === 'underlined' && 'EditableField--underlined',
+                showEditIconOnHover && 'group/editable',
                 className
             )}
             data-attr={dataAttr}
@@ -218,7 +257,7 @@ export function EditableField({
                                 {markdown && (
                                     <Tooltip title="Markdown formatting support">
                                         <span className="flex items-center">
-                                            <IconMarkdown className="text-secondary text-2xl" />
+                                            <IconMarkdownFilled className="text-secondary text-2xl" />
                                         </span>
                                     </Tooltip>
                                 )}
@@ -254,30 +293,37 @@ export function EditableField({
                 ) : (
                     <>
                         {localTentativeValue && markdown ? (
-                            <LemonMarkdown lowKeyHeadings>{localTentativeValue}</LemonMarkdown>
+                            <div className={clsx(clickToEdit && 'cursor-text')} onClick={handleClick}>
+                                <LemonMarkdown lowKeyHeadings>{localTentativeValue}</LemonMarkdown>
+                            </div>
                         ) : (
                             <Tooltip
                                 title={isDisplayTooltipNeeded ? localTentativeValue : undefined}
                                 placement="bottom-start"
                                 delayMs={0}
                             >
-                                <span className="EditableField__display" ref={displayRef}>
+                                <span
+                                    className={clsx('EditableField__display', clickToEdit && 'cursor-text')}
+                                    ref={displayRef}
+                                    onClick={handleClick}
+                                >
                                     {localTentativeValue || <i>{placeholder}</i>}
                                 </span>
                             </Tooltip>
                         )}
                         {(!mode || !!onModeToggle) && (
-                            <div className="EditableField__actions">
+                            <div
+                                className={clsx(
+                                    'EditableField__actions',
+                                    showEditIconOnHover &&
+                                        'opacity-0 group-hover/editable:opacity-100 transition-opacity'
+                                )}
+                            >
                                 <LemonButton
                                     title="Edit"
-                                    icon={<IconPencil />}
+                                    icon={<IconPencil className={compactIcon ? 'w-3 h-3' : undefined} />}
                                     size={compactButtons ? 'small' : undefined}
-                                    onClick={() => {
-                                        guardAvailableFeature(paywallFeature, () => {
-                                            setLocalIsEditing(true)
-                                            onModeToggle?.('edit')
-                                        })
-                                    }}
+                                    onClick={enterEditMode}
                                     data-attr={`edit-prop-${name}`}
                                     noPadding
                                 />

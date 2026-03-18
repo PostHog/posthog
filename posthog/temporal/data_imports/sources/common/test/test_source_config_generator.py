@@ -19,7 +19,8 @@ from posthog.schema import (
 
 from posthog.management.commands.generate_source_configs import SourceConfigGenerator
 from posthog.temporal.data_imports.sources.common.base import FieldType
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 class TestSourceConfigGenerator(ClickhouseTestMixin):
@@ -393,7 +394,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         )
 
         output = self._run({ExternalDataSourceType.STRIPE: config})
-        assert "from posthog.warehouse.models.ssh_tunnel import SSHTunnelConfig" in output
+        assert "from products.data_warehouse.backend.models.ssh_tunnel import SSHTunnelConfig" in output
         assert "ssh_tunnel: SSHTunnelConfig" in output
 
     def test_source_config_type_conversion(self):
@@ -416,6 +417,31 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
 
         output = self._run({ExternalDataSourceType.STRIPE: config})
         assert "int_value: int = config.value(converter=int)" in output
+
+    def test_source_config_optional_number_uses_str_to_optional_int(self):
+        """Optional NUMBER fields should use str_to_optional_int to handle empty strings from frontend."""
+        config = SourceConfig(
+            name=SchemaExternalDataSourceType.STRIPE,
+            iconPath="",
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="optional_int_value",
+                        label="optional int",
+                        type=SourceFieldInputConfigType.NUMBER,
+                        required=False,
+                        placeholder="90",
+                    ),
+                ],
+            ),
+        )
+
+        output = self._run({ExternalDataSourceType.STRIPE: config})
+        assert (
+            "optional_int_value: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)"
+            in output
+        )
 
     def test_source_config_nested_class(self):
         config = SourceConfig(

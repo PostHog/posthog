@@ -47,8 +47,13 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
     ),
     key((props) => `${props.distinctId}`),
     connect(() => ({
-        values: [projectLogic, ['currentProjectId'], featureFlagsLogic, ['featureFlags', 'pagination']],
-        actions: [featureFlagsLogic, ['setFeatureFlagsFilters', 'loadFeatureFlagsSuccess']],
+        values: [
+            projectLogic,
+            ['currentProjectId'],
+            featureFlagsLogic,
+            ['featureFlags', 'pagination', 'featureFlagsLoading'],
+        ],
+        actions: [featureFlagsLogic, ['setFeatureFlagsFilters', 'loadFeatureFlags']],
     })),
     actions({
         setSearchTerm: (searchTerm: string) => {
@@ -58,11 +63,12 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
         setFilters: (filters: Partial<RelatedFlagsFilters>, replace?: boolean) => ({ filters, replace }),
         loadRelatedFeatureFlags: true,
     }),
-    loaders(({ values, props }) => ({
+    loaders(({ values, props, actions }) => ({
         relatedFeatureFlags: [
             null as RelatedFeatureFlagResponse | null,
             {
                 loadRelatedFeatureFlags: async () => {
+                    actions.loadFeatureFlags()
                     const response = await api.get(
                         `api/projects/${values.currentProjectId}/feature_flags/evaluation_reasons?${toParams({
                             ...(props.distinctId ? { distinct_id: props.distinctId } : {}),
@@ -93,7 +99,13 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
             },
         ],
     }),
-    selectors(({ props }) => ({
+    selectors(({ props, selectors }) => ({
+        isLoading: [
+            () => [selectors.relatedFeatureFlagsLoading, featureFlagsLogic.selectors.featureFlagsLoading],
+            (relatedLoading: boolean, featureFlagsLoading: boolean): boolean => {
+                return relatedLoading || featureFlagsLoading
+            },
+        ],
         mappedRelatedFeatureFlags: [
             (selectors) => [selectors.relatedFeatureFlags, selectors.featureFlags],
             (relatedFlags, featureFlags): RelatedFeatureFlag[] => {
@@ -175,12 +187,6 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
                 actions.setFeatureFlagsFilters({ ...apiFilters, page: 1 }, replace)
             }
         },
-        loadFeatureFlagsSuccess: () => {
-            actions.loadRelatedFeatureFlags()
-        },
-    })),
-    events(({ actions }) => ({
-        afterMount: actions.loadRelatedFeatureFlags,
     })),
     urlToAction(({ actions }) => ({
         [urls.personByUUID('*', false)]: async (_, searchParams) => {
@@ -188,6 +194,11 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
             if (page !== undefined) {
                 actions.setFeatureFlagsFilters({ page: parseInt(page) })
             }
+        },
+    })),
+    events(({ actions }) => ({
+        afterMount: () => {
+            actions.loadRelatedFeatureFlags()
         },
     })),
 ])

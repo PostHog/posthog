@@ -68,7 +68,7 @@ class ReplaceFilters(CloningVisitor):
                         found_events = True
                     if last_join.table.chain == ["sessions"]:
                         found_sessions = True
-                    if last_join.table.chain == ["logs"]:
+                    if last_join.table.chain == ["logs"] or last_join.table.chain == ["log_attributes"]:
                         found_logs = True
                     if last_join.table.chain == ["groups"]:
                         found_groups = True
@@ -113,7 +113,9 @@ class ReplaceFilters(CloningVisitor):
             dateTo = self.filters.dateRange.date_to if self.filters.dateRange else None
             if dateTo is not None:
                 try:
-                    parsed_date = isoparse(dateTo).replace(tzinfo=self.team.timezone_info)
+                    parsed_date = isoparse(dateTo)
+                    if parsed_date.tzinfo is None:
+                        parsed_date = parsed_date.replace(tzinfo=self.team.timezone_info)
                 except ValueError:
                     parsed_date = relative_date_parse(dateTo, self.team.timezone_info)
                 exprs.append(
@@ -128,7 +130,9 @@ class ReplaceFilters(CloningVisitor):
             dateFrom = self.filters.dateRange.date_from if self.filters.dateRange else None
             if dateFrom is not None and dateFrom != "all":
                 try:
-                    parsed_date = isoparse(dateFrom).replace(tzinfo=self.team.timezone_info)
+                    parsed_date = isoparse(dateFrom)
+                    if parsed_date.tzinfo is None:
+                        parsed_date = parsed_date.replace(tzinfo=self.team.timezone_info)
                 except ValueError:
                     parsed_date = relative_date_parse(dateFrom, self.team.timezone_info)
                 exprs.append(
@@ -160,7 +164,9 @@ class ReplaceFilters(CloningVisitor):
             dateFrom = self.filters.dateRange.date_from if self.filters.dateRange else None
             if dateFrom is not None and dateFrom != "all":
                 try:
-                    parsed_date = isoparse(dateFrom).replace(tzinfo=self.team.timezone_info)
+                    parsed_date = isoparse(dateFrom)
+                    if parsed_date.tzinfo is None:
+                        parsed_date = parsed_date.replace(tzinfo=self.team.timezone_info)
                 except ValueError:
                     parsed_date = relative_date_parse(dateFrom, self.team.timezone_info)
 
@@ -180,12 +186,21 @@ class ReplaceFilters(CloningVisitor):
             dateTo = self.filters.dateRange.date_to if self.filters.dateRange else None
             if dateTo is not None:
                 try:
-                    parsed_date = isoparse(dateTo).replace(tzinfo=self.team.timezone_info)
+                    parsed_date = isoparse(dateTo)
+                    if parsed_date.tzinfo is None:
+                        parsed_date = parsed_date.replace(tzinfo=self.team.timezone_info)
                 except ValueError:
                     parsed_date = relative_date_parse(dateTo, self.team.timezone_info)
                 return ast.Constant(value=parsed_date)
             else:
                 compare_op_wrapper.skip = True
                 return ast.Constant(value=True)
+
+        if node.chain and node.chain[0] == "filters":
+            chain_str = ".".join(str(c) for c in node.chain)
+            raise QueryError(
+                f"Unsupported filters placeholder `{{{chain_str}}}`. "
+                "Supported filters placeholders are: `{filters}`, `{filters.dateRange.from}`, `{filters.dateRange.to}`."
+            )
 
         return super().visit_placeholder(node)

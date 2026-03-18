@@ -12,11 +12,20 @@ import {
     EventsNode,
     FunnelsQuery,
     InsightQueryNode,
+    LifecycleQuery,
     NodeKind,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { BaseMathType, ChartDisplayType, InsightModel, InsightShortId, InsightType } from '~/types'
+import {
+    BaseMathType,
+    ChartDisplayType,
+    InsightModel,
+    InsightShortId,
+    InsightType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
 
@@ -123,6 +132,121 @@ describe('insightVizDataLogic', () => {
                 },
             })
         })
+
+        it('clears a custom lifecycle aggregation target when switching away from a data warehouse series', () => {
+            const lifecycleQuery: LifecycleQuery = {
+                kind: NodeKind.LifecycleQuery,
+                customAggregationTarget: true,
+                series: [
+                    {
+                        kind: NodeKind.LifecycleDataWarehouseNode,
+                        id: 'warehouse_orders',
+                        table_name: 'warehouse_orders',
+                        name: 'Orders',
+                        timestamp_field: 'created_at',
+                        aggregation_target_field: 'order_id',
+                        created_at_field: 'created_at',
+                    },
+                ],
+            }
+
+            builtInsightVizDataLogic.actions.updateQuerySource(lifecycleQuery)
+
+            expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    kind: NodeKind.LifecycleQuery,
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
+                } as LifecycleQuery)
+            }).toMatchValues({
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.LifecycleQuery,
+                        customAggregationTarget: undefined,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                name: '$pageview',
+                                event: '$pageview',
+                            },
+                        ],
+                        trendsFilter: {},
+                        version: 2,
+                    },
+                },
+            })
+        })
+
+        it('clears unsupported lifecycle globals when switching to a data warehouse series', () => {
+            const lifecycleQuery: LifecycleQuery = {
+                kind: NodeKind.LifecycleQuery,
+                filterTestAccounts: true,
+                samplingFactor: 0.1,
+                properties: [
+                    {
+                        key: '$browser',
+                        value: 'Chrome',
+                        type: PropertyFilterType.Event,
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        name: '$pageview',
+                        event: '$pageview',
+                    },
+                ],
+            }
+
+            builtInsightVizDataLogic.actions.updateQuerySource(lifecycleQuery)
+
+            expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    kind: NodeKind.LifecycleQuery,
+                    series: [
+                        {
+                            kind: NodeKind.LifecycleDataWarehouseNode,
+                            id: 'warehouse_orders',
+                            table_name: 'warehouse_orders',
+                            name: 'Orders',
+                            timestamp_field: 'created_at',
+                            aggregation_target_field: 'order_id',
+                            created_at_field: 'created_at',
+                        },
+                    ],
+                } as LifecycleQuery)
+            }).toMatchValues({
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.LifecycleQuery,
+                        properties: undefined,
+                        filterTestAccounts: undefined,
+                        samplingFactor: undefined,
+                        series: [
+                            {
+                                kind: NodeKind.LifecycleDataWarehouseNode,
+                                id: 'warehouse_orders',
+                                table_name: 'warehouse_orders',
+                                name: 'Orders',
+                                timestamp_field: 'created_at',
+                                aggregation_target_field: 'order_id',
+                                created_at_field: 'created_at',
+                            },
+                        ],
+                        trendsFilter: {},
+                        version: 2,
+                    },
+                },
+            })
+        })
     })
 
     describe('updateDateRange', () => {
@@ -132,6 +256,7 @@ describe('insightVizDataLogic', () => {
                 builtInsightVizDataLogic.actions.updateDateRange({
                     date_from: '-7d',
                     date_to: null,
+                    explicitDate: false,
                 })
             })
                 .toFinishAllListeners()
@@ -144,6 +269,7 @@ describe('insightVizDataLogic', () => {
                             dateRange: {
                                 date_from: '-7d',
                                 date_to: null,
+                                explicitDate: false,
                             },
                             version: 2,
                         },
@@ -153,6 +279,7 @@ describe('insightVizDataLogic', () => {
             expect(builtInsightVizDataLogic.values.dateRange).toEqual({
                 date_from: '-7d',
                 date_to: null,
+                explicitDate: false,
             })
 
             // merges with existing dateRange
@@ -171,6 +298,7 @@ describe('insightVizDataLogic', () => {
                             dateRange: {
                                 date_from: '-7d',
                                 date_to: '-3d',
+                                explicitDate: false,
                             },
                             version: 2,
                         },
@@ -180,6 +308,7 @@ describe('insightVizDataLogic', () => {
             expect(builtInsightVizDataLogic.values.dateRange).toEqual({
                 date_from: '-7d',
                 date_to: '-3d',
+                explicitDate: false,
             })
         })
     })
@@ -503,7 +632,7 @@ describe('insightVizDataLogic', () => {
         })
     })
 
-    describe('isSingleSeries', () => {
+    describe('isSingleSeriesOutput', () => {
         it('returns true for single series without breakdown', () => {
             expectLogic(builtInsightVizDataLogic, () => {
                 builtInsightVizDataLogic.actions.updateQuerySource({
@@ -515,7 +644,7 @@ describe('insightVizDataLogic', () => {
                         },
                     ],
                 } as Partial<TrendsQuery>)
-            }).toMatchValues({ isSingleSeries: true })
+            }).toMatchValues({ isSingleSeriesOutput: true })
         })
 
         it('returns false for multiple series without formula', () => {
@@ -534,7 +663,7 @@ describe('insightVizDataLogic', () => {
                         },
                     ],
                 } as Partial<TrendsQuery>)
-            }).toMatchValues({ isSingleSeries: false })
+            }).toMatchValues({ isSingleSeriesOutput: false })
         })
 
         it('returns true for multiple series with single formula', () => {
@@ -556,7 +685,7 @@ describe('insightVizDataLogic', () => {
                         formula: 'A + B',
                     },
                 } as Partial<TrendsQuery>)
-            }).toMatchValues({ isSingleSeries: true })
+            }).toMatchValues({ isSingleSeriesOutput: true })
         })
 
         it('returns true for multiple series with single formula in formulas array', () => {
@@ -578,7 +707,7 @@ describe('insightVizDataLogic', () => {
                         formulas: ['A + B'],
                     },
                 } as Partial<TrendsQuery>)
-            }).toMatchValues({ isSingleSeries: true })
+            }).toMatchValues({ isSingleSeriesOutput: true })
         })
 
         it('returns false for multiple series with multiple formulas', () => {
@@ -600,7 +729,7 @@ describe('insightVizDataLogic', () => {
                         formulas: ['A + B', 'A - B'],
                     },
                 } as Partial<TrendsQuery>)
-            }).toMatchValues({ isSingleSeries: false })
+            }).toMatchValues({ isSingleSeriesOutput: false })
         })
 
         it('returns false for single series with breakdown', () => {
@@ -618,7 +747,137 @@ describe('insightVizDataLogic', () => {
                         breakdown_type: 'event',
                     },
                 } as Partial<TrendsQuery>)
-            }).toMatchValues({ isSingleSeries: false })
+            }).toMatchValues({ isSingleSeriesOutput: false })
+        })
+    })
+
+    describe('isSingleSeriesDefinition', () => {
+        it('returns true for single series without breakdown', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ isSingleSeriesDefinition: true })
+        })
+
+        it('returns false for multiple series', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$autocapture',
+                            event: '$autocapture',
+                        },
+                    ],
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ isSingleSeriesDefinition: false })
+        })
+
+        it('returns true for single series WITH breakdown (unlike isSingleSeriesOutput)', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
+                    breakdownFilter: {
+                        breakdown: '$browser',
+                        breakdown_type: 'event',
+                    },
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ isSingleSeriesDefinition: true })
+        })
+
+        it('returns true for single series WITH breakdowns array', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
+                    breakdownFilter: {
+                        breakdowns: [
+                            {
+                                property: '$browser',
+                                type: 'event',
+                            },
+                        ],
+                    },
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ isSingleSeriesDefinition: true })
+        })
+
+        it('returns true for multiple series with single formula', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$autocapture',
+                            event: '$autocapture',
+                        },
+                    ],
+                    trendsFilter: {
+                        formula: 'A + B',
+                    },
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ isSingleSeriesDefinition: true })
+        })
+    })
+
+    describe('isBreakdownSeries', () => {
+        it('returns false without breakdown filter', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [{ kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' }],
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ isBreakdownSeries: false })
+        })
+
+        it('returns true with singular breakdown object', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [{ kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' }],
+                    breakdownFilter: {
+                        breakdown: '$browser',
+                        breakdown_type: 'event',
+                    },
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ isBreakdownSeries: true })
+        })
+
+        it('returns true with breakdowns array', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [{ kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' }],
+                    breakdownFilter: {
+                        breakdowns: [{ property: '$browser', type: 'event' }],
+                    },
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ isBreakdownSeries: true })
         })
     })
 })

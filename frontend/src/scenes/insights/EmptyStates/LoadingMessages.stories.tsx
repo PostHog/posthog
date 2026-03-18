@@ -1,6 +1,6 @@
 import { Meta, StoryFn } from '@storybook/react'
 
-import { LOADING_MESSAGES } from './EmptyStates'
+import { BASE_LOADING_MESSAGES, CHRISTMAS_LOADING_MESSAGES, HALLOWEEN_LOADING_MESSAGES } from './EmptyStates'
 
 const meta: Meta = {
     title: 'Scenes-App/Insights/Loading Messages',
@@ -13,9 +13,19 @@ export default meta
 
 export const LoadingMessages: StoryFn = () => {
     return (
-        <div>
+        <div className="flex flex-col gap-2">
             <ul>
-                {LOADING_MESSAGES.map((message, idx) => (
+                {BASE_LOADING_MESSAGES.map((message, idx) => (
+                    <li key={idx}>{message}</li>
+                ))}
+            </ul>
+            <ul>
+                {CHRISTMAS_LOADING_MESSAGES.map((message, idx) => (
+                    <li key={idx}>{message}</li>
+                ))}
+            </ul>
+            <ul>
+                {HALLOWEEN_LOADING_MESSAGES.map((message, idx) => (
                     <li key={idx}>{message}</li>
                 ))}
             </ul>

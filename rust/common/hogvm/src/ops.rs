@@ -81,6 +81,7 @@ impl TryFrom<Value> for Operation {
 
         if num >= Self::GetGlobal as i64 && num <= Self::CloseUpvalue as i64 {
             // TODO - this is deeply unhinged
+            // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
             Ok(unsafe { std::mem::transmute::<u8, Operation>(num as u8) })
         } else {
             Err(VmError::InvalidOperation(val))

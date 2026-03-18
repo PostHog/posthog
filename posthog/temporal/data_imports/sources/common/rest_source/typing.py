@@ -11,7 +11,7 @@ from dlt.common.schema.typing import (
     TWriteDispositionConfig,
 )
 from dlt.common.typing import TSortOrder
-from dlt.extract.incremental.typing import LastValueFunc
+from dlt.extract.incremental import LastValueFunc
 from dlt.extract.items import TTableHintTemplate
 from dlt.sources.helpers.rest_client.auth import (
     APIKeyAuth,

@@ -1,13 +1,14 @@
 import apiReal from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
-import { CurrencyCode } from '~/queries/schema/schema-general'
+import { CurrencyCode, CustomerAnalyticsConfig, NodeKind } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     ActivationTaskStatus,
     CohortType,
     DataColorThemeModel,
     ExperimentStatsMethod,
+    ExperimentVelocityStats,
     FilterLogicalOperator,
     GroupType,
     OrganizationInviteType,
@@ -37,6 +38,8 @@ type APIMockReturnType = {
         typeof apiReal,
         'create' | 'createResponse' | 'get' | 'getResponse' | 'update' | 'delete'
     >]: jest.Mock<ReturnType<(typeof apiReal)[K]>, Parameters<(typeof apiReal)[K]>>
+} & {
+    cohorts: typeof apiReal.cohorts
 }
 
 export const api = apiReal as any as APIMockReturnType
@@ -49,7 +52,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     api_token: 'default-team-api-token',
     secret_api_token: 'phs_default-team-secret-api-token',
     secret_api_token_backup: 'phs_default-team-secret-api-token-backup',
-    app_urls: ['https://posthog.com/', 'https://app.posthog.com', 'https://example.com'],
+    app_urls: ['https://posthog.com/', 'https://app.posthog.com', 'https://example.com', 'http://127.0.0.1:*'],
     recording_domains: ['https://recordings.posthog.com/'],
     name: 'MockHog App + Marketing',
     slack_incoming_webhook: '',
@@ -193,9 +196,24 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     marketing_analytics_config: {
         sources_map: {},
     },
+    core_events_config: {
+        core_events: [],
+    },
+    customer_analytics_config: {
+        activity_event: { kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' },
+        signup_pageview_event: {},
+        signup_event: {},
+        subscription_event: {},
+        payment_event: {},
+    } as CustomerAnalyticsConfig,
     base_currency: CurrencyCode.USD,
-    default_evaluation_environments_enabled: false,
+    default_evaluation_contexts_enabled: false,
     managed_viewsets: { revenue_analytics: true },
+    receive_org_level_activity_logs: false,
+    require_evaluation_contexts: false,
+    logs_settings: {
+        capture_console_logs: false,
+    },
 }
 
 export const MOCK_DEFAULT_PROJECT: ProjectType = {
@@ -225,6 +243,8 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     member_count: 2,
     logo_media_id: null,
     default_experiment_stats_method: ExperimentStatsMethod.Bayesian,
+    is_active: true,
+    is_not_active_reason: null,
 }
 
 export const MOCK_DEFAULT_BASIC_USER: UserBasicType = {
@@ -246,9 +266,11 @@ export const MOCK_DEFAULT_USER: UserType = {
         project_weekly_digest_disabled: {},
         all_weekly_digest_disabled: false,
         error_tracking_issue_assigned: false,
+        error_tracking_weekly_digest: true,
         discussions_mentioned: false,
     },
     anonymize_data: false,
+    allow_impersonation: true,
     toolbar_mode: 'toolbar',
     has_password: true,
     id: 179,
@@ -258,12 +280,22 @@ export const MOCK_DEFAULT_USER: UserType = {
     is_2fa_enabled: false,
     has_social_auth: false,
     has_sso_enforcement: false,
+    shortcut_position: 'above',
     sensitive_session_expires_at: dayjs().add(1, 'hour').toISOString(),
     theme_mode: null,
     team: MOCK_DEFAULT_TEAM,
     organization: MOCK_DEFAULT_ORGANIZATION,
     organizations: [MOCK_DEFAULT_ORGANIZATION].map(
-        ({ id, name, slug, membership_level, members_can_use_personal_api_keys, allow_publicly_shared_resources }) => ({
+        ({
+            id,
+            name,
+            slug,
+            membership_level,
+            members_can_use_personal_api_keys,
+            allow_publicly_shared_resources,
+            is_active,
+            is_not_active_reason,
+        }) => ({
             id,
             name,
             slug,
@@ -271,6 +303,8 @@ export const MOCK_DEFAULT_USER: UserType = {
             members_can_use_personal_api_keys,
             allow_publicly_shared_resources,
             logo_media_id: null,
+            is_active,
+            is_not_active_reason,
         })
     ),
     events_column_config: {
@@ -425,3 +459,11 @@ export const MOCK_DATA_COLOR_THEMES: DataColorThemeModel[] = [
         is_global: false,
     },
 ]
+
+export const MOCK_EXPERIMENTS_STATS_RESPONSE: ExperimentVelocityStats = {
+    launched_last_30d: 0,
+    launched_previous_30d: 0,
+    percent_change: 0,
+    active_experiments: 0,
+    completed_last_30d: 0,
+}

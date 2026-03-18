@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconExternal } from '@posthog/icons'
+import { IconChevronLeft, IconChevronRight, IconExternal } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -14,8 +14,9 @@ import { OptOutEntry, optOutListLogic } from './optOutListLogic'
 
 export function OptOutList({ category }: { category?: MessageCategory }): JSX.Element {
     const logic = optOutListLogic({ category })
-    const { setSelectedIdentifier, openPreferencesPage } = useActions(logic)
-    const { selectedIdentifier, optOutPersons, optOutPersonsLoading, preferencesUrlLoading } = useValues(logic)
+    const { setSelectedIdentifier, openPreferencesPage, loadNextPage, loadPreviousPage } = useActions(logic)
+    const { selectedIdentifier, optOutPersons, optOutPersonsLoading, preferencesUrlLoading, currentPage } =
+        useValues(logic)
 
     const handleShowPersons = (identifier: string): void => {
         setSelectedIdentifier(identifier)
@@ -76,12 +77,16 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
         },
     ]
 
+    const totalPages = optOutPersons.count ? Math.ceil(optOutPersons.count / 20) : 0
+    const showingStart = (currentPage - 1) * 20 + 1
+    const showingEnd = Math.min(currentPage * 20, optOutPersons.count)
+
     return (
         <>
             <div className="max-h-64 overflow-y-auto">
                 <LemonTable
                     columns={columns}
-                    dataSource={optOutPersons}
+                    dataSource={optOutPersons.results || []}
                     loading={optOutPersonsLoading}
                     loadingSkeletonRows={3}
                     rowKey="identifier"
@@ -89,6 +94,34 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                     size="small"
                 />
             </div>
+            {optOutPersons.count > 20 && (
+                <div className="flex items-center justify-between mt-4 px-2">
+                    <div className="text-sm text-muted">
+                        {optOutPersons.count > 0 && (
+                            <span>
+                                Showing {showingStart} - {showingEnd} of {optOutPersons.count.toLocaleString()} opt-outs
+                            </span>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <LemonButton
+                            icon={<IconChevronLeft />}
+                            size="small"
+                            disabled={currentPage === 1 || optOutPersonsLoading}
+                            onClick={loadPreviousPage}
+                        />
+                        <span className="text-sm">
+                            Page {currentPage} of {totalPages}
+                        </span>
+                        <LemonButton
+                            icon={<IconChevronRight />}
+                            size="small"
+                            disabled={!optOutPersons.next || optOutPersonsLoading}
+                            onClick={loadNextPage}
+                        />
+                    </div>
+                </div>
+            )}
 
             <LemonModal
                 isOpen={Boolean(selectedIdentifier)}

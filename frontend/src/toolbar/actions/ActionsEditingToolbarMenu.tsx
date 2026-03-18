@@ -7,10 +7,11 @@ import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
+import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { SelectorEditingModal } from '~/toolbar/actions/SelectorEditingModal'
 import { StepField } from '~/toolbar/actions/StepField'
-import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
+import { SelectorQualityWarning } from '~/toolbar/elements/SelectorQualityWarning'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 
 export const ActionsEditingToolbarMenu = (): JSX.Element => {
@@ -113,6 +114,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                                                 label="Selector"
                                                 caption="CSS selector that uniquely identifies your element"
                                             />
+                                            <SelectorQualityWarning selector={step?.selector} />
                                             <div className="flex flex-row justify-end mb-2">
                                                 <LemonButton
                                                     size="small"

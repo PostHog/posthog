@@ -23,6 +23,8 @@ pub async fn create_mock_kafka() -> (
         kafka_hosts: cluster.bootstrap_servers(),
         kafka_tls: false,
         kafka_producer_queue_messages: 1000,
+        kafka_client_rack: String::new(),
+        kafka_client_id: String::new(),
     };
 
     (

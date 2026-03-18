@@ -3,9 +3,9 @@ from typing import cast
 from posthog.hogql import ast
 
 from posthog.temporal.data_imports.sources.stripe.constants import PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema
-from posthog.warehouse.models.table import DataWarehouseTable
 
+from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+from products.data_warehouse.backend.models.table import DataWarehouseTable
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle, view_prefix_for_source
 from products.revenue_analytics.backend.views.schemas.product import SCHEMA
 
@@ -25,7 +25,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
         return BuiltQuery(
             key=str(source.id),  # Using source rather than table because table hasn't been found yet
             prefix=prefix,
-            query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys())),
+            query=ast.SelectQuery.empty(columns=SCHEMA.fields),
             test_comments="no_schema",
         )
 
@@ -34,7 +34,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
         return BuiltQuery(
             key=str(source.id),  # Using source rather than table because table hasn't been found
             prefix=prefix,
-            query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys())),
+            query=ast.SelectQuery.empty(columns=SCHEMA.fields),
             test_comments="no_table",
         )
 

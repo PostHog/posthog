@@ -29,7 +29,7 @@ import {
 } from '~/types'
 
 import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSavedFiltersLogic'
-import { playlistLogic } from '../playlist/playlistLogic'
+import { playlistFiltersLogic } from '../playlist/playlistFiltersLogic'
 import { SavedFiltersEmptyState, SavedFiltersLoadingState } from './SavedFiltersStates'
 
 export function isPlaylistRecordingsCounts(x: unknown): x is PlaylistRecordingsCounts {
@@ -127,7 +127,7 @@ export function SavedFilters({
     const { deletePlaylist, setSavedPlaylistsFilters, setAppliedSavedFilter } = useActions(
         sessionRecordingSavedFiltersLogic
     )
-    const { setActiveFilterTab } = useActions(playlistLogic)
+    const { setActiveFilterTab } = useActions(playlistFiltersLogic)
 
     if (savedFiltersLoading && !filters.search) {
         return <SavedFiltersLoadingState />

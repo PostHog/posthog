@@ -15,6 +15,7 @@ class AvailableFeature(StrEnum):
     ENVIRONMENTS = "environments"
     SOCIAL_SSO = "social_sso"
     SAML = "saml"
+    SCIM = "scim"
     SSO_ENFORCEMENT = "sso_enforcement"
     ADVANCED_PERMISSIONS = "advanced_permissions"  # TODO: Remove this once access_control is propagated
     ACCESS_CONTROL = "access_control"
@@ -22,7 +23,6 @@ class AvailableFeature(StrEnum):
     PATHS_ADVANCED = "paths_advanced"
     CORRELATION_ANALYSIS = "correlation_analysis"
     GROUP_ANALYTICS = "group_analytics"
-    TAGGING = "tagging"
     BEHAVIORAL_COHORT_FILTERING = "behavioral_cohort_filtering"
     WHITE_LABELLING = "white_labelling"
     SUBSCRIPTIONS = "subscriptions"
@@ -42,10 +42,12 @@ class AvailableFeature(StrEnum):
     DATA_COLOR_THEMES = "data_color_themes"
     API_QUERIES_CONCURRENCY = "api_queries_concurrency"
     ORGANIZATION_INVITE_SETTINGS = "organization_invite_settings"
+    TWO_FACTOR_ENFORCEMENT = "2fa_enforcement"
     ORGANIZATION_SECURITY_SETTINGS = "organization_security_settings"
     ORGANIZATION_APP_QUERY_CONCURRENCY_LIMIT = "organization_app_query_concurrency_limit"
     SESSION_REPLAY_DATA_RETENTION = "session_replay_data_retention"
     AUDIT_LOGS = "audit_logs"
+    APPROVALS = "approvals"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -63,6 +65,7 @@ TRENDS_BAR_VALUE = "ActionsBarValue"
 TRENDS_WORLD_MAP = "WorldMap"
 TRENDS_BOLD_NUMBER = "BoldNumber"
 TRENDS_CALENDAR_HEATMAP = "CalendarHeatmap"
+TRENDS_BOX_PLOT = "BoxPlot"
 
 # Sync with frontend NON_TIME_SERIES_DISPLAY_TYPES
 NON_TIME_SERIES_DISPLAY_TYPES = [
@@ -74,7 +77,7 @@ NON_TIME_SERIES_DISPLAY_TYPES = [
     TRENDS_CALENDAR_HEATMAP,
 ]
 # Sync with frontend NON_BREAKDOWN_DISPLAY_TYPES
-NON_BREAKDOWN_DISPLAY_TYPES = [TRENDS_BOLD_NUMBER, TRENDS_CALENDAR_HEATMAP]
+NON_BREAKDOWN_DISPLAY_TYPES = [TRENDS_BOLD_NUMBER, TRENDS_CALENDAR_HEATMAP, TRENDS_BOX_PLOT]
 
 # CONSTANTS
 INSIGHT_TRENDS = "TRENDS"
@@ -166,7 +169,6 @@ OFFSET = "offset"
 LIMIT = "limit"
 PERIOD = "period"
 STICKINESS_DAYS = "stickiness_days"
-FORMULA = "formula"
 ENTITY_ID = "entity_id"
 ENTITY_TYPE = "entity_type"
 ENTITY_MATH = "entity_math"
@@ -309,23 +311,10 @@ class FlagRequestType(StrEnum):
 
 
 SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
+PRODUCT_TOUR_TARGETING_FLAG_PREFIX = "product-tour-targeting-"
 GENERATED_DASHBOARD_PREFIX = "Generated Dashboard"
 
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"
-DATA_WAREHOUSE_TASK_QUEUE = "data-warehouse-task-queue"
-MAX_AI_TASK_QUEUE = "max-ai-task-queue"
-DATA_WAREHOUSE_COMPACTION_TASK_QUEUE = "data-warehouse-compaction-task-queue"
-BATCH_EXPORTS_TASK_QUEUE = "batch-exports-task-queue"
-DATA_MODELING_TASK_QUEUE = "data-modeling-task-queue"
-SYNC_BATCH_EXPORTS_TASK_QUEUE = "no-sandbox-python-django"
-GENERAL_PURPOSE_TASK_QUEUE = "general-purpose-task-queue"
-TASKS_TASK_QUEUE = "tasks-task-queue"
-TEST_TASK_QUEUE = "test-task-queue"
-BILLING_TASK_QUEUE = "billing-task-queue"
-VIDEO_EXPORT_TASK_QUEUE = "video-export-task-queue"
-MESSAGING_TASK_QUEUE = "messaging-task-queue"
-ANALYTICS_PLATFORM_TASK_QUEUE = "analytics-platform-task-queue"
-SESSION_REPLAY_TASK_QUEUE = "session-replay-task-queue"
 
 PERMITTED_FORUM_DOMAINS = ["localhost", "posthog.com"]
 
@@ -345,6 +334,7 @@ DEFAULT_SURVEY_APPEARANCE = {
     "displayThankYouMessage": True,
     "thankYouMessageHeader": "Thank you for your feedback!",
     "position": "bottom-right",
+    "tabPosition": "right",
     "widgetType": "tab",
     "widgetLabel": "Feedback",
     "widgetColor": "black",
@@ -360,10 +350,40 @@ DEFAULT_SURVEY_APPEARANCE = {
     "surveyPopupDelaySeconds": None,
 }
 
-# Mapping of social_django backend names
-SOCIAL_AUTH_PROVIDER_DISPLAY_NAMES = {
-    "google-oauth2": "Google OAuth",
-    "github": "GitHub",
-    "gitlab": "GitLab",
-    "saml": "SAML",
-}
+LOGIN_METHODS = [
+    {
+        "key": "password",
+        "display": "Email/password",
+        "backends": ["django.contrib.auth.backends.ModelBackend"],
+    },
+    {
+        "key": "google-oauth2",
+        "display": "Google OAuth",
+        "backends": ["google-oauth2", "ee.api.authentication.CustomGoogleOAuth2"],
+    },
+    {
+        "key": "github",
+        "display": "GitHub",
+        "backends": ["github"],
+    },
+    {
+        "key": "gitlab",
+        "display": "GitLab",
+        "backends": ["gitlab"],
+    },
+    {
+        "key": "saml",
+        "display": "SAML",
+        "backends": ["saml", "ee.api.authentication.MultitenantSAMLAuth"],
+    },
+    {
+        "key": "passkey",
+        "display": "Passkey",
+        "backends": ["posthog.auth.WebauthnBackend"],
+    },
+]
+
+# Mapping of auth backend names to login method display names
+AUTH_BACKEND_DISPLAY_NAMES = {backend: m["display"] for m in LOGIN_METHODS for backend in m["backends"]}
+
+AUTH_BACKEND_KEYS = {backend: m["key"] for m in LOGIN_METHODS for backend in m["backends"]}

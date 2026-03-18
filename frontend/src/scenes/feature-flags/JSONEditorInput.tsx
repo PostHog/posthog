@@ -1,75 +1,57 @@
 import './JSONEditorInput.scss'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
-import { CodeEditor } from 'lib/monaco/CodeEditor'
+import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 
 import { JsonType } from '~/types'
 
 interface EditorProps {
     onChange?: (val: string | undefined) => void
-    lineHeight?: number
-    defaultNumberOfLines?: number
     value?: JsonType
     readOnly?: boolean
     placeholder?: string
 }
 
-export function JSONEditorInput({
-    onChange,
-    placeholder,
-    lineHeight = 20,
-    defaultNumberOfLines = 1,
-    value = '',
-    readOnly = false,
-}: EditorProps): JSX.Element {
-    const valString = value?.toString() || ''
-    const _lineHeight = lineHeight
-    const defaultLines = Math.max(defaultNumberOfLines, valString.split(/\r\n|\r|\n/).length) + 1
-    const defaultHeight = _lineHeight * defaultLines
-    const [height, setHeight] = useState(defaultHeight)
+export function JSONEditorInput({ onChange, placeholder, value = '', readOnly = false }: EditorProps): JSX.Element {
     const [focused, setFocused] = useState(false)
 
-    const updateHeight = (val: string | undefined): void => {
-        if (val) {
-            const lineCount = val.split(/\r\n|\r|\n/).length
-            const newLineCount = Math.max(lineCount, defaultNumberOfLines) + 1
-            setHeight(_lineHeight * newLineCount)
-        } else {
-            setHeight(_lineHeight * (defaultNumberOfLines + 1))
-        }
-    }
+    // Memoize the string conversion to avoid recalculating on every render
+    // In practice, `value` is always a string, but the type allows for object too
+    const valString = useMemo(
+        () => (typeof value === 'object' ? JSON.stringify(value, null, 2) : value?.toString() || ''),
+        [value]
+    )
 
     const onFocus = (): void => setFocused(true)
     const onBlur = (): void => setFocused(false)
 
     return (
         <div className="JsonEditorInput" onFocus={onFocus} onBlur={onBlur}>
-            <CodeEditor
-                className="border"
+            <CodeEditorResizeable
+                className="border input-like"
                 language="json"
-                height={height}
-                value={value?.toString()}
+                value={valString}
+                minHeight={37}
+                maxHeight="24em"
+                embedded
+                allowManualResize={!readOnly}
                 options={{
                     readOnly: readOnly,
-                    lineHeight: _lineHeight,
                     minimap: {
                         enabled: false,
                     },
                     scrollbar: {
                         alwaysConsumeMouseWheel: false,
                     },
-                    padding: {
-                        bottom: 0,
-                        top: 10,
-                    },
                     overviewRulerLanes: 0,
                     hideCursorInOverviewRuler: true,
                     overviewRulerBorder: false,
-                    glyphMargin: true,
+                    glyphMargin: false,
                     folding: false,
                     lineNumbers: 'off',
-                    lineDecorationsWidth: 0,
+                    lineDecorationsWidth: 7,
+                    renderWhitespace: 'trailing',
                     lineNumbersMinChars: 0,
                     renderLineHighlight: 'none',
                     cursorStyle: 'line',
@@ -77,12 +59,9 @@ export function JSONEditorInput({
                     quickSuggestions: false,
                     contextmenu: false,
                 }}
-                onChange={(val) => {
-                    updateHeight(val)
-                    onChange?.(val)
-                }}
+                onChange={onChange}
             />
-            {!focused && !value?.toString() && placeholder && (
+            {!focused && !valString && placeholder && (
                 <div className="placeholder">
                     <div className="placeholderLabelContainer">{placeholder}</div>
                 </div>

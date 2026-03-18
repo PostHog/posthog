@@ -1,0 +1,19 @@
+# serializer version: 1
+# name: TestTeamAPI.test_delete_bulky_postgres_data
+  '''
+  DELETE
+  FROM "posthog_persondistinctid"
+  WHERE ("team_id",
+         "id") IN ((1,
+                    2)/* ... */)
+  '''
+# ---
+# name: TestTeamAPI.test_delete_bulky_postgres_data.1
+  '''
+  DELETE
+  FROM "posthog_person"
+  WHERE ("team_id",
+         "id") IN ((1,
+                    2)/* ... */)
+  '''
+# ---

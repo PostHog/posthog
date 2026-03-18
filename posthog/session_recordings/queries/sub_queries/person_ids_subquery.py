@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from posthog.schema import RecordingsQuery
 
@@ -53,18 +53,15 @@ class PersonsIdCompareOperation(SessionRecordingsListingBaseQuery):
                 where
                     person_id = {person_id}
                     and timestamp <= {now}
-                    and timestamp >= {ttl_date}
                     and timestamp >= {date_from}
                     and timestamp <= {date_to}
                     and notEmpty(`$session_id`)
                 """,
                 {
                     "person_id": ast.Constant(value=self._query.person_uuid),
-                    "ttl_days": ast.Constant(value=self.ttl_days),
                     "date_from": ast.Constant(value=self.query_date_range.date_from()),
                     "date_to": ast.Constant(value=self.query_date_range.date_to()),
                     "now": ast.Constant(value=now),
-                    "ttl_date": ast.Constant(value=now - timedelta(days=self.ttl_days)),
                 },
             )
         else:

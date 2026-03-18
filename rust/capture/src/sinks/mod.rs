@@ -4,7 +4,9 @@ use crate::{api::CaptureError, v0_request::ProcessedEvent};
 
 pub mod fallback;
 pub mod kafka;
+pub mod noop;
 pub mod print;
+pub mod producer;
 pub mod s3;
 #[async_trait]
 pub trait Event {

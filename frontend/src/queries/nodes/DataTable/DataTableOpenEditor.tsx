@@ -2,8 +2,8 @@ import { useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { IconTableChart } from 'lib/lemon-ui/icons'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode } from '~/queries/schema/schema-general'
@@ -31,8 +31,8 @@ export function DataTableOpenEditor({ query }: DataTableOpenEditorProps): JSX.El
                                   <LemonMenuOverlay
                                       items={[
                                           {
-                                              label: 'Open as direct SQL insight',
-                                              to: urls.sqlEditor(response.hogql),
+                                              label: 'Open in SQL editor',
+                                              to: urls.sqlEditor({ query: response.hogql }),
                                               'data-attr': 'open-sql-editor-button',
                                           },
                                       ]}
@@ -43,6 +43,7 @@ export function DataTableOpenEditor({ query }: DataTableOpenEditorProps): JSX.El
                     : undefined
             }
             data-attr="open-json-editor-button"
+            size="small"
         >
             Open as new insight
         </LemonButton>

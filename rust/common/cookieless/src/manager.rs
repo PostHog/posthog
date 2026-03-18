@@ -1097,8 +1097,9 @@ mod tests {
         // Set up the mock to return an error
         mock_redis = mock_redis.scard_ret(
             &redis_key,
-            Err(common_redis::CustomRedisError::Other(
-                "Some Redis error".to_string(),
+            Err(common_redis::CustomRedisError::from_redis_kind(
+                common_redis::RedisErrorKind::IoError,
+                "Some Redis error",
             )),
         );
         let redis_client = Arc::new(mock_redis);

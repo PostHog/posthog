@@ -1,0 +1,55 @@
+import { z } from 'zod'
+
+// Schema for positive integer string (e.g., "123" -> 123)
+const positiveIntString = (fieldName: string) =>
+    z
+        .string({ required_error: `Missing ${fieldName} parameter` })
+        .regex(/^\d+$/, `Invalid ${fieldName} parameter`)
+        .transform(Number)
+        .pipe(z.number().positive(`Invalid ${fieldName} parameter`))
+
+// Schema for non-negative integer string (e.g., "0" -> 0, "123" -> 123)
+const nonNegativeIntString = (fieldName: string) =>
+    z
+        .string({ required_error: `Missing ${fieldName} query parameter` })
+        .regex(/^\d+$/, `Invalid ${fieldName} query parameter`)
+        .transform(Number)
+        .pipe(z.number().nonnegative())
+
+// Shared schema for recording path params
+export const RecordingParamsSchema = z.object({
+    team_id: positiveIntString('team_id'),
+    session_id: z.string({ required_error: 'Missing session_id parameter' }).min(1, 'Invalid session_id parameter'),
+})
+
+// Path params with team_id only (no session_id)
+export const TeamParamsSchema = z.object({
+    team_id: positiveIntString('team_id'),
+})
+
+const MAX_DELETE_SESSION_IDS = 100
+
+// Body schema for delete requests
+export const DeleteRecordingsBodySchema = z.object({
+    session_ids: z
+        .array(z.string().min(1, 'Invalid session_id'))
+        .min(1, 'session_ids must not be empty')
+        .max(MAX_DELETE_SESSION_IDS, `Too many session_ids (max ${MAX_DELETE_SESSION_IDS})`),
+    deleted_by: z.string().min(1, 'Missing deleted_by').max(254),
+})
+
+// Static schema for getBlock query params (validates structure only)
+export const GetBlockQuerySchema = z
+    .object({
+        key: z.string({ required_error: 'Missing key query parameter' }).min(1, 'Invalid key query parameter'),
+        start_byte: nonNegativeIntString('start_byte'),
+        end_byte: nonNegativeIntString('end_byte'),
+        decompress: z
+            .enum(['true', 'false', '1', '0'])
+            .optional()
+            .transform((v) => v === 'true' || v === '1'),
+    })
+    .refine((data) => data.start_byte <= data.end_byte, {
+        message: 'start_byte must be less than or equal to end_byte',
+        path: ['start_byte'],
+    })

@@ -22,6 +22,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
+                '/stats': () => [200, { users_on_product: 42, active_recordings: 7 }],
                 '/api/projects/:team_id/session_recording_playlists': recordingPlaylists,
                 '/api/environments/:team_id/session_recordings': (req) => {
                     const version = req.url.searchParams.get('version')

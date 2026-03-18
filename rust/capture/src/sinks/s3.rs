@@ -251,7 +251,7 @@ impl Inner {
                 Ok(())
             }
             Err(err) => {
-                error!("Failed to write to S3: {err}");
+                error!("Failed to write to S3: {err:#}");
                 counter!("capture_s3_write_errors_total").increment(1);
                 Err(CaptureError::RetryableSinkError)
             }
@@ -320,18 +320,28 @@ mod tests {
             event: CapturedEvent {
                 uuid: uuid_v7(),
                 distinct_id: "test_id".to_string(),
+                session_id: None,
                 ip: "127.0.0.1".to_string(),
                 data: "test data".to_string(),
                 now: "2024-01-01T00:00:00Z".to_string(),
                 sent_at: None,
                 token: "test_token".to_string(),
+                event: "test_event".to_string(),
+                timestamp: chrono::DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z")
+                    .unwrap()
+                    .with_timezone(&chrono::Utc),
                 is_cookieless_mode: false,
+                historical_migration: false,
             },
             metadata: ProcessedEventMetadata {
                 data_type: DataType::AnalyticsMain,
                 session_id: None,
                 computed_timestamp: None,
                 event_name: "test_event".to_string(),
+                force_overflow: false,
+                skip_person_processing: false,
+                redirect_to_dlq: false,
+                redirect_to_topic: None,
             },
         }
     }

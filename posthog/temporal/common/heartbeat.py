@@ -1,4 +1,6 @@
 import abc
+import time
+import socket
 import typing
 import asyncio
 import dataclasses
@@ -6,6 +8,8 @@ import collections.abc
 
 from structlog import get_logger
 from temporalio import activity
+
+from posthog.temporal.common.liveness_tracker import get_liveness_tracker
 
 LOGGER = get_logger(__name__)
 
@@ -50,17 +54,11 @@ class Heartbeater:
     async def __aenter__(self):
         """Enter managed heartbeatting context."""
 
-        async def heartbeat_forever(delay: float) -> None:
-            """Heartbeat forever every delay seconds."""
-            while True:
-                await asyncio.sleep(delay)
-                activity.heartbeat(*self.details)
-
         heartbeat_timeout = activity.info().heartbeat_timeout
 
         if heartbeat_timeout:
             self.heartbeat_task = asyncio.create_task(
-                heartbeat_forever(heartbeat_timeout.total_seconds() / self.factor)
+                self._heartbeat_forever(heartbeat_timeout.total_seconds() / self.factor)
             )
 
         async def heartbeat_on_shutdown() -> None:
@@ -101,6 +99,33 @@ class Heartbeater:
 
         self.heartbeat_task = None
         self.heartbeat_on_shutdown_task = None
+
+    async def _heartbeat_forever(self, delay):
+        """Heartbeat forever every delay seconds."""
+        while True:
+            await asyncio.sleep(delay)
+            activity.heartbeat(*self.details)
+            self.logger.debug("Heartbeat")
+
+
+class LivenessHeartbeater(Heartbeater):
+    """Like ``Heartbeater``, but includes additional liveness tracking."""
+
+    def __init__(self, details: tuple[typing.Any, ...] = (), factor: int = 120):
+        super().__init__(details, factor)
+        self.tracker = get_liveness_tracker()
+
+    async def _heartbeat_forever(self, delay):
+        """Heartbeat forever every delay seconds."""
+        while True:
+            await asyncio.sleep(delay)
+            try:
+                extra_payload = {"host": socket.gethostname(), "ts": time.time()}
+                activity.heartbeat(*self.details, extra_payload)
+                self.tracker.record_heartbeat()
+                self.logger.debug("Heartbeat")
+            except Exception:
+                self.logger.exception("Heartbeat failed")
 
 
 class EmptyHeartbeatError(Exception):

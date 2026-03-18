@@ -5,7 +5,7 @@ from django.db import migrations
 
 
 def resave_hog_functions(apps, schema_editor):
-    call_command("resave_hog_functions")
+    call_command("resave_hog_functions", silent=True)
 
 
 def reverse_migration(apps, schema_editor):

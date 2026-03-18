@@ -10,7 +10,7 @@ from rest_framework.response import Response
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.clickhouse.client.limit import get_web_analytics_api_rate_limiter
 from posthog.models.user import User
 from posthog.rate_limit import WebAnalyticsAPIBurstThrottle, WebAnalyticsAPISustainedThrottle
@@ -36,7 +36,7 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
 
     scope_object = "query"
     scope_object_read_actions = ["summary", "overview", "trend", "breakdown"]
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     scope_object_write_actions: list[str] = []
     throttle_classes = [WebAnalyticsAPIBurstThrottle, WebAnalyticsAPISustainedThrottle]
 

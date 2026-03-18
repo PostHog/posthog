@@ -7,6 +7,7 @@ use rayon::iter::IntoParallelIterator;
 use rayon::prelude::*;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
+use crate::error::UserError;
 use crate::{context::AppContext, job::model::JobModel};
 
 use super::{
@@ -212,12 +213,130 @@ pub fn newline_delim<T: Send>(
     }
 }
 
+/// Trait for types that can provide user-facing JSON parse error messages.
+/// Each event type (RawEvent, MixpanelEvent, AmplitudeEvent) implements this
+/// to provide format-specific error messages that help users fix their data.
+pub trait UserFacingParseError {
+    /// Returns a user-facing error message for any JSON parse error.
+    /// Dispatches to specific handlers based on error category.
+    /// Override `user_facing_schema_error` to customize schema mismatch messages.
+    fn user_facing_parse_error(err: &serde_json::Error) -> String {
+        use serde_json::error::Category;
+
+        let base_message = match err.classify() {
+            Category::Eof => Self::user_facing_eof_error(err),
+            Category::Syntax => Self::user_facing_syntax_error(err),
+            Category::Data => Self::user_facing_schema_error(err),
+            Category::Io => "Error reading the data. Please try again.".to_string(),
+        };
+
+        format!("{} (Error at column {})", base_message, err.column())
+    }
+
+    fn user_facing_eof_error(err: &serde_json::Error) -> String {
+        let err_str = err.to_string();
+        if err_str.contains("parsing a value") && err.column() == 0 {
+            "The line appears to be empty. Each line should contain a valid JSON object."
+                .to_string()
+        } else {
+            "The JSON appears to be truncated or incomplete. Check for missing closing braces or brackets.".to_string()
+        }
+    }
+
+    fn user_facing_syntax_error(err: &serde_json::Error) -> String {
+        let err_str = err.to_string();
+        if err_str.contains("key must be a string") {
+            "JSON keys must be quoted strings. Use double quotes (\") not single quotes (')."
+                .to_string()
+        } else if err_str.contains("trailing comma") {
+            "Remove the trailing comma before the closing brace or bracket.".to_string()
+        } else if err_str.contains("expected `,`") {
+            "Missing comma between values or properties.".to_string()
+        } else if err_str.contains("expected `:`") {
+            "Missing colon after property name.".to_string()
+        } else if err_str.contains("expected ident") {
+            "Invalid JSON syntax. Make sure the line is valid JSON, not plain text.".to_string()
+        } else {
+            "Invalid JSON syntax. Please check for proper formatting.".to_string()
+        }
+    }
+
+    fn user_facing_schema_error(err: &serde_json::Error) -> String {
+        user_facing_schema_error_generic(err)
+    }
+}
+
+fn user_facing_schema_error_generic(err: &serde_json::Error) -> String {
+    let err_str = err.to_string();
+
+    if err_str.contains("missing field") {
+        if let Some(field_name) = extract_field_name(&err_str, "missing field `", "`") {
+            return format!(
+                "Missing required field '{field_name}'. Please check that your data includes this field."
+            );
+        }
+    }
+
+    if err_str.contains("invalid type:") {
+        let got = extract_between(&err_str, "invalid type: ", ", expected");
+        let expected = extract_between(&err_str, "expected ", " at line");
+
+        if let (Some(got), Some(expected)) = (got, expected) {
+            if expected.contains("map") {
+                return format!(
+                    "Expected an object/map but got {got}. This field must be a JSON object like {{\"key\": \"value\"}}."
+                );
+            }
+            if expected == "a string" {
+                return format!(
+                    "Expected a string value but got {got}. String values must be quoted."
+                );
+            }
+            if expected == "an integer" || expected == "a number" {
+                return format!("Expected a number but got {got}.");
+            }
+
+            return format!(
+                "Type mismatch: expected {expected} but got {got}. Please check your data format."
+            );
+        }
+    }
+
+    if err_str.contains("unknown field") {
+        if let Some(field_name) = extract_field_name(&err_str, "unknown field `", "`") {
+            return format!(
+                "Unknown field '{field_name}'. This field is not recognized. Check for typos or remove this field."
+            );
+        }
+    }
+
+    // Fallback
+    "The JSON structure doesn't match the expected format. Please check that your data matches the required schema.".to_string()
+}
+
+pub fn extract_field_name(s: &str, prefix: &str, suffix: &str) -> Option<String> {
+    let start = s.find(prefix)? + prefix.len();
+    let end = s[start..].find(suffix)? + start;
+    Some(s[start..end].to_string())
+}
+
+pub fn extract_between(s: &str, start_marker: &str, end_marker: &str) -> Option<String> {
+    let start = s.find(start_marker)? + start_marker.len();
+    let end = s[start..].find(end_marker)? + start;
+    Some(s[start..end].to_string())
+}
+
 pub fn json_nd<T>(skip_blank_lines: bool) -> impl Fn(Vec<u8>) -> Result<Parsed<Vec<T>>, Error>
 where
-    T: DeserializeOwned + Send,
+    T: DeserializeOwned + Send + UserFacingParseError,
 {
     newline_delim(skip_blank_lines, |line| {
-        let parsed = serde_json::from_str(line).context("Failed to json parse line")?;
+        let parsed = serde_json::from_str(line)
+            .map_err(|e| {
+                let user_msg = T::user_facing_parse_error(&e);
+                anyhow::Error::from(e).context(UserError::new(user_msg))
+            })
+            .context("Failed to json parse line")?;
         Ok(parsed)
     })
 }
@@ -246,6 +365,8 @@ mod tests {
         id: i32,
         name: String,
     }
+
+    impl UserFacingParseError for TestData {}
 
     async fn setup_test_files() -> (TempDir, FolderSource) {
         let temp_dir = TempDir::new().unwrap();
@@ -314,5 +435,78 @@ mod tests {
         assert_eq!(parsed.data.len(), 1);
         // 26 "data" characters, plus the newline
         assert_eq!(parsed.consumed, 27);
+    }
+
+    #[test]
+    fn test_json_parse_error_has_user_friendly_message() {
+        use crate::error::get_user_message;
+
+        let invalid_json = b"not valid json\n".to_vec();
+        let result = json_nd::<TestData>(false)(invalid_json);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+
+        let user_message = get_user_message(&err);
+        assert!(
+            user_message.contains("Invalid JSON syntax") || user_message.contains("plain text"),
+            "Expected user message to give specific guidance, got: {user_message}"
+        );
+        assert!(
+            user_message.contains("column"),
+            "Expected user message to include column info, got: {user_message}"
+        );
+    }
+
+    #[test]
+    fn test_json_parse_error_preserves_underlying_error() {
+        let invalid_json = b"not valid json\n".to_vec();
+        let result = json_nd::<TestData>(false)(invalid_json);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+
+        let full_error = format!("{err:#}");
+        assert!(
+            full_error.contains("expected value") || full_error.contains("expected ident"),
+            "Expected full error to contain serde details, got: {full_error}"
+        );
+    }
+
+    #[test]
+    fn test_specific_error_messages_for_common_issues() {
+        use crate::error::get_user_message;
+
+        let truncated = b"{\"id\": 1, \"name\": \"test\n".to_vec();
+        let err = json_nd::<TestData>(false)(truncated).unwrap_err();
+        let msg = get_user_message(&err);
+        assert!(
+            msg.contains("truncated") || msg.contains("incomplete"),
+            "Truncated JSON should mention truncation: {msg}"
+        );
+
+        let trailing_comma = b"{\"id\": 1,}\n".to_vec();
+        let err = json_nd::<TestData>(false)(trailing_comma).unwrap_err();
+        let msg = get_user_message(&err);
+        assert!(
+            msg.contains("trailing comma"),
+            "Trailing comma should be mentioned: {msg}"
+        );
+
+        let single_quotes = b"{'id': 1}\n".to_vec();
+        let err = json_nd::<TestData>(false)(single_quotes).unwrap_err();
+        let msg = get_user_message(&err);
+        assert!(
+            msg.contains("double quotes") || msg.contains("quoted strings"),
+            "Single quotes error should suggest double quotes: {msg}"
+        );
+
+        let missing_comma = b"{\"id\": 1 \"name\": \"test\"}\n".to_vec();
+        let err = json_nd::<TestData>(false)(missing_comma).unwrap_err();
+        let msg = get_user_message(&err);
+        assert!(
+            msg.contains("comma"),
+            "Missing comma should be mentioned: {msg}"
+        );
     }
 }

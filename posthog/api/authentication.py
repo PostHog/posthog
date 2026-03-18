@@ -1,6 +1,7 @@
+import json
 import time
 import datetime
-from typing import Any, Optional, cast
+from typing import Any, Optional, TypedDict, cast
 from uuid import uuid4
 
 from django.conf import settings
@@ -21,11 +22,13 @@ from django.shortcuts import redirect
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_protect
 
+import structlog
 from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice
 from loginas.utils import is_impersonated_session, restore_original_login
 from prometheus_client import Counter
 from rest_framework import mixins, permissions, serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -34,6 +37,8 @@ from social_django.views import auth
 from two_factor.utils import default_device
 from two_factor.views.core import REMEMBER_COOKIE_PREFIX
 from two_factor.views.utils import get_remember_device_cookie, validate_remember_device_cookie
+from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, options_to_json
+from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredentialDescriptor
 
 from posthog.api.email_verification import EmailVerifier, is_email_verification_disabled
 from posthog.caching.login_device_cache import check_and_cache_login_device
@@ -41,21 +46,40 @@ from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
-from posthog.helpers.two_factor_session import clear_two_factor_session_flags, set_two_factor_verified_in_session
+from posthog.helpers.two_factor_session import (
+    _obfuscate_token,
+    clear_two_factor_session_flags,
+    email_mfa_token_generator,
+    email_mfa_verifier,
+    has_passkeys,
+    set_two_factor_verified_in_session,
+)
 from posthog.models import OrganizationDomain, User
-from posthog.rate_limit import UserPasswordResetThrottle
+from posthog.models.activity_logging import signal_handlers  # noqa: F401
+from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.passkey import generate_passkey_authentication_options, verify_passkey_authentication_response
+from posthog.rate_limit import EmailMFAResendThrottle, EmailMFAThrottle, TwoFactorThrottle, UserPasswordResetThrottle
 from posthog.tasks.email import (
     login_from_new_device_notification,
     send_password_reset,
     send_two_factor_auth_backup_code_used_email,
 )
 from posthog.utils import get_instance_available_sso_providers, get_ip_address, get_short_user_agent
+from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
+
+mfa_logger = structlog.get_logger("posthog.auth.mfa")
 
 USER_AUTH_METHOD_MISMATCH = Counter(
     "user_auth_method_mismatches_sso_enforcement",
     "A user successfully authenticated with a different method than the one they're required to use",
     labelnames=["login_method", "sso_enforced_method", "user_uuid"],
 )
+
+
+class WebauthnCredentialPrecheck(TypedDict):
+    id: str
+    type: str
+    transports: list[str]
 
 
 @receiver(user_logged_in)
@@ -84,15 +108,14 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
 
 @csrf_protect
 def logout(request):
-    if request.user.is_authenticated:
-        request.user.temporary_token = None
-        request.user.save()
-
     clear_two_factor_session_flags(request)
 
+    request.session.pop("reauth", None)
+
     if is_impersonated_session(request):
+        impersonated_user_pk = request.user.pk
         restore_original_login(request)
-        return redirect("/admin/")
+        return redirect(f"/admin/posthog/user/{impersonated_user_pk}/change/")
 
     response = auth_views.logout_then_login(request)
     return response
@@ -132,6 +155,16 @@ class TwoFactorRequired(APIException):
     default_code = "2fa_required"
 
 
+class EmailMFARequired(APIException):
+    status_code = 401
+    default_detail = "Email MFA is required."
+    default_code = "email_mfa_required"
+
+    def __init__(self, email: str | None = None):
+        detail = email if email else self.default_detail
+        super().__init__(detail=detail, code=self.default_code)
+
+
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField()
@@ -140,21 +173,47 @@ class LoginSerializer(serializers.Serializer):
         return {"success": True}
 
     def _check_if_2fa_required(self, user: User) -> bool:
+        from posthog.helpers.two_factor_session import has_passkeys
+
         device = default_device(user)
-        if not device:
-            return False
-        # If user has a valid 2FA cookie, use that instead of showing them the 2FA screen
-        for key, value in self.context["request"].COOKIES.items():
-            if key.startswith(REMEMBER_COOKIE_PREFIX) and value:
-                try:
-                    if validate_remember_device_cookie(value, user=user, otp_device_id=device.persistent_id):
-                        user.otp_device = device  # type: ignore
-                        device.throttle_reset()
-                        return False
-                except BadSignature:
-                    # Workaround for signature mismatches due to Django upgrades.
-                    # See https://github.com/PostHog/posthog/issues/19350
-                    pass
+        user_has_passkeys = has_passkeys(user)
+        passkeys_enabled_for_2fa = user_has_passkeys and user.passkeys_enabled_for_2fa
+
+        # If user has neither TOTP nor passkeys enabled for 2FA, check for email MFA remember cookie
+        if not device and not passkeys_enabled_for_2fa:
+            for key, value in self.context["request"].COOKIES.items():
+                if key.startswith(REMEMBER_COOKIE_PREFIX) and value:
+                    try:
+                        if validate_remember_device_cookie(value, user=user, otp_device_id="email_mfa"):
+                            return False
+                    except BadSignature:
+                        pass
+
+        # Has TOTP device - check for TOTP remember cookie
+        if device:
+            for key, value in self.context["request"].COOKIES.items():
+                if key.startswith(REMEMBER_COOKIE_PREFIX) and value:
+                    try:
+                        if validate_remember_device_cookie(value, user=user, otp_device_id=device.persistent_id):
+                            user.otp_device = device  # type: ignore
+                            device.throttle_reset()
+                            return False
+                    except BadSignature:
+                        # Workaround for signature mismatches due to Django upgrades.
+                        # See https://github.com/PostHog/posthog/issues/19350
+                        pass
+
+        # Has passkeys enabled for 2FA but no TOTP - 2FA still required (passkey will be used)
+        if passkeys_enabled_for_2fa:
+            for key, value in self.context["request"].COOKIES.items():
+                if key.startswith(REMEMBER_COOKIE_PREFIX) and value:
+                    try:
+                        if validate_remember_device_cookie(value, user=user, otp_device_id="passkey_2fa"):
+                            return False
+                    except BadSignature:
+                        pass
+
+        # No device and no passkeys enabled for 2FA - should have been handled above, but fallback to email MFA
         return True
 
     def create(self, validated_data: dict[str, str]) -> Any:
@@ -167,8 +226,22 @@ class LoginSerializer(serializers.Serializer):
             )
 
         request = self.context["request"]
+
+        existing_user = User.objects.filter(email__iexact=validated_data["email"]).first()
+        evaluate_auth_attempt(
+            request=request._request,
+            email=validated_data["email"],
+            action=RadarAction.SIGNIN,
+            auth_method=RadarAuthMethod.PASSWORD,
+            user_id=str(existing_user.distinct_id) if existing_user else None,
+        )
+
         axes_request = getattr(request, "_request", request)
-        was_authenticated_before_login_attempt = bool(getattr(request, "user", None) and request.user.is_authenticated)
+        was_authenticated_before_login_attempt = bool(
+            getattr(request, "user", None)
+            and request.user.is_authenticated
+            and request.user.email.lower() == validated_data["email"].lower()
+        )
 
         # Initialize axes handler via proxy so request metadata is populated consistently
         from axes.exceptions import AxesBackendPermissionDenied
@@ -214,19 +287,46 @@ class LoginSerializer(serializers.Serializer):
         if self._check_if_2fa_required(user):
             request.session["user_authenticated_but_no_2fa"] = user.pk
             request.session["user_authenticated_time"] = time.time()
-            raise TwoFactorRequired()
+
+            # Check if user has TOTP device or passkeys enabled for 2FA
+            from posthog.helpers.two_factor_session import has_passkeys
+
+            totp_device = default_device(user)
+            user_has_passkeys = has_passkeys(user)
+            passkeys_enabled_for_2fa = user_has_passkeys and user.passkeys_enabled_for_2fa
+
+            if totp_device or passkeys_enabled_for_2fa:
+                # TOTP or passkey flow
+                raise TwoFactorRequired()
+            else:
+                # Email MFA flow - skip if this is a reauth (user already authenticated)
+                if not was_authenticated_before_login_attempt:
+                    email_mfa_sent = email_mfa_verifier.create_token_and_send_email_mfa_verification(request, user)
+                    if email_mfa_sent:
+                        # Increment the resend throttle counter so the initial send counts towards the limit
+                        resend_throttle = EmailMFAResendThrottle()
+                        resend_throttle.allow_request(request, None)  # type: ignore[arg-type]
+                        raise EmailMFARequired(user.email)
+                    else:
+                        # if we failed to send the email, we should fall through to allow login without MFA
+                        pass
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
         if not self._check_if_2fa_required(user):
             set_two_factor_verified_in_session(request)
 
+        # This is auto-handled for social auth providers, but we need to handle it manually for user/pass logins
+        request.session["reauth"] = "true" if was_authenticated_before_login_attempt else "false"
+        request.session.save()
+
         # Trigger login notification (password, no-2FA) and skip re-auth
         if not was_authenticated_before_login_attempt:
             short_user_agent = get_short_user_agent(request)
             ip_address = get_ip_address(request)
+            backend_name = request.session.get("_auth_user_backend", "django.contrib.auth.backends.ModelBackend")
             login_from_new_device_notification.delay(
-                user.id, timezone.now(), short_user_agent, ip_address, "email_password"
+                user.id, timezone.now(), short_user_agent, ip_address, backend_name
             )
 
         report_user_logged_in(user, social_provider="")
@@ -236,15 +336,33 @@ class LoginSerializer(serializers.Serializer):
 class LoginPrecheckSerializer(serializers.Serializer):
     email = serializers.EmailField()
 
-    def to_representation(self, instance: dict[str, str]) -> dict[str, Any]:
+    def to_representation(
+        self, instance: dict[str, str | list[WebauthnCredentialPrecheck]]
+    ) -> dict[str, str | list[WebauthnCredentialPrecheck]]:
         return instance
 
     def create(self, validated_data: dict[str, str]) -> Any:
+        from webauthn.helpers import bytes_to_base64url
+
+        from posthog.models.webauthn_credential import WebauthnCredential
+
         email = validated_data.get("email", "")
         # TODO: Refactor methods below to remove duplicate queries
+
+        credentials = WebauthnCredential.objects.get_verified_for_email(email)
+        webauthn_credentials = [
+            {
+                "id": bytes_to_base64url(cred.credential_id),
+                "type": "public-key",
+                "transports": cred.transports or [],
+            }
+            for cred in credentials
+        ]
+
         return {
             "sso_enforcement": OrganizationDomain.objects.get_sso_enforcement_for_email_address(email),
             "saml_available": OrganizationDomain.objects.get_is_saml_available_for_email(email),
+            "webauthn_credentials": webauthn_credentials,
         }
 
 
@@ -288,6 +406,7 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     serializer_class = TwoFactorSerializer
     queryset = User.objects.none()
     permission_classes = (permissions.AllowAny,)
+    throttle_classes = [TwoFactorThrottle]
 
     def _token_is_valid(self, request, user: User, device) -> Response:
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
@@ -295,6 +414,10 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         set_two_factor_verified_in_session(request)
         report_user_logged_in(user, social_provider="")
         device.throttle_reset()
+
+        # Clean up pre-2FA session keys to prevent reuse
+        request.session.pop("user_authenticated_but_no_2fa", None)
+        request.session.pop("user_authenticated_time", None)
 
         cookie_key = REMEMBER_COOKIE_PREFIX + str(uuid4())
         cookie_value = get_remember_device_cookie(user=user, otp_device_id=device.persistent_id)
@@ -311,17 +434,110 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         )
         return response
 
-    def create(self, request: Request, *args: Any, **kwargs: Any) -> Any:
-        user = User.objects.get(pk=request.session["user_authenticated_but_no_2fa"])
-        expiration_time = request.session["user_authenticated_time"] + getattr(
-            settings, "TWO_FACTOR_LOGIN_TIMEOUT", 600
-        )
-        if int(time.time()) > expiration_time:
+    def _handle_passkey_2fa(self, request: Request, user: User, credential_id: str, response_data: dict) -> Response:
+        """
+        Handle passkey-based 2FA authentication.
+
+        Args:
+            request: The HTTP request
+            user: The user attempting 2FA
+            credential_id: Base64-encoded credential ID from the passkey
+            response_data: The WebAuthn authentication response data
+
+        Returns:
+            Response with success status
+
+        Raises:
+            ValidationError: If passkey verification fails
+        """
+        from posthog.api.webauthn import WEBAUTHN_2FA_CHALLENGE_KEY
+
+        challenge_b64 = request.session.pop(WEBAUTHN_2FA_CHALLENGE_KEY, None)
+        if not challenge_b64:
             raise serializers.ValidationError(
-                detail="Login attempt has expired. Re-enter username/password.",
-                code="2fa_expired",
+                detail="No 2FA challenge found. Please start 2FA again.", code="2fa_no_challenge"
             )
 
+        try:
+            # save the session with the challenge removed
+            request.session.save()
+
+            credential_id_bytes = base64url_to_bytes(credential_id)
+            credential = WebauthnCredential.objects.filter(
+                user=user, credential_id=credential_id_bytes, verified=True
+            ).first()
+
+            if not credential:
+                raise serializers.ValidationError(detail="Invalid passkey.", code="2fa_invalid_passkey")
+
+            # Construct credential dict for webauthn library
+            credential_dict = {
+                "id": credential_id,
+                "rawId": credential_id,
+                "response": response_data,
+                "type": "public-key",
+            }
+
+            # Verify the authentication response
+            expected_challenge = base64url_to_bytes(challenge_b64)
+            verification = verify_passkey_authentication_response(
+                credential=credential_dict,
+                expected_challenge=expected_challenge,
+                credential_public_key=credential.public_key,
+                credential_current_sign_count=credential.counter,
+            )
+
+            # Update sign count
+            credential.counter = verification.new_sign_count
+            credential.save()
+
+            # Complete 2FA verification
+            login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+            set_two_factor_verified_in_session(request)
+            report_user_logged_in(user, social_provider="")
+
+            # Clean up pre-2FA session keys to prevent reuse
+            request.session.pop("user_authenticated_but_no_2fa", None)
+            request.session.pop("user_authenticated_time", None)
+
+            # Set remember device cookie for passkey 2FA
+            cookie_key = REMEMBER_COOKIE_PREFIX + str(uuid4())
+            cookie_value = get_remember_device_cookie(user=user, otp_device_id="passkey_2fa")
+            response = Response({"success": True})
+            response.set_cookie(
+                cookie_key,
+                cookie_value,
+                max_age=settings.TWO_FACTOR_REMEMBER_COOKIE_AGE,
+                domain=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_DOMAIN", None),
+                path=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_PATH", "/"),
+                secure=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SECURE", True),
+                httponly=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_HTTPONLY", True),
+                samesite=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SAMESITE", "Strict"),
+            )
+            return response
+        except serializers.ValidationError:
+            raise
+        except Exception as e:
+            mfa_logger.exception("webauthn_2fa_error", user_id=user.pk, error=str(e))
+            raise serializers.ValidationError(
+                detail="Passkey verification failed. Please try again.", code="2fa_passkey_failed"
+            )
+
+    def _handle_totp_2fa(self, request: Request, user: User, token: str) -> Response:
+        """
+        Handle TOTP token or backup code 2FA authentication.
+
+        Args:
+            request: The HTTP request
+            user: The user attempting 2FA
+            token: The TOTP token or backup code
+
+        Returns:
+            Response with success status and remember cookie
+
+        Raises:
+            ValidationError: If token verification fails
+        """
         with transaction.atomic():
             # First try TOTP device
             totp_device = default_device(user)
@@ -329,7 +545,7 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
                 is_allowed = totp_device.verify_is_allowed()
                 if not is_allowed[0]:
                     raise serializers.ValidationError(detail="Too many attempts.", code="2fa_too_many_attempts")
-                if totp_device.verify_token(request.data["token"]):
+                if totp_device.verify_token(token):
                     return self._token_is_valid(request, user, totp_device)
                 totp_device.throttle_increment()
 
@@ -338,12 +554,245 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             # They can be consumed in any order; each token will be removed from the
             # database as soon as it is used.
             static_device = StaticDevice.objects.filter(user=user).first()
-            if static_device and static_device.verify_token(request.data["token"]):
+            if static_device and static_device.verify_token(token):
                 # Send email notification when backup code is used
                 send_two_factor_auth_backup_code_used_email.delay(user.id)
                 return self._token_is_valid(request, user, static_device)
 
         raise serializers.ValidationError(detail="Invalid authentication code", code="2fa_invalid")
+
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Any:
+        # Validate session state - keys must exist from login flow
+        user_id = request.session.get("user_authenticated_but_no_2fa")
+        auth_time = request.session.get("user_authenticated_time")
+
+        if not user_id or auth_time is None:
+            raise serializers.ValidationError(
+                detail="Invalid 2FA session. Please log in again.",
+                code="invalid_2fa_session",
+            )
+
+        try:
+            user = User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            raise serializers.ValidationError(
+                detail="Invalid 2FA session. Please log in again.",
+                code="invalid_2fa_session",
+            )
+
+        expiration_time = auth_time + getattr(settings, "TWO_FACTOR_LOGIN_TIMEOUT", 600)
+        if int(time.time()) > expiration_time:
+            raise serializers.ValidationError(
+                detail="Login attempt has expired. Re-enter username/password.",
+                code="2fa_expired",
+            )
+
+        # Check if this is a passkey 2FA attempt
+        credential_id = request.data.get("credential_id")
+        response_data = request.data.get("response")
+        if credential_id and response_data:
+            return self._handle_passkey_2fa(request, user, credential_id, response_data)
+
+        # TOTP/backup code flow
+        token = request.data.get("token")
+        if not token:
+            raise serializers.ValidationError(
+                detail="Either token or passkey credentials required.", code="2fa_missing_credentials"
+            )
+
+        return self._handle_totp_2fa(request, user, token)
+
+
+class TwoFactorPasskeyViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
+    """
+    ViewSet for beginning 2FA passkey authentication.
+    Generates a challenge for passkey-based 2FA.
+    """
+
+    queryset = User.objects.none()
+    permission_classes = (permissions.AllowAny,)
+
+    @action(detail=False, methods=["GET"], url_path="methods")
+    def methods(self, request: Request) -> Response:
+        """
+        Get available 2FA methods for the user in the current 2FA session.
+        """
+        user_id = request.session.get("user_authenticated_but_no_2fa")
+        if not user_id:
+            return Response(
+                {"error": "No pending 2FA session. Please log in first."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            user = User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            return Response(
+                {"error": "User not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        totp_device = default_device(user)
+        user_has_passkeys = has_passkeys(user)
+        passkeys_enabled_for_2fa = user_has_passkeys and user.passkeys_enabled_for_2fa
+
+        return Response(
+            {
+                "has_totp": totp_device is not None,
+                "has_passkeys": passkeys_enabled_for_2fa,
+            }
+        )
+
+    @action(detail=False, methods=["POST"], url_path="begin")
+    def begin(self, request: Request) -> Response:
+        """
+        Begin 2FA passkey authentication by generating a challenge.
+        """
+        from posthog.api.webauthn import WEBAUTHN_2FA_CHALLENGE_KEY
+
+        user_id = request.session.get("user_authenticated_but_no_2fa")
+        if not user_id:
+            return Response(
+                {"error": "No pending 2FA session. Please log in first."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            user = User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            return Response(
+                {"error": "User not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Check if user has passkeys
+        if not has_passkeys(user):
+            return Response(
+                {"error": "No passkeys found for this user."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Check if passkeys are enabled for 2FA
+        if not user.passkeys_enabled_for_2fa:
+            return Response(
+                {"error": "Passkeys are not enabled for 2FA. Please enable them in your settings."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Get all verified passkeys for the user
+        credentials = WebauthnCredential.objects.filter(user=user, verified=True)
+
+        # Build allow_credentials list
+        allow_credentials = [
+            PublicKeyCredentialDescriptor(
+                id=cred.credential_id,
+                transports=[AuthenticatorTransport(t) for t in cred.transports if t],
+            )
+            for cred in credentials
+        ]
+
+        # Generate authentication options
+        options = generate_passkey_authentication_options(allow_credentials=allow_credentials)
+
+        # Store challenge in session
+        request.session[WEBAUTHN_2FA_CHALLENGE_KEY] = bytes_to_base64url(options.challenge)
+        request.session.save()
+
+        mfa_logger.info("webauthn_2fa_begin", user_id=user.pk)
+
+        return Response(json.loads(options_to_json(options)))
+
+
+class EmailMFASerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    token = serializers.CharField()
+
+
+class EmailMFAViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
+    """Handle email MFA link verification"""
+
+    serializer_class = EmailMFASerializer
+    queryset = User.objects.none()
+    permission_classes = (permissions.AllowAny,)
+    throttle_classes = [EmailMFAThrottle]
+
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Verify email MFA token from link and log user in"""
+        email = request.data.get("email")
+        token = request.data.get("token")
+        validation_error = serializers.ValidationError(
+            {"token": ["This verification link is invalid or has expired."]}, code="invalid_token"
+        )
+
+        mfa_logger.info("Email MFA verification attempt", token=_obfuscate_token(token))
+
+        try:
+            user = User.objects.filter(is_active=True, email=email).get()
+        except User.DoesNotExist:
+            mfa_logger.warning(
+                "Email MFA verification failed: user not found or inactive",
+                token=_obfuscate_token(token),
+            )
+            raise validation_error
+
+        if not email_mfa_token_generator.check_token(user, token):
+            raise validation_error
+
+        # Token valid - complete login
+        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        set_two_factor_verified_in_session(request)
+        report_user_logged_in(user, social_provider="")
+        mfa_logger.info(
+            "Email MFA login successful",
+            user_id=user.pk,
+            token=_obfuscate_token(token),
+        )
+
+        # Always set remember device cookie (30 days), same as TOTP 2FA
+        cookie_key = REMEMBER_COOKIE_PREFIX + str(uuid4())
+        cookie_value = get_remember_device_cookie(user=user, otp_device_id="email_mfa")
+        response = Response({"success": True})
+        response.set_cookie(
+            cookie_key,
+            cookie_value,
+            max_age=settings.TWO_FACTOR_REMEMBER_COOKIE_AGE,  # 30 days
+            domain=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_DOMAIN", None),
+            path=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_PATH", "/"),
+            secure=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SECURE", True),
+            httponly=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_HTTPONLY", True),
+            samesite=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SAMESITE", "Strict"),
+        )
+
+        # Also add device to fingerprint cache
+        short_user_agent = get_short_user_agent(request)
+        ip_address = get_ip_address(request)
+        geoip = get_geoip_properties(ip_address)
+        country = geoip.get("$geoip_country_name", "Unknown")
+
+        check_and_cache_login_device(user.id, country, short_user_agent)
+
+        return response
+
+    @action(detail=False, methods=["post"], throttle_classes=[EmailMFAResendThrottle])
+    def resend(self, request: Request) -> Response:
+        """Resend email MFA link"""
+        if not email_mfa_verifier.has_pending_email_mfa_verification(request):
+            raise serializers.ValidationError(
+                {"detail": "No pending email MFA verification found."}, code="no_pending_verification"
+            )
+
+        try:
+            user = User.objects.get(pk=email_mfa_verifier.get_pending_email_mfa_verification_user_id(request))
+        except User.DoesNotExist:
+            raise serializers.ValidationError({"detail": "User not found."}, code="user_not_found")
+
+        email_mfa_sent = email_mfa_verifier.create_token_and_send_email_mfa_verification(request, user)
+        if not email_mfa_sent:
+            raise serializers.ValidationError(
+                {"detail": "Could not send email MFA verification email."}, code="email_mfa_verification_email_failed"
+            )
+
+        return Response({"success": True, "message": "Verification email sent"})
 
 
 class LoginPrecheckViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
@@ -372,9 +821,12 @@ class PasswordResetSerializer(serializers.Serializer):
             )
 
         try:
-            user = User.objects.filter(is_active=True).get(email=email)
+            user = User.objects.filter(is_active=True).get(email__iexact=email)
         except User.DoesNotExist:
             user = None
+        except User.MultipleObjectsReturned:
+            # If multiple users share the same email (different casing), use the exact match
+            user = User.objects.filter(is_active=True, email=email).first()
 
         if user:
             user.requested_password_reset_at = datetime.datetime.now(datetime.UTC)
@@ -493,7 +945,7 @@ class PasswordResetTokenGenerator(DefaultPasswordResetTokenGenerator):
         # Due to type differences between the user model and the token generator, we need to
         # re-fetch the user from the database to get the correct type.
         usable_user: User = User.objects.get(pk=user.pk)
-        return f"{user.pk}{user.email}{usable_user.requested_password_reset_at}{timestamp}"
+        return f"{user.pk}{user.email}{usable_user.requested_password_reset_at}{timestamp}{usable_user.password}"
 
 
 password_reset_token_generator = PasswordResetTokenGenerator()

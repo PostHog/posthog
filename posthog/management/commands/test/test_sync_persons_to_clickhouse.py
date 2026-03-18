@@ -317,14 +317,14 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             )
         create_person(
             uuid=str(person_should_update_1.uuid),
-            team_id=person_should_update_1.team.pk,
+            team_id=person_should_update_1.team_id,
             properties={"a": 13},
             version=4,
             sync=True,
         )
         create_person(
             uuid=str(person_should_update_2.uuid),
-            team_id=person_should_update_2.team.pk,
+            team_id=person_should_update_2.team_id,
             properties={"a": 1},
             version=6,
             sync=True,

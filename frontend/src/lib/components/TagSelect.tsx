@@ -51,7 +51,7 @@ export function TagSelect({
             actionable
             onVisibilityChange={setShowPopover}
             overlay={
-                <div className="max-w-100 deprecated-space-y-2 overflow-hidden">
+                <div className="max-w-100 deprecated-space-y-2">
                     <LemonInput
                         type="search"
                         placeholder="Search tags"
@@ -59,6 +59,7 @@ export function TagSelect({
                         value={search}
                         onChange={setSearch}
                         fullWidth
+                        className="max-w-full"
                     />
                     <ul className="deprecated-space-y-px">
                         {filteredTags.map((tag: string) => (
@@ -70,7 +71,7 @@ export function TagSelect({
                                     onClick={() => handleTagToggle(tag)}
                                 >
                                     <span className="flex items-center justify-between gap-2 flex-1">
-                                        <span className="flex items-center gap-2">
+                                        <span className="flex items-center gap-2 max-w-full">
                                             <input
                                                 type="checkbox"
                                                 className="cursor-pointer"

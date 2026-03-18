@@ -6,7 +6,7 @@ import { ActivityScope, InsightShortId, PersonType, UserBasicType } from '~/type
 
 export interface ActivityChange {
     type: ActivityScope
-    action: 'changed' | 'created' | 'deleted' | 'exported' | 'split'
+    action: 'changed' | 'created' | 'deleted' | 'exported' | 'split' | 'copied'
     field?: string
     before?: string | number | any[] | Record<string, any> | boolean | null
     after?: string | number | any[] | Record<string, any> | boolean | null
@@ -48,6 +48,8 @@ export type ActivityLogItem = {
     is_staff?: boolean
     /** Whether the activity was initiated by the PostHog backend. Example: an exported image when sharing an insight. */
     is_system?: boolean
+    /** Whether a PostHog team member was impersonating the user when this activity was logged. */
+    was_impersonated?: boolean
 }
 
 // the description of a single activity log is a sentence describing one or more changes that makes up the entry
@@ -65,6 +67,7 @@ export type HumanizedActivityLogItem = {
     email?: string | null
     name?: string
     isSystem?: boolean
+    wasImpersonated?: boolean
     description: Description
     extendedDescription?: ExtendedDescription // e.g. an insight's filters summary
     created_at: dayjs.Dayjs
@@ -103,10 +106,14 @@ export function humanize(
         const { description, extendedDescription } = describer(logItem, asNotification)
 
         if (description !== null) {
+            const impersonatedUserName = logItem.user ? fullName(logItem.user) : undefined
             logLines.push({
-                email: logItem.user?.email,
-                name: logItem.user ? fullName(logItem.user) : undefined,
+                email: logItem.was_impersonated ? undefined : logItem.user?.email,
+                name: logItem.was_impersonated
+                    ? `PostHog Support${impersonatedUserName ? ` (as ${impersonatedUserName})` : ''}`
+                    : impersonatedUserName,
                 isSystem: logItem.is_system,
+                wasImpersonated: logItem.was_impersonated,
                 description,
                 extendedDescription,
                 created_at: dayjs(logItem.created_at),
@@ -122,16 +129,24 @@ export function userNameForLogItem(logItem: ActivityLogItem): string {
     if (logItem.is_system) {
         return 'PostHog'
     }
+    if (logItem.was_impersonated) {
+        const impersonatedUserName = logItem.user ? fullName(logItem.user) : 'a user'
+        return `PostHog Support (as ${impersonatedUserName})`
+    }
     return logItem.user ? fullName(logItem.user) : 'A user'
 }
 
 const NO_PLURAL_SCOPES: ActivityScope[] = [ActivityScope.DATA_MANAGEMENT]
 
+// Keep in sync with SCOPE_DISPLAY_NAMES in ee/hogai/context/activity_log/context.py
 const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plural: string }>> = {
     [ActivityScope.ALERT_CONFIGURATION]: { singular: 'Alert', plural: 'Alerts' },
     [ActivityScope.BATCH_EXPORT]: { singular: 'Destination', plural: 'Destinations' },
     [ActivityScope.EXTERNAL_DATA_SOURCE]: { singular: 'Source', plural: 'Sources' },
     [ActivityScope.HOG_FUNCTION]: { singular: 'Data pipeline', plural: 'Data pipelines' },
+    [ActivityScope.PERSONAL_API_KEY]: { singular: 'Personal API Key', plural: 'Personal API Keys' },
+    [ActivityScope.LLM_TRACE]: { singular: 'LLM trace', plural: 'LLM traces' },
+    [ActivityScope.LOG]: { singular: 'Log', plural: 'Logs' },
 }
 
 export function humanizeScope(scope: ActivityScope | string, singular = false): string {
@@ -151,7 +166,7 @@ export function humanizeScope(scope: ActivityScope | string, singular = false): 
 }
 
 export function humanizeActivity(activity: string): string {
-    activity = activity.replace('_', ' ')
+    activity = activity.replace(/_/g, ' ')
 
     return activity.charAt(0).toUpperCase() + activity.slice(1)
 }
@@ -167,7 +182,7 @@ export function defaultDescriber(
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> deleted <b>{resource}</b>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted <b>{resource}</b>
                 </>
             ),
         }
@@ -177,7 +192,17 @@ export function defaultDescriber(
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> created <b>{resource}</b>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created <b>{resource}</b>
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'restored') {
+        return {
+            description: (
+                <>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> restored <b>{resource}</b>
                 </>
             ),
         }
@@ -187,7 +212,18 @@ export function defaultDescriber(
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> updated <b>{resource}</b>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated <b>{resource}</b>
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'copied_to_project') {
+        return {
+            description: (
+                <>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> copied <b>{resource}</b> to
+                    another project
                 </>
             ),
         }
@@ -199,13 +235,14 @@ export function defaultDescriber(
         if (logItem.scope === 'Comment') {
             description = (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> replied to a {humanizeScope(logItem.scope, true)}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> replied to a{' '}
+                    {humanizeScope(logItem.scope, true)}
                 </>
             )
         } else {
             description = (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> commented
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> commented
                     {asNotification ? <> on a {humanizeScope(logItem.scope, true)}</> : null}
                 </>
             )

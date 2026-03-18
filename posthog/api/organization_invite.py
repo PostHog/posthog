@@ -5,6 +5,7 @@ from uuid import UUID
 from django.db.models import QuerySet
 
 import posthoganalytics
+from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, mixins, permissions, request, response, serializers, status, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -18,7 +19,12 @@ from posthog.models import OrganizationInvite, OrganizationMembership
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.permissions import OrganizationMemberPermissions, UserCanInvitePermission
+from posthog.permissions import (
+    APIScopePermission,
+    OrganizationMemberPermissions,
+    TimeSensitiveActionPermission,
+    UserCanInvitePermission,
+)
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.tasks.email import send_invite
 
@@ -287,6 +293,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         return invite
 
 
+@extend_schema(tags=["core"])
 class OrganizationInviteViewSet(
     TeamAndOrgViewSetMixin,
     mixins.DestroyModelMixin,
@@ -301,10 +308,16 @@ class OrganizationInviteViewSet(
     ordering = "-created_at"
 
     def dangerously_get_permissions(self):
-        if self.action in ["create", "bulk"]:
+        if self.action in ["create", "bulk", "update", "partial_update"]:
             write_permissions = [
                 permission()
-                for permission in [permissions.IsAuthenticated, OrganizationMemberPermissions, UserCanInvitePermission]
+                for permission in [
+                    permissions.IsAuthenticated,
+                    OrganizationMemberPermissions,
+                    UserCanInvitePermission,
+                    TimeSensitiveActionPermission,
+                    APIScopePermission,
+                ]
             ]
             return write_permissions
 
@@ -318,6 +331,8 @@ class OrganizationInviteViewSet(
                     permissions.IsAuthenticated,
                     OrganizationMemberPermissions,
                     OrganizationAdminWritePermissions,
+                    TimeSensitiveActionPermission,
+                    APIScopePermission,
                 ]
             ]
             return delete_permissions

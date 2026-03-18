@@ -1,4 +1,8 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
+
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -38,6 +42,24 @@ const dashboards: Partial<DashboardBasicType>[] = [
         id: 8,
         name: 'k',
     },
+    {
+        id: 9,
+        name: 'Pinned Later',
+        pinned: true,
+        last_viewed_at: '2024-05-02T12:00:00Z',
+    },
+    {
+        id: 10,
+        name: 'Pinned Never',
+        pinned: true,
+        last_viewed_at: null,
+    },
+    {
+        id: 11,
+        name: 'Pinned Earlier',
+        pinned: true,
+        last_viewed_at: '2024-04-30T12:00:00Z',
+    },
 ]
 
 const basicDashboard: DashboardBasicType = {
@@ -48,6 +70,7 @@ const basicDashboard: DashboardBasicType = {
     created_at: new Date().toISOString(),
     created_by: null,
     last_accessed_at: null,
+    last_viewed_at: null,
     is_shared: false,
     deleted: false,
     creation_mode: 'default',
@@ -86,6 +109,24 @@ describe('the dashboards model', () => {
                 .toDispatchActions(['loadDashboardsSuccess'])
                 .toMatchValues({
                     nameSortedDashboards: [
+                        {
+                            id: 11,
+                            last_viewed_at: '2024-04-30T12:00:00Z',
+                            name: 'Pinned Earlier',
+                            pinned: true,
+                        },
+                        {
+                            id: 9,
+                            last_viewed_at: '2024-05-02T12:00:00Z',
+                            name: 'Pinned Later',
+                            pinned: true,
+                        },
+                        {
+                            id: 10,
+                            last_viewed_at: null,
+                            name: 'Pinned Never',
+                            pinned: true,
+                        },
                         {
                             id: 5,
                             name: 'Dashboard: 112',
@@ -128,6 +169,78 @@ describe('the dashboards model', () => {
 
             expect(nameCompareFunction(randomDashboard2, randomDashboard)).toEqual(1)
             expect(nameCompareFunction(randomDashboard, randomDashboard2)).toEqual(-1)
+        })
+
+        it('sorts pinned dashboards by last viewed time', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadDashboards()
+            })
+                .toDispatchActions(['loadDashboardsSuccess'])
+                .toMatchValues({
+                    pinnedDashboards: [
+                        expect.objectContaining({ id: 9 }),
+                        expect.objectContaining({ id: 11 }),
+                        expect.objectContaining({ id: 10 }),
+                    ],
+                })
+        })
+    })
+
+    it('clears primary_dashboard from team when deleting the primary dashboard', async () => {
+        const primaryDashboardId = 42
+        initKeaTests(true, { ...MOCK_DEFAULT_TEAM, primary_dashboard: primaryDashboardId })
+        useMocks({
+            get: {
+                '/api/environments/:team_id/dashboards/': {
+                    count: 0,
+                    results: [],
+                },
+            },
+            patch: {
+                '/api/environments/:team_id/dashboards/:id/': {
+                    id: primaryDashboardId,
+                    name: 'My Dashboard',
+                    deleted: true,
+                },
+            },
+        })
+        logic = dashboardsModel()
+        logic.mount()
+
+        logic.actions.deleteDashboard({ id: primaryDashboardId, deleteInsights: false })
+
+        await expectLogic(logic).toDispatchActions(['deleteDashboardSuccess'])
+        await expectLogic(teamLogic).toMatchValues({
+            currentTeam: expect.objectContaining({ primary_dashboard: null }),
+        })
+    })
+
+    it('does not clear primary_dashboard when deleting a non-primary dashboard', async () => {
+        const primaryDashboardId = 42
+        initKeaTests(true, { ...MOCK_DEFAULT_TEAM, primary_dashboard: primaryDashboardId })
+        useMocks({
+            get: {
+                '/api/environments/:team_id/dashboards/': {
+                    count: 0,
+                    results: [],
+                },
+            },
+            patch: {
+                '/api/environments/:team_id/dashboards/:id/': {
+                    id: 99,
+                    name: 'Other Dashboard',
+                    deleted: true,
+                },
+            },
+        })
+        logic = dashboardsModel()
+        logic.mount()
+
+        logic.actions.deleteDashboard({ id: 99, deleteInsights: false })
+
+        await expectLogic(logic).toDispatchActions(['deleteDashboardSuccess'])
+        await expectLogic(teamLogic).toMatchValues({
+            currentTeam: expect.objectContaining({ primary_dashboard: primaryDashboardId }),
         })
     })
 })

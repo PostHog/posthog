@@ -4,6 +4,8 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
+import SetupWizardBanner from './components/SetupWizardBanner'
+
 function DjangoInstallSnippet(): JSX.Element {
     return <CodeSnippet language={Language.Bash}>pip install posthog</CodeSnippet>
 }
@@ -39,6 +41,7 @@ function DjangoSettingsSnippet(): JSX.Element {
 export function SDKInstallDjangoInstructions(): JSX.Element {
     return (
         <>
+            <SetupWizardBanner integrationName="Django" />
             <h3>Install</h3>
             <DjangoInstallSnippet />
             <h3>Configure</h3>

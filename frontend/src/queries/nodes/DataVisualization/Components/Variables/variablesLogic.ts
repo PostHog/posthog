@@ -18,7 +18,6 @@ export interface VariablesLogicProps {
     /** Dashboard ID for the current dashboard if we're viewing one */
     dashboardId?: DashboardType['id']
 
-    queryInput?: string
     sourceQuery?: DataVisualizationNode
     setQuery?: (query: DataVisualizationNode) => void
     onUpdate?: (query: DataVisualizationNode) => void
@@ -63,11 +62,7 @@ export const variablesLogic = kea<variablesLogicType>([
         setSearchTerm: (search: string) => ({ search }),
         clickVariable: (variable: Variable & { selected: boolean }) => ({ variable }),
     })),
-    propsChanged(({ props, actions, values }, oldProps) => {
-        if (oldProps.queryInput !== props.queryInput) {
-            actions.setEditorQuery(props.queryInput ?? '')
-        }
-
+    propsChanged(({ props, actions, values }) => {
         if (props.sourceQuery) {
             const variables = Object.values(props.sourceQuery?.source.variables ?? {})
 
@@ -171,6 +166,32 @@ export const variablesLogic = kea<variablesLogicType>([
         ],
     }),
     selectors({
+        queryVariableCodeNames: [
+            (s) => [s.editorQuery],
+            (editorQuery): string[] => {
+                const matches = getVariablesFromQuery(editorQuery)
+                return Array.from(new Set(matches.filter((match): match is string => Boolean(match))))
+            },
+        ],
+        variablesWithValues: [
+            (s) => [s.variables, s.internalSelectedVariables],
+            (variables, internalSelectedVariables): Variable[] => {
+                return variables.map((variable) => {
+                    const selectedVariable = internalSelectedVariables.find(
+                        (selected) => selected.variableId === variable.id
+                    )
+                    if (!selectedVariable) {
+                        return variable
+                    }
+
+                    return {
+                        ...variable,
+                        value: selectedVariable.value,
+                        isNull: selectedVariable.isNull,
+                    }
+                })
+            },
+        ],
         variablesForInsight: [
             (s) => [s.variables, s.internalSelectedVariables],
             (variables, internalSelectedVariables): Variable[] => {
@@ -213,10 +234,54 @@ export const variablesLogic = kea<variablesLogicType>([
                       })
                     : variables
 
-                return visibleVariables.map((variable) => ({
-                    ...variable,
-                    selected: selectedVariableIds.has(variable.id),
-                }))
+                return [...visibleVariables]
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .map((variable) => ({
+                        ...variable,
+                        selected: selectedVariableIds.has(variable.id),
+                    }))
+            },
+        ],
+        variablesUsedInQuery: [
+            (s) => [s.variablesWithValues, s.queryVariableCodeNames, s.searchTerm],
+            (variablesWithValues, queryVariableCodeNames, searchTerm): Variable[] => {
+                const queryCodeNames = new Set(queryVariableCodeNames)
+                const trimmedSearch = searchTerm.trim().toLowerCase()
+
+                const visibleVariables = trimmedSearch
+                    ? variablesWithValues.filter((variable) => {
+                          const nameMatch = variable.name.toLowerCase().includes(trimmedSearch)
+                          const codeNameMatch = variable.code_name?.toLowerCase().includes(trimmedSearch)
+                          const typeMatch = variable.type.toLowerCase().includes(trimmedSearch)
+
+                          return nameMatch || codeNameMatch || typeMatch
+                      })
+                    : variablesWithValues
+
+                return visibleVariables
+                    .filter((variable) => queryCodeNames.has(variable.code_name))
+                    .sort((a, b) => a.name.localeCompare(b.name))
+            },
+        ],
+        variablesNotInQuery: [
+            (s) => [s.variablesWithValues, s.queryVariableCodeNames, s.searchTerm],
+            (variablesWithValues, queryVariableCodeNames, searchTerm): Variable[] => {
+                const queryCodeNames = new Set(queryVariableCodeNames)
+                const trimmedSearch = searchTerm.trim().toLowerCase()
+
+                const visibleVariables = trimmedSearch
+                    ? variablesWithValues.filter((variable) => {
+                          const nameMatch = variable.name.toLowerCase().includes(trimmedSearch)
+                          const codeNameMatch = variable.code_name?.toLowerCase().includes(trimmedSearch)
+                          const typeMatch = variable.type.toLowerCase().includes(trimmedSearch)
+
+                          return nameMatch || codeNameMatch || typeMatch
+                      })
+                    : variablesWithValues
+
+                return visibleVariables
+                    .filter((variable) => !queryCodeNames.has(variable.code_name))
+                    .sort((a, b) => a.name.localeCompare(b.name))
             },
         ],
     }),

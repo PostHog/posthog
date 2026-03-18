@@ -1,11 +1,7 @@
-import { actions, kea, listeners, path, props, reducers } from 'kea'
-import { router, urlToAction } from 'kea-router'
+import { actions, kea, listeners, path, props } from 'kea'
 import posthog from 'posthog-js'
 
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { urls } from 'scenes/urls'
-
-import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import type { editorSceneLogicType } from './editorSceneLogicType'
 
@@ -39,22 +35,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
         reportAIQueryAccepted: true,
         reportAIQueryRejected: true,
         reportAIQueryPromptOpen: true,
-        setWasPanelActive: (wasPanelActive: boolean) => ({ wasPanelActive }),
     }),
-    reducers(() => ({
-        wasPanelActive: [
-            false,
-            {
-                setWasPanelActive: (_, { wasPanelActive }) => wasPanelActive,
-            },
-        ],
-        panelExplicitlyClosed: [
-            false,
-            {
-                [panelLayoutLogic.actionTypes.closePanel]: () => true,
-            },
-        ],
-    })),
     listeners(() => ({
         reportAIQueryPrompted: () => {
             posthog.capture('ai_query_prompted')
@@ -67,22 +48,6 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
         },
         reportAIQueryPromptOpen: () => {
             posthog.capture('ai_query_prompt_open')
-        },
-    })),
-    urlToAction(({ values }) => ({
-        [urls.sqlEditor()]: () => {
-            if (!values.panelExplicitlyClosed) {
-                panelLayoutLogic.actions.showLayoutPanel(true)
-                panelLayoutLogic.actions.setActivePanelIdentifier('Database')
-                panelLayoutLogic.actions.toggleLayoutPanelPinned(true)
-            }
-        },
-        '*': () => {
-            if (router.values.location.pathname !== urls.sqlEditor()) {
-                panelLayoutLogic.actions.clearActivePanelIdentifier()
-                panelLayoutLogic.actions.toggleLayoutPanelPinned(false)
-                panelLayoutLogic.actions.showLayoutPanel(false)
-            }
         },
     })),
 ])

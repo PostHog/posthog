@@ -8,24 +8,27 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.doit.doit import DOIT_INCREMENTAL_FIELDS, doit_list_reports, doit_source
 from posthog.temporal.data_imports.sources.generated_configs import DoItSourceConfig
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class DoItSource(BaseSource[DoItSourceConfig]):
+class DoItSource(SimpleSource[DoItSourceConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.DOIT
 
-    def get_schemas(self, config: DoItSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: DoItSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
         reports = doit_list_reports(config)
 
-        return [
+        schemas = [
             SourceSchema(
                 name=name,
                 supports_incremental=True,
@@ -34,6 +37,12 @@ class DoItSource(BaseSource[DoItSourceConfig]):
             )
             for name, _id in reports
         ]
+
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+
+        return schemas
 
     def source_for_pipeline(self, config: DoItSourceConfig, inputs: SourceInputs) -> SourceResponse:
         return doit_source(

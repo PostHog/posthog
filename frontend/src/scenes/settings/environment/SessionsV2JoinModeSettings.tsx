@@ -1,58 +1,35 @@
-import { useActions, useValues } from 'kea'
-import { useState } from 'react'
-
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
-import { teamLogic } from 'scenes/teamLogic'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
+import { LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 
 import { HogQLQueryModifiers } from '~/queries/schema/schema-general'
 
-type SessionsV2JoinMode = NonNullable<HogQLQueryModifiers['sessionsV2JoinMode']>
+import { TeamSettingRadio } from '../components/TeamSettingRadio'
 
-const options: LemonRadioOption<SessionsV2JoinMode>[] = [
-    {
-        value: 'string',
-        label: (
-            <>
-                <div>String</div>
-            </>
-        ),
-    },
-    {
-        value: 'uuid',
-        label: (
-            <>
-                <div>UUID</div>
-            </>
-        ),
-    },
+type SessionsV2JoinModeType = NonNullable<HogQLQueryModifiers['sessionsV2JoinMode']>
+
+const SESSIONS_V2_JOIN_MODE_OPTIONS: LemonRadioOption<SessionsV2JoinModeType>[] = [
+    { value: 'string', label: 'String' },
+    { value: 'uuid', label: 'UUID' },
 ]
 
 export function SessionsV2JoinModeSettings(): JSX.Element {
-    const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
-    const savedSessionTableVersion =
-        currentTeam?.modifiers?.sessionsV2JoinMode ?? currentTeam?.default_modifiers?.sessionsV2JoinMode ?? 'string'
-    const [sessionsV2JoinMode, setSessionsV2JoinMode] = useState<SessionsV2JoinMode>(savedSessionTableVersion)
-
-    const handleChange = (version: SessionsV2JoinMode): void => {
-        updateCurrentTeam({ modifiers: { ...currentTeam?.modifiers, sessionsV2JoinMode: version } })
-    }
+    const sessionsV2JoinModeOptions = SESSIONS_V2_JOIN_MODE_OPTIONS.map((o) => ({
+        ...o,
+        disabledReason: restrictedReason ?? undefined,
+    }))
 
     return (
-        <>
-            <p>Choose which version join mode to use. Don't set this unless you know what you're doing.</p>
-            <LemonRadio value={sessionsV2JoinMode} onChange={setSessionsV2JoinMode} options={options} />
-            <div className="mt-4">
-                <LemonButton
-                    type="primary"
-                    onClick={() => handleChange(sessionsV2JoinMode)}
-                    disabledReason={sessionsV2JoinMode === savedSessionTableVersion ? 'No changes to save' : undefined}
-                >
-                    Save
-                </LemonButton>
-            </div>
-        </>
+        <TeamSettingRadio
+            field="modifiers.sessionsV2JoinMode"
+            options={sessionsV2JoinModeOptions}
+            defaultValue="string"
+            disabledReason={restrictedReason}
+        />
     )
 }

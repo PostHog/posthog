@@ -169,9 +169,9 @@ class TestPageUrlSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert len(results_without_params) == 2, f"Expected 2 results without params, got {len(results_without_params)}"
         urls_without_params = [result.url for result in results_without_params]
-        assert (
-            "http://www.example.com/products" in urls_without_params
-        ), f"Missing /products URL in {urls_without_params}"
+        assert "http://www.example.com/products" in urls_without_params, (
+            f"Missing /products URL in {urls_without_params}"
+        )
         assert "http://www.example.com/about" in urls_without_params, f"Missing /about URL in {urls_without_params}"
 
     def test_query_with_limit(self):
@@ -201,9 +201,9 @@ class TestPageUrlSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert len(response.results) == 2, f"Expected 2 results with limit=2, got {len(response.results)}"
-        assert (
-            response.hasMore is True
-        ), "Expected hasMore=True but got False"  # Should indicate more results are available
+        assert response.hasMore is True, (
+            "Expected hasMore=True but got False"
+        )  # Should indicate more results are available
 
         # Query with larger limit, should return all 5 results
         full_response = self._run_page_url_search_query(

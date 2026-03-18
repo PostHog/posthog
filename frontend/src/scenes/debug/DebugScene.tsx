@@ -11,7 +11,6 @@ import { DebugSceneQuery } from 'scenes/debug/DebugSceneQuery'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { stringifiedExamples } from '~/queries/examples'
 
@@ -85,7 +84,6 @@ export function DebugScene(): JSX.Element {
                     </>
                 }
             />
-            <SceneDivider />
 
             <div className="flex gap-2">
                 <div className="flex-1 w-1/2">

@@ -16,8 +16,9 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.schema import UsageMetricsQuery
+from posthog.schema import CachedUsageMetricsQueryResponse, UsageMetricsQuery
 
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.group.util import create_group
 from posthog.models.group_usage_metric import GroupUsageMetric
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -392,3 +393,87 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[0]["value"], 3.0)
         self.assertEqual(results[1]["id"], str(another_metric.id))
         self.assertEqual(results[1]["value"], 5.0)
+
+    @freeze_time("2025-10-09T12:11:00")
+    def test_cache_invalidates_when_metric_created(self):
+        _create_event(
+            event="metric_event",
+            team=self.team,
+            person_id=str(self.person.uuid),
+            distinct_id=self.person_distinct_id,
+        )
+        flush_persons_and_events()
+        runner = UsageMetricsQueryRunner(
+            team=self.team,
+            query=UsageMetricsQuery(kind="UsageMetricsQuery", person_id=str(self.person.uuid)),
+        )
+
+        response1 = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+
+        assert isinstance(response1, CachedUsageMetricsQueryResponse)
+        self.assertFalse(response1.is_cached)
+        self.assertEqual(len(response1.results), 0)
+
+        GroupUsageMetric.objects.create(
+            team=self.team,
+            group_type_index=0,
+            name="Test metric",
+            format=GroupUsageMetric.Format.NUMERIC,
+            interval=7,
+            display=GroupUsageMetric.Display.NUMBER,
+            filters={"events": [{"id": "metric_event", "type": "events", "order": 0}]},
+        )
+        runner2 = UsageMetricsQueryRunner(
+            team=self.team,
+            query=UsageMetricsQuery(kind="UsageMetricsQuery", person_id=str(self.person.uuid)),
+        )
+
+        response2 = runner2.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+
+        assert isinstance(response2, CachedUsageMetricsQueryResponse)
+        self.assertFalse(response2.is_cached)
+        self.assertEqual(len(response2.results), 1)
+        self.assertEqual(response2.results[0].name, "Test metric")
+        self.assertEqual(response2.results[0].value, 1.0)
+
+    @freeze_time("2025-10-09T12:11:00")
+    def test_cache_invalidates_when_metric_deleted(self):
+        _create_event(
+            event="metric_event",
+            team=self.team,
+            person_id=str(self.person.uuid),
+            distinct_id=self.person_distinct_id,
+        )
+        flush_persons_and_events()
+        metric = GroupUsageMetric.objects.create(
+            team=self.team,
+            group_type_index=0,
+            name="Test metric",
+            format=GroupUsageMetric.Format.NUMERIC,
+            interval=7,
+            display=GroupUsageMetric.Display.NUMBER,
+            filters={"events": [{"id": "metric_event", "type": "events", "order": 0}]},
+        )
+        runner = UsageMetricsQueryRunner(
+            team=self.team,
+            query=UsageMetricsQuery(kind="UsageMetricsQuery", person_id=str(self.person.uuid)),
+        )
+
+        response1 = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+
+        assert isinstance(response1, CachedUsageMetricsQueryResponse)
+        self.assertFalse(response1.is_cached)
+        self.assertEqual(len(response1.results), 1)
+        self.assertEqual(response1.results[0].name, "Test metric")
+
+        metric.delete()
+        runner2 = UsageMetricsQueryRunner(
+            team=self.team,
+            query=UsageMetricsQuery(kind="UsageMetricsQuery", person_id=str(self.person.uuid)),
+        )
+
+        response2 = runner2.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+
+        assert isinstance(response2, CachedUsageMetricsQueryResponse)
+        self.assertFalse(response2.is_cached)
+        self.assertEqual(len(response2.results), 0)

@@ -10,6 +10,7 @@ from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from django.utils.timezone import now
 
+import structlog
 from dateutil.parser import isoparse
 
 from posthog.clickhouse.client import sync_execute
@@ -26,7 +27,15 @@ from posthog.models.person.sql import (
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
+from posthog.personhog_client.metrics import (
+    PERSONHOG_ROUTING_ERRORS_TOTAL,
+    PERSONHOG_ROUTING_TOTAL,
+    PERSONHOG_TEAM_MISMATCH_TOTAL,
+    get_client_name,
+)
 from posthog.settings import TEST
+
+logger = structlog.get_logger(__name__)
 
 if TEST:
     # :KLUDGE: Hooks are kept around for tests. All other code goes through plugin-server or the other methods explicitly
@@ -34,7 +43,7 @@ if TEST:
     @mutable_receiver(post_save, sender=Person)
     def person_created(sender, instance: Person, created, **kwargs):
         create_person(
-            team_id=instance.team.pk,
+            team_id=instance.team_id,
             properties=instance.properties,
             uuid=str(instance.uuid),
             is_identified=instance.is_identified,
@@ -45,7 +54,7 @@ if TEST:
     @mutable_receiver(post_save, sender=PersonDistinctId)
     def person_distinct_id_created(sender, instance: PersonDistinctId, created, **kwargs):
         create_person_distinct_id(
-            instance.team.pk,
+            instance.team_id,
             instance.distinct_id,
             str(instance.person.uuid),
             version=instance.version or 0,
@@ -55,7 +64,7 @@ if TEST:
     @receiver(post_delete, sender=Person)
     def person_deleted(sender, instance: Person, **kwargs):
         _delete_person(
-            instance.team.id,
+            instance.team_id,
             instance.uuid,
             int(instance.version or 0),
             instance.created_at,
@@ -65,7 +74,7 @@ if TEST:
     @receiver(post_delete, sender=PersonDistinctId)
     def person_distinct_id_deleted(sender, instance: PersonDistinctId, **kwargs):
         _delete_ch_distinct_id(
-            instance.team.pk,
+            instance.team_id,
             instance.person.uuid,
             instance.distinct_id,
             instance.version or 0,
@@ -103,10 +112,13 @@ if TEST:
                 distinct_id_inserts.append(f"('{distinct_id}', '{person.uuid}', {person.team_id}, 0, 0, now(), 0, 0)")
                 person_mapping[distinct_id] = person
 
-            created_at = now().strftime("%Y-%m-%d %H:%M:%S.%f")
-            timestamp = now().strftime("%Y-%m-%d %H:%M:%S")
+            dt = now()
+            created_at = dt.strftime("%Y-%m-%d %H:%M:%S.%f")
+            timestamp = dt.strftime("%Y-%m-%d %H:%M:%S")
+            # Round to the hour for last_seen_at
+            last_seen_at = dt.replace(minute=0, second=0, microsecond=0).strftime("%Y-%m-%d %H:%M:%S.%f")
             person_inserts.append(
-                f"('{person.uuid}', '{created_at}', {person.team_id}, '{json.dumps(person.properties)}', {'1' if person.is_identified else '0'}, '{timestamp}', 0, 0, 0)"
+                f"('{person.uuid}', '{created_at}', {person.team_id}, '{json.dumps(person.properties)}', {'1' if person.is_identified else '0'}, '{timestamp}', 0, 0, 0, '{last_seen_at}')"
             )
 
         PersonDistinctId.objects.bulk_create(distinct_ids)
@@ -130,6 +142,7 @@ def create_person(
     is_deleted: bool = False,
     timestamp: Optional[Union[datetime.datetime, str]] = None,
     created_at: Optional[datetime.datetime] = None,
+    last_seen_at: Optional[datetime.datetime] = None,
 ) -> str:
     if properties is None:
         properties = {}
@@ -151,6 +164,13 @@ def create_person(
     else:
         created_at = created_at.astimezone(ZoneInfo("UTC"))
 
+    # Default last_seen_at to timestamp rounded down to the hour
+    if last_seen_at is None:
+        last_seen_at = timestamp.replace(minute=0, second=0, microsecond=0)
+    else:
+        last_seen_at = last_seen_at.astimezone(ZoneInfo("UTC"))
+    last_seen_at_formatted = last_seen_at.strftime("%Y-%m-%d %H:%M:%S.%f")
+
     data = {
         "id": str(uuid),
         "team_id": team_id,
@@ -160,6 +180,7 @@ def create_person(
         "created_at": created_at.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "version": version,
         "_timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+        "last_seen_at": last_seen_at_formatted,
     }
     p = ClickhouseProducer()
     p.produce(topic=KAFKA_PERSON, sql=INSERT_PERSON_SQL, data=data, sync=sync)
@@ -189,15 +210,148 @@ def create_person_distinct_id(
     )
 
 
-def get_persons_by_distinct_ids(team_id: int, distinct_ids: list[str]) -> QuerySet:
-    return Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(
-        team_id=team_id,
-        persondistinctid__team_id=team_id,
-        persondistinctid__distinct_id__in=distinct_ids,
+def _fetch_persons_by_distinct_ids_via_personhog(team_id: int, distinct_ids: list[str]) -> list[Person]:
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.converters import proto_person_to_model
+    from posthog.personhog_client.proto import GetDistinctIdsForPersonsRequest, GetPersonsByDistinctIdsInTeamRequest
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    resp = client.get_persons_by_distinct_ids_in_team(
+        GetPersonsByDistinctIdsInTeamRequest(team_id=team_id, distinct_ids=distinct_ids)
     )
 
+    valid_results = [r for r in resp.results if r.person and r.person.id and r.person.team_id == team_id]
 
-def get_persons_by_uuids(team: Team, uuids: list[str]) -> QuerySet:
+    mismatched = len(resp.results) - len(valid_results)
+    if mismatched:
+        PERSONHOG_TEAM_MISMATCH_TOTAL.labels(
+            operation="get_persons_by_distinct_ids", client_name=get_client_name()
+        ).inc(mismatched)
+        logger.warning(
+            "personhog_team_mismatch", operation="get_persons_by_distinct_ids", team_id=team_id, dropped=mismatched
+        )
+
+    person_ids = [r.person.id for r in valid_results]
+    if not person_ids:
+        return []
+
+    distinct_ids_resp = client.get_distinct_ids_for_persons(
+        GetDistinctIdsForPersonsRequest(team_id=team_id, person_ids=person_ids)
+    )
+
+    distinct_ids_by_person: dict[int, list[str]] = {}
+    for pd in distinct_ids_resp.person_distinct_ids:
+        distinct_ids_by_person[pd.person_id] = [d.distinct_id for d in pd.distinct_ids]
+
+    return [
+        proto_person_to_model(r.person, distinct_ids=distinct_ids_by_person.get(r.person.id, [])) for r in valid_results
+    ]
+
+
+def get_persons_by_distinct_ids(team_id: int, distinct_ids: list[str]) -> list[Person]:
+    from posthog.personhog_client.gate import use_personhog
+
+    if use_personhog():
+        try:
+            result = _fetch_persons_by_distinct_ids_via_personhog(team_id, distinct_ids)
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="get_persons_by_distinct_ids", source="personhog", client_name=get_client_name()
+            ).inc()
+            return result
+        except Exception:
+            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                operation="get_persons_by_distinct_ids",
+                source="personhog",
+                error_type="grpc_error",
+                client_name=get_client_name(),
+            ).inc()
+            logger.warning("personhog_get_persons_by_distinct_ids_failure", team_id=team_id, exc_info=True)
+
+    from django.db.models.query import Prefetch
+
+    persons = (
+        Person.objects.db_manager(READ_DB_FOR_PERSONS)
+        .filter(
+            team_id=team_id,
+            persondistinctid__team_id=team_id,
+            persondistinctid__distinct_id__in=distinct_ids,
+        )
+        .prefetch_related(
+            Prefetch(
+                "persondistinctid_set",
+                queryset=PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+                .filter(team_id=team_id)
+                .order_by("id"),
+                to_attr="distinct_ids_cache",
+            )
+        )
+    )
+    PERSONHOG_ROUTING_TOTAL.labels(
+        operation="get_persons_by_distinct_ids", source="django_orm", client_name=get_client_name()
+    ).inc()
+    return list(persons)
+
+
+def _fetch_persons_by_uuids_via_personhog(team_id: int, uuids: list[str]) -> list[Person]:
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.converters import proto_person_to_model
+    from posthog.personhog_client.proto import GetDistinctIdsForPersonsRequest, GetPersonsByUuidsRequest
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    resp = client.get_persons_by_uuids(GetPersonsByUuidsRequest(team_id=team_id, uuids=uuids))
+
+    valid_persons = [p for p in resp.persons if p.id and p.team_id == team_id]
+
+    mismatched = len(resp.persons) - len(valid_persons)
+    if mismatched:
+        PERSONHOG_TEAM_MISMATCH_TOTAL.labels(operation="get_persons_by_uuids", client_name=get_client_name()).inc(
+            mismatched
+        )
+        logger.warning("personhog_team_mismatch", operation="get_persons_by_uuids", team_id=team_id, dropped=mismatched)
+
+    person_ids = [p.id for p in valid_persons]
+    if not person_ids:
+        return []
+
+    distinct_ids_resp = client.get_distinct_ids_for_persons(
+        GetDistinctIdsForPersonsRequest(team_id=team_id, person_ids=person_ids)
+    )
+
+    distinct_ids_by_person: dict[int, list[str]] = {}
+    for pd in distinct_ids_resp.person_distinct_ids:
+        distinct_ids_by_person[pd.person_id] = [d.distinct_id for d in pd.distinct_ids]
+
+    return [proto_person_to_model(p, distinct_ids=distinct_ids_by_person.get(p.id, [])) for p in valid_persons]
+
+
+def get_persons_by_uuids(team: Team, uuids: list[str]) -> QuerySet | list[Person]:
+    from posthog.personhog_client.gate import use_personhog
+
+    if use_personhog():
+        try:
+            result = _fetch_persons_by_uuids_via_personhog(team.pk, uuids)
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="get_persons_by_uuids", source="personhog", client_name=get_client_name()
+            ).inc()
+            return result
+        except Exception:
+            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                operation="get_persons_by_uuids",
+                source="personhog",
+                error_type="grpc_error",
+                client_name=get_client_name(),
+            ).inc()
+            logger.warning("personhog_get_persons_by_uuids_failure", team_id=team.pk, exc_info=True)
+
+    PERSONHOG_ROUTING_TOTAL.labels(
+        operation="get_persons_by_uuids", source="django_orm", client_name=get_client_name()
+    ).inc()
     return Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team_id=team.pk, uuid__in=uuids)
 
 

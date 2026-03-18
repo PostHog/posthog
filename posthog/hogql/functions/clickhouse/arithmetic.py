@@ -2,7 +2,7 @@ from posthog.hogql.ast import DateTimeType, DecimalType, FloatType, IntegerType,
 
 from ..core import HogQLFunctionMeta
 
-# arithmetic
+# Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 ARITHMETIC_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "plus": HogQLFunctionMeta(
         "plus",

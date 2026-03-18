@@ -78,6 +78,11 @@ class AggregatingMergeTree(MergeTreeEngine):
     REPLICATED_ENGINE = "ReplicatedAggregatingMergeTree('{zk_path}', '{replica_key}')"
 
 
+class SummingMergeTree(MergeTreeEngine):
+    ENGINE = "SummingMergeTree({columns})"
+    REPLICATED_ENGINE = "ReplicatedSummingMergeTree('{zk_path}', '{replica_key}', {columns})"
+
+
 class Distributed:
     def __init__(self, data_table: str, sharding_key: str | None = None, cluster: str | None = None):
         self.data_table = data_table

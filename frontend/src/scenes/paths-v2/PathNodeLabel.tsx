@@ -4,13 +4,14 @@ import posthog from 'posthog-js'
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, Tooltip } from '@posthog/lemon-ui'
 
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, InsightLogicProps } from '~/types'
 
-import { PathNodeData, pageUrl } from './pathUtils'
 import { pathsDataLogic } from './pathsDataLogic'
+import { PathNodeData, pageUrl } from './pathUtils'
 import { NODE_LABEL_HEIGHT, NODE_LABEL_LEFT_OFFSET, NODE_LABEL_TOP_OFFSET, NODE_LABEL_WIDTH } from './renderPaths'
 
 export type PathNodeLabelProps = {
@@ -46,6 +47,7 @@ export function PathNodeLabel({ insightProps, node }: PathNodeLabelProps): JSX.E
     return (
         <div
             className="absolute"
+            data-attr="path-node-card-button"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: NODE_LABEL_WIDTH,
@@ -56,7 +58,10 @@ export function PathNodeLabel({ insightProps, node }: PathNodeLabelProps): JSX.E
         >
             <div className="flex items-center">
                 <Tooltip title={pageUrl(node)} placement="right">
-                    <div className="font-semibold overflow-hidden max-h-16 text-xs break-words">
+                    <div
+                        className="font-semibold overflow-hidden max-h-16 text-xs break-words"
+                        data-attr="path-node-name"
+                    >
                         {pageUrl(node, isPath)}
                     </div>
                 </Tooltip>
@@ -68,7 +73,15 @@ export function PathNodeLabel({ insightProps, node }: PathNodeLabelProps): JSX.E
                                 ? [
                                       { label: 'Set as path end', onClick: setAsPathEnd },
                                       { label: 'Exclude path item', onClick: excludePathItem },
-                                      { label: 'View funnel', onClick: viewFunnel },
+                                      {
+                                          label: (
+                                              <div className="flex justify-between items-center w-full">
+                                                  <span>View funnel</span>
+                                                  <IconOpenInNew />
+                                              </div>
+                                          ),
+                                          onClick: viewFunnel,
+                                      },
                                   ]
                                 : []),
                             { label: 'Copy path item name', onClick: copyName },
@@ -80,7 +93,9 @@ export function PathNodeLabel({ insightProps, node }: PathNodeLabelProps): JSX.E
             </div>
 
             <LemonButton size="xsmall" onClick={openModal} noPadding>
-                <span className="font-normal">{node.value}</span>
+                <span className="font-normal" data-attr="path-node-count">
+                    {node.value}
+                </span>
             </LemonButton>
         </div>
     )

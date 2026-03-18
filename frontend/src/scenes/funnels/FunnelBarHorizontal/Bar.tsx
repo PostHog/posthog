@@ -9,8 +9,8 @@ import { Noun } from '~/models/groupsModel'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { FunnelStepWithConversionMetrics } from '~/types'
 
-import { FunnelTooltip } from '../FunnelTooltip'
 import { funnelDataLogic } from '../funnelDataLogic'
+import { FunnelTooltip } from '../FunnelTooltip'
 import { getSeriesPositionName } from '../funnelUtils'
 
 interface BarProps {
@@ -95,7 +95,7 @@ export function Bar({
                         aria-valuemax={100}
                         aria-valuenow={conversionPercentage * 100}
                     >
-                        {percentage(conversionPercentage, 1, true)}
+                        {percentage(conversionPercentage, 2, true)}
                     </div>
                 )}
             </div>

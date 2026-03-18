@@ -8,9 +8,10 @@ import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { SessionTimeline, SessionTimelineHandle } from 'lib/components/SessionTimeline/SessionTimeline'
 import { ItemCategory, ItemCollector } from 'lib/components/SessionTimeline/timeline'
-import { customItemLoader, customItemRenderer } from 'lib/components/SessionTimeline/timeline/items/custom'
-import { exceptionLoader, exceptionRenderer } from 'lib/components/SessionTimeline/timeline/items/exceptions'
-import { pageLoader, pageRenderer } from 'lib/components/SessionTimeline/timeline/items/page'
+import { CustomItemLoader, customItemRenderer } from 'lib/components/SessionTimeline/timeline/items/custom'
+import { ExceptionItemLoader, exceptionRenderer } from 'lib/components/SessionTimeline/timeline/items/exceptions'
+import { ConsoleLogItemLoader, consoleLogRenderer } from 'lib/components/SessionTimeline/timeline/items/logs'
+import { PageItemLoader, pageRenderer } from 'lib/components/SessionTimeline/timeline/items/page'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import {
     TabsPrimitive,
@@ -19,6 +20,7 @@ import {
     TabsPrimitiveList,
     TabsPrimitiveTrigger,
 } from 'lib/ui/TabsPrimitive/TabsPrimitive'
+import { cn } from 'lib/utils/css-classes'
 
 import { exceptionCardLogic } from '../../exceptionCardLogic'
 import { SubHeader } from '../SubHeader'
@@ -29,13 +31,13 @@ export interface SessionTabProps extends TabsPrimitiveContentProps {
     timestamp?: string
 }
 
-export function SessionTab({ timestamp, ...props }: SessionTabProps): JSX.Element {
+export function SessionTab({ timestamp, className, ...props }: SessionTabProps): JSX.Element {
     const { sessionId } = useValues(errorPropertiesLogic)
     const { loading, currentSessionTab } = useValues(exceptionCardLogic)
     const { setCurrentSessionTab } = useActions(exceptionCardLogic)
 
     return (
-        <TabsPrimitiveContent {...props}>
+        <TabsPrimitiveContent {...props} className={cn('flex flex-col', className)}>
             {match([loading, sessionId])
                 .with([true, P.any], () => (
                     <div className="flex justify-center items-center h-[300px]">
@@ -45,8 +47,12 @@ export function SessionTab({ timestamp, ...props }: SessionTabProps): JSX.Elemen
                 .with([false, P.nullish], () => <NoSessionIdFound />)
                 .with([false, P.string], ([_, sessionId]) => (
                     <BindLogic logic={sessionTabLogic} props={{ timestamp, sessionId }}>
-                        <TabsPrimitive value={currentSessionTab} onValueChange={setCurrentSessionTab}>
-                            <SubHeader className="p-0">
+                        <TabsPrimitive
+                            value={currentSessionTab}
+                            onValueChange={setCurrentSessionTab}
+                            className="flex flex-col flex-1 min-h-0"
+                        >
+                            <SubHeader className="p-0 shrink-0">
                                 <TabsPrimitiveList className="flex justify-start gap-2 w-full h-full items-center">
                                     <TabsPrimitiveTrigger className="px-2 h-full" value="timeline">
                                         Timeline
@@ -97,19 +103,24 @@ export function SessionTimelineTab(): JSX.Element {
         collector.addCategory(
             ItemCategory.ERROR_TRACKING,
             exceptionRenderer,
-            exceptionLoader(sessionId, timestampDayJs)
+            new ExceptionItemLoader(sessionId, timestampDayJs)
         )
-        collector.addCategory(ItemCategory.PAGE_VIEWS, pageRenderer, pageLoader(sessionId, timestampDayJs))
+        collector.addCategory(ItemCategory.PAGE_VIEWS, pageRenderer, new PageItemLoader(sessionId, timestampDayJs))
         collector.addCategory(
             ItemCategory.CUSTOM_EVENTS,
             customItemRenderer,
-            customItemLoader(sessionId, timestampDayJs)
+            new CustomItemLoader(sessionId, timestampDayJs)
+        )
+        collector.addCategory(
+            ItemCategory.CONSOLE_LOGS,
+            consoleLogRenderer,
+            new ConsoleLogItemLoader(sessionId, timestampDayJs)
         )
         return collector
     }, [sessionId, timestamp])
 
     return (
-        <TabsPrimitiveContent value="timeline">
+        <TabsPrimitiveContent value="timeline" className="flex-1 min-h-0 overflow-y-auto">
             {collector && (
                 <SessionTimeline
                     ref={sessionTimelineRef}

@@ -13,9 +13,35 @@ pub struct DatabasePools {
     pub non_persons_writer: Arc<PgPool>,
     pub persons_reader: Arc<PgPool>,
     pub persons_writer: Arc<PgPool>,
+    pub behavioral_cohorts_reader: Option<Arc<PgPool>>,
+    pub test_before_acquire: bool,
 }
 
 impl DatabasePools {
+    /// Default value for max_connections when config value is invalid (matches PoolConfig::default)
+    const DEFAULT_MAX_CONNECTIONS: u32 = 10;
+
+    /// Helper to build a pool configuration, overriding specific fields from the base config.
+    fn build_pool_config(
+        base: &PoolConfig,
+        min_connections: u32,
+        max_connections: Option<u32>,
+        statement_timeout_ms: u64,
+        pool_name: &str,
+    ) -> PoolConfig {
+        PoolConfig {
+            min_connections,
+            max_connections: max_connections.unwrap_or(base.max_connections),
+            statement_timeout_ms: if statement_timeout_ms > 0 {
+                Some(statement_timeout_ms)
+            } else {
+                None
+            },
+            pool_name: Some(pool_name.to_string()),
+            ..base.clone()
+        }
+    }
+
     pub async fn from_config(config: &Config) -> Result<Self, FlagError> {
         // Validate acquire_timeout_secs - must be at least 1 second
         if config.acquire_timeout_secs == 0 {
@@ -24,25 +50,135 @@ impl DatabasePools {
             ));
         }
 
-        let pool_config = PoolConfig {
-            max_connections: config.max_pg_connections,
+        // Validate and fix max_connections if it's 0
+        let max_pg_connections = if config.max_pg_connections == 0 {
+            tracing::warn!(
+                configured = config.max_pg_connections,
+                default = Self::DEFAULT_MAX_CONNECTIONS,
+                "MAX_PG_CONNECTIONS is 0, using default"
+            );
+            Self::DEFAULT_MAX_CONNECTIONS
+        } else {
+            config.max_pg_connections
+        };
+
+        // Clamp min_connections to max_connections for each pool
+        // This prevents misconfiguration while allowing the service to start
+        let min_non_persons_reader_connections = config
+            .min_non_persons_reader_connections
+            .min(max_pg_connections);
+        let min_non_persons_writer_connections = config
+            .min_non_persons_writer_connections
+            .min(max_pg_connections);
+        let min_persons_reader_connections = config
+            .min_persons_reader_connections
+            .min(max_pg_connections);
+        let min_persons_writer_connections = config
+            .min_persons_writer_connections
+            .min(max_pg_connections);
+
+        // Log warnings if we had to clamp any values
+        if config.min_non_persons_reader_connections > max_pg_connections {
+            tracing::warn!(
+                configured = config.min_non_persons_reader_connections,
+                clamped_to = min_non_persons_reader_connections,
+                max_connections = max_pg_connections,
+                "MIN_NON_PERSONS_READER_CONNECTIONS exceeds MAX_PG_CONNECTIONS, clamping to max"
+            );
+        }
+        if config.min_non_persons_writer_connections > max_pg_connections {
+            tracing::warn!(
+                configured = config.min_non_persons_writer_connections,
+                clamped_to = min_non_persons_writer_connections,
+                max_connections = max_pg_connections,
+                "MIN_NON_PERSONS_WRITER_CONNECTIONS exceeds MAX_PG_CONNECTIONS, clamping to max"
+            );
+        }
+        if config.min_persons_reader_connections > max_pg_connections {
+            tracing::warn!(
+                configured = config.min_persons_reader_connections,
+                clamped_to = min_persons_reader_connections,
+                max_connections = max_pg_connections,
+                "MIN_PERSONS_READER_CONNECTIONS exceeds MAX_PG_CONNECTIONS, clamping to max"
+            );
+        }
+        if config.min_persons_writer_connections > max_pg_connections {
+            tracing::warn!(
+                configured = config.min_persons_writer_connections,
+                clamped_to = min_persons_writer_connections,
+                max_connections = max_pg_connections,
+                "MIN_PERSONS_WRITER_CONNECTIONS exceeds MAX_PG_CONNECTIONS, clamping to max"
+            );
+        }
+
+        // Create base pool config (used for both readers and writers)
+        let base_pool_config = PoolConfig {
+            min_connections: 0, // Will be overridden per pool
+            max_connections: max_pg_connections,
             acquire_timeout: Duration::from_secs(config.acquire_timeout_secs),
             idle_timeout: if config.idle_timeout_secs > 0 {
                 Some(Duration::from_secs(config.idle_timeout_secs))
             } else {
                 None
             },
-            max_lifetime: if config.max_lifetime_secs > 0 {
-                Some(Duration::from_secs(config.max_lifetime_secs))
-            } else {
-                None
-            },
             test_before_acquire: *config.test_before_acquire,
+            statement_timeout_ms: None, // Set per pool type below
+            pool_name: None,            // Set per pool type below
         };
 
+        // Non-persons reader pool config (may allow longer queries for analytics)
+        let non_persons_reader_pool_config = Self::build_pool_config(
+            &base_pool_config,
+            min_non_persons_reader_connections,
+            None,
+            config.non_persons_reader_statement_timeout_ms,
+            "non_persons_reader",
+        );
+        info!(
+            pool = "non_persons_reader",
+            statement_timeout_ms = ?config.non_persons_reader_statement_timeout_ms,
+            "Creating non-persons reader pool"
+        );
+
+        // Persons reader pool config (may allow longer queries for analytics)
+        let persons_reader_pool_config = Self::build_pool_config(
+            &base_pool_config,
+            min_persons_reader_connections,
+            None,
+            config.persons_reader_statement_timeout_ms,
+            "persons_reader",
+        );
+        info!(
+            pool = "persons_reader",
+            statement_timeout_ms = ?config.persons_reader_statement_timeout_ms,
+            "Creating persons reader pool config"
+        );
+
+        // Non-persons writer pool config (should be fast transactional operations)
+        let non_persons_writer_pool_config = Self::build_pool_config(
+            &base_pool_config,
+            min_non_persons_writer_connections,
+            None,
+            config.writer_statement_timeout_ms,
+            "non_persons_writer",
+        );
+
+        // Persons writer pool config (should be fast transactional operations)
+        let persons_writer_pool_config = Self::build_pool_config(
+            &base_pool_config,
+            min_persons_writer_connections,
+            None,
+            config.writer_statement_timeout_ms,
+            "persons_writer",
+        );
+        info!(
+            pool = "writer",
+            statement_timeout_ms = ?config.writer_statement_timeout_ms,
+            "Creating writer pool"
+        );
+
         let non_persons_reader = Arc::new(
-            get_pool_with_config(&config.read_database_url, pool_config.clone())
-                .await
+            get_pool_with_config(&config.read_database_url, non_persons_reader_pool_config)
                 .map_err(|e| {
                     FlagError::DatabaseError(
                         e,
@@ -51,40 +187,50 @@ impl DatabasePools {
                 })?,
         );
 
-        let non_persons_writer = Arc::new(
-            get_pool_with_config(&config.write_database_url, pool_config.clone())
-                .await
-                .map_err(|e| {
-                    FlagError::DatabaseError(
-                        e,
-                        Some("Failed to create non-persons writer pool".to_string()),
-                    )
-                })?,
-        );
+        // When SKIP_WRITES is enabled, we alias the writer pool to the reader pool.
+        // This ensures no writes can happen and allows starting without a write DB URL.
+        let non_persons_writer = if *config.skip_writes {
+            info!("SKIP_WRITES enabled: aliasing non-persons writer to reader pool");
+            non_persons_reader.clone()
+        } else {
+            Arc::new(
+                get_pool_with_config(&config.write_database_url, non_persons_writer_pool_config)
+                    .map_err(|e| {
+                        FlagError::DatabaseError(
+                            e,
+                            Some("Failed to create non-persons writer pool".to_string()),
+                        )
+                    })?,
+            )
+        };
 
         // Create persons pools if configured, otherwise reuse the non-persons pools
         let persons_reader = if config.is_persons_db_routing_enabled() {
             Arc::new(
-                get_pool_with_config(&config.get_persons_read_database_url(), pool_config.clone())
-                    .await
-                    .map_err(|e| {
-                        FlagError::DatabaseError(
-                            e,
-                            Some("Failed to create persons reader pool".to_string()),
-                        )
-                    })?,
+                get_pool_with_config(
+                    &config.get_persons_read_database_url(),
+                    persons_reader_pool_config,
+                )
+                .map_err(|e| {
+                    FlagError::DatabaseError(
+                        e,
+                        Some("Failed to create persons reader pool".to_string()),
+                    )
+                })?,
             )
         } else {
             non_persons_reader.clone()
         };
 
-        let persons_writer = if config.is_persons_db_routing_enabled() {
+        let persons_writer = if *config.skip_writes {
+            info!("SKIP_WRITES enabled: aliasing persons writer to reader pool");
+            persons_reader.clone()
+        } else if config.is_persons_db_routing_enabled() {
             Arc::new(
                 get_pool_with_config(
                     &config.get_persons_write_database_url(),
-                    pool_config.clone(),
+                    persons_writer_pool_config,
                 )
-                .await
                 .map_err(|e| {
                     FlagError::DatabaseError(
                         e,
@@ -96,13 +242,20 @@ impl DatabasePools {
             non_persons_writer.clone()
         };
 
-        // Log pool configuration at startup
+        // Log pool configuration at startup (using validated/clamped values)
         info!(
-            max_connections = config.max_pg_connections,
+            max_connections = max_pg_connections,
+            min_non_persons_reader_connections = min_non_persons_reader_connections,
+            min_non_persons_writer_connections = min_non_persons_writer_connections,
+            min_persons_reader_connections = min_persons_reader_connections,
+            min_persons_writer_connections = min_persons_writer_connections,
             acquire_timeout_secs = config.acquire_timeout_secs,
             idle_timeout_secs = config.idle_timeout_secs,
-            max_lifetime_secs = config.max_lifetime_secs,
             test_before_acquire = config.test_before_acquire.0,
+            non_persons_reader_statement_timeout_ms =
+                config.non_persons_reader_statement_timeout_ms,
+            persons_reader_statement_timeout_ms = config.persons_reader_statement_timeout_ms,
+            writer_statement_timeout_ms = config.writer_statement_timeout_ms,
             persons_routing_enabled = config.is_persons_db_routing_enabled(),
             "Database pool configuration"
         );
@@ -115,18 +268,61 @@ impl DatabasePools {
             info!("Persons pools are aliased to non-persons pools (persons DB routing disabled)");
         }
 
+        // Optional behavioral cohorts database pool for realtime cohort membership lookups.
+        // Small pool (max 5 connections) with a tight 1s statement timeout for simple key lookups.
+        let behavioral_cohorts_reader = if config.is_behavioral_cohorts_db_configured() {
+            let pool_config =
+                Self::build_pool_config(&base_pool_config, 1, Some(5), 1000, "behavioral_cohorts");
+            info!("Creating behavioral cohorts reader pool");
+            Some(Arc::new(
+                get_pool_with_config(&config.behavioral_cohorts_read_database_url, pool_config)
+                    .map_err(|e| {
+                        FlagError::DatabaseError(
+                            e,
+                            Some("Failed to create behavioral cohorts reader pool".to_string()),
+                        )
+                    })?,
+            ))
+        } else {
+            info!("Behavioral cohorts DB not configured, realtime cohort evaluation disabled");
+            None
+        };
+
         Ok(DatabasePools {
             non_persons_reader,
             non_persons_writer,
             persons_reader,
             persons_writer,
+            behavioral_cohorts_reader,
+            test_before_acquire: *config.test_before_acquire,
         })
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::config::Config;
+    use std::sync::Arc;
+
+    #[test]
+    fn test_build_pool_config_sets_pool_name_and_timeout() {
+        let base = PoolConfig::default();
+        let config = DatabasePools::build_pool_config(&base, 3, None, 5000, "persons_reader");
+
+        assert_eq!(config.min_connections, 3);
+        assert_eq!(config.statement_timeout_ms, Some(5000));
+        assert_eq!(config.pool_name, Some("persons_reader".to_string()));
+    }
+
+    #[test]
+    fn test_build_pool_config_zero_timeout_is_none() {
+        let base = PoolConfig::default();
+        let config = DatabasePools::build_pool_config(&base, 0, None, 0, "non_persons_writer");
+
+        assert_eq!(config.statement_timeout_ms, None);
+        assert_eq!(config.pool_name, Some("non_persons_writer".to_string()));
+    }
 
     #[tokio::test]
     async fn test_database_routing_disabled() {
@@ -160,5 +356,23 @@ mod tests {
             config.get_persons_write_database_url(),
             "postgres://posthog:posthog@localhost:5432/posthog_persons"
         );
+    }
+
+    #[tokio::test]
+    async fn test_skip_writes_aliases_writer_to_reader() {
+        use crate::config::FlexBool;
+        let mut config = Config::default_test_config();
+        config.skip_writes = FlexBool(true);
+        // Set write URLs to something invalid to prove they aren't used
+        config.write_database_url = "invalid://url".to_string();
+        config.persons_write_database_url = "invalid://url".to_string();
+
+        let pools = DatabasePools::from_config(&config).await.unwrap();
+
+        assert!(Arc::ptr_eq(
+            &pools.non_persons_reader,
+            &pools.non_persons_writer
+        ));
+        assert!(Arc::ptr_eq(&pools.persons_reader, &pools.persons_writer));
     }
 }

@@ -52,9 +52,9 @@ impl RawJSFrame {
             Err(ResolveError::ResolutionError(FrameError::MissingChunkIdData(chunk_id))) => {
                 Ok(self.handle_resolution_error(JsResolveErr::NoSourcemapUploaded(chunk_id)))
             }
-            Err(ResolveError::ResolutionError(FrameError::Hermes(e))) => {
-                // TODO - should be unreachable, specialize ResolveError to encode that
-                Err(UnhandledError::from(FrameError::from(e)))
+            Err(ResolveError::ResolutionError(e)) => {
+                // TODO - other kinds of errors here should be unreachable, we need to specialize ResolveError to encode that
+                unreachable!("Should not have received error {:?}", e)
             }
             Err(ResolveError::UnhandledError(e)) => Err(e),
         }
@@ -181,7 +181,19 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
         metrics::counter!(FRAME_RESOLVED, "lang" => "javascript").increment(1);
 
         let resolved_name = match token.scope() {
-            ScopeLookupResult::NamedScope(name) => Some(sanitize_string(name.to_string())),
+            // The `$async$` prefix is a Dart/Flutter compiler artifact that appears in
+            // JavaScript source maps when Flutter code is compiled to JavaScript (web).
+            // This branch normalizes such Flutter-to-JavaScript async function names.
+            // See internal context: https://posthog.slack.com/archives/C07AA937K9A/p1768415443965209
+            ScopeLookupResult::NamedScope(name) => {
+                let scope_name = name.to_string();
+                let resolved = if name.starts_with("$async$") {
+                    token.name().map_or(scope_name.clone(), |n| n.to_owned())
+                } else {
+                    scope_name
+                };
+                Some(sanitize_string(resolved))
+            }
             ScopeLookupResult::AnonymousScope => Some("<anonymous>".to_string()),
             ScopeLookupResult::Unknown => None,
         };
@@ -199,7 +211,7 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
         let suspicious = source.as_ref().is_some_and(|s| s.contains("posthog-js@"));
 
         let mut res = Self {
-            raw_id: FrameId::placeholder(), // We use placeholders here, as they're overriden at the RawFrame level
+            frame_id: FrameId::placeholder(), // We use placeholders here, as they're overriden at the RawFrame level
             mangled_name: raw_frame.fn_name.clone(),
             line: Some(token.line()),
             column: Some(token.column()),
@@ -210,6 +222,7 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
             resolved: true,
             resolve_failure: None,
             junk_drawer: None,
+            code_variables: None,
             context: get_sourcelocation_context(&token),
             release: None,
             synthetic: raw_frame.meta.synthetic,
@@ -244,7 +257,7 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
         };
 
         let mut res = Self {
-            raw_id: FrameId::placeholder(),
+            frame_id: FrameId::placeholder(),
             mangled_name: raw_frame.fn_name.clone(),
             line: Some(location.line),
             column: Some(location.column),
@@ -258,6 +271,7 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
             // why we thought a frame wasn't minified, they can see the error message
             resolve_failure: Some(err.to_string()),
             junk_drawer: None,
+            code_variables: None,
             context: None,
             release: None,
             synthetic: raw_frame.meta.synthetic,
@@ -287,7 +301,7 @@ impl From<&RawJSFrame> for Frame {
         let in_app = raw_frame.meta.in_app && !is_anon;
 
         let mut res = Self {
-            raw_id: FrameId::placeholder(),
+            frame_id: FrameId::placeholder(),
             mangled_name: raw_frame.fn_name.clone(),
             line: None,
             column: None,
@@ -298,6 +312,7 @@ impl From<&RawJSFrame> for Frame {
             resolved: true, // Without location information, we're assuming this is not minified
             resolve_failure: None,
             junk_drawer: None,
+            code_variables: None,
             context: None,
             release: None,
             synthetic: raw_frame.meta.synthetic,

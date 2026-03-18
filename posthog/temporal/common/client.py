@@ -7,6 +7,7 @@ import temporalio.converter
 import temporalio.contrib.opentelemetry
 from asgiref.sync import async_to_sync
 from temporalio.client import Client, TLSConfig
+from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.runtime import Runtime
 
 from posthog.temporal.common.codec import EncryptionCodec
@@ -21,6 +22,7 @@ async def connect(
     client_key: str | None = None,
     runtime: Runtime | None = None,
     settings: Any | None = django_settings,
+    use_pydantic_converter: bool = False,
 ) -> Client:
     tls: TLSConfig | bool = False
     if server_root_ca_cert and client_cert and client_key:
@@ -30,18 +32,21 @@ async def connect(
             client_private_key=bytes(client_key, "utf-8"),
         )
 
+    data_converter = pydantic_data_converter if use_pydantic_converter else temporalio.converter.default()
+
+    if settings is not None:
+        data_converter = dataclasses.replace(
+            data_converter,
+            payload_codec=EncryptionCodec(settings=settings),
+        )
+
     client = await Client.connect(
         f"{host}:{port}",
         namespace=namespace,
         tls=tls,
         runtime=runtime,
         interceptors=[temporalio.contrib.opentelemetry.TracingInterceptor()],
-        data_converter=dataclasses.replace(
-            temporalio.converter.default(),
-            payload_codec=EncryptionCodec(settings=settings),
-        )
-        if settings is not None
-        else temporalio.converter.default(),
+        data_converter=data_converter,
     )
     return client
 

@@ -125,11 +125,11 @@ Add your scenes to the access control resource mapping:
 ```typescript
 // frontend/src/scenes/sceneTypes.ts
 export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessControlResourceType>> = {
-    // Existing mappings...
+  // Existing mappings...
 
-    // Your new resource scenes
-    [Scene.YourResource]: AccessControlResourceType.YourNewResource,
-    [Scene.YourResourceList]: AccessControlResourceType.YourNewResource,
+  // Your new resource scenes
+  [Scene.YourResource]: AccessControlResourceType.YourNewResource,
+  [Scene.YourResourceList]: AccessControlResourceType.YourNewResource,
 }
 ```
 
@@ -140,11 +140,11 @@ The API will now include `user_access_level` in responses:
 ```typescript
 // frontend/src/types.ts
 export interface YourResourceType {
-    id: string
-    name: string
-    content: string
-    created_at: string
-    user_access_level: AccessLevel
+  id: string
+  name: string
+  content: string
+  created_at: string
+  user_access_level: AccessLevel
 }
 ```
 
@@ -200,30 +200,30 @@ import { getAppContext } from 'lib/utils/getAppContext'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 function YourResourceList() {
-    return (
-        <div>
-            {/* Using AccessControlAction (preferred) */}
-            <AccessControlAction
-                resourceType={AccessControlResourceType.YourResource}
-                minAccessLevel={AccessControlLevel.Editor}
-            >
-                <LemonButton type="primary" onClick={() => router.actions.push('/your-resources/new')}>
-                    New Resource
-                </LemonButton>
-            </AccessControlAction>
+  return (
+    <div>
+      {/* Using AccessControlAction (preferred) */}
+      <AccessControlAction
+        resourceType={AccessControlResourceType.YourResource}
+        minAccessLevel={AccessControlLevel.Editor}
+      >
+        <LemonButton type="primary" onClick={() => router.actions.push('/your-resources/new')}>
+          New Resource
+        </LemonButton>
+      </AccessControlAction>
 
-            {/* Manual permission check if needed */}
-            {(() => {
-                const userLevel = getAppContext()?.resource_access_control?.[AccessControlResourceType.YourResource]
-                const canCreate = userLevel && ['editor', 'manager'].includes(userLevel)
-                return canCreate ? (
-                    <LemonButton type="primary" onClick={() => router.actions.push('/your-resources/new')}>
-                        New Resource
-                    </LemonButton>
-                ) : null
-            })()}
-        </div>
-    )
+      {/* Manual permission check if needed */}
+      {(() => {
+        const userLevel = getAppContext()?.resource_access_control?.[AccessControlResourceType.YourResource]
+        const canCreate = userLevel && ['editor', 'manager'].includes(userLevel)
+        return canCreate ? (
+          <LemonButton type="primary" onClick={() => router.actions.push('/your-resources/new')}>
+            New Resource
+          </LemonButton>
+        ) : null
+      })()}
+    </div>
+  )
 }
 ```
 
@@ -233,26 +233,26 @@ Use object-level `user_access_level` for edit permissions:
 
 ```tsx
 function YourResourceCard({ yourResource }: { yourResource: YourResourceType }) {
-    return (
-        <div>
-            <h3>{yourResource.name}</h3>
+  return (
+    <div>
+      <h3>{yourResource.name}</h3>
 
-            {/* Using AccessControlAction (preferred) */}
-            <AccessControlAction
-                resourceType={AccessControlResourceType.YourResource}
-                minAccessLevel={AccessControlLevel.Editor}
-                userAccessLevel={yourResource.user_access_level}
-            >
-                <LemonButton onClick={() => openEditModal(yourResource)}>Edit</LemonButton>
-            </AccessControlAction>
+      {/* Using AccessControlAction (preferred) */}
+      <AccessControlAction
+        resourceType={AccessControlResourceType.YourResource}
+        minAccessLevel={AccessControlLevel.Editor}
+        userAccessLevel={yourResource.user_access_level}
+      >
+        <LemonButton onClick={() => openEditModal(yourResource)}>Edit</LemonButton>
+      </AccessControlAction>
 
-            {/* Manual permission check if needed */}
-            {(() => {
-                const canEdit = ['editor', 'manager'].includes(yourResource.user_access_level || 'none')
-                return canEdit ? <LemonButton onClick={() => openEditModal(yourResource)}>Edit</LemonButton> : null
-            })()}
-        </div>
-    )
+      {/* Manual permission check if needed */}
+      {(() => {
+        const canEdit = ['editor', 'manager'].includes(yourResource.user_access_level || 'none')
+        return canEdit ? <LemonButton onClick={() => openEditModal(yourResource)}>Edit</LemonButton> : null
+      })()}
+    </div>
+  )
 }
 ```
 
@@ -262,13 +262,13 @@ Typically requires `editor` level access:
 
 ```tsx
 <AccessControlAction
-    resourceType={AccessControlResourceType.YourResource}
-    minAccessLevel={AccessControlLevel.Editor}
-    userAccessLevel={yourResource.user_access_level}
+  resourceType={AccessControlResourceType.YourResource}
+  minAccessLevel={AccessControlLevel.Editor}
+  userAccessLevel={yourResource.user_access_level}
 >
-    <LemonButton status="danger" onClick={() => deleteYourResource(yourResource)}>
-        Delete
-    </LemonButton>
+  <LemonButton status="danger" onClick={() => deleteYourResource(yourResource)}>
+    Delete
+  </LemonButton>
 </AccessControlAction>
 ```
 
@@ -299,25 +299,25 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { ActivityScope } from '~/types'
 
 export const yourResourceLogic = kea<yourResourceLogicType>([
-    // ... other configuration ...
+  // ... other configuration ...
 
-    selectors({
-        // ... other selectors ...
+  selectors({
+    // ... other selectors ...
 
-        [SIDE_PANEL_CONTEXT_KEY]: [
-            (s) => [s.yourResource],
-            (yourResource): SidePanelSceneContext | null => {
-                return yourResource?.id
-                    ? {
-                          activity_scope: ActivityScope.YOUR_RESOURCE,
-                          activity_item_id: `${yourResource.id}`,
-                          access_control_resource: 'your_resource',
-                          access_control_resource_id: `${yourResource.id}`,
-                      }
-                    : null
-            },
-        ],
-    }),
+    [SIDE_PANEL_CONTEXT_KEY]: [
+      (s) => [s.yourResource],
+      (yourResource): SidePanelSceneContext | null => {
+        return yourResource?.id
+          ? {
+              activity_scope: ActivityScope.YOUR_RESOURCE,
+              activity_item_id: `${yourResource.id}`,
+              access_control_resource: 'your_resource',
+              access_control_resource_id: `${yourResource.id}`,
+            }
+          : null
+      },
+    ],
+  }),
 ])
 ```
 

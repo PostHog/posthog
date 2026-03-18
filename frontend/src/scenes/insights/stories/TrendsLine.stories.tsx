@@ -1,6 +1,7 @@
 import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
 
 import { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@storybook/testing-library'
 
 import { App } from 'scenes/App'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
@@ -43,7 +44,22 @@ export const TrendsLine: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json')
 )
 TrendsLine.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+    ...meta.parameters,
+    testOptions: {
+        ...meta.parameters?.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    },
+}
+
+export const TrendsLineSingleDataPoint: Story = createInsightStory(
+    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLineSingleDataPoint.json')
+)
+TrendsLineSingleDataPoint.parameters = {
+    ...meta.parameters,
+    testOptions: {
+        ...meta.parameters?.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    },
 }
 
 // FLAP!
@@ -59,28 +75,44 @@ export const TrendsLineMulti: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json')
 )
 TrendsLineMulti.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+    ...meta.parameters,
+    testOptions: {
+        ...meta.parameters?.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    },
 }
 export const TrendsLineMultiEdit: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'),
     'edit'
 )
 TrendsLineMultiEdit.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+    ...meta.parameters,
+    testOptions: {
+        ...meta.parameters?.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    },
 }
 
 export const TrendsLineBreakdown: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json')
 )
 TrendsLineBreakdown.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+    ...meta.parameters,
+    testOptions: {
+        ...meta.parameters?.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    },
 }
 export const TrendsLineBreakdownEdit: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json'),
     'edit'
 )
 TrendsLineBreakdownEdit.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+    ...meta.parameters,
+    testOptions: {
+        ...meta.parameters?.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    },
 }
 
 export const TrendsLineBreakdownLabels: Story = createInsightStory(
@@ -89,7 +121,11 @@ export const TrendsLineBreakdownLabels: Story = createInsightStory(
     true
 )
 TrendsLineBreakdownLabels.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+    ...meta.parameters,
+    testOptions: {
+        ...meta.parameters?.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    },
 }
 
 // Trends Bar
@@ -97,27 +133,80 @@ export const TrendsBar: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsBar.json')
 )
 TrendsBar.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+    ...meta.parameters,
+    testOptions: {
+        ...meta.parameters?.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    },
+}
+
+export const TrendsBarSingleDataPoint: Story = createInsightStory(
+    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsBarSingleDataPoint.json')
+)
+TrendsBarSingleDataPoint.parameters = {
+    ...meta.parameters,
+    testOptions: {
+        ...meta.parameters?.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    },
 }
 export const TrendsBarEdit: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsBar.json'),
     'edit'
 )
 TrendsBarEdit.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+    ...meta.parameters,
+    testOptions: {
+        ...meta.parameters?.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    },
 }
 
 export const TrendsBarBreakdown: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsBarBreakdown.json')
 )
 TrendsBarBreakdown.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+    ...meta.parameters,
+    testOptions: {
+        ...meta.parameters?.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    },
 }
 export const TrendsBarBreakdownEdit: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsBarBreakdown.json'),
     'edit'
 )
 TrendsBarBreakdownEdit.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+    ...meta.parameters,
+    testOptions: {
+        ...meta.parameters?.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    },
 }
+export const TrendsLineMultiEditViewports: Story = createInsightStory(
+    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'),
+    'edit'
+)
+const waitForTrendsCanvasToStabilize: NonNullable<Story['play']> = async ({ canvasElement }) => {
+    let lastHeight = 0
+    await waitFor(
+        () => {
+            const chartCanvas = canvasElement.querySelector('[data-attr=trend-line-graph] > canvas')
+            const currentHeight = chartCanvas ? chartCanvas.getBoundingClientRect().height : 0
+            if (currentHeight === 0 || currentHeight !== lastHeight) {
+                lastHeight = currentHeight
+                throw new Error('trend line canvas height not yet stable')
+            }
+        },
+        { timeout: 3000, interval: 200 }
+    )
+}
+TrendsLineMultiEditViewports.parameters = {
+    testOptions: {
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+        viewportWidths: ['medium', 'wide', 'superwide'],
+    },
+}
+TrendsLineMultiEditViewports.play = waitForTrendsCanvasToStabilize
+
 /* eslint-enable @typescript-eslint/no-var-requires */

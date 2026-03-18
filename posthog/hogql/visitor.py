@@ -43,7 +43,7 @@ class TraversingVisitor(Visitor[None]):
     """Visitor that traverses the AST tree without returning anything"""
 
     def visit_cte(self, node: ast.CTE):
-        pass
+        self.visit(node.expr)
 
     def visit_alias(self, node: ast.Alias):
         self.visit(node.expr)
@@ -66,6 +66,11 @@ class TraversingVisitor(Visitor[None]):
 
     def visit_not(self, node: ast.Not):
         self.visit(node.expr)
+
+    def visit_between_expr(self, node: ast.BetweenExpr):
+        self.visit(node.expr)
+        self.visit(node.low)
+        self.visit(node.high)
 
     def visit_order_expr(self, node: ast.OrderExpr):
         self.visit(node.expr)
@@ -204,6 +209,12 @@ class TraversingVisitor(Visitor[None]):
 
     def visit_select_view_type(self, node: ast.SelectViewType):
         self.visit(node.select_query_type)
+
+    def visit_ctetable_type(self, node: ast.CTETableType):
+        self.visit(node.select_query_type)
+
+    def visit_ctetable_alias_type(self, node: ast.CTETableAliasType):
+        self.visit(node.cte_table_type)
 
     def visit_asterisk_type(self, node: ast.AsteriskType):
         self.visit(node.table_type)
@@ -375,6 +386,9 @@ class TraversingVisitor(Visitor[None]):
         self.visit(node.left)
         self.visit(node.right)
 
+    def visit_type_cast(self, node: ast.TypeCast):
+        self.visit(node.expr)
+
 
 class CloningVisitor(Visitor[Any]):
     """Visitor that traverses and clones the AST tree. Clears types."""
@@ -397,6 +411,10 @@ class CloningVisitor(Visitor[Any]):
             name=node.name,
             expr=self.visit(node.expr),
             cte_type=node.cte_type,
+            recursive=node.recursive,
+            materialized=node.materialized,
+            using_key=list(node.using_key) if node.using_key else None,
+            columns=list(node.columns) if node.columns else None,
         )
 
     def visit_alias(self, node: ast.Alias):
@@ -451,6 +469,17 @@ class CloningVisitor(Visitor[Any]):
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             expr=self.visit(node.expr),
+        )
+
+    def visit_between_expr(self, node: ast.BetweenExpr):
+        return ast.BetweenExpr(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            expr=self.visit(node.expr),
+            low=self.visit(node.low),
+            high=self.visit(node.high),
+            negated=node.negated,
         )
 
     def visit_order_expr(self, node: ast.OrderExpr):
@@ -821,3 +850,26 @@ class CloningVisitor(Visitor[Any]):
             set_operator=node.set_operator,
             select_query=self.visit(node.select_query),
         )
+
+    def visit_type_cast(self, node: ast.TypeCast):
+        return ast.TypeCast(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            expr=self.visit(node.expr),
+            type_name=node.type_name,
+        )
+
+
+class GetFieldsTraverser(TraversingVisitor):
+    """Traverser that collects all Field nodes from an expression tree"""
+
+    fields: list[ast.Field]
+
+    def __init__(self, expr: Expr):
+        super().__init__()
+        self.fields = []
+        super().visit(expr)
+
+    def visit_field(self, node: ast.Field):
+        self.fields.append(node)

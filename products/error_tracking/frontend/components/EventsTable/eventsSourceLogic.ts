@@ -11,9 +11,11 @@ export interface EventsSourceProps {
 
 function rowToRecord(row: any): ErrorEventType {
     return {
+        event: '$exception',
         uuid: row[0].uuid,
         timestamp: row[1],
         person: row[2],
+        distinct_id: row[0].properties.distinct_id || row[2].distinct_id,
         properties: row[0].properties,
     }
 }

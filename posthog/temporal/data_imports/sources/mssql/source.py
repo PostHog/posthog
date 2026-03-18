@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 from sshtunnel import BaseSSHTunnelForwarderError
 
@@ -12,7 +12,7 @@ from posthog.schema import (
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -22,7 +22,8 @@ from posthog.temporal.data_imports.sources.mssql.mssql import (
     get_schemas as get_mssql_schemas,
     mssql_source,
 )
-from posthog.warehouse.types import ExternalDataSourceType, IncrementalField
+
+from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
 
 MSSQLErrors = {
     "Login failed for user": "Login failed for database",
@@ -32,10 +33,17 @@ MSSQLErrors = {
 
 
 @SourceRegistry.register
-class MSSQLSource(BaseSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.MSSQL
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "Adaptive Server connection failed": None,
+            "Login failed for user": None,
+            "Cannot find the CREDENTIAL": "Cannot find the credential - check that it exists and you have permission to access it",
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -91,7 +99,9 @@ class MSSQLSource(BaseSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabas
             ),
         )
 
-    def get_schemas(self, config: MSSQLSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: MSSQLSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
         schemas = []
 
         with self.with_ssh_tunnel(config) as (host, port):
@@ -102,20 +112,20 @@ class MSSQLSource(BaseSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabas
                 password=config.password,
                 database=config.database,
                 schema=config.schema,
+                names=names,
             )
 
         for table_name, columns in db_schemas.items():
-            column_info = [(col_name, col_type) for col_name, col_type in columns]
-
-            incremental_field_tuples = filter_mssql_incremental_fields(column_info)
+            incremental_field_tuples = filter_mssql_incremental_fields(columns)
             incremental_fields: list[IncrementalField] = [
                 {
                     "label": field_name,
                     "type": field_type,
                     "field": field_name,
                     "field_type": field_type,
+                    "nullable": nullable,
                 }
-                for field_name, field_type in incremental_field_tuples
+                for field_name, field_type, nullable in incremental_field_tuples
             ]
 
             schemas.append(
@@ -129,15 +139,17 @@ class MSSQLSource(BaseSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabas
 
         return schemas
 
-    def validate_credentials(self, config: MSSQLSourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: MSSQLSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         from pymssql import OperationalError
 
-        is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config)
+        is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config, team_id)
         if not is_ssh_valid:
             return is_ssh_valid, ssh_valid_errors
 
         valid_host, host_errors = self.is_database_host_valid(
-            config.host, team_id, config.ssh_tunnel.enabled if config.ssh_tunnel else False
+            config.host, team_id, using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False
         )
         if not valid_host:
             return valid_host, host_errors

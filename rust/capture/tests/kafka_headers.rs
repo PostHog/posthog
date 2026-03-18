@@ -443,3 +443,86 @@ async fn it_adds_correct_headers_for_snapshot_events() -> Result<()> {
 
     Ok(())
 }
+
+// Session ID headers are only added for session replay events, not analytics events
+#[tokio::test]
+async fn it_does_not_add_session_id_header_for_analytics_events() -> Result<()> {
+    setup_tracing();
+    let token = random_string("token", 16);
+    let distinct_id = random_string("id", 16);
+    let session_id = "test-session-123";
+
+    let main_topic = EphemeralTopic::new().await;
+    let histo_topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
+
+    // Even when session_id is in properties, analytics events should not have session_id header
+    let event = json!({
+        "token": token,
+        "event": "test_event",
+        "distinct_id": distinct_id,
+        "properties": {
+            "$session_id": session_id,
+            "foo": "bar"
+        }
+    });
+
+    let res = server.capture_events(event.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let (_, headers) = main_topic.next_message_with_headers()?;
+
+    assert!(
+        !headers.contains_key("session_id"),
+        "Analytics events should not have session_id header even when $session_id is in properties"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_adds_session_id_header_for_snapshot_events() -> Result<()> {
+    setup_tracing();
+    let token = random_string("token", 16);
+    let distinct_id = random_string("id", 16);
+    let session_id = "550e8400-e29b-41d4-a716-446655440001";
+    let window_id = random_string("window", 16);
+
+    let main_topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_recordings(&main_topic).await;
+
+    let event = json!([{
+        "token": token,
+        "event": "$snapshot",
+        "distinct_id": distinct_id,
+        "properties": {
+            "$session_id": session_id,
+            "$window_id": window_id,
+            "$snapshot_data": [{"type": 2, "data": {"source": 0}}]
+        }
+    }]);
+
+    let res = server.capture_recording(event.to_string(), None).await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let (event_data, headers) = main_topic.next_message_with_headers()?;
+
+    assert!(event_data.is_object(), "Event should be a JSON object");
+
+    assert!(
+        headers.contains_key("session_id"),
+        "Missing 'session_id' header. Available headers: {:?}",
+        headers.keys().collect::<Vec<_>>()
+    );
+    assert_eq!(
+        headers.get("session_id").unwrap(),
+        session_id,
+        "Session ID header should match the provided session ID"
+    );
+
+    assert_eq!(headers.get("token").unwrap(), &token);
+    assert_eq!(headers.get("distinct_id").unwrap(), &distinct_id);
+    assert!(headers.contains_key("timestamp"));
+
+    Ok(())
+}

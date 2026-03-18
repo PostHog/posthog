@@ -1,100 +1,106 @@
 import os
-import asyncio
+import time
+import threading
 
 import pytest
 
-from products.tasks.backend.services.sandbox_environment import (
-    SandboxEnvironment,
-    SandboxEnvironmentConfig,
-    SandboxEnvironmentTemplate,
-)
+import modal
+from asgiref.sync import async_to_sync
+
+from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.process_task.activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
 
 
-@pytest.mark.skipif(not os.environ.get("RUNLOOP_API_KEY"), reason="RUNLOOP_API_KEY environment variable not set")
+@pytest.mark.skipif(
+    not os.environ.get("MODAL_TOKEN_ID") or not os.environ.get("MODAL_TOKEN_SECRET"),
+    reason="MODAL_TOKEN_ID and MODAL_TOKEN_SECRET environment variables not set",
+)
 class TestCleanupSandboxActivity:
-    @pytest.mark.asyncio
     @pytest.mark.django_db
-    async def test_cleanup_sandbox_success(self, activity_environment):
-        config = SandboxEnvironmentConfig(
-            name="test-cleanup-sandbox",
-            template=SandboxEnvironmentTemplate.DEFAULT_BASE,
+    def test_cleanup_sandbox_success(self, activity_environment):
+        test_tag = f"test-cleanup-{time.time()}"
+        config = SandboxConfig(
+            name=f"test-cleanup-sandbox-{time.time()}",
+            template=SandboxTemplate.DEFAULT_BASE,
+            metadata={"test_tag": test_tag},
         )
 
-        sandbox = await SandboxEnvironment.create(config)
+        sandbox = Sandbox.create(config)
         sandbox_id = sandbox.id
 
-        existing_sandbox = await SandboxEnvironment.get_by_id(sandbox_id)
+        existing_sandbox = Sandbox.get_by_id(sandbox_id)
         assert existing_sandbox.id == sandbox_id
 
+        sandboxes_before = list(modal.Sandbox.list(tags={"test_tag": test_tag}))
+        assert len(sandboxes_before) > 0
+
         input_data = CleanupSandboxInput(sandbox_id=sandbox_id)
 
-        await activity_environment.run(cleanup_sandbox, input_data)
+        async_to_sync(activity_environment.run)(cleanup_sandbox, input_data)
 
-        cleaned_sandbox = await SandboxEnvironment.get_by_id(sandbox_id)
-        assert cleaned_sandbox.status.value == "shutdown"
+        sandboxes_after = list(modal.Sandbox.list(tags={"test_tag": test_tag}))
+        assert len(sandboxes_after) == 0
 
-    @pytest.mark.asyncio
     @pytest.mark.django_db
-    async def test_cleanup_sandbox_not_found_does_not_raise(self, activity_environment):
+    def test_cleanup_sandbox_not_found_does_not_raise(self, activity_environment):
         input_data = CleanupSandboxInput(sandbox_id="non-existent-sandbox-id")
 
-        # cleanup_sandbox is idempotent and doesn't raise if sandbox doesn't exist
-        await activity_environment.run(cleanup_sandbox, input_data)
+        async_to_sync(activity_environment.run)(cleanup_sandbox, input_data)
 
-    @pytest.mark.asyncio
     @pytest.mark.django_db
-    async def test_cleanup_sandbox_idempotency(self, activity_environment):
-        config = SandboxEnvironmentConfig(
-            name="test-cleanup-idempotent",
-            template=SandboxEnvironmentTemplate.DEFAULT_BASE,
+    def test_cleanup_sandbox_idempotency(self, activity_environment):
+        test_tag = f"test-cleanup-idempotent-{time.time()}"
+        config = SandboxConfig(
+            name=f"test-cleanup-idempotent-{time.time()}",
+            template=SandboxTemplate.DEFAULT_BASE,
+            metadata={"test_tag": test_tag},
         )
 
-        sandbox = await SandboxEnvironment.create(config)
+        sandbox = Sandbox.create(config)
         sandbox_id = sandbox.id
+
+        sandboxes_before = list(modal.Sandbox.list(tags={"test_tag": test_tag}))
+        assert len(sandboxes_before) > 0
 
         input_data = CleanupSandboxInput(sandbox_id=sandbox_id)
 
-        # First cleanup - should succeed
-        await activity_environment.run(cleanup_sandbox, input_data)
+        async_to_sync(activity_environment.run)(cleanup_sandbox, input_data)
 
-        cleaned_sandbox = await SandboxEnvironment.get_by_id(sandbox_id)
-        assert cleaned_sandbox.status.value == "shutdown"
+        sandboxes_after = list(modal.Sandbox.list(tags={"test_tag": test_tag}))
+        assert len(sandboxes_after) == 0
 
-        # Second cleanup - should still work on shutdown sandbox
-        await activity_environment.run(cleanup_sandbox, input_data)
+        async_to_sync(activity_environment.run)(cleanup_sandbox, input_data)
 
-    @pytest.mark.asyncio
     @pytest.mark.django_db
-    async def test_cleanup_sandbox_during_execution(self, activity_environment):
-        config = SandboxEnvironmentConfig(
-            name="test-cleanup-during-execution",
-            template=SandboxEnvironmentTemplate.DEFAULT_BASE,
+    def test_cleanup_sandbox_during_execution(self, activity_environment):
+        test_tag = f"test-cleanup-during-exec-{time.time()}"
+        config = SandboxConfig(
+            name=f"test-cleanup-during-execution-{time.time()}",
+            template=SandboxTemplate.DEFAULT_BASE,
+            metadata={"test_tag": test_tag},
         )
 
-        sandbox = await SandboxEnvironment.create(config)
+        sandbox = Sandbox.create(config)
         sandbox_id = sandbox.id
 
-        async def run_long_command():
+        def run_long_command():
             try:
-                await sandbox.execute("sleep 30", timeout_seconds=60)
+                sandbox.execute("sleep 30", timeout_seconds=60)
             except Exception:
                 pass
 
-        long_task = asyncio.create_task(run_long_command())
+        long_task = threading.Thread(target=run_long_command)
+        long_task.start()
 
-        # Give it a moment to start
-        await asyncio.sleep(5)
+        time.sleep(5)
+
+        sandboxes_before = list(modal.Sandbox.list(tags={"test_tag": test_tag}))
+        assert len(sandboxes_before) > 0
 
         input_data = CleanupSandboxInput(sandbox_id=sandbox_id)
-        await activity_environment.run(cleanup_sandbox, input_data)
+        async_to_sync(activity_environment.run)(cleanup_sandbox, input_data)
 
-        long_task.cancel()
-        try:
-            await long_task
-        except asyncio.CancelledError:
-            pass
+        long_task.join(timeout=5)
 
-        remaining_sandbox = await SandboxEnvironment.get_by_id(sandbox_id)
-
-        assert remaining_sandbox.status.value in ["shutdown", "failure"]
+        sandboxes_after = list(modal.Sandbox.list(tags={"test_tag": test_tag}))
+        assert len(sandboxes_after) == 0

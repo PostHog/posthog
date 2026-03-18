@@ -4,6 +4,7 @@ import datetime as dt
 import threading
 from contextlib import contextmanager
 
+from django.conf import settings
 from django.test.client import Client as TestClient
 
 import temporalio.client
@@ -13,7 +14,6 @@ from rest_framework import status
 from temporalio.client import Client as TemporalClient
 from temporalio.worker import Worker
 
-from posthog import constants
 from posthog.models.utils import UUIDT
 
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
@@ -64,7 +64,7 @@ class ThreadedWorker(Worker):
 def start_test_worker(temporal: TemporalClient):
     with ThreadedWorker(
         client=temporal,
-        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
         workflows=WORKFLOWS,
         activities=ACTIVITIES,
         workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
@@ -154,17 +154,9 @@ def list_batch_exports_ok(client: TestClient, team_id: int):
     return response.json()
 
 
-def backfill_batch_export(
-    client: TestClient, team_id: int, batch_export_id: str, start_at: str, end_at: str, legacy_endpoint: bool = False
-):
-    """Create a backfill for a BatchExport.
-
-    If legacy_endpoint is True, use the old endpoint (since adding the backfills API, we've deprecated the old one).
-    """
-    if legacy_endpoint:
-        url = f"/api/projects/{team_id}/batch_exports/{batch_export_id}/backfill"
-    else:
-        url = f"/api/projects/{team_id}/batch_exports/{batch_export_id}/backfills"
+def backfill_batch_export(client: TestClient, team_id: int, batch_export_id: str, start_at: str | None, end_at: str):
+    """Create a backfill for a BatchExport."""
+    url = f"/api/projects/{team_id}/batch_exports/{batch_export_id}/backfills"
 
     return client.post(
         url,
@@ -175,7 +167,7 @@ def backfill_batch_export(
 
 def backfill_batch_export_ok(client: TestClient, team_id: int, batch_export_id: str, start_at: str, end_at: str):
     response = backfill_batch_export(client, team_id, batch_export_id, start_at, end_at)
-    assert response.status_code == status.HTTP_200_OK, response.json()
+    assert response.status_code == status.HTTP_201_CREATED, response.json()
     return response.json()
 
 

@@ -3,6 +3,9 @@ import { router } from 'kea-router'
 import { RefObject } from 'react'
 
 import { sceneLogic } from 'scenes/sceneLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import type { sidePanelDocsLogicType } from './sidePanelDocsLogicType'
@@ -36,7 +39,12 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelDocsLogic']),
     props({} as SidePanelDocsLogicProps),
     connect(() => ({
-        actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel', 'setSidePanelOptions']],
+        actions: [
+            sidePanelStateLogic,
+            ['openSidePanel', 'closeSidePanel', 'setSidePanelOptions'],
+            teamLogic,
+            ['addProductIntent'],
+        ],
         values: [sceneLogic, ['sceneConfig'], sidePanelStateLogic, ['selectedTabOptions']],
     })),
 
@@ -120,6 +128,8 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
 
         navigateToPage: ({ path }) => {
             if (path) {
+                // it's ok to use we use a wildcard for the origin bc data isn't sensitive
+                // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
                 props.iframeRef.current?.contentWindow?.postMessage(
                     {
                         type: 'navigate',
@@ -132,6 +142,16 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
 
         updatePath: ({ path }) => {
             actions.setSidePanelOptions(path)
+
+            if (path && path.includes('/docs/llm-analytics')) {
+                actions.addProductIntent({
+                    product_type: ProductKey.LLM_ANALYTICS,
+                    intent_context: ProductIntentContext.LLM_ANALYTICS_DOCS_VIEWED,
+                    metadata: {
+                        docs_path: path,
+                    },
+                })
+            }
         },
     })),
 

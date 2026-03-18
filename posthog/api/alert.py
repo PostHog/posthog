@@ -2,7 +2,7 @@ import dataclasses
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from django.db.models import QuerySet
+from django.db.models import OuterRef, QuerySet, Subquery
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 
@@ -10,26 +10,41 @@ from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
-from posthog.schema import AlertState
+from posthog.schema import AlertCondition, AlertState, InsightThreshold, TrendsAlertConfig
 
+from posthog.api.documentation import extend_schema_field
 from posthog.api.insight import InsightBasicSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
-from posthog.constants import AvailableFeature
-from posthog.models import User
+from posthog.event_usage import get_request_analytics_properties
+from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
-from posthog.models.alert import (
-    AlertCheck,
-    AlertConfiguration,
-    AlertSubscription,
-    Threshold,
-    are_alerts_supported_for_insight,
-)
-from posthog.models.signals import model_activity_signal
+from posthog.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
+from posthog.models.signals import model_activity_signal, mutable_receiver
+from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.tasks.alerts.utils import validate_alert_config
 from posthog.utils import relative_date_parse
 
 
+@extend_schema_field(InsightThreshold)  # type: ignore[arg-type]
+class ThresholdConfigurationField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(AlertCondition)  # type: ignore[arg-type]
+class AlertConditionField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(TrendsAlertConfig)  # type: ignore[arg-type]
+class TrendsAlertConfigField(serializers.JSONField):
+    pass
+
+
 class ThresholdSerializer(serializers.ModelSerializer):
+    configuration = ThresholdConfigurationField()
+
     class Meta:
         model = Threshold
         fields = [
@@ -68,6 +83,7 @@ class AlertCheckSerializer(serializers.ModelSerializer):
 
 
 class AlertSubscriptionSerializer(serializers.ModelSerializer):
+    # nosemgrep: unscoped-primary-key-related-field — User model is not team-scoped; validate() checks team membership
     user = serializers.PrimaryKeyRelatedField(queryset=User.objects.filter(is_active=True), required=True)
 
     class Meta:
@@ -94,14 +110,22 @@ class AlertSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     checks = AlertCheckSerializer(many=True, read_only=True)
     threshold = ThresholdSerializer()
+    condition = AlertConditionField(required=False, allow_null=True)
+    config = TrendsAlertConfigField(required=False, allow_null=True)
+    insight = TeamScopedPrimaryKeyRelatedField(
+        queryset=Insight.objects.all(),
+        help_text="Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object.",
+    )
+    # nosemgrep: unscoped-primary-key-related-field — User model is not team-scoped; validate_subscribed_users() checks team membership
     subscribed_users = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.filter(is_active=True),
         many=True,
         required=True,
-        write_only=True,
         allow_empty=True,
+        help_text="User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object.",
     )
     snoozed_until = RelativeDateTimeField(allow_null=True, required=False)
+    last_value = serializers.FloatField(read_only=True, allow_null=True)
 
     class Meta:
         model = AlertConfiguration
@@ -124,6 +148,7 @@ class AlertSerializer(serializers.ModelSerializer):
             "calculation_interval",
             "snoozed_until",
             "skip_weekend",
+            "last_value",
         ]
         read_only_fields = [
             "id",
@@ -166,6 +191,10 @@ class AlertSerializer(serializers.ModelSerializer):
                 user=user, alert_configuration=instance, created_by=self.context["request"].user
             )
 
+        instance.report_created(
+            self.context["request"].user,
+            analytics_props=get_request_analytics_properties(self.context["request"]),
+        )
         return instance
 
     def update(self, instance, validated_data):
@@ -217,23 +246,24 @@ class AlertSerializer(serializers.ModelSerializer):
         if subscribed_users is not None:
             AlertSubscription.objects.filter(alert_configuration=instance).exclude(user__in=subscribed_users).delete()
             for user in subscribed_users:
+                # nosemgrep: idor-lookup-without-team (user team membership validated by viewset)
                 AlertSubscription.objects.get_or_create(
                     user=user, alert_configuration=instance, defaults={"created_by": self.context["request"].user}
                 )
-
-        if conditions_or_threshold_changed:
-            # If anything changed we set to NOT_FIRING, so it's firing and notifying with the new settings
-            instance.state = AlertState.NOT_FIRING
 
         calculation_interval_changed = (
             "calculation_interval" in validated_data
             and validated_data["calculation_interval"] != instance.calculation_interval
         )
         if conditions_or_threshold_changed or calculation_interval_changed:
-            # calculate alert right now, don't wait until preset time
-            self.next_check_at = None
+            instance.mark_for_recheck(reset_state=conditions_or_threshold_changed)
 
-        return super().update(instance, validated_data)
+        instance = super().update(instance, validated_data)
+        instance.report_updated(
+            self.context["request"].user,
+            analytics_props=get_request_analytics_properties(self.context["request"]),
+        )
+        return instance
 
     def validate_snoozed_until(self, value):
         if value is not None and not isinstance(value, str):
@@ -242,7 +272,7 @@ class AlertSerializer(serializers.ModelSerializer):
         return value
 
     def validate_insight(self, value):
-        if value and not are_alerts_supported_for_insight(value):
+        if value and not value.are_alerts_supported:
             raise ValidationError("Alerts are not supported for this insight.")
         return value
 
@@ -256,36 +286,39 @@ class AlertSerializer(serializers.ModelSerializer):
         if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
+        condition = attrs.get("condition", self.instance.condition if self.instance else None)
+        config = attrs.get("config", self.instance.config if self.instance else None)
+        insight = attrs.get("insight") or (self.instance.insight if self.instance else None)
+        if insight is None:
+            raise ValidationError({"insight": ["Insight is required."]})
+        with upgrade_query(insight):
+            query = insight.query
+            if query is None:
+                raise ValidationError({"insight": ["Insight has no valid query."]})
+
+        threshold_config = None
+        if "threshold" in attrs and isinstance(attrs["threshold"], dict):
+            threshold_config = attrs["threshold"].get("configuration")
+        elif self.instance and self.instance.threshold:
+            threshold_config = self.instance.threshold.configuration
+
+        try:
+            validate_alert_config(query, condition, config, threshold_config)
+        except ValueError as e:
+            raise ValidationError(str(e))
+
         # only validate alert count when creating a new alert
         if self.context["request"].method != "POST":
             return attrs
 
-        user_org = self.context["request"].user.organization
-
-        alerts_feature = user_org.get_available_feature(AvailableFeature.ALERTS)
-        existing_alerts_count = AlertConfiguration.objects.filter(team_id=self.context["team_id"]).count()
-
-        if alerts_feature:
-            allowed_alerts_count = alerts_feature.get("limit")
-            # If allowed_alerts_count is None then the user is allowed unlimited alerts
-            if allowed_alerts_count is not None:
-                # Check current count against allowed limit
-                if existing_alerts_count >= allowed_alerts_count:
-                    raise ValidationError(
-                        {"alert": [f"Your team has reached the limit of {allowed_alerts_count} alerts on your plan."]}
-                    )
-        else:
-            # If the org doesn't have alerts feature, limit to that on free tier
-            if existing_alerts_count >= AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER:
-                raise ValidationError(
-                    {"alert": [f"Your plan is limited to {AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER} alerts"]}
-                )
+        if msg := AlertConfiguration.check_alert_limit(self.context["team_id"], self.context["get_organization"]()):
+            raise ValidationError({"alert": [msg]})
 
         return attrs
 
 
 class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "alert"
     queryset = AlertConfiguration.objects.all().order_by("-created_at")
     serializer_class = AlertSerializer
 
@@ -293,6 +326,10 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         filters = self.request.query_params
         if "insight" in filters:
             queryset = queryset.filter(insight_id=filters["insight"])
+
+        latest_check = AlertCheck.objects.filter(alert_configuration=OuterRef("pk")).order_by("-created_at")
+        queryset = queryset.annotate(last_value=Subquery(latest_check.values("calculated_value")[:1]))
+
         return queryset
 
     def retrieve(self, request, *args, **kwargs):
@@ -326,7 +363,7 @@ class ThresholdWithAlertSerializer(ThresholdSerializer):
 
 
 class ThresholdViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "alert"
     queryset = Threshold.objects.all()
     serializer_class = ThresholdWithAlertSerializer
 
@@ -346,7 +383,7 @@ class AlertSubscriptionContext(AlertConfigurationContext):
     subscriber_email: Optional[str] = None
 
 
-@receiver(model_activity_signal, sender=AlertConfiguration)
+@mutable_receiver(model_activity_signal, sender=AlertConfiguration)
 def handle_alert_configuration_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
@@ -370,7 +407,7 @@ def handle_alert_configuration_change(
     )
 
 
-@receiver(model_activity_signal, sender=Threshold)
+@mutable_receiver(model_activity_signal, sender=Threshold)
 def handle_threshold_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
@@ -400,7 +437,7 @@ def handle_threshold_change(
         )
 
 
-@receiver(model_activity_signal, sender=AlertSubscription)
+@mutable_receiver(model_activity_signal, sender=AlertSubscription)
 def handle_alert_subscription_change(before_update, after_update, activity, user, was_impersonated=False, **kwargs):
     alert_config = after_update.alert_configuration
 
@@ -426,6 +463,21 @@ def handle_alert_subscription_change(before_update, after_update, activity, user
                 ),
             ),
         )
+
+
+@receiver(pre_delete, sender=AlertConfiguration)
+def cleanup_alert_hog_functions(sender, instance: AlertConfiguration, **kwargs):
+    from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
+
+    for hog_function in HogFunction.objects.filter(
+        team_id=instance.team_id,
+        type=HogFunctionType.INTERNAL_DESTINATION,
+        deleted=False,
+        filters__contains={"properties": [{"key": "alert_id", "value": str(instance.id)}]},
+    ):
+        hog_function.enabled = False
+        hog_function.deleted = True
+        hog_function.save()
 
 
 @receiver(pre_delete, sender=AlertSubscription)

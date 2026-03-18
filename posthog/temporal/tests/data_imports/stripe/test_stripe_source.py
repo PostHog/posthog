@@ -4,9 +4,16 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from unittest import mock
 
-from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from posthog.temporal.data_imports.sources.stripe.constants import ACCOUNT_RESOURCE_NAME
+from posthog.temporal.data_imports.sources.stripe.stripe import (
+    StripePermissionError,
+    StripeResumeConfig,
+    validate_credentials,
+)
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
-from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
+
+from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
 
 from .data import BALANCE_TRANSACTIONS
 
@@ -53,7 +60,7 @@ def external_data_schema_incremental(external_data_source, team):
 
 # mock the chunk size to 1 so we can test how iterating over chunks of data works, particularly with updating the
 # incremental field last value
-@mock.patch.object(PipelineNonDLT, "_chunk_size", 1)
+@mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_stripe_source_full_refresh(
@@ -63,27 +70,77 @@ async def test_stripe_source_full_refresh(
 
     We expect a single API call to be made to our mock Stripe API, which returns all the balance transactions.
     """
-    table_name = "stripe_balancetransaction"
-    expected_num_rows = len(BALANCE_TRANSACTIONS)
 
-    await run_external_data_job_workflow(
-        team=team,
-        external_data_source=external_data_source,
-        external_data_schema=external_data_schema_full_refresh,
-        table_name=table_name,
-        expected_rows_synced=expected_num_rows,
-        expected_total_rows=expected_num_rows,
-    )
+    with mock.patch.object(ResumableSourceManager, "save_state") as mock_save_state:
+        table_name = "stripe_balancetransaction"
+        expected_num_rows = len(BALANCE_TRANSACTIONS)
 
-    # Check that the API was called as expected
-    api_calls_made = mock_stripe_api.get_all_api_calls()
-    assert len(api_calls_made) == 1
-    assert api_calls_made[0].url == "https://api.stripe.com/v1/balance_transactions?limit=100"
+        await run_external_data_job_workflow(
+            team=team,
+            external_data_source=external_data_source,
+            external_data_schema=external_data_schema_full_refresh,
+            table_name=table_name,
+            expected_rows_synced=expected_num_rows,
+            expected_total_rows=expected_num_rows,
+        )
+
+        # Check that the API was called as expected
+        api_calls_made = mock_stripe_api.get_all_api_calls()
+        assert len(api_calls_made) == 1
+        assert api_calls_made[0].url == "https://api.stripe.com/v1/balance_transactions?limit=100"
+
+        # Make sure the last balance transaction ID was saved as the resume point
+        assert mock_save_state.call_args[0][0].starting_after == BALANCE_TRANSACTIONS[-1]["id"]
 
 
 # mock the chunk size to 1 so we can test how iterating over chunks of data works, particularly with updating the
 # incremental field last value
-@mock.patch.object(PipelineNonDLT, "_chunk_size", 1)
+@mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_stripe_source_resuming_full_refresh(
+    team, mock_stripe_api, external_data_source, external_data_schema_full_refresh
+):
+    """Test that resuming a full refresh sync works as expected.
+
+    We expect a single API call to be made to our mock Stripe API, which returns all the balance transactions with a filter.
+    """
+
+    starting_after = "customer_id_1"
+    with (
+        mock.patch.object(ResumableSourceManager, "can_resume", return_value=True),
+        mock.patch.object(
+            ResumableSourceManager, "load_state", return_value=StripeResumeConfig(starting_after=starting_after)
+        ),
+        mock.patch.object(ResumableSourceManager, "save_state") as mock_save_state,
+    ):
+        table_name = "stripe_balancetransaction"
+        expected_num_rows = len(BALANCE_TRANSACTIONS)
+
+        await run_external_data_job_workflow(
+            team=team,
+            external_data_source=external_data_source,
+            external_data_schema=external_data_schema_full_refresh,
+            table_name=table_name,
+            expected_rows_synced=expected_num_rows,
+            expected_total_rows=expected_num_rows,
+        )
+
+    # Check that the API was called as expected
+    api_calls_made = mock_stripe_api.get_all_api_calls()
+    assert len(api_calls_made) == 1
+    assert (
+        api_calls_made[0].url
+        == f"https://api.stripe.com/v1/balance_transactions?limit=100&starting_after={starting_after}"
+    )
+
+    # Make sure the last balance transaction ID was saved as the resume point
+    assert mock_save_state.call_args[0][0].starting_after == BALANCE_TRANSACTIONS[-1]["id"]
+
+
+# mock the chunk size to 1 so we can test how iterating over chunks of data works, particularly with updating the
+# incremental field last value
+@mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_stripe_source_incremental(team, mock_stripe_api, external_data_source, external_data_schema_incremental):
@@ -146,3 +203,124 @@ async def test_stripe_source_incremental(team, mock_stripe_api, external_data_so
         "created[gt]": [f"{third_item_created}"],
         "limit": ["100"],
     }
+
+
+def test_validate_credentials():
+    mock_client = mock.MagicMock()
+
+    # Mock each resource's list method
+    mock_client.accounts.list = mock.MagicMock()
+    mock_client.balance_transactions.list = mock.MagicMock()
+    mock_client.charges.list = mock.MagicMock()
+    mock_client.customers.list = mock.MagicMock()
+    mock_client.disputes.list = mock.MagicMock()
+    mock_client.invoice_items.list = mock.MagicMock()
+    mock_client.invoices.list = mock.MagicMock()
+    mock_client.payouts.list = mock.MagicMock()
+    mock_client.prices.list = mock.MagicMock()
+    mock_client.products.list = mock.MagicMock()
+    mock_client.subscriptions.list = mock.MagicMock()
+    mock_client.refunds.list = mock.MagicMock()
+    mock_client.credit_notes.list = mock.MagicMock()
+
+    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+        result = validate_credentials("api_key")
+
+        assert result is True
+
+        mock_client.accounts.list.assert_called_once_with(params={"limit": 1})
+        mock_client.balance_transactions.list.assert_called_once_with(params={"limit": 1})
+        mock_client.charges.list.assert_called_once_with(params={"limit": 1})
+        mock_client.customers.list.assert_called_once_with(params={"limit": 1})
+        mock_client.disputes.list.assert_called_once_with(params={"limit": 1})
+        mock_client.invoice_items.list.assert_called_once_with(params={"limit": 1})
+        mock_client.invoices.list.assert_called_once_with(params={"limit": 1})
+        mock_client.payouts.list.assert_called_once_with(params={"limit": 1})
+        mock_client.prices.list.assert_called_once_with(params={"limit": 1})
+        mock_client.products.list.assert_called_once_with(params={"limit": 1})
+        mock_client.subscriptions.list.assert_called_once_with(params={"limit": 1})
+        mock_client.refunds.list.assert_called_once_with(params={"limit": 1})
+        mock_client.credit_notes.list.assert_called_once_with(params={"limit": 1})
+
+
+def test_validate_credentials_with_table_name():
+    mock_client = mock.MagicMock()
+
+    # Mock each resource's list method
+    mock_client.accounts.list = mock.MagicMock()
+    mock_client.balance_transactions.list = mock.MagicMock()
+    mock_client.charges.list = mock.MagicMock()
+    mock_client.customers.list = mock.MagicMock()
+    mock_client.disputes.list = mock.MagicMock()
+    mock_client.invoice_items.list = mock.MagicMock()
+    mock_client.invoices.list = mock.MagicMock()
+    mock_client.payouts.list = mock.MagicMock()
+    mock_client.prices.list = mock.MagicMock()
+    mock_client.products.list = mock.MagicMock()
+    mock_client.subscriptions.list = mock.MagicMock()
+    mock_client.refunds.list = mock.MagicMock()
+    mock_client.credit_notes.list = mock.MagicMock()
+
+    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+        result = validate_credentials("api_key", ACCOUNT_RESOURCE_NAME)
+
+        assert result is True
+
+        # Accounts should be called
+        mock_client.accounts.list.assert_called_once_with(params={"limit": 1})
+
+        # No other endpoint should be though
+        mock_client.balance_transactions.list.assert_not_called()
+        mock_client.charges.list.assert_not_called()
+        mock_client.customers.list.assert_not_called()
+        mock_client.disputes.list.assert_not_called()
+        mock_client.invoice_items.list.assert_not_called()
+        mock_client.invoices.list.assert_not_called()
+        mock_client.payouts.list.assert_not_called()
+        mock_client.prices.list.assert_not_called()
+        mock_client.products.list.assert_not_called()
+        mock_client.subscriptions.list.assert_not_called()
+        mock_client.refunds.list.assert_not_called()
+        mock_client.credit_notes.list.assert_not_called()
+
+
+def test_validate_credentials_with_missing_table_name():
+    mock_client = mock.MagicMock()
+
+    # Mock each resource's list method
+    mock_client.accounts.list = mock.MagicMock()
+    mock_client.balance_transactions.list = mock.MagicMock()
+    mock_client.charges.list = mock.MagicMock()
+    mock_client.customers.list = mock.MagicMock()
+    mock_client.disputes.list = mock.MagicMock()
+    mock_client.invoice_items.list = mock.MagicMock()
+    mock_client.invoices.list = mock.MagicMock()
+    mock_client.payouts.list = mock.MagicMock()
+    mock_client.prices.list = mock.MagicMock()
+    mock_client.products.list = mock.MagicMock()
+    mock_client.subscriptions.list = mock.MagicMock()
+    mock_client.refunds.list = mock.MagicMock()
+    mock_client.credit_notes.list = mock.MagicMock()
+
+    with (
+        mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client),
+        pytest.raises(StripePermissionError) as e,
+    ):
+        validate_credentials("api_key", "bad_table")
+
+    # No endpoint should be called
+    mock_client.accounts.list.assert_not_called()
+    mock_client.balance_transactions.list.assert_not_called()
+    mock_client.charges.list.assert_not_called()
+    mock_client.customers.list.assert_not_called()
+    mock_client.disputes.list.assert_not_called()
+    mock_client.invoice_items.list.assert_not_called()
+    mock_client.invoices.list.assert_not_called()
+    mock_client.payouts.list.assert_not_called()
+    mock_client.prices.list.assert_not_called()
+    mock_client.products.list.assert_not_called()
+    mock_client.subscriptions.list.assert_not_called()
+    mock_client.refunds.list.assert_not_called()
+    mock_client.credit_notes.list.assert_not_called()
+
+    assert "bad_table" in str(e)

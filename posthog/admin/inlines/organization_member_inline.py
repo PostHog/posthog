@@ -9,6 +9,6 @@ class OrganizationMemberInline(TabularInlinePaginated):
     per_page = 20
     pagination_key = "page-member"
     show_change_link = True
-    readonly_fields = ("user", "joined_at", "updated_at")
-    autocomplete_fields = ("user", "organization")
+    readonly_fields = ("organization", "user", "joined_at", "updated_at")
+    autocomplete_fields = ("organization",)
     ordering = ("-level",)  # Order by level descending (Owner -> Admin -> Member)

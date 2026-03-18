@@ -27,6 +27,7 @@ export const manifest: ProductManifest = {
             href: urls.cohort('new'),
             iconType: 'cohort' as FileSystemIconType,
             iconColor: ['var(--color-product-cohorts-light)'] as FileSystemIconColor,
+            sceneKeys: ['Cohorts', 'Cohort'],
         },
     ],
     treeItemsProducts: [],

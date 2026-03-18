@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonModal } from '@posthog/lemon-ui'
+import { IconX } from '@posthog/icons'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 
@@ -21,12 +22,12 @@ export function SessionPlayerModal(): JSX.Element | null {
 
     // activeSessionRecording?.matching_events should always be a single element array
     // but, we're filtering and using flatMap just in case
-    const eventUUIDs =
+    const matchedEvents =
         activeSessionRecording?.matching_events
             ?.filter((matchingEvents) => {
                 return matchingEvents.session_id === activeSessionRecording?.id
             })
-            .flatMap((matchedRecording) => matchedRecording.events.map((x) => x.uuid)) || []
+            .flatMap((matchedRecording) => matchedRecording.events) || []
 
     const logicProps: SessionRecordingPlayerLogicProps = {
         playerKey: 'modal',
@@ -34,7 +35,7 @@ export function SessionPlayerModal(): JSX.Element | null {
         autoPlay: true,
         matchingEventsMatchType: {
             matchType: 'uuid',
-            eventUUIDs: eventUUIDs,
+            matchedEvents: matchedEvents,
         },
     }
 
@@ -49,9 +50,14 @@ export function SessionPlayerModal(): JSX.Element | null {
             width={1600}
             fullScreen={isFullScreen}
             closable={!isFullScreen}
+            hideCloseButton
             zIndex="1161"
-            hideCloseButton={true}
         >
+            {!isFullScreen && (
+                <div className="flex items-center justify-end border-b bg-surface-primary px-1 py-0.5">
+                    <LemonButton icon={<IconX />} size="small" onClick={closeSessionPlayer} tooltip="Close" />
+                </div>
+            )}
             <LemonModal.Content embedded>
                 {activeSessionRecording?.id && <SessionRecordingPlayer {...logicProps} noBorder />}
             </LemonModal.Content>

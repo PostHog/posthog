@@ -37,8 +37,8 @@ def create_performance_event(
 
     selects = [f"%({x})s" for x in data.keys()]
     sql = f"""
-INSERT INTO {PERFORMANCE_EVENT_DATA_TABLE()} ({', '.join(data.keys()) }, _timestamp, _offset)
-SELECT {', '.join(selects) }, now(), 0
+INSERT INTO {PERFORMANCE_EVENT_DATA_TABLE()} ({", ".join(data.keys())}, _timestamp, _offset)
+SELECT {", ".join(selects)}, now(), 0
 """
 
     p = ClickhouseProducer()

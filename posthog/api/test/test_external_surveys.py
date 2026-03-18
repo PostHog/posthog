@@ -49,6 +49,32 @@ class TestExternalSurveys(APIBaseTest):
 
     # SECURITY TESTS
 
+    def test_xss_prevention_in_survey_data(self):
+        xss_payload = "</script><script>alert(1)</script>"
+        survey = self.create_external_survey(
+            name=xss_payload,
+            questions=[
+                {
+                    "id": str(uuid.uuid4()),
+                    "type": "open",
+                    "question": xss_payload,
+                    "description": xss_payload,
+                }
+            ],
+            appearance={
+                "backgroundColor": xss_payload,
+                "submitButtonText": xss_payload,
+            },
+        )
+
+        response = self.client.get(f"/external_surveys/{survey.id}/")
+        assert response.status_code == 200
+
+        content = response.content.decode()
+
+        assert xss_payload not in content
+        assert "\\u003C/script\\u003E" in content or "\\u003c/script\\u003e" in content
+
     def test_valid_survey_id_required(self):
         """Test that invalid survey IDs are rejected"""
         # Invalid UUID format
@@ -105,8 +131,20 @@ class TestExternalSurveys(APIBaseTest):
         response = self.client.get(f"/external_surveys/{survey.id}/")
         assert response.status_code == 200
 
-        # Check security headers
+        # Check security headers - iframe embedding disabled by default
         assert response["X-Frame-Options"] == "DENY"
+        assert "Cache-Control" in response
+        assert "Vary" in response
+
+    def test_iframe_embedding_enabled_removes_x_frame_options(self):
+        """Test that X-Frame-Options is removed when iframe embedding is enabled"""
+        survey = self.create_external_survey(enable_iframe_embedding=True)
+
+        response = self.client.get(f"/external_surveys/{survey.id}/")
+        assert response.status_code == 200
+
+        # X-Frame-Options should not be present when iframe embedding is enabled
+        assert "X-Frame-Options" not in response
         assert "Cache-Control" in response
         assert "Vary" in response
 
@@ -167,10 +205,10 @@ class TestExternalSurveys(APIBaseTest):
         assert "projectConfig" in content
         assert survey.team.api_token in content
 
-        # Extract and validate project config JSON
+        # Extract and validate project config JSON from json_script tag
         import re
 
-        config_match = re.search(r"projectConfig = ({.*?});", content)
+        config_match = re.search(r'<script[^>]*id="project-config"[^>]*>(.*?)</script>', content, re.DOTALL)
         assert config_match is not None
 
         project_config = json.loads(config_match.group(1))

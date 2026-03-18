@@ -49,6 +49,11 @@ const LIQUID_USAGE_EXAMPLES: CyclotronJobTemplateOption[] = [
         description: 'Access a property of an event or person',
     },
     {
+        key: 'workflow variable',
+        example: `{{ variables.MY_VARIABLE_KEY }}`,
+        description: 'Access a workflow variable set earlier in the workflow',
+    },
+    {
         key: 'if',
         example: `{% if condition %} Yes {% else %} No {% endif %}`,
         description: 'Conditional (if this then that else other)',

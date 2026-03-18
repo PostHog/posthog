@@ -15,17 +15,23 @@ pub enum FeatureFlagMatchReason {
     NoGroupType,
     #[strum(serialize = "holdout_condition_value")]
     HoldoutConditionValue,
+    #[strum(serialize = "flag_disabled")]
+    FlagDisabled,
+    #[strum(serialize = "missing_dependency")]
+    MissingDependency,
 }
 
 impl FeatureFlagMatchReason {
     pub fn score(&self) -> i32 {
         match self {
-            FeatureFlagMatchReason::SuperConditionValue => 5,
-            FeatureFlagMatchReason::HoldoutConditionValue => 4,
-            FeatureFlagMatchReason::ConditionMatch => 3,
-            FeatureFlagMatchReason::NoGroupType => 2,
-            FeatureFlagMatchReason::OutOfRolloutBound => 1,
-            FeatureFlagMatchReason::NoConditionMatch => 0,
+            FeatureFlagMatchReason::SuperConditionValue => 6,
+            FeatureFlagMatchReason::HoldoutConditionValue => 5,
+            FeatureFlagMatchReason::ConditionMatch => 4,
+            FeatureFlagMatchReason::NoGroupType => 3,
+            FeatureFlagMatchReason::OutOfRolloutBound => 2,
+            FeatureFlagMatchReason::NoConditionMatch => 1,
+            FeatureFlagMatchReason::FlagDisabled => 0,
+            FeatureFlagMatchReason::MissingDependency => -1,
         }
     }
 }
@@ -54,6 +60,8 @@ impl std::fmt::Display for FeatureFlagMatchReason {
                 FeatureFlagMatchReason::OutOfRolloutBound => "out_of_rollout_bound",
                 FeatureFlagMatchReason::NoGroupType => "no_group_type",
                 FeatureFlagMatchReason::HoldoutConditionValue => "holdout_condition_value",
+                FeatureFlagMatchReason::FlagDisabled => "flag_disabled",
+                FeatureFlagMatchReason::MissingDependency => "missing_dependency",
             }
         )
     }
@@ -66,11 +74,14 @@ mod tests {
     #[test]
     fn test_ordering() {
         let reasons = vec![
-            FeatureFlagMatchReason::NoConditionMatch,
-            FeatureFlagMatchReason::OutOfRolloutBound,
-            FeatureFlagMatchReason::NoGroupType,
-            FeatureFlagMatchReason::ConditionMatch,
-            FeatureFlagMatchReason::SuperConditionValue,
+            FeatureFlagMatchReason::MissingDependency,     // -1
+            FeatureFlagMatchReason::FlagDisabled,          // 0
+            FeatureFlagMatchReason::NoConditionMatch,      // 1
+            FeatureFlagMatchReason::OutOfRolloutBound,     // 2
+            FeatureFlagMatchReason::NoGroupType,           // 3
+            FeatureFlagMatchReason::ConditionMatch,        // 4
+            FeatureFlagMatchReason::HoldoutConditionValue, // 5
+            FeatureFlagMatchReason::SuperConditionValue,   // 6
         ];
 
         let mut sorted_reasons = reasons.clone();
@@ -100,6 +111,18 @@ mod tests {
         assert_eq!(
             FeatureFlagMatchReason::NoGroupType.to_string(),
             "no_group_type"
+        );
+        assert_eq!(
+            FeatureFlagMatchReason::FlagDisabled.to_string(),
+            "flag_disabled"
+        );
+        assert_eq!(
+            FeatureFlagMatchReason::HoldoutConditionValue.to_string(),
+            "holdout_condition_value"
+        );
+        assert_eq!(
+            FeatureFlagMatchReason::MissingDependency.to_string(),
+            "missing_dependency"
         );
     }
 }

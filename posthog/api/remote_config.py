@@ -2,10 +2,13 @@ import re
 
 from django.http import Http404, HttpResponse, JsonResponse
 
+from opentelemetry import trace
 from rest_framework.exceptions import ValidationError
 from rest_framework.views import APIView
 
 from posthog.models.remote_config import RemoteConfig
+
+tracer = trace.get_tracer(__name__)
 
 
 def add_vary_headers(response):
@@ -32,6 +35,7 @@ class BaseRemoteConfigAPIView(APIView):
 
 
 class RemoteConfigAPIView(BaseRemoteConfigAPIView):
+    @tracer.start_as_current_span("RemoteConfig.APIView.get")
     def get(self, request, token: str, *args, **kwargs):
         try:
             resource = RemoteConfig.get_config_via_token(self.check_token(token), request=request)
@@ -42,6 +46,7 @@ class RemoteConfigAPIView(BaseRemoteConfigAPIView):
 
 
 class RemoteConfigJSAPIView(BaseRemoteConfigAPIView):
+    @tracer.start_as_current_span("RemoteConfig.JSAPIView.get")
     def get(self, request, token: str, *args, **kwargs):
         try:
             script_content = RemoteConfig.get_config_js_via_token(self.check_token(token), request=request)
@@ -52,6 +57,7 @@ class RemoteConfigJSAPIView(BaseRemoteConfigAPIView):
 
 
 class RemoteConfigArrayJSAPIView(BaseRemoteConfigAPIView):
+    @tracer.start_as_current_span("RemoteConfig.ArrayJSAPIView.get")
     def get(self, request, token: str, *args, **kwargs):
         try:
             script_content = RemoteConfig.get_array_js_via_token(self.check_token(token), request=request)

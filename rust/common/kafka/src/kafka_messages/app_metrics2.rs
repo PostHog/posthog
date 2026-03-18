@@ -15,6 +15,7 @@ pub enum Source {
 pub enum Kind {
     Success,
     Failure,
+    Canceled,
     Unknown,
 }
 

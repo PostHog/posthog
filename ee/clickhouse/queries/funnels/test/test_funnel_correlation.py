@@ -2,6 +2,7 @@ import unittest
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    _create_action,
     _create_event,
     _create_person,
     also_test_with_materialized_columns,
@@ -13,7 +14,6 @@ from posthog.test.base import (
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import INSIGHT_FUNNELS
-from posthog.models.action import Action
 from posthog.models.element import Element
 from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
@@ -23,14 +23,6 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from ee.clickhouse.queries.funnels.funnel_correlation import EventContingencyTable, EventStats, FunnelCorrelation
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
-
-
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
-    return action
 
 
 class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):

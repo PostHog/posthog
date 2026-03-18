@@ -90,6 +90,7 @@ class SessionRecordingQueryResult(NamedTuple):
     results: list
     has_more_recording: bool
     timings: list[QueryTiming] | None = None
+    next_cursor: str | None = None
 
 
 class UnexpectedQueryProperties(Exception):

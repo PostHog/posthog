@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 from snowflake.connector.errors import DatabaseError, ForbiddenError, ProgrammingError
 
@@ -13,7 +13,7 @@ from posthog.schema import (
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
@@ -22,7 +22,8 @@ from posthog.temporal.data_imports.sources.snowflake.snowflake import (
     get_schemas as get_snowflake_schemas,
     snowflake_source,
 )
-from posthog.warehouse.types import ExternalDataSourceType, IncrementalField
+
+from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
 
 SnowflakeErrors = {
     "No active warehouse selected in the current session": "No warehouse found for selected role",
@@ -34,7 +35,7 @@ SnowflakeErrors = {
 
 
 @SourceRegistry.register
-class SnowflakeSource(BaseSource[SnowflakeSourceConfig]):
+class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SNOWFLAKE
@@ -70,6 +71,7 @@ class SnowflakeSource(BaseSource[SnowflakeSourceConfig]):
                         required=True,
                         placeholder="COMPUTE_WAREHOUSE",
                     ),
+                    # the validation for these options happens in validate_credentials
                     SourceFieldSelectConfig(
                         name="auth_type",
                         label="Authentication type",
@@ -93,7 +95,7 @@ class SnowflakeSource(BaseSource[SnowflakeSourceConfig]):
                                             name="password",
                                             label="Password",
                                             type=SourceFieldInputConfigType.PASSWORD,
-                                            required=True,
+                                            required=False,
                                             placeholder="",
                                         ),
                                     ],
@@ -116,7 +118,7 @@ class SnowflakeSource(BaseSource[SnowflakeSourceConfig]):
                                             name="private_key",
                                             label="Private key",
                                             type=SourceFieldInputConfigType.TEXTAREA,
-                                            required=True,
+                                            required=False,
                                             placeholder="",
                                         ),
                                         SourceFieldInputConfig(
@@ -149,23 +151,35 @@ class SnowflakeSource(BaseSource[SnowflakeSourceConfig]):
             ),
         )
 
-    def get_schemas(self, config: SnowflakeSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "This account has been marked for decommission": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
+            "404 Not Found": None,
+            "Your free trial has ended": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
+            "Your account is suspended due to lack of payment method": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
+            "MFA authentication is required": None,
+            "invalid credentials": "Snowflake authentication failed. Please check your username, password, and account details.",
+            "authentication failed": "Snowflake authentication failed. Please check your username, password, and account details.",
+        }
+
+    def get_schemas(
+        self, config: SnowflakeSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
         schemas = []
 
-        db_schemas = get_snowflake_schemas(config)
+        db_schemas = get_snowflake_schemas(config, names=names)
 
         for table_name, columns in db_schemas.items():
-            column_info = [(col_name, col_type) for col_name, col_type in columns]
-
-            incremental_field_tuples = filter_snowflake_incremental_fields(column_info)
+            incremental_field_tuples = filter_snowflake_incremental_fields(columns)
             incremental_fields: list[IncrementalField] = [
                 {
                     "label": field_name,
                     "type": field_type,
                     "field": field_name,
                     "field_type": field_type,
+                    "nullable": nullable,
                 }
-                for field_name, field_type in incremental_field_tuples
+                for field_name, field_type, nullable in incremental_field_tuples
             ]
 
             schemas.append(
@@ -179,14 +193,15 @@ class SnowflakeSource(BaseSource[SnowflakeSourceConfig]):
 
         return schemas
 
-    def validate_credentials(self, config: SnowflakeSourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: SnowflakeSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         if config.auth_type.selection == "password" and (not config.auth_type.user or not config.auth_type.password):
             return False, "Missing required parameters: username, password"
 
-        if config.auth_type.selection == "keypair" and (
-            not config.auth_type.passphrase or not config.auth_type.private_key or not config.auth_type.user
-        ):
-            return False, "Missing required parameters: passphrase, private key"
+        # passphrase is optional if the key they use to auth is not encrypted
+        if config.auth_type.selection == "keypair" and (not config.auth_type.user or not config.auth_type.private_key):
+            return False, "Missing required parameters: username, private key"
 
         try:
             self.get_schemas(config, team_id)

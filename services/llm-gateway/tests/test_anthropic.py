@@ -1,0 +1,654 @@
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import httpx
+import pytest
+from fastapi.testclient import TestClient
+
+from llm_gateway.api.anthropic import (
+    extract_posthog_flags_from_headers,
+    extract_posthog_properties_from_headers,
+)
+
+DANGEROUS_PARAMS: list[tuple[str, str]] = [
+    ("api_key", "sk-stolen-key"),
+    ("api_base", "https://attacker.example.com"),
+    ("base_url", "https://attacker.example.com"),
+    ("api_version", "2024-10-01"),
+    ("organization", "org-attacker"),
+]
+
+
+class TestExtractPosthogFlagsFromHeaders:
+    def test_extracts_x_posthog_flag_headers(self) -> None:
+        request = MagicMock()
+        request.headers = MagicMock()
+        request.headers.items.return_value = [
+            ("X-POSTHOG-FLAG-EXPERIMENT-FEATURE-FLAG-KEY", "variant-name"),
+            ("X-POSTHOG-FLAG-ANOTHER-FLAG", "control"),
+            ("Content-Type", "application/json"),
+        ]
+        result = extract_posthog_flags_from_headers(request)
+        assert result == {
+            "experiment-feature-flag-key": "variant-name",
+            "another-flag": "control",
+        }
+
+    def test_extract_case_insensitive(self) -> None:
+        request = MagicMock()
+        request.headers = MagicMock()
+        request.headers.items.return_value = [
+            ("x-posthog-flag-my-flag", "value"),
+        ]
+        result = extract_posthog_flags_from_headers(request)
+        assert result == {"my-flag": "value"}
+
+    def test_extract_ignores_non_matching_headers(self) -> None:
+        request = MagicMock()
+        request.headers = MagicMock()
+        request.headers.items.return_value = [
+            ("X-POSTHOG-PROPERTY-FOO", "prop"),
+            ("Authorization", "Bearer x"),
+        ]
+        result = extract_posthog_flags_from_headers(request)
+        assert result == {}
+
+
+class TestExtractPosthogPropertiesFromHeaders:
+    def test_extracts_x_posthog_property_headers(self) -> None:
+        request = MagicMock()
+        request.headers = MagicMock()
+        request.headers.items.return_value = [
+            ("X-POSTHOG-PROPERTY-VARIANT", "memes"),
+            ("X-POSTHOG-PROPERTY-FOO", "bar"),
+            ("Content-Type", "application/json"),
+        ]
+        result = extract_posthog_properties_from_headers(request)
+        assert result == {"variant": "memes", "foo": "bar"}
+
+    def test_extract_case_insensitive(self) -> None:
+        request = MagicMock()
+        request.headers = MagicMock()
+        request.headers.items.return_value = [
+            ("x-posthog-property-key", "value"),
+        ]
+        result = extract_posthog_properties_from_headers(request)
+        assert result == {"key": "value"}
+
+    def test_extract_ignores_non_matching_headers(self) -> None:
+        request = MagicMock()
+        request.headers = MagicMock()
+        request.headers.items.return_value = [
+            ("X-Other-Header", "other"),
+            ("Authorization", "Bearer x"),
+        ]
+        result = extract_posthog_properties_from_headers(request)
+        assert result == {}
+
+
+class TestAnthropicMessagesEndpoint:
+    @pytest.fixture
+    def valid_request_body(self) -> dict[str, Any]:
+        return {
+            "model": "claude-3-5-sonnet-20241022",
+            "messages": [{"role": "user", "content": "Hello"}],
+        }
+
+    @pytest.fixture
+    def mock_anthropic_response(self) -> dict[str, Any]:
+        return {
+            "id": "msg_123",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "Hello!"}],
+            "model": "claude-3-5-sonnet-20241022",
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+
+    def test_unauthenticated_request_returns_401(self, client: TestClient, valid_request_body: dict) -> None:
+        response = client.post("/v1/messages", json=valid_request_body)
+        assert response.status_code == 401
+
+    @pytest.mark.parametrize(
+        "invalid_body,expected_field",
+        [
+            pytest.param({}, "model", id="missing_model"),
+            pytest.param({"model": "claude-3"}, "messages", id="missing_messages"),
+        ],
+    )
+    def test_validation_errors(
+        self,
+        authenticated_client: TestClient,
+        invalid_body: dict,
+        expected_field: str,
+    ) -> None:
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=invalid_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+        assert response.status_code == 422
+        assert expected_field in str(response.json())
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_successful_request(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+        mock_anthropic_response: dict,
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_anthropic_response)
+        mock_anthropic.return_value = mock_response
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=valid_request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == "msg_123"
+        assert data["role"] == "assistant"
+        assert data["usage"]["input_tokens"] == 10
+
+    @pytest.mark.parametrize(
+        "error_status,error_message,error_type",
+        [
+            pytest.param(400, "Invalid request", "invalid_request_error", id="bad_request"),
+            pytest.param(429, "Rate limit exceeded", "rate_limit_error", id="rate_limited"),
+            pytest.param(500, "Internal error", "internal_error", id="server_error"),
+        ],
+    )
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_provider_errors(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+        error_status: int,
+        error_message: str,
+        error_type: str,
+    ) -> None:
+        error = Exception(error_message)
+        error.status_code = error_status  # type: ignore[attr-defined]
+        error.message = error_message  # type: ignore[attr-defined]
+        error.type = error_type  # type: ignore[attr-defined]
+        mock_anthropic.side_effect = error
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=valid_request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == error_status
+        data = response.json()
+        assert data["error"]["message"] == error_message
+        assert data["error"]["type"] == error_type
+
+    @pytest.mark.parametrize(
+        "param_name,param_value",
+        [pytest.param(name, value, id=name) for name, value in DANGEROUS_PARAMS],
+    )
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_dangerous_params_not_forwarded_to_llm(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+        mock_anthropic_response: dict,
+        param_name: str,
+        param_value: str,
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_anthropic_response)
+        mock_anthropic.return_value = mock_response
+
+        body_with_injection = {**valid_request_body, param_name: param_value}
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=body_with_injection,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        call_kwargs = mock_anthropic.call_args
+        assert param_name not in call_kwargs.kwargs, (
+            f"Dangerous parameter '{param_name}' was forwarded to litellm.anthropic_messages"
+        )
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_model_list_not_forwarded_to_llm(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+        mock_anthropic_response: dict,
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_anthropic_response)
+        mock_anthropic.return_value = mock_response
+
+        body_with_model_list = {
+            **valid_request_body,
+            "model_list": [
+                {
+                    "model_name": "claude-3-5-sonnet-20241022",
+                    "litellm_params": {
+                        "model": "claude-3-5-sonnet-20241022",
+                        "api_base": "https://attacker.example.com",
+                        "api_key": "sk-stolen-key",
+                    },
+                }
+            ],
+        }
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=body_with_model_list,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        call_kwargs = mock_anthropic.call_args
+        assert "model_list" not in call_kwargs.kwargs
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_nested_dangerous_params_sanitized(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+        mock_anthropic_response: dict,
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_anthropic_response)
+        mock_anthropic.return_value = mock_response
+
+        body_with_nested_injection = {
+            **valid_request_body,
+            "metadata": {
+                "safe": "value",
+                "api_key": "sk-stolen-key",
+                "nested": {
+                    "keep": "ok",
+                    "base_url": "https://attacker.example.com",
+                },
+            },
+        }
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=body_with_nested_injection,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        call_kwargs = mock_anthropic.call_args
+        forwarded_metadata = call_kwargs.kwargs["metadata"]
+        assert "api_key" not in forwarded_metadata
+        assert "base_url" not in forwarded_metadata["nested"]
+        assert forwarded_metadata["safe"] == "value"
+        assert forwarded_metadata["nested"]["keep"] == "ok"
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_product_prefix_route(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+        mock_anthropic_response: dict,
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_anthropic_response)
+        mock_anthropic.return_value = mock_response
+
+        response = authenticated_client.post(
+            "/wizard/v1/messages",
+            json=valid_request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == "msg_123"
+
+    @pytest.mark.parametrize(
+        "product",
+        [
+            pytest.param("llm_gateway", id="llm_gateway_product"),
+            pytest.param("wizard", id="wizard_product"),
+        ],
+    )
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_allowed_product_prefixes(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+        mock_anthropic_response: dict,
+        product: str,
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_anthropic_response)
+        mock_anthropic.return_value = mock_response
+
+        response = authenticated_client.post(
+            f"/{product}/v1/messages",
+            json=valid_request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+
+    @pytest.mark.parametrize(
+        "product",
+        [
+            pytest.param("invalid", id="invalid_product"),
+            pytest.param("max", id="max_product"),
+            pytest.param("claude-code", id="claude_code_product"),
+        ],
+    )
+    def test_invalid_product_returns_400(
+        self,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+        product: str,
+    ) -> None:
+        response = authenticated_client.post(
+            f"/{product}/v1/messages",
+            json=valid_request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 400
+        assert "Invalid product" in response.json()["detail"]
+
+
+class TestAnthropicCountTokensEndpoint:
+    @pytest.fixture
+    def valid_request_body(self) -> dict[str, Any]:
+        return {
+            "model": "claude-3-5-sonnet-20241022",
+            "messages": [{"role": "user", "content": "Hello"}],
+        }
+
+    @pytest.fixture
+    def mock_count_tokens_response(self) -> httpx.Response:
+        return httpx.Response(
+            status_code=200,
+            json={"input_tokens": 14},
+        )
+
+    def test_unauthenticated_request_returns_401(self, client: TestClient, valid_request_body: dict) -> None:
+        response = client.post("/v1/messages/count_tokens", json=valid_request_body)
+        assert response.status_code == 401
+
+    @pytest.mark.parametrize(
+        "invalid_body,expected_field",
+        [
+            pytest.param({}, "model", id="missing_model"),
+            pytest.param({"model": "claude-3"}, "messages", id="missing_messages"),
+        ],
+    )
+    def test_validation_errors(
+        self,
+        authenticated_client: TestClient,
+        invalid_body: dict,
+        expected_field: str,
+    ) -> None:
+        response = authenticated_client.post(
+            "/v1/messages/count_tokens",
+            json=invalid_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+        assert response.status_code == 422
+        assert expected_field in str(response.json())
+
+    @patch("llm_gateway.api.anthropic.get_settings")
+    @patch("llm_gateway.api.anthropic.httpx.AsyncClient")
+    def test_successful_request(
+        self,
+        mock_httpx_client_cls: MagicMock,
+        mock_get_settings: MagicMock,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+        mock_count_tokens_response: httpx.Response,
+    ) -> None:
+        mock_settings = MagicMock()
+        mock_settings.anthropic_api_key = "test-anthropic-key"
+        mock_settings.request_timeout = 300.0
+        mock_get_settings.return_value = mock_settings
+
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.post = AsyncMock(return_value=mock_count_tokens_response)
+        mock_httpx_client_cls.return_value = mock_client
+
+        response = authenticated_client.post(
+            "/v1/messages/count_tokens",
+            json=valid_request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["input_tokens"] == 14
+
+        mock_client.post.assert_called_once()
+        call_kwargs = mock_client.post.call_args
+        assert call_kwargs[0][0] == "https://api.anthropic.com/v1/messages/count_tokens"
+        assert call_kwargs[1]["headers"]["x-api-key"] == "test-anthropic-key"
+
+    @patch("llm_gateway.api.anthropic.get_settings")
+    @patch("llm_gateway.api.anthropic.httpx.AsyncClient")
+    def test_extra_fields_not_forwarded(
+        self,
+        mock_httpx_client_cls: MagicMock,
+        mock_get_settings: MagicMock,
+        authenticated_client: TestClient,
+        mock_count_tokens_response: httpx.Response,
+    ) -> None:
+        mock_settings = MagicMock()
+        mock_settings.anthropic_api_key = "test-anthropic-key"
+        mock_settings.request_timeout = 300.0
+        mock_get_settings.return_value = mock_settings
+
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.post = AsyncMock(return_value=mock_count_tokens_response)
+        mock_httpx_client_cls.return_value = mock_client
+
+        body_with_extras = {
+            "model": "claude-3-5-sonnet-20241022",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "api_key": "sk-stolen-key",
+            "base_url": "https://attacker.example.com",
+            "model_list": [
+                {
+                    "model_name": "claude-3-5-sonnet-20241022",
+                    "litellm_params": {
+                        "model": "claude-3-5-sonnet-20241022",
+                        "api_base": "https://attacker.example.com",
+                        "api_key": "sk-stolen-key",
+                    },
+                }
+            ],
+            "metadata": {
+                "safe": "value",
+                "api_key": "sk-stolen-key",
+                "nested": {
+                    "keep": "ok",
+                    "base_url": "https://attacker.example.com",
+                },
+            },
+        }
+
+        response = authenticated_client.post(
+            "/v1/messages/count_tokens",
+            json=body_with_extras,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        call_kwargs = mock_client.post.call_args
+        sent_json = call_kwargs[1]["json"]
+        assert "api_key" not in sent_json
+        assert "base_url" not in sent_json
+        assert "model_list" not in sent_json
+        assert "api_key" not in sent_json["metadata"]
+        assert "base_url" not in sent_json["metadata"]["nested"]
+        assert sent_json["metadata"]["safe"] == "value"
+        assert sent_json["metadata"]["nested"]["keep"] == "ok"
+
+    @patch("llm_gateway.api.anthropic.get_settings")
+    def test_missing_api_key_returns_503(
+        self,
+        mock_get_settings: MagicMock,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+    ) -> None:
+        mock_settings = MagicMock()
+        mock_settings.anthropic_api_key = None
+        mock_get_settings.return_value = mock_settings
+
+        response = authenticated_client.post(
+            "/v1/messages/count_tokens",
+            json=valid_request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 503
+        assert "not configured" in response.json()["error"]["message"]
+
+    @pytest.mark.parametrize(
+        "error_status,error_body",
+        [
+            pytest.param(
+                400,
+                {"error": {"message": "Invalid model", "type": "invalid_request_error"}},
+                id="bad_request",
+            ),
+            pytest.param(
+                429,
+                {"error": {"message": "Rate limit exceeded", "type": "rate_limit_error"}},
+                id="rate_limited",
+            ),
+        ],
+    )
+    @patch("llm_gateway.api.anthropic.get_settings")
+    @patch("llm_gateway.api.anthropic.httpx.AsyncClient")
+    def test_anthropic_errors_forwarded(
+        self,
+        mock_httpx_client_cls: MagicMock,
+        mock_get_settings: MagicMock,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+        error_status: int,
+        error_body: dict,
+    ) -> None:
+        mock_settings = MagicMock()
+        mock_settings.anthropic_api_key = "test-anthropic-key"
+        mock_settings.request_timeout = 300.0
+        mock_get_settings.return_value = mock_settings
+
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.post = AsyncMock(return_value=httpx.Response(status_code=error_status, json=error_body))
+        mock_httpx_client_cls.return_value = mock_client
+
+        response = authenticated_client.post(
+            "/v1/messages/count_tokens",
+            json=valid_request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == error_status
+
+    @patch("llm_gateway.api.anthropic.get_settings")
+    @patch("llm_gateway.api.anthropic.httpx.AsyncClient")
+    def test_product_prefix_route(
+        self,
+        mock_httpx_client_cls: MagicMock,
+        mock_get_settings: MagicMock,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+        mock_count_tokens_response: httpx.Response,
+    ) -> None:
+        mock_settings = MagicMock()
+        mock_settings.anthropic_api_key = "test-anthropic-key"
+        mock_settings.request_timeout = 300.0
+        mock_get_settings.return_value = mock_settings
+
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.post = AsyncMock(return_value=mock_count_tokens_response)
+        mock_httpx_client_cls.return_value = mock_client
+
+        response = authenticated_client.post(
+            "/wizard/v1/messages/count_tokens",
+            json=valid_request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["input_tokens"] == 14
+
+    @pytest.mark.parametrize(
+        "product",
+        [
+            pytest.param("invalid", id="invalid_product"),
+            pytest.param("claude-code", id="claude_code_product"),
+        ],
+    )
+    def test_invalid_product_returns_400(
+        self,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+        product: str,
+    ) -> None:
+        response = authenticated_client.post(
+            f"/{product}/v1/messages/count_tokens",
+            json=valid_request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 400
+        assert "Invalid product" in response.json()["detail"]
+
+    @patch("llm_gateway.api.anthropic.get_settings")
+    @patch("llm_gateway.api.anthropic.httpx.AsyncClient")
+    def test_does_not_trigger_ai_generation_event(
+        self,
+        mock_httpx_client_cls: MagicMock,
+        mock_get_settings: MagicMock,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+        mock_count_tokens_response: httpx.Response,
+    ) -> None:
+        mock_settings = MagicMock()
+        mock_settings.anthropic_api_key = "test-anthropic-key"
+        mock_settings.request_timeout = 300.0
+        mock_get_settings.return_value = mock_settings
+
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.post = AsyncMock(return_value=mock_count_tokens_response)
+        mock_httpx_client_cls.return_value = mock_client
+
+        with patch("llm_gateway.api.anthropic.litellm.anthropic_messages") as mock_litellm:
+            response = authenticated_client.post(
+                "/v1/messages/count_tokens",
+                json=valid_request_body,
+                headers={"Authorization": "Bearer phx_test_key"},
+            )
+
+            assert response.status_code == 200
+            mock_litellm.assert_not_called()

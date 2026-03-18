@@ -13,6 +13,10 @@ import { Survey, SurveyEventName, SurveyEventProperties, SurveyQuestion } from '
 
 import { buildPartialResponsesFilter, createAnswerFilterHogQLExpression } from './utils'
 
+function escapeSqlIdentifier(value: string): string {
+    return value.replace(/"/g, '""')
+}
+
 interface SurveySQLHelperProps {
     isOpen: boolean
     onClose: () => void
@@ -28,7 +32,7 @@ export function SurveySQLHelper({ isOpen, onClose }: SurveySQLHelperProps): JSX.
     distinct_id,
     getSurveyResponse(${index}, '${question.id}'${
         question.type === SurveyQuestionType.MultipleChoice ? ', true' : ''
-    }) AS "${question.question}",
+    }) AS "${escapeSqlIdentifier(question.question)}",
     timestamp
 FROM
     events
@@ -48,7 +52,7 @@ LIMIT
             .map((question: SurveyQuestion, index: number) => {
                 return `    getSurveyResponse(${index}, '${question.id}'${
                     question.type === SurveyQuestionType.MultipleChoice ? ', true' : ''
-                }) AS "${question.question}"`
+                }) AS "${escapeSqlIdentifier(question.question)}"`
             })
             .join(',\n')
 
@@ -71,7 +75,7 @@ LIMIT
 
     // Function to open query in a new insight
     const openInInsight = (query: string): void => {
-        router.actions.push(urls.sqlEditor(query))
+        router.actions.push(urls.sqlEditor({ query: query }))
     }
 
     return (

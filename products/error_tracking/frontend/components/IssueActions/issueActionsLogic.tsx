@@ -1,9 +1,14 @@
-import { actions, kea, listeners, path } from 'kea'
+import { actions, kea, listeners, path, reducers } from 'kea'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
+import { createCohortFormData } from 'scenes/cohorts/cohortUtils'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { BehavioralEventType, CohortType, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { issueActionsLogicType } from './issueActionsLogicType'
 
@@ -12,10 +17,12 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
 
     actions({
         mergeIssues: (ids: string[]) => ({ ids }),
-        splitIssue: (id: ErrorTrackingIssue['id'], fingerprints: string[], exclusive: boolean = true) => ({
+        splitIssue: (
+            id: ErrorTrackingIssue['id'],
+            fingerprints: { fingerprint: string; name?: string; description?: string }[]
+        ) => ({
             id,
             fingerprints,
-            exclusive,
         }),
         resolveIssues: (ids: string[]) => ({ ids }),
         suppressIssues: (ids: string[]) => ({ ids }),
@@ -26,9 +33,22 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
         updateIssueStatus: (id: string, status: ErrorTrackingIssue['status']) => ({ id, status }),
         updateIssueName: (id: string, name: string) => ({ id, name }),
         updateIssueDescription: (id: string, description: string) => ({ id, description }),
+        createIssueCohort: (id: string, name: string, description: string) => ({ id, name, description }),
 
+        splitIssueSuccess: (newIssueIds: string[]) => ({ newIssueIds }),
         mutationSuccess: (mutationName: string) => ({ mutationName }),
         mutationFailure: (mutationName: string, error: unknown) => ({ mutationName, error }),
+        clearNeedsReload: true,
+    }),
+
+    reducers({
+        needsReload: [
+            false,
+            {
+                mutationSuccess: () => true,
+                clearNeedsReload: () => false,
+            },
+        ],
     }),
 
     listeners(({ actions }) => {
@@ -50,10 +70,11 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                     })
                 }
             },
-            splitIssue: async ({ id, fingerprints, exclusive }) => {
+            splitIssue: async ({ id, fingerprints }) => {
                 await runMutation('splitIssues', async () => {
                     posthog.capture('error_tracking_issue_split', { issueId: id })
-                    await api.errorTracking.split(id, fingerprints, exclusive)
+                    const response = await api.errorTracking.split(id, fingerprints)
+                    actions.splitIssueSuccess(response.new_issue_ids)
                 })
             },
             resolveIssues: async ({ ids }) => {
@@ -61,6 +82,8 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                     posthog.capture('error_tracking_issue_bulk_resolve')
                     await api.errorTracking.bulkMarkStatus(ids, 'resolved')
                 })
+
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ResolveFirstError)
             },
             suppressIssues: async ({ ids }) => {
                 await runMutation('suppressIssues', async () => {
@@ -104,6 +127,55 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                     await api.errorTracking.updateIssue(id, { description })
                 })
             },
+            createIssueCohort: async ({ id, name, description }) => {
+                await runMutation('createIssueCohort', async () => {
+                    let cohortParams = createCohortParams(name, description, id)
+                    let formData = createCohortFormData(cohortParams)
+                    let cohort = await api.cohorts.create(formData as Partial<CohortType>)
+                    posthog.capture('error_tracking_issue_create_cohort', {
+                        issueId: id,
+                        cohortId: cohort.id,
+                    })
+                    await api.errorTracking.assignCohort(id, cohort.id)
+                })
+            },
         }
     }),
 ])
+
+function createCohortParams(name: string, description: string, issueId: string): CohortType {
+    return {
+        id: 'new',
+        name,
+        description,
+        groups: [],
+        filters: {
+            properties: {
+                type: FilterLogicalOperator.Or,
+                values: [
+                    {
+                        type: FilterLogicalOperator.Or,
+                        values: [
+                            {
+                                key: '$exception',
+                                type: BehavioralFilterKey.Behavioral,
+                                value: BehavioralEventType.PerformEvent,
+                                negation: false,
+                                event_type: TaxonomicFilterGroupType.Events,
+                                event_filters: [
+                                    {
+                                        key: '$exception_issue_id',
+                                        type: PropertyFilterType.Event,
+                                        value: [issueId],
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                ],
+                                explicit_datetime: '-30d',
+                            },
+                        ],
+                    },
+                ],
+            },
+        },
+    }
+}

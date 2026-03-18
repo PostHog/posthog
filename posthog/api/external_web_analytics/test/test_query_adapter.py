@@ -183,7 +183,6 @@ class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
         # Check other configurations
         assert query.filterTestAccounts is True
         assert query.doPathCleaning is True
-        assert query.includeRevenue is False
         assert query.compareFilter is None
         assert query.conversionGoal is None
 

@@ -1,9 +1,10 @@
-import { afterMount, kea, path } from 'kea'
+import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+// eslint-disable-next-line import/no-cycle
 import { EmailTemplate } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 
 import { UserBasicType } from '~/types'
@@ -25,6 +26,14 @@ export interface MessageTemplate {
 
 export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
     path(['products', 'workflows', 'frontend', 'library', 'messageTemplatesLogic']),
+    actions({
+        setSearch: (search: string) => ({ search }),
+        setCreatedByFilter: (createdBy: number | null) => ({ createdBy }),
+    }),
+    reducers({
+        search: ['' as string, { setSearch: (_, { search }) => search }],
+        createdByFilter: [null as number | null, { setCreatedByFilter: (_, { createdBy }) => createdBy }],
+    }),
     loaders(({ values, actions }) => ({
         templates: [
             [] as MessageTemplate[],
@@ -74,9 +83,43 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                         return values.templates
                     }
                 },
+                duplicateTemplate: async (template: MessageTemplate) => {
+                    try {
+                        const duplicatedTemplate = await api.messaging.createTemplate({
+                            name: `${template.name} (copy)`,
+                            description: template.description,
+                            content: template.content,
+                        })
+                        lemonToast.success('Template duplicated successfully')
+                        return [...values.templates, duplicatedTemplate]
+                    } catch {
+                        lemonToast.error('Failed to duplicate template')
+                        return values.templates
+                    }
+                },
             },
         ],
     })),
+    selectors({
+        filteredTemplates: [
+            (s) => [s.templates, s.search, s.createdByFilter],
+            (templates: MessageTemplate[], search: string, createdByFilter: number | null): MessageTemplate[] => {
+                let filtered = templates
+                if (search) {
+                    const lowerSearch = search.toLowerCase()
+                    filtered = filtered.filter(
+                        (t) =>
+                            (t.name ?? '').toLowerCase().includes(lowerSearch) ||
+                            (t.description ?? '').toLowerCase().includes(lowerSearch)
+                    )
+                }
+                if (createdByFilter !== null) {
+                    filtered = filtered.filter((t) => t.created_by?.id === createdByFilter)
+                }
+                return filtered
+            },
+        ],
+    }),
     afterMount(({ actions }) => {
         actions.loadTemplates()
     }),

@@ -3,9 +3,8 @@ from typing import Any, Literal, TypedDict, TypeGuard, Union
 from langchain_core.messages import AIMessageChunk
 from structlog import get_logger
 
-from ee.hogai.graph.deep_research.types import DeepResearchNodeName, PartialDeepResearchState
-from ee.hogai.graph.taxonomy.types import TaxonomyAgentState, TaxonomyNodeName
-from ee.hogai.utils.types import PartialAssistantState
+from ee.hogai.chat_agent.taxonomy.types import TaxonomyAgentState, TaxonomyNodeName
+from ee.hogai.utils.types.base import PartialAssistantState
 from ee.hogai.utils.types.composed import AssistantMaxGraphState, AssistantMaxPartialGraphState, MaxNodeName
 
 # A state update can have a partial state or a LangGraph's reserved dataclasses like Interrupt.
@@ -34,8 +33,6 @@ def validate_value_update(
         if isinstance(value, dict):
             if isinstance(node_name, TaxonomyNodeName):
                 validated_update[node_name] = TaxonomyAgentState.model_validate(value)
-            elif isinstance(node_name, DeepResearchNodeName):
-                validated_update[node_name] = PartialDeepResearchState.model_validate(value)
             else:
                 validated_update[node_name] = PartialAssistantState.model_validate(value)
         else:
@@ -45,6 +42,7 @@ def validate_value_update(
 
 class LangGraphState(TypedDict):
     langgraph_node: MaxNodeName
+    langgraph_checkpoint_ns: str
 
 
 GraphMessageUpdateTuple = tuple[Literal["messages"], tuple[Union[AIMessageChunk, Any], LangGraphState]]

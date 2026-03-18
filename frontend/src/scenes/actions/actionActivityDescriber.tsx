@@ -1,4 +1,3 @@
-import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
     ActivityChange,
     ActivityLogItem,
@@ -9,6 +8,7 @@ import {
     detectBoolean,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { Link } from 'lib/lemon-ui/Link'
 import { pluralize } from 'lib/utils'
@@ -166,7 +166,8 @@ export function actionActivityDescriber(logItem: ActivityLogItem, asNotification
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> created action {nameAndLink(logItem)}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created action{' '}
+                    {nameAndLink(logItem)}
                 </>
             ),
         }
@@ -176,7 +177,8 @@ export function actionActivityDescriber(logItem: ActivityLogItem, asNotification
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> deleted action {nameAndLink(logItem)}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted action{' '}
+                    {nameAndLink(logItem)}
                 </>
             ),
         }
@@ -212,7 +214,7 @@ export function actionActivityDescriber(logItem: ActivityLogItem, asNotification
                 description: (
                     <SentenceList
                         listParts={changes}
-                        prefix={<strong>{userNameForLogItem(logItem)}</strong>}
+                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
                         suffix={changeSuffix}
                     />
                 ),

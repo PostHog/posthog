@@ -48,6 +48,22 @@ KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS = (
 )
 
 KAFKA_DOCUMENT_EMBEDDINGS_TOPIC = f"{KAFKA_PREFIX}clickhouse_document_embeddings{SUFFIX}"
+KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC = f"{KAFKA_PREFIX}document_embeddings_input{SUFFIX}"
 
 KAFKA_CDP_INTERNAL_EVENTS = f"{KAFKA_PREFIX}cdp_internal_events{SUFFIX}"
+KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES = (
+    f"{KAFKA_PREFIX}clickhouse_precalculated_person_properties{SUFFIX}"
+)
+KAFKA_CDP_BACKFILL_EVENTS = f"{KAFKA_PREFIX}cdp_backfill_events{SUFFIX}"
 KAFKA_COHORT_MEMBERSHIP_CHANGED = f"{KAFKA_PREFIX}cohort_membership_changed{SUFFIX}"
+KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER = f"{KAFKA_PREFIX}cohort_membership_changed_trigger{SUFFIX}"
+
+KAFKA_DWH_CDP_RAW_TABLE = f"{KAFKA_PREFIX}cdp_data_warehouse_source_table{SUFFIX}"
+KAFKA_WAREHOUSE_SOURCE_WEBHOOKS = f"{KAFKA_PREFIX}warehouse_source_webhooks{SUFFIX}"
+
+KAFKA_CLICKHOUSE_TOPHOG = f"{KAFKA_PREFIX}clickhouse_tophog{SUFFIX}"
+
+# Distinct ID usage - pre-processed by WarpStream pipeline from clickhouse_events_json
+KAFKA_DISTINCT_ID_USAGE_EVENTS_JSON = f"{KAFKA_PREFIX}distinct_id_usage_events_json{SUFFIX}"
+KAFKA_WAREHOUSE_SOURCES_JOBS = f"{KAFKA_PREFIX}data_warehouse_sources_jobs{SUFFIX}"
+KAFKA_WAREHOUSE_SOURCES_JOBS_DLQ = f"{KAFKA_PREFIX}data_warehouse_sources_jobs_dlq{SUFFIX}"

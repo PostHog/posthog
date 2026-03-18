@@ -1,0 +1,148 @@
+import { Client, Connection, TLSConfig, WorkflowHandle } from '@temporalio/client'
+import fs from 'fs/promises'
+import { Counter } from 'prom-client'
+
+import { CdpConfig } from '../../cdp/config'
+import { RawKafkaEvent } from '../../types'
+import { isDevEnv } from '../../utils/env-utils'
+import { logger } from '../../utils/logger'
+
+export type TemporalServiceConfig = Pick<
+    CdpConfig,
+    | 'TEMPORAL_CLIENT_ROOT_CA'
+    | 'TEMPORAL_CLIENT_CERT'
+    | 'TEMPORAL_CLIENT_KEY'
+    | 'TEMPORAL_PORT'
+    | 'TEMPORAL_HOST'
+    | 'TEMPORAL_NAMESPACE'
+>
+
+const EVALUATION_TASK_QUEUE = isDevEnv() ? 'development-task-queue' : 'llm-analytics-evals-task-queue'
+
+const temporalWorkflowsStarted = new Counter({
+    name: 'evaluation_run_workflows_started',
+    help: 'Number of evaluation run workflows started',
+    labelNames: ['status'],
+})
+
+export class TemporalService {
+    private client?: Client
+    private connecting?: Promise<Client>
+
+    constructor(private config: TemporalServiceConfig) {}
+
+    private async ensureConnected(): Promise<Client> {
+        if (this.client) {
+            return this.client
+        }
+
+        if (this.connecting) {
+            return await this.connecting
+        }
+
+        this.connecting = this.createClient()
+        this.client = await this.connecting
+        this.connecting = undefined
+
+        return this.client
+    }
+
+    private async buildTLSConfig(): Promise<TLSConfig | false> {
+        const { TEMPORAL_CLIENT_ROOT_CA, TEMPORAL_CLIENT_CERT, TEMPORAL_CLIENT_KEY } = this.config
+
+        if (!(TEMPORAL_CLIENT_ROOT_CA && TEMPORAL_CLIENT_CERT && TEMPORAL_CLIENT_KEY)) {
+            return false
+        }
+
+        let systemCAs = Buffer.alloc(0)
+        try {
+            const fileBuffer = await fs.readFile('/etc/ssl/certs/ca-certificates.crt')
+            systemCAs = Buffer.from(fileBuffer)
+        } catch (err: any) {
+            if (err.code !== 'ENOENT') {
+                logger.warn('⚠️ Failed to load system CA bundle', { err })
+            } else {
+                logger.debug('ℹ️ System CA bundle not found — using only provided root CA')
+            }
+        }
+
+        const combinedCA = Buffer.concat([systemCAs, Buffer.from(TEMPORAL_CLIENT_ROOT_CA)])
+
+        logger.debug('🔐 TLS configuration built', {
+            systemCABundle: systemCAs.length > 0,
+            combinedCABytes: combinedCA.length,
+        })
+
+        return {
+            serverRootCACertificate: combinedCA,
+            clientCertPair: {
+                crt: Buffer.from(TEMPORAL_CLIENT_CERT),
+                key: Buffer.from(TEMPORAL_CLIENT_KEY),
+            },
+        }
+    }
+
+    private async createClient(): Promise<Client> {
+        const tls = await this.buildTLSConfig()
+
+        const port = this.config.TEMPORAL_PORT || '7233'
+        const address = `${this.config.TEMPORAL_HOST}:${port}`
+
+        const connection = await Connection.connect({ address, tls })
+
+        const client = new Client({
+            connection,
+            namespace: this.config.TEMPORAL_NAMESPACE || 'default',
+        })
+
+        logger.info('✅ Connected to Temporal', {
+            address,
+            namespace: this.config.TEMPORAL_NAMESPACE,
+            tlsEnabled: tls !== false,
+        })
+
+        return client
+    }
+
+    async startEvaluationRunWorkflow(
+        evaluationId: string,
+        event: RawKafkaEvent,
+        evaluationRuntime: string = 'llm_judge'
+    ): Promise<WorkflowHandle> {
+        const client = await this.ensureConnected()
+
+        const prefix = evaluationRuntime === 'hog' ? 'llma-hog-eval' : 'llma-llm-eval'
+        const workflowId = `${prefix}-${evaluationId}-${event.uuid}-ingestion`
+
+        const handle = await client.workflow.start('run-evaluation', {
+            args: [
+                {
+                    evaluation_id: evaluationId,
+                    event_data: event,
+                },
+            ],
+            taskQueue: EVALUATION_TASK_QUEUE,
+            workflowId,
+            workflowIdConflictPolicy: 'USE_EXISTING',
+            workflowTaskTimeout: '2 minutes',
+        })
+
+        temporalWorkflowsStarted.labels({ status: 'success' }).inc()
+
+        logger.debug('Started evaluation run workflow', {
+            workflowId,
+            evaluationId,
+            targetEventId: event.uuid,
+            timestamp: event.timestamp,
+        })
+
+        return handle
+    }
+
+    async disconnect(): Promise<void> {
+        if (this.client) {
+            await this.client.connection.close()
+            this.client = undefined
+        }
+    }
+}

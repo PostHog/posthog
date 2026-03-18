@@ -50,7 +50,8 @@ def _get_targeting_flag(survey: Survey) -> ForeignKey | ForeignKey | Any:
 
     if existing_targeting_flag:
         existing_targeting_flag = survey.internal_targeting_flag
-        serialized_data_filters = {**user_submitted_dismissed_filter, **existing_targeting_flag.filters}
+        # Note: new filters must come LAST to overwrite old iteration-unaware properties
+        serialized_data_filters = {**existing_targeting_flag.filters, **user_submitted_dismissed_filter}
         existing_targeting_flag.filters = serialized_data_filters
         existing_targeting_flag.save()
         return existing_targeting_flag

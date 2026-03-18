@@ -21,6 +21,7 @@ INSERT INTO sharded_session_replay_events (
     min_first_timestamp,
     max_last_timestamp,
     first_url,
+    all_urls,
     click_count,
     keypress_count,
     mouse_activity_count,
@@ -35,6 +36,7 @@ INSERT INTO sharded_session_replay_events (
     block_first_timestamps,
     block_last_timestamps,
     retention_period_days,
+    is_deleted,
     _timestamp
 )
 SELECT
@@ -44,6 +46,7 @@ SELECT
     toDateTime64(%(first_timestamp)s, 6, 'UTC'),
     toDateTime64(%(last_timestamp)s, 6, 'UTC'),
     argMinState(cast(%(first_url)s, 'Nullable(String)'), toDateTime64(%(first_timestamp)s, 6, 'UTC')),
+    %(all_urls)s,
     %(click_count)s,
     %(keypress_count)s,
     %(mouse_activity_count)s,
@@ -58,6 +61,7 @@ SELECT
     %(block_first_timestamps)s,
     %(block_last_timestamps)s,
     %(retention_period_days)s,
+    %(is_deleted)s,
     %(_timestamp)s
 """
 
@@ -119,6 +123,7 @@ def produce_replay_summary(
     first_timestamp: Optional[str | datetime] = None,
     last_timestamp: Optional[str | datetime] = None,
     first_url: Optional[str | None] = "https://not-provided-by-test.com",
+    all_urls: list[str] | None = None,
     click_count: Optional[int] = None,
     keypress_count: Optional[int] = None,
     mouse_activity_count: Optional[int] = None,
@@ -137,6 +142,7 @@ def produce_replay_summary(
     block_first_timestamps: list[datetime] | None = None,
     block_last_timestamps: list[datetime] | None = None,
     retention_period_days: int | None = None,
+    is_deleted: bool = False,
 ):
     """
     Creates a session replay event in ClickHouse for testing purposes.
@@ -156,6 +162,7 @@ def produce_replay_summary(
         "first_timestamp": timestamp,
         "last_timestamp": format_clickhouse_timestamp(cast_timestamp_or_now(last_timestamp)),
         "first_url": first_url,
+        "all_urls": all_urls or [],
         "click_count": click_count or 0,
         "keypress_count": keypress_count or 0,
         "mouse_activity_count": mouse_activity_count or 0,
@@ -170,6 +177,7 @@ def produce_replay_summary(
         "block_first_timestamps": block_first_timestamps or [],
         "block_last_timestamps": block_last_timestamps or [],
         "retention_period_days": retention_period_days or 30,
+        "is_deleted": 1 if is_deleted else 0,
     }
 
     if settings.TEST:
@@ -195,6 +203,7 @@ def produce_replay_summary(
             event="foobarino",
             properties={"$session_id": data["session_id"]},
             team_id=team_id,
+            timestamp=timestamp,
         )
         flush_persons_and_events()
 

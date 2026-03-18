@@ -7,7 +7,10 @@
     {% include "head.html" %}
 
     <script nonce="{{ request.csp_nonce }}">
+        // these values are properly sanitized
+        // nosemgrep: generic.html-templates.security.var-in-script-tag.var-in-script-tag
         const posthogJSApiKey = "{{ js_posthog_api_key|escapejs }}";
+        // nosemgrep: generic.html-templates.security.var-in-script-tag.var-in-script-tag
         let posthogHost = "{{ js_posthog_host|escapejs }}";
         if (posthogHost.trim().length === 0) {
             posthogHost = window.location.origin;

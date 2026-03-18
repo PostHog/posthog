@@ -1,4 +1,4 @@
-FROM golang:1.24.6 AS builder
+FROM golang:1.25.5 AS builder
 WORKDIR /code
 COPY go.sum go.mod ./
 RUN go mod download -x
@@ -23,5 +23,9 @@ FROM ubuntu:24.04
 COPY --from=builder /livestream /GeoLite2-City.mmdb /
 COPY --from=builder /etc/ssl/certs /etc/ssl/certs
 COPY --from=builder /usr/share/ca-certificates /usr/share/ca-certificates
+
+# TODO run as non-root user
+# nosemgrep: dockerfile.security.last-user-is-root.last-user-is-root
+USER root
 
 CMD ["/livestream"]

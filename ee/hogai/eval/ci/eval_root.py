@@ -6,8 +6,8 @@ from braintrust import EvalCase
 
 from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, HumanMessage
 
+from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
 
@@ -20,16 +20,7 @@ def call_root(demo_org_team_user):
     graph = (
         AssistantGraph(demo_org_team_user[1], demo_org_team_user[2])
         .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-        .add_root(
-            {
-                "insights": AssistantNodeName.END,
-                "billing": AssistantNodeName.END,
-                "insights_search": AssistantNodeName.END,
-                "search_documentation": AssistantNodeName.END,
-                "root": AssistantNodeName.ROOT,
-                "end": AssistantNodeName.END,
-            }
-        )
+        .add_root(lambda state: AssistantNodeName.END)
         # TRICKY: We need to set a checkpointer here because async tests create a new event loop.
         .compile(checkpointer=DjangoCheckpointer())
     )
@@ -58,7 +49,7 @@ async def eval_root(call_root, pytestconfig):
                 input="Create an SQL insight to calculate active users recently",
                 expected=AssistantToolCall(
                     id="1",
-                    name="create_and_query_insight",
+                    name="create_insight",
                     args={"query_description": "Calculate the number of active users recently"},
                 ),
             ),
@@ -66,7 +57,7 @@ async def eval_root(call_root, pytestconfig):
                 input="Write SQL to calculate active users recently",
                 expected=AssistantToolCall(
                     id="2",
-                    name="create_and_query_insight",
+                    name="create_insight",
                     args={"query_description": "Calculate the number of active users recently"},
                 ),
             ),
@@ -79,7 +70,7 @@ async def eval_root(call_root, pytestconfig):
                         tool_calls=[
                             AssistantToolCall(
                                 id="call_vaTlpWMBgGyvYVIMfj1ecW8F",
-                                name="create_and_query_insight",
+                                name="create_insight",
                                 args={
                                     "query_description": "Trend of pageviews year-to-date 2025",
                                 },
@@ -101,7 +92,7 @@ async def eval_root(call_root, pytestconfig):
                 ],
                 expected=AssistantToolCall(
                     id="2",
-                    name="create_and_query_insight",
+                    name="create_insight",
                     args={
                         "query_description": "List all users who have completed a page view in year-to-date 2025.",
                     },
@@ -116,7 +107,7 @@ async def eval_root(call_root, pytestconfig):
                         tool_calls=[
                             AssistantToolCall(
                                 id="call_XdLOyLrHbjoBBACDCZd8WyNS",
-                                name="create_and_query_insight",
+                                name="create_insight",
                                 args={
                                     "query_description": "List all user names who have completed a page view Year-To-Date (YTD).",
                                 },
@@ -138,7 +129,7 @@ async def eval_root(call_root, pytestconfig):
                 ],
                 expected=AssistantToolCall(
                     id="2",
-                    name="create_and_query_insight",
+                    name="create_insight",
                     args={
                         "query_description": "List all companies who have completed a page view Year-To-Date (YTD).",
                     },
@@ -153,7 +144,7 @@ async def eval_root(call_root, pytestconfig):
                         tool_calls=[
                             AssistantToolCall(
                                 id="call_XdLOyLrHbjoBBACDCZd8WyNS",
-                                name="create_and_query_insight",
+                                name="create_insight",
                                 args={
                                     "query_description": "List all user names who have completed a page view Year-To-Date (YTD).",
                                 },
@@ -179,7 +170,7 @@ async def eval_root(call_root, pytestconfig):
             EvalCase(
                 input="Show me all events where the default $browser property equals Chrome",
                 expected=AssistantToolCall(
-                    name="create_and_query_insight",
+                    name="create_insight",
                     args={
                         "query_description": "Show all events where the $browser property equals Chrome",
                     },
@@ -189,34 +180,17 @@ async def eval_root(call_root, pytestconfig):
             EvalCase(
                 input="How many unique users have the default $device_type property as mobile?",
                 expected=AssistantToolCall(
-                    name="create_and_query_insight",
+                    name="create_insight",
                     args={
                         "query_description": "Count unique users who have the $device_type property set to mobile",
                     },
                     id="call_insight_default_props_2",
                 ),
             ),
-            # Ensure we try and navigate to the relevant page when asked about specific topics
-            EvalCase(
-                input="What's my MRR?",
-                expected=AssistantToolCall(
-                    name="navigate",
-                    args={"page_key": "revenueAnalytics"},
-                    id="call_navigate_1",
-                ),
-            ),
-            EvalCase(
-                input="Can you help me create a survey to collect NPS ratings?",
-                expected=AssistantToolCall(
-                    name="navigate",
-                    args={"page_key": "surveys"},
-                    id="call_navigate_1",
-                ),
-            ),
             EvalCase(
                 input="Give me the signup to purchase conversion rate for the dates between 8 Jul and 9 Sep",
                 expected=AssistantToolCall(
-                    name="create_and_query_insight",
+                    name="create_insight",
                     args={
                         "query_description": "Calculate the signup to purchase conversion rate for dates between July 8 and September 9",
                     },
@@ -226,11 +200,22 @@ async def eval_root(call_root, pytestconfig):
             EvalCase(
                 input="Show me daily active users for the past month",
                 expected=AssistantToolCall(
-                    name="create_and_query_insight",
+                    name="create_insight",
                     args={
                         "query_description": "Daily active users for the past month",
                     },
                     id="call_dau_past_month",
+                ),
+            ),
+            # Some models already know about PostHog's events, but they must not rely on this knowledge and use the read_taxonomy tool instead.
+            EvalCase(
+                input="create a pageview trends broken down by countries",
+                expected=AssistantToolCall(
+                    name="read_taxonomy",
+                    args={
+                        "query": {"kind": "events"},
+                    },
+                    id="call_read_events",
                 ),
             ),
         ],

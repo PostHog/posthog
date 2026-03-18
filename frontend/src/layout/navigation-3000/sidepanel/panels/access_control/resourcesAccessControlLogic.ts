@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import {
     APIScopeObject,
@@ -16,6 +17,7 @@ import {
     AccessControlType,
     AccessControlTypeRole,
     AccessControlUpdateType,
+    AvailableFeature,
     OrganizationMemberType,
     RoleType,
 } from '~/types'
@@ -33,10 +35,23 @@ export type RoleResourceAccessControls = DefaultResourceAccessControls & {
     role?: RoleType
 }
 
+const RESOURCE_FEATURE_REQUIREMENTS: Partial<Record<AccessControlResourceType, AvailableFeature>> = {
+    [AccessControlResourceType.ActivityLog]: AvailableFeature.AUDIT_LOGS,
+}
+
 export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>([
     path(['scenes', 'accessControl', 'resourcesAccessControlLogic']),
     connect(() => ({
-        values: [roleAccessControlLogic, ['roles'], teamLogic, ['currentTeam'], membersLogic, ['sortedMembers']],
+        values: [
+            roleAccessControlLogic,
+            ['roles'],
+            teamLogic,
+            ['currentTeam'],
+            membersLogic,
+            ['sortedMembers'],
+            userLogic,
+            ['hasAvailableFeature'],
+        ],
     })),
     actions({
         updateResourceAccessControls: (
@@ -262,20 +277,32 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
         ],
 
         resources: [
-            () => [],
-            (): AccessControlType['resource'][] => {
-                return [
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature): APIScopeObject[] => {
+                const allResources = [
                     AccessControlResourceType.Action,
+                    AccessControlResourceType.ActivityLog,
                     AccessControlResourceType.Dashboard,
                     AccessControlResourceType.Experiment,
+                    AccessControlResourceType.ExternalDataSource,
                     AccessControlResourceType.FeatureFlag,
                     AccessControlResourceType.Insight,
+                    AccessControlResourceType.LlmAnalytics,
                     AccessControlResourceType.Notebook,
                     AccessControlResourceType.RevenueAnalytics,
                     AccessControlResourceType.SessionRecording,
+                    AccessControlResourceType.ErrorTracking,
                     AccessControlResourceType.Survey,
                     AccessControlResourceType.WebAnalytics,
                 ]
+
+                return allResources.filter((resource) => {
+                    const requiredFeature = RESOURCE_FEATURE_REQUIREMENTS[resource]
+                    if (!requiredFeature) {
+                        return true
+                    }
+                    return hasAvailableFeature(requiredFeature)
+                })
             },
         ],
 

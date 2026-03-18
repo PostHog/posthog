@@ -4,7 +4,6 @@ import {
     AssistantMessage,
     AssistantMessageType,
     HumanMessage,
-    ReasoningMessage,
 } from '~/queries/schema/schema-assistant-messages'
 
 import { MaxContextType } from '../maxTypes'
@@ -21,16 +20,22 @@ export const humanMessage: HumanMessage = {
     id: 'human-1',
 }
 
-const reasoningMessage1: ReasoningMessage = {
-    type: AssistantMessageType.Reasoning,
-    content: 'Picking relevant events and properties',
+const reasoningMessage1: AssistantMessage = {
+    type: AssistantMessageType.Assistant,
+    content: '',
     id: 'reasoning-1',
+    meta: {
+        thinking: [{ thinking: 'Picking relevant events and properties' }],
+    },
 }
 
-const reasoningMessage2: ReasoningMessage = {
-    type: AssistantMessageType.Reasoning,
-    content: 'Generating trends',
+const reasoningMessage2: AssistantMessage = {
+    type: AssistantMessageType.Assistant,
+    content: '',
     id: 'reasoning-2',
+    meta: {
+        thinking: [{ thinking: 'Generating trends' }],
+    },
 }
 
 function generateChunk(events: string[]): string {
@@ -129,4 +134,19 @@ export const chatResponseWithEventContext = generateChunk([
     `data: ${JSON.stringify(humanMessageWithContext)}`,
     'event: message',
     `data: ${JSON.stringify(assistantResponseWithContext)}`,
+])
+
+const sqlMessage: AssistantMessage = {
+    type: AssistantMessageType.Assistant,
+    content: `Here's the SQL query you requested:\n\n\`\`\`sql\nSELECT users.id, users.email, users.name, orders.order_id, orders.total_amount, orders.order_date, products.product_name, products.category, order_items.quantity, order_items.price FROM users INNER JOIN orders ON users.id = orders.user_id INNER JOIN order_items ON orders.order_id = order_items.order_id INNER JOIN products ON order_items.product_id = products.id WHERE orders.order_date >= '2024-01-01' AND orders.status = 'completed' AND users.country = 'US' ORDER BY orders.total_amount DESC LIMIT 100\n\`\`\`\n\nThis query joins multiple tables to get comprehensive order information.`,
+    id: 'sql-msg-1',
+}
+
+export const sqlQueryResponseChunk = generateChunk([
+    'event: conversation',
+    `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+    'event: message',
+    `data: ${JSON.stringify({ ...humanMessage, content: 'Show me a complex SQL query' })}`,
+    'event: message',
+    `data: ${JSON.stringify(sqlMessage)}`,
 ])

@@ -1,12 +1,13 @@
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
 import * as React from 'react'
 
-import { IconCheck, IconChevronRight } from '@posthog/icons'
+import { IconCheck } from '@posthog/icons'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { cn } from 'lib/utils/css-classes'
 
 import { Label } from '../Label/Label'
+import { MenuSeparator } from '../Menus/Menus'
 
 /* -------------------------------------------------------------------------- */
 /*                           Button Context & Hook                            */
@@ -203,35 +204,12 @@ const DropdownMenuSeparator = React.forwardRef<
     React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Separator>
 >(
     ({ className, ...props }, ref): JSX.Element => (
-        <DropdownMenuPrimitive.Separator
-            ref={ref}
-            className={cn('-mx-1 my-1 h-px bg-border-primary', className)}
-            {...props}
-        />
+        <DropdownMenuPrimitive.Separator ref={ref} {...props} asChild>
+            <MenuSeparator className={className} />
+        </DropdownMenuPrimitive.Separator>
     )
 )
 DropdownMenuSeparator.displayName = DropdownMenuPrimitive.Separator.displayName
-
-interface DropdownMenuOpenIndicatorProps extends React.HTMLAttributes<HTMLOrSVGElement> {
-    intent?: 'default' | 'sub'
-}
-const DropdownMenuOpenIndicator = ({
-    className,
-    intent = 'default',
-    ...props
-}: DropdownMenuOpenIndicatorProps): JSX.Element => {
-    return (
-        <IconChevronRight
-            className={cn(
-                'ml-auto size-3 text-secondary rotate-90 group-data-[state=open]/button-primitive:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none',
-                intent === 'sub' && 'rotate-0 group-data-[state=open]/button-primitive:rotate-0',
-                className
-            )}
-            {...props}
-        />
-    )
-}
-DropdownMenuOpenIndicator.displayName = 'DropdownMenuOpenIndicator'
 
 const DropdownMenuShortcut = ({ className, ...props }: React.HTMLAttributes<HTMLSpanElement>): JSX.Element => {
     return <span className={cn('ml-auto text-xs tracking-widest opacity-60', className)} {...props} />
@@ -255,5 +233,4 @@ export {
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
     DropdownMenuTrigger,
-    DropdownMenuOpenIndicator,
 }

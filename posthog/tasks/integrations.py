@@ -1,6 +1,6 @@
 from celery import shared_task
 
-from posthog.models.integration import GitHubIntegration, GoogleCloudIntegration
+from posthog.models.integration import FirebaseIntegration, GitHubIntegration, GoogleCloudIntegration
 from posthog.tasks.utils import CeleryQueue
 
 
@@ -32,6 +32,14 @@ def refresh_integrations() -> int:
         if github_integration.access_token_expired():
             refresh_integration.delay(integration.id)
 
+    firebase_integrations = Integration.objects.filter(kind="firebase").all()
+
+    for integration in firebase_integrations:
+        firebase_integration = FirebaseIntegration(integration)
+
+        if firebase_integration.access_token_expired():
+            refresh_integration.delay(integration.id)
+
     return 0
 
 
@@ -50,5 +58,18 @@ def refresh_integration(id: int) -> int:
     elif integration.kind == "github":
         github_integration = GitHubIntegration(integration)
         github_integration.refresh_access_token()
+    elif integration.kind == "firebase":
+        firebase_integration = FirebaseIntegration(integration)
+        firebase_integration.refresh_access_token()
 
     return 0
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.INTEGRATIONS.value)
+def push_vercel_secrets(team_id: int) -> None:
+    from posthog.models.team import Team
+
+    from ee.vercel.integration import VercelIntegration
+
+    team = Team.objects.get(id=team_id)
+    VercelIntegration.push_secrets_to_vercel(team)

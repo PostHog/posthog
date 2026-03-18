@@ -8898,23 +8898,6 @@
             "status": "coming_soon",
             "free": true,
             "type": "destination",
-            "id": "coming-soon-azure-blob-storage",
-            "name": "Azure Blob Storage",
-            "hog": "return event;",
-            "inputs_schema": [],
-            "category": ["Databases & Object Storage"],
-            "code_language": "hog",
-            "description": "Send events to Azure Blob Storage.",
-            "filters": null,
-            "masking": null,
-            "icon_url": "/static/coming-soon-destinations/Azure_Blob_Storage.svg"
-        },
-        {
-            "mapping_templates": null,
-            "mappings": null,
-            "status": "coming_soon",
-            "free": true,
-            "type": "destination",
             "id": "coming-soon-azure-data-lake",
             "name": "Azure Data Lake",
             "hog": "return event;",
@@ -9855,6 +9838,78 @@
             "filters": null,
             "masking": null,
             "icon_url": "/static/services/cloud.com.png"
+        },
+        {
+            "mapping_templates": null,
+            "mappings": null,
+            "status": "beta",
+            "free": false,
+            "type": "destination",
+            "id": "template-onesignal",
+            "name": "OneSignal",
+            "code": "let properties := inputs.eventProperties\nif (empty(properties)) {\n  properties := event.properties\n}\n\nlet getPayload := () -> {\n  'external_id': inputs.externalId,\n  'name': inputs.eventName,\n  'properties': properties,\n  'timestamp': inputs.eventTimestamp\n}\n\nlet payload := getPayload()\n\nlet res := fetch(f'https://api.onesignal.com/apps/{inputs.appId}/custom_events', {\n  'method': 'POST',\n  'headers': {\n    'Authorization': f'Key {inputs.apiKey}',\n    'Content-Type': 'application/json',\n    'OneSignal-Usage': 'PostHog | Partner Integration'\n  },\n  'body': {'events':[payload]}\n})\n\nif (res.status >= 200 and res.status < 300) {\n  print(f'Event sent successfully! Response: {res.status} {res.body}')\n} else {\n  throw Error(f'Error sending event: {res.status} {res.body}')\n}",
+            "code_language": "hog",
+            "inputs_schema": [
+                {
+                    "key": "appId",
+                    "type": "string",
+                    "label": "OneSignal App ID",
+                    "description": "Your OneSignal App ID. You can find this in your OneSignal dashboard under Settings > Keys & IDs.",
+                    "default": "",
+                    "secret": false,
+                    "required": true
+                },
+                {
+                    "key": "apiKey",
+                    "type": "string",
+                    "label": "OneSignal REST API Key",
+                    "description": "Your OneSignal REST API Key. You can find this in your OneSignal dashboard under Settings > Keys & IDs.",
+                    "default": "",
+                    "secret": false,
+                    "required": true
+                },
+                {
+                    "key": "externalId",
+                    "type": "string",
+                    "label": "External ID",
+                    "description": "A unique identifier that is used to identify this person across OneSignal, PostHog, and other external systems.",
+                    "default": "{person.id}",
+                    "secret": false,
+                    "required": true
+                },
+                {
+                    "key": "eventName",
+                    "type": "string",
+                    "label": "Event name",
+                    "description": "The name of the event to send to OneSignal.",
+                    "default": "{event.event}",
+                    "secret": false,
+                    "required": true
+                },
+                {
+                    "key": "eventProperties",
+                    "type": "json",
+                    "label": "Event properties",
+                    "description": "Additional properties to include with the event. Leave empty to use all event properties, or specify custom properties.",
+                    "default": {},
+                    "secret": false,
+                    "required": false
+                },
+                {
+                    "key": "eventTimestamp",
+                    "type": "string",
+                    "label": "Event timestamp",
+                    "description": "The timestamp of the event.",
+                    "default": "{event.timestamp}",
+                    "secret": false,
+                    "required": true
+                }
+            ],
+            "category": ["Marketing"],
+            "description": "Send events to OneSignal",
+            "filters": null,
+            "masking": null,
+            "icon_url": "/static/services/onesignal.svg"
         },
         {
             "mapping_templates": null,

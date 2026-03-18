@@ -1,7 +1,4 @@
-import { IconInfo } from '@posthog/icons'
-
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { useDebouncedQuery } from '~/queries/hooks/useDebouncedQuery'
 import { ActorsQuery, PersonsNode } from '~/queries/schema/schema-general'
@@ -13,21 +10,9 @@ interface PersonSearchProps {
     setQuery?: (query: PersonsNode | ActorsQuery) => void
 }
 
-interface LabelType {
-    label: string
-    description: string
-}
-
-const labels: Record<ActorType, LabelType> = {
-    person: {
-        label: 'persons',
-        description: 'Search by name, email, Person ID or Distinct ID.',
-    },
-    group: {
-        label: 'groups',
-        description:
-            'Search by group name or Distinct ID. Group name will match partially. Distinct ID needs to match exactly.',
-    },
+const placeholders: Record<ActorType, string> = {
+    person: 'Search by name, email, Person ID or Distinct ID',
+    group: 'Search by group name or Distinct ID (group name matches partially, Distinct ID must match exactly)',
 }
 
 export function PersonsSearch({ query, setQuery }: PersonSearchProps): JSX.Element {
@@ -40,18 +25,16 @@ export function PersonsSearch({ query, setQuery }: PersonSearchProps): JSX.Eleme
     const target: ActorType = isQueryForGroup(query) ? 'group' : 'person'
 
     return (
-        <div className="flex items-center gap-2">
+        <div className="flex items-center flex-1 min-w-0">
             <LemonInput
                 type="search"
                 value={value ?? ''}
-                placeholder={`Search for ${labels[target].label}`}
+                placeholder={placeholders[target]}
                 data-attr="persons-search"
                 disabled={!setQuery}
                 onChange={onChange}
+                fullWidth
             />
-            <Tooltip title={labels[target].description}>
-                <IconInfo className="text-2xl text-secondary shrink-0" />
-            </Tooltip>
         </div>
     )
 }

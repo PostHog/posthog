@@ -1,18 +1,24 @@
 import { actions, kea, key, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
+import { useEffect } from 'react'
 
 import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DataPipelinesSelfManagedSource } from 'scenes/data-pipelines/DataPipelinesSelfManagedSource'
+import { cleanSourceId, isManagedSourceId, isSelfManagedSourceId } from 'scenes/data-warehouse/utils'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { Breadcrumb } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { ActivityScope, Breadcrumb } from '~/types'
 
 import type { dataWarehouseSourceSceneLogicType } from './DataWarehouseSourceSceneType'
+import { dataWarehouseSourceSettingsLogic } from './source/dataWarehouseSourceSettingsLogic'
 import { Schemas } from './source/Schemas'
 import { SourceConfiguration } from './source/SourceConfiguration'
 import { Syncs } from './source/Syncs'
@@ -56,15 +62,9 @@ export const dataWarehouseSourceSceneLogic = kea<dataWarehouseSourceSceneLogicTy
             (breadcrumbName): Breadcrumb[] => {
                 return [
                     {
-                        key: Scene.DataPipelines,
-                        name: 'Data pipelines',
-                        path: urls.dataPipelines('overview'),
-                        iconType: 'data_pipeline',
-                    },
-                    {
-                        key: [Scene.DataPipelines, 'sources'],
-                        name: `Sources`,
-                        path: urls.dataPipelines('sources'),
+                        key: Scene.Sources,
+                        name: 'Sources',
+                        path: urls.sources(),
                         iconType: 'data_pipeline',
                     },
                     {
@@ -73,6 +73,25 @@ export const dataWarehouseSourceSceneLogic = kea<dataWarehouseSourceSceneLogicTy
                         iconType: 'data_pipeline',
                     },
                 ]
+            },
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            () => [(_, props) => props],
+            (props): SidePanelSceneContext | null => {
+                const id = cleanSourceId(props.id)
+                return id
+                    ? {
+                          activity_scope: ActivityScope.EXTERNAL_DATA_SOURCE,
+                          activity_item_id: id,
+                          // Only managed sources have access control, self-managed sources do not
+                          ...(isManagedSourceId(props.id)
+                              ? {
+                                    access_control_resource: 'external_data_source',
+                                    access_control_resource_id: id,
+                                }
+                              : {}),
+                      }
+                    : null
             },
         ],
     }),
@@ -86,7 +105,7 @@ export const dataWarehouseSourceSceneLogic = kea<dataWarehouseSourceSceneLogicTy
             [urls.dataWarehouseSource(':id', ':tab' as any)]: (params): void => {
                 let possibleTab = (params.tab ?? 'configuration') as DataWarehouseSourceSceneTab
 
-                if (params.id?.startsWith('self-managed-')) {
+                if (params.id && isSelfManagedSourceId(params.id)) {
                     possibleTab = 'configuration' // This only has one tab
                 }
 
@@ -102,6 +121,7 @@ export const dataWarehouseSourceSceneLogic = kea<dataWarehouseSourceSceneLogicTy
 export const scene: SceneExport<(typeof dataWarehouseSourceSceneLogic)['props']> = {
     component: DataWarehouseSourceScene,
     logic: dataWarehouseSourceSceneLogic,
+    productKey: ProductKey.DATA_WAREHOUSE,
     paramsToProps: ({ params: { id } }) => ({ id }),
 }
 
@@ -114,33 +134,7 @@ export function DataWarehouseSourceScene(): JSX.Element {
         return <NotFound object="Data warehouse source" />
     }
 
-    const cleanId = id.replace('self-managed-', '').replace('managed-', '')
-
-    const tabs: LemonTab<DataWarehouseSourceSceneTab>[] = id.startsWith('managed-')
-        ? [
-              {
-                  label: 'Schemas',
-                  key: 'schemas',
-                  content: <Schemas id={cleanId} />,
-              },
-              {
-                  label: 'Syncs',
-                  key: 'syncs',
-                  content: <Syncs id={cleanId} />,
-              },
-              {
-                  label: 'Configuration',
-                  key: 'configuration',
-                  content: <SourceConfiguration id={cleanId} />,
-              },
-          ]
-        : [
-              {
-                  label: 'Configuration',
-                  key: 'configuration',
-                  content: <DataPipelinesSelfManagedSource id={cleanId} />,
-              },
-          ]
+    const sourceId = cleanSourceId(id)
 
     return (
         <SceneContent>
@@ -149,8 +143,68 @@ export function DataWarehouseSourceScene(): JSX.Element {
                 resourceType={{ type: 'data_pipeline' }}
                 isLoading={breadcrumbName === 'Source'}
             />
-            <SceneDivider />
-            <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
+            {isManagedSourceId(id) ? (
+                <ManagedSourceTabs sourceId={sourceId} currentTab={currentTab} setCurrentTab={setCurrentTab} />
+            ) : (
+                <LemonTabs
+                    activeKey={currentTab}
+                    tabs={[
+                        {
+                            label: 'Configuration',
+                            key: 'configuration',
+                            content: <DataPipelinesSelfManagedSource id={sourceId} />,
+                        },
+                    ]}
+                    onChange={setCurrentTab}
+                    sceneInset
+                />
+            )}
         </SceneContent>
     )
+}
+
+function ManagedSourceTabs({
+    sourceId,
+    currentTab,
+    setCurrentTab,
+}: {
+    sourceId: string
+    currentTab: DataWarehouseSourceSceneTab
+    setCurrentTab: (tab: DataWarehouseSourceSceneTab) => void
+}): JSX.Element {
+    const sourceSettingsLogic = dataWarehouseSourceSettingsLogic({ id: sourceId, availableSources: {} })
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { source } = useValues(sourceSettingsLogic)
+
+    const isDirectQuerySource =
+        !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && source?.access_method === 'direct'
+
+    useEffect(() => {
+        if (isDirectQuerySource && currentTab === 'syncs') {
+            setCurrentTab('schemas')
+        }
+    }, [isDirectQuerySource, currentTab, setCurrentTab])
+
+    const tabs: LemonTab<DataWarehouseSourceSceneTab>[] = [
+        {
+            label: 'Schemas',
+            key: 'schemas',
+            content: <Schemas id={sourceId} />,
+        },
+        {
+            label: 'Configuration',
+            key: 'configuration',
+            content: <SourceConfiguration id={sourceId} />,
+        },
+    ]
+
+    if (!isDirectQuerySource) {
+        tabs.splice(1, 0, {
+            label: 'Syncs',
+            key: 'syncs',
+            content: <Syncs id={sourceId} />,
+        })
+    }
+
+    return <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
 }

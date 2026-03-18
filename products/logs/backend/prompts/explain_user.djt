@@ -1,0 +1,29 @@
+## Log Entry for Analysis
+
+**Timestamp:** {{ timestamp }}
+**Service:** {{ service_name }}
+**Logged Severity:** {{ severity_text }}
+{% if event_name %}**Event Name:** {{ event_name }}{% endif %}
+
+### Message Body
+```
+{{ body }}
+```
+
+### Attributes
+```json
+{{ attributes }}
+```
+
+### Resource Attributes
+```json
+{{ resource_attributes }}
+```
+
+### Correlation IDs
+{% if trace_id %}- Trace ID: `{{ trace_id }}`{% endif %}
+{% if span_id %}- Span ID: `{{ span_id }}`{% endif %}
+
+---
+
+Analyze this log entry. Help the on-call engineer understand what happened and what to do about it.

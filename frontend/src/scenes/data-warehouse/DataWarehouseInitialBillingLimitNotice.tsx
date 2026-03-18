@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 
 import { InitialBillingLimitNotice } from 'scenes/billing/InitialBillingLimitNotice'
 
-import { ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { dataWarehouseSettingsLogic } from './settings/dataWarehouseSettingsLogic'
 

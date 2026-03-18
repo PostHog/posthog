@@ -1,0 +1,102 @@
+syntax = "proto3";
+package personhog.types.v1;
+
+import "personhog/types/v1/common.proto";
+
+// Group represents a group entity with properties
+message Group {
+  int64 id = 1;
+  int64 team_id = 2;
+  int32 group_type_index = 3;
+  string group_key = 4;
+  bytes group_properties = 5;
+  int64 created_at = 6;
+  bytes properties_last_updated_at = 7;
+  bytes properties_last_operation = 8;
+  int64 version = 9;
+}
+
+// GroupTypeMapping defines a group type configuration for a team/project
+message GroupTypeMapping {
+  int64 id = 1;
+  int64 team_id = 2;
+  int64 project_id = 3;
+  string group_type = 4;
+  int32 group_type_index = 5;
+  optional string name_singular = 6;
+  optional string name_plural = 7;
+  optional bytes default_columns = 8;
+  optional int64 detail_dashboard_id = 9;
+  optional int64 created_at = 10;
+}
+
+// GroupWithKey pairs a cross-team lookup key with its resolved group
+message GroupWithKey {
+  GroupKey key = 1;
+  optional Group group = 2;
+}
+
+// GroupTypeMappingsByKey groups mappings by their lookup key
+message GroupTypeMappingsByKey {
+  int64 key = 1;
+  repeated GroupTypeMapping mappings = 2;
+}
+
+message GetGroupRequest {
+  int64 team_id = 1;
+  int32 group_type_index = 2;
+  string group_key = 3;
+  ReadOptions read_options = 4;
+}
+
+message GetGroupResponse {
+  optional Group group = 1;
+}
+
+message GetGroupsRequest {
+  int64 team_id = 1;
+  repeated GroupIdentifier group_identifiers = 2;
+  ReadOptions read_options = 3;
+}
+
+message GroupsResponse {
+  repeated Group groups = 1;
+  repeated GroupIdentifier missing_groups = 2;
+}
+
+message GetGroupsBatchRequest {
+  repeated GroupKey keys = 1;
+  ReadOptions read_options = 2;
+}
+
+message GetGroupsBatchResponse {
+  repeated GroupWithKey results = 1;
+}
+
+message GetGroupTypeMappingsByTeamIdRequest {
+  int64 team_id = 1;
+  ReadOptions read_options = 2;
+}
+
+message GetGroupTypeMappingsByTeamIdsRequest {
+  repeated int64 team_ids = 1;
+  ReadOptions read_options = 2;
+}
+
+message GetGroupTypeMappingsByProjectIdRequest {
+  int64 project_id = 1;
+  ReadOptions read_options = 2;
+}
+
+message GetGroupTypeMappingsByProjectIdsRequest {
+  repeated int64 project_ids = 1;
+  ReadOptions read_options = 2;
+}
+
+message GroupTypeMappingsResponse {
+  repeated GroupTypeMapping mappings = 1;
+}
+
+message GroupTypeMappingsBatchResponse {
+  repeated GroupTypeMappingsByKey results = 1;
+}

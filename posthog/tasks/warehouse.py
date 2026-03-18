@@ -8,7 +8,7 @@ logger = structlog.get_logger(__name__)
 
 @shared_task(ignore_result=True)
 def validate_data_warehouse_table_columns(team_id: int, table_id: str) -> None:
-    from posthog.warehouse.models import DataWarehouseTable
+    from products.data_warehouse.backend.models import DataWarehouseTable
 
     ph_client = get_client()
 

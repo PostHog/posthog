@@ -3,8 +3,8 @@ from typing import Literal
 from posthog.test.base import BaseTest
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database
-from posthog.hogql.database.models import IntegerDatabaseField, StringDatabaseField
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import IntegerDatabaseField, StringDatabaseField, TableNode
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -13,20 +13,21 @@ from posthog.hogql.query import create_default_modifiers_for_team
 
 class TestPostgresTable(BaseTest):
     def _init_database(self):
-        self.database = create_hogql_database(team=self.team)
+        self.database = Database.create_for(team=self.team)
 
-        setattr(  # noqa: B010
-            self.database,
-            "postgres_table",
-            PostgresTable(
+        self.database.tables.add_child(
+            TableNode(
                 name="postgres_table",
-                postgres_table_name="some_table_on_postgres",
-                fields={
-                    "id": IntegerDatabaseField(name="id"),
-                    "team_id": IntegerDatabaseField(name="team_id"),
-                    "name": StringDatabaseField(name="name"),
-                },
-            ),
+                table=PostgresTable(
+                    name="postgres_table",
+                    postgres_table_name="some_table_on_postgres",
+                    fields={
+                        "id": IntegerDatabaseField(name="id"),
+                        "team_id": IntegerDatabaseField(name="team_id"),
+                        "name": StringDatabaseField(name="name"),
+                    },
+                ),
+            )
         )
 
         self.context = HogQLContext(

@@ -6,10 +6,12 @@ export const NO_BREAKDOWN_VALUE = '$$__posthog_...__$$'
 
 export interface ProcessedRetentionValue {
     count: number
+    label: string
     percentage: number
     cellDate: Dayjs
     isCurrentPeriod: boolean
     isFuture: boolean
+    aggregation_value?: number
 }
 
 export interface ProcessedRetentionPayload {

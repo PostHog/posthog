@@ -2,25 +2,28 @@ import threading
 from datetime import timedelta
 from typing import Any
 
+from django.conf import settings
 from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, serializers, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.request import Request
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.constants import VIDEO_EXPORT_TASK_QUEUE
 from posthog.event_usage import groups
 from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.exported_asset import ExportedAsset, get_content_response
+from posthog.security.url_validation import is_url_allowed
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
 from posthog.tasks import exporter
@@ -33,8 +36,6 @@ VIDEO_EXPORT_SEMAPHORE = threading.Semaphore(10)  # Allow max 10 concurrent vide
 FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM = 10
 
 logger = structlog.get_logger(__name__)
-
-SIX_MONTHS = timedelta(weeks=26)
 
 
 class ExportedAssetSerializer(serializers.ModelSerializer):
@@ -54,7 +55,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             "expires_after",
             "exception",
         ]
-        read_only_fields = ["id", "created_at", "has_content", "filename", "exception"]
+        read_only_fields = ["id", "created_at", "has_content", "filename", "expires_after", "exception"]
 
     def to_representation(self, instance):
         """Override to show stuck exports as having an exception."""
@@ -120,16 +121,39 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                 created_at__gte=start_of_month,
             ).count()
 
-            if existing_full_video_exports_count >= FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM:
+            # Get team-specific limit from extra_settings, fallback to default
+            team_limit = FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM
+            get_team = self.context.get("get_team")
+            if get_team is not None:
+                team = get_team()
+                if team is not None and team.extra_settings and "full_video_exports_limit" in team.extra_settings:
+                    limit_value = team.extra_settings["full_video_exports_limit"]
+                    try:
+                        team_limit = int(limit_value)
+                        if team_limit <= 0:
+                            raise ValueError("Limit must be positive")
+                    except (ValueError, TypeError):
+                        logger.warning(
+                            "invalid_full_video_exports_limit",
+                            team_id=team.id,
+                            limit_value=limit_value,
+                            limit_value_type=type(limit_value).__name__,
+                        )
+                        team_limit = FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM
+
+            if not self.context["request"].user.is_staff and existing_full_video_exports_count >= team_limit:
                 raise ValidationError(
                     {
                         "export_limit_exceeded": [
-                            f"Your team has reached the limit of {FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM} full video exports this month."
+                            f"Your team has reached the limit of {team_limit} full video exports this month."
                         ]
                     }
                 )
 
-        data["expires_after"] = data.get("expires_after", (now() + SIX_MONTHS).date())
+        if export_context and export_context.get("heatmap_url"):
+            ok, err = is_url_allowed(export_context["heatmap_url"])
+            if not ok:
+                raise ValidationError({"export_context": ["heatmap_url not allowed"]})
 
         data["team_id"] = self.context["team_id"]
         return data
@@ -186,11 +210,13 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                     client = await async_connect()
                     await client.execute_workflow(
                         VideoExportWorkflow.run,
-                        VideoExportInputs(exported_asset_id=instance.id),
+                        VideoExportInputs(exported_asset_id=instance.id, use_puppeteer=False),
                         id=f"export-video-{instance.id}",
-                        task_queue=VIDEO_EXPORT_TASK_QUEUE,
+                        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                        # Keep hard limit to avoid hanging workflows
+                        execution_timeout=timedelta(hours=3),
                     )
 
                 with VIDEO_EXPORT_SEMAPHORE:
@@ -232,6 +258,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         dashboard_id = instance.dashboard_id
         if insight_id and not dashboard_id:  # we don't log dashboard activity ¯\_(ツ)_/¯
             try:
+                # nosemgrep: idor-lookup-without-team (insight_id validated as team-owned in validate())
                 insight: Insight = Insight.objects.select_related("team__organization").get(id=insight_id)
                 log_activity(
                     organization_id=insight.team.organization.id,
@@ -266,6 +293,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         return instance
 
 
+@extend_schema(tags=["core"])
 class ExportedAssetViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
@@ -278,9 +306,9 @@ class ExportedAssetViewSet(
     serializer_class = ExportedAssetSerializer
 
     def safely_get_queryset(self, queryset):
-        if self.action == "list":
-            queryset = queryset.filter(created_by=self.request.user)
+        queryset = queryset.filter(created_by=self.request.user)
 
+        if self.action == "list":
             context_path_filter = self.request.query_params.get("context_path")
             if context_path_filter:
                 queryset = queryset.filter(export_context__path__icontains=context_path_filter)
@@ -291,6 +319,24 @@ class ExportedAssetViewSet(
                 queryset = queryset.filter(export_format=export_format_filter)
 
         return queryset
+
+    def safely_get_object(self, queryset):
+        instance = get_object_or_404(queryset, pk=self.kwargs["pk"])
+
+        resource = instance.dashboard or instance.insight
+        if not resource and instance.export_context:
+            session_recording_id = instance.export_context.get("session_recording_id")
+            if session_recording_id:
+                from posthog.session_recordings.models.session_recording import SessionRecording
+
+                resource = SessionRecording.objects.filter(
+                    team_id=instance.team_id, session_id=session_recording_id
+                ).first()
+
+        if resource and not self.user_access_control.check_access_level_for_object(resource, required_level="viewer"):
+            raise NotFound()
+
+        return instance
 
     # TODO: This should be removed as it is only used by frontend exporter and can instead use the api/sharing.py endpoint
     @action(methods=["GET"], detail=True, required_scopes=["export:read"])

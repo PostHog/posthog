@@ -49,7 +49,7 @@ export function alertConfigurationActivityDescriber(
             return {
                 description: (
                     <>
-                        <strong>{userNameForLogItem(logItem)}</strong> added{' '}
+                        <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> added{' '}
                         <strong>
                             {logItem?.detail?.context?.subscriber_name} ({logItem?.detail?.context?.subscriber_email})
                         </strong>{' '}
@@ -63,7 +63,7 @@ export function alertConfigurationActivityDescriber(
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> created the alert{' '}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created the alert{' '}
                     {formattedName(logItem?.detail.name)}
                     {contextDesc}
                 </>
@@ -78,7 +78,7 @@ export function alertConfigurationActivityDescriber(
             return {
                 description: (
                     <>
-                        <strong>{userNameForLogItem(logItem)}</strong> removed{' '}
+                        <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> removed{' '}
                         <strong>
                             {logItem?.detail?.context?.subscriber_name} ({logItem?.detail?.context?.subscriber_email})
                         </strong>{' '}
@@ -93,7 +93,8 @@ export function alertConfigurationActivityDescriber(
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> deleted the alert: {displayName}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted the alert:{' '}
+                    {displayName}
                     {contextDesc}
                 </>
             ),
@@ -107,8 +108,8 @@ export function alertConfigurationActivityDescriber(
             return {
                 description: (
                     <>
-                        <strong>{userNameForLogItem(logItem)}</strong> updated the <strong>threshold</strong> for alert{' '}
-                        {formattedName(logItem?.detail?.context?.alert_name)}
+                        <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated the{' '}
+                        <strong>threshold</strong> for alert {formattedName(logItem?.detail?.context?.alert_name)}
                         {contextDesc}
                     </>
                 ),
@@ -118,7 +119,7 @@ export function alertConfigurationActivityDescriber(
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> updated the alert{' '}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated the alert{' '}
                     {formattedName(logItem?.detail.name)}
                     {contextDesc}
                 </>

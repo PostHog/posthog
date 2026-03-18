@@ -6,6 +6,8 @@ import api from 'lib/api'
 import { NotebookListItemType, NotebookNodeResource, NotebookNodeType } from '../types'
 import type { notebookSelectButtonLogicType } from './notebookSelectButtonLogicType'
 
+export const NOTEBOOK_DROPDOWN_LIMIT = 50
+
 export interface NotebookSelectButtonLogicProps {
     /**
      * Is a resource is provided it will be checke and added to the notebook when opened
@@ -23,6 +25,7 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
     actions({
         setShowPopover: (visible: boolean) => ({ visible }),
         setSearchQuery: (query: string) => ({ query }),
+        setCreatedBy: (userUuid: string | null) => ({ userUuid }),
         loadNotebooksContainingResource: true,
         loadAllNotebooks: true,
     }),
@@ -31,6 +34,12 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
             '',
             {
                 setSearchQuery: (_, { query }) => query,
+            },
+        ],
+        createdBy: [
+            null as string | null,
+            {
+                setCreatedBy: (_, { userUuid }) => userUuid,
             },
         ],
         showPopover: [
@@ -46,6 +55,12 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
             actions.loadAllNotebooks()
             actions.loadNotebooksContainingResource()
         },
+        setCreatedBy: async (_, breakpoint) => {
+            // Debouncing similarly as the search query
+            await breakpoint(300)
+            actions.loadAllNotebooks()
+            actions.loadNotebooksContainingResource()
+        },
     })),
     loaders(({ props, values }) => ({
         allNotebooks: [
@@ -53,8 +68,12 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
             {
                 loadAllNotebooks: async (_, breakpoint) => {
                     await breakpoint(100)
-                    const response = await api.notebooks.list({ search: values.searchQuery || undefined })
-                    // TODO for simplicity we'll assume the results will fit into one page
+                    const response = await api.notebooks.list({
+                        search: values.searchQuery || undefined,
+                        created_by: values.createdBy || undefined,
+                        order: '-last_modified_at',
+                        limit: NOTEBOOK_DROPDOWN_LIMIT,
+                    })
                     return response.results
                 },
             },
@@ -83,8 +102,10 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
                                   ]
                                 : undefined,
                         search: values.searchQuery || undefined,
+                        created_by: values.createdBy || undefined,
+                        order: '-last_modified_at',
+                        limit: NOTEBOOK_DROPDOWN_LIMIT,
                     })
-                    // TODO for simplicity we'll assume the results will fit into one page
                     return response.results
                 },
             },

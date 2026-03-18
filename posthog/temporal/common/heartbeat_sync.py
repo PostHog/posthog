@@ -1,9 +1,13 @@
+import time
+import socket
 import threading
 from contextvars import copy_context
 from typing import Any
 
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
+
+from posthog.temporal.common.liveness_tracker import get_liveness_tracker
 
 
 class HeartbeaterSync:
@@ -19,9 +23,12 @@ class HeartbeaterSync:
             self.logger.debug(message, exc_info=exc_info)
 
     def heartbeat_regularly(self, stop_event: threading.Event, interval: int, details: tuple[Any, ...]):
+        tracker = get_liveness_tracker()
         while not stop_event.is_set():
             try:
-                activity.heartbeat(*details)
+                extra_payload = {"host": socket.gethostname(), "ts": time.time()}
+                activity.heartbeat(*details, extra_payload)
+                tracker.record_heartbeat()
                 self.log_debug("Heartbeat")
             except Exception as e:
                 self.log_debug(f"Heartbeat failed {e}", exc_info=e)

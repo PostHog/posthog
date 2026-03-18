@@ -1,17 +1,21 @@
 import 'kea'
 
-import { IconBalance, IconPlus, IconRewindPlay, IconTrash } from '@posthog/icons'
+import { IconBalance, IconMessage, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
+import { Link } from 'lib/lemon-ui/Link'
 import { alphabet } from 'lib/utils'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
+import { getSurveyForFeatureFlagVariant } from 'scenes/surveys/utils'
+import { urls } from 'scenes/urls'
 
-import { FeatureFlagGroupType, MultivariateFlagVariant } from '~/types'
+import { FeatureFlagGroupType, MultivariateFlagVariant, Survey } from '~/types'
 
-import { VariantError } from './featureFlagLogic'
+import { VariantError, getRecordingFilterForFlagVariant } from './featureFlagLogic'
 
 export interface FeatureFlagVariantsFormProps {
     variants: MultivariateFlagVariant[]
@@ -22,12 +26,18 @@ export interface FeatureFlagVariantsFormProps {
     onDistributeEqually?: () => void
     canEditVariant?: (index: number) => boolean
     hasExperiment?: boolean
+    experimentId?: number
+    experimentName?: string
     isDraftExperiment?: boolean
     readOnly?: boolean
+    flagKey?: string
+    hasEnrichedAnalytics?: boolean
     onViewRecordings?: (variantKey: string) => void
+    onGetFeedback?: (variantKey: string) => void
     onVariantChange?: (index: number, field: 'key' | 'name' | 'rollout_percentage', value: any) => void
     onPayloadChange?: (index: number, value: any) => void
     variantErrors: VariantError[]
+    surveys?: Survey[]
 }
 
 export function focusVariantKeyField(index: number): void {
@@ -46,15 +56,52 @@ export function FeatureFlagVariantsForm({
     onDistributeEqually,
     canEditVariant = () => true,
     hasExperiment = false,
+    experimentId,
+    experimentName,
     isDraftExperiment = false,
     readOnly = false,
+    flagKey,
+    hasEnrichedAnalytics,
     onViewRecordings,
+    onGetFeedback,
     onVariantChange,
     onPayloadChange,
     variantErrors,
+    surveys,
 }: FeatureFlagVariantsFormProps): JSX.Element {
     const variantRolloutSum = variants.reduce((sum, variant) => sum + (variant.rollout_percentage || 0), 0)
     const areVariantRolloutsValid = variantRolloutSum === 100
+
+    const experimentLink = experimentId ? (
+        <Link target="_blank" to={urls.experiment(experimentId)}>
+            {experimentName ?? 'an experiment'}
+        </Link>
+    ) : (
+        'an experiment'
+    )
+
+    const experimentDisabledReason = (action: string, controlOnly = false): React.ReactElement | undefined => {
+        if (!hasExperiment || (isDraftExperiment && !controlOnly)) {
+            return undefined
+        }
+        if (isDraftExperiment) {
+            return (
+                <>
+                    This flag is linked to {experimentLink}. The control variant {action}.
+                </>
+            )
+        }
+        return (
+            <>
+                This flag is linked to {experimentLink}. Variant keys {action} after the experiment has been launched.
+            </>
+        )
+    }
+
+    const getSurveyButtonText = (variantKey: string): string => {
+        const survey = getSurveyForFeatureFlagVariant(variantKey, surveys)
+        return survey ? 'Review survey' : 'Get feedback'
+    }
 
     function variantConcatWithPunctuation(phrases: string[]): string {
         if (phrases === null || phrases.length < 3) {
@@ -103,16 +150,31 @@ export function FeatureFlagVariantsForm({
                                 )}
                             </div>
                             <div>{variant.rollout_percentage}%</div>
-                            {onViewRecordings && (
-                                <div className="col-span-2">
-                                    <LemonButton
-                                        size="xsmall"
-                                        icon={<IconRewindPlay />}
-                                        type="secondary"
-                                        onClick={() => onViewRecordings(variant.key)}
-                                    >
-                                        View recordings
-                                    </LemonButton>
+                            {(flagKey || onGetFeedback) && (
+                                <div className="col-span-2 flex gap-2 items-start">
+                                    {flagKey && (
+                                        <ViewRecordingsPlaylistButton
+                                            filters={getRecordingFilterForFlagVariant(
+                                                flagKey,
+                                                variant.key,
+                                                hasEnrichedAnalytics
+                                            )}
+                                            size="xsmall"
+                                            type="secondary"
+                                            data-attr={`feature-flag-variant-${variant.key}-view-recordings`}
+                                            onClick={() => onViewRecordings?.(variant.key)}
+                                        />
+                                    )}
+                                    {onGetFeedback && (
+                                        <LemonButton
+                                            size="xsmall"
+                                            icon={<IconMessage />}
+                                            type="secondary"
+                                            onClick={() => onGetFeedback(variant.key)}
+                                        >
+                                            {getSurveyButtonText(variant.key)}
+                                        </LemonButton>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -162,7 +224,11 @@ export function FeatureFlagVariantsForm({
                                 autoCapitalize="off"
                                 autoCorrect="off"
                                 spellCheck={false}
-                                disabled={!canEditVariant(index)}
+                                disabledReason={
+                                    !canEditVariant(index)
+                                        ? experimentDisabledReason('cannot be modified', true)
+                                        : undefined
+                                }
                                 value={variant.key}
                                 onChange={(value) => onVariantChange?.(index, 'key', value)}
                             />
@@ -233,9 +299,7 @@ export function FeatureFlagVariantsForm({
                                 onClick={() => onRemoveVariant(index)}
                                 disabledReason={
                                     !canEditVariant(index)
-                                        ? isDraftExperiment
-                                            ? 'Cannot delete the control variant from an experiment.'
-                                            : 'Cannot delete variants from a feature flag that is part of a launched experiment.'
+                                        ? experimentDisabledReason('cannot be deleted', true)
                                         : undefined
                                 }
                                 tooltipPlacement="top-end"
@@ -258,11 +322,7 @@ export function FeatureFlagVariantsForm({
                         focusVariantKeyField(newIndex)
                     }}
                     icon={<IconPlus />}
-                    disabledReason={
-                        hasExperiment && !isDraftExperiment
-                            ? 'Cannot add variants to a feature flag that is part of a launched experiment. To update variants, reset the experiment to draft.'
-                            : undefined
-                    }
+                    disabledReason={experimentDisabledReason('cannot be added')}
                     tooltipPlacement="top-start"
                     center
                 >

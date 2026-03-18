@@ -322,6 +322,8 @@
     --color-product-heatmaps-light: rgb(220 152 16);
     --color-product-heatmaps-dark: rgb(247 165 1);
     --color-product-logs-light: rgb(214 37 123);
+    --color-product-marketing-analytics-light: rgb(214 37 123);
+    --color-product-live-debugger-light: rgb(76 14 200);
     --color-product-feature-flags-light: rgb(48 171 198);
     --color-product-experiments-light: rgb(182 42 217);
     --color-product-error-tracking-light: rgb(211 148 24);
@@ -329,13 +331,23 @@
     --color-product-surveys-light: rgb(243 84 84);
     --color-product-data-warehouse-light: rgb(133 103 255);
     --color-product-llm-analytics-light: rgb(182 42 217);
+    --color-product-llm-clusters-light: rgb(147 51 234);
+    --color-product-llm-datasets-light: rgb(124 58 237);
+    --color-product-llm-evaluations-light: rgb(167 139 250);
+    --color-product-llm-prompts-light: rgb(196 181 253);
     --color-product-links-light: rgb(143 7 255);
+    --color-product-tracing-light: rgb(6 182 212);
+    --color-product-tracing-dark: rgb(34 211 238);
+    --color-product-metrics-light: rgb(234 88 12);
+    --color-product-metrics-dark: rgb(251 146 60);
     --color-product-revenue-analytics-light: rgb(52 175 102);
     --color-product-revenue-analytics-dark: rgb(54 196 111);
     --color-product-user-interviews-light: rgb(0 140 255);
     --color-product-dashboards-light: rgb(255 139 7);
     --color-product-early-access-features-light: rgb(39 171 151);
     --color-product-early-access-features-dark: rgb(53 213 189);
+    --color-product-support-light: rgb(243 84 84);
+    --color-product-support-dark: rgb(247 165 1);
 
     // Insight colors
     --color-insight-funnel-light: rgb(47 128 250);
@@ -358,6 +370,9 @@
     --color-brand-secondary-hue: var(--color-posthog-brand-blue-hue);
     --color-brand-secondary-saturation: var(--color-posthog-brand-blue-saturation);
     --color-brand-secondary-lightness: var(--color-posthog-brand-blue-lightness);
+
+    // AI
+    --color-ai: oklch(0.59 0.27 303.09deg);
 
     // Accent colors (accents can be changed to change the brand colors)
     // Used for interactive elements and highlights, inputs, toggles, charts, etc.
@@ -534,13 +549,12 @@
 
     // Skeleton colors
     // //////////////////////////////////////////////////////////
-    --color-skeleton-light: rgb(
-        190 190 190 / 20%
-    ); // Equivalent to --color-neutral-200 but with transparency, improve browser compatibility
 
-    --color-skeleton-dark: rgb(
-        129 129 129 / 24%
-    ); // Equivalent to --color-neutral-400 but with transparency, improve browser compatibility
+    // Equivalent to --color-neutral-200 but with transparency, improve browser compatibility
+    --color-skeleton-light: rgb(190 190 190 / 20%);
+
+    // Equivalent to --color-neutral-400 but with transparency, improve browser compatibility
+    --color-skeleton-dark: rgb(129 129 129 / 24%);
 
     // Breakpoint variables
     // //////////////////////////////////////////////////////////
@@ -630,9 +644,9 @@
 
     // Z-indexes
     --z-bottom-notice: 1450;
-    --z-command-palette: 1400;
+    --z-shortcut-menu: 1400;
     --z-force-modal-above-popovers: 1350;
-    --z-tooltip: 1300;
+    --z-tooltip: 99999;
     --z-definition-popover: 1250;
     --z-popover: 1200;
     --z-graph-tooltip: 1150;
@@ -666,7 +680,7 @@
     --z-raised: 5;
 
     // Elements
-    --side-panel-bar-width: 3rem;
+    --side-panel-bar-width: 40px;
     --project-navbar-width: 215px;
     --project-navbar-width-collapsed: 45px;
     --project-panel-width: 245px;
@@ -714,6 +728,22 @@
     --lettermark-7-text: #35416b;
     --lettermark-8-bg: #ff906e;
     --lettermark-8-text: #2a3d65;
+    --lettermark-9-bg: #5dd4db;
+    --lettermark-9-text: #1a4a4d;
+    --lettermark-10-bg: #c8e65c;
+    --lettermark-10-text: #3d4a1a;
+    --lettermark-11-bg: #e85da4;
+    --lettermark-11-text: #4a1a35;
+    --lettermark-12-bg: #e85c5c;
+    --lettermark-12-text: #4a1a1a;
+    --lettermark-13-bg: #3d7a5a;
+    --lettermark-13-text: #c8f0dc;
+    --lettermark-14-bg: #6b5bd4;
+    --lettermark-14-text: #e0ddf5;
+    --lettermark-15-bg: #98e8c8;
+    --lettermark-15-text: #1a4a3d;
+    --lettermark-16-bg: #8c3d5a;
+    --lettermark-16-text: #f0d0dc;
 
     // Modals
     --modal-backdrop-blur: 5px; // Half the value in Figma as blur is calculated differently there it seems
@@ -799,7 +829,7 @@
     --glass-border-3000-dark: var(--border-3000-dark);
     --link-3000-dark: #f1a82c;
     --primary-3000-frame-bg-dark: #926826;
-    --primary-3000-button-bg-dark: #e0a045;
+    --primary-3000-button-bg-dark: var(--color-accent);
     --primary-3000-button-border-dark: #b17816;
     --primary-3000-button-border-hover-dark: #8e5b03;
     --primary-alt-highlight-dark: #232429;
@@ -817,6 +847,7 @@
     --muted-3000: var(--muted-3000-light);
     --trace-3000: var(--trace-3000-light);
     --primary-3000: var(--primary-3000-light);
+    --primary-highlight: var(--primary-highlight-light);
     --primary-3000-hover: var(--primary-3000-hover-light);
     --primary-3000-active: var(--primary-3000-active-light);
     --secondary-3000: var(--secondary-3000-light);
@@ -832,7 +863,7 @@
     --color-bg-table: #f9faf7;
     --link: var(--link-3000-light);
     --primary-3000-frame-bg: var(--primary-3000-frame-bg-light);
-    --primary-3000-button-bg: var(--primary-3000-button-bg-light);
+    --primary-3000-button-bg: var(--color-white);
     --primary-3000-button-border: var(--primary-3000-button-border-light);
     --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-light);
     --primary-alt-highlight: var(--primary-alt-highlight-light);
@@ -854,6 +885,9 @@
     --color-brand-primary-hue: var(--color-posthog-brand-yellow-hue);
     --color-brand-primary-saturation: var(--color-posthog-brand-yellow-saturation);
     --color-brand-primary-lightness: var(--color-posthog-brand-yellow-lightness);
+
+    // AI colors (dark mode)
+    --color-ai: oklch(0.69 0.29 341.57deg);
 
     // Accent colors (dark mode)
     // //////////////////////////////////////////////////////////
@@ -967,7 +1001,7 @@
     --color-bg-fill-button-panel-hover: var(--color-bg-fill-highlight-150);
     --color-bg-fill-button-panel-active: var(--color-bg-fill-highlight-100);
     --color-bg-fill-input: var(--color-neutral-cool-850);
-    --color-bg-fill-switch: var(--color-neutral-cool-900);
+    --color-bg-fill-switch: var(--color-neutral-cool-600);
     --color-bg-fill-slider-rail: color-mix(in oklab, var(--color-white) 15%, transparent);
     --color-bg-fill-scroll-thumb: color-mix(in oklab, var(--color-white) 20%, transparent);
     --color-bg-border-primary: var(--color-neutral-cool-800);
@@ -1031,7 +1065,7 @@
     --link: var(--link-3000-dark);
     --shadow-elevation-3000: var(--shadow-elevation-3000-dark);
     --primary-3000-frame-bg: var(--primary-3000-frame-bg-dark);
-    --primary-3000-button-bg: var(--primary-3000-button-bg-dark);
+    --primary-3000-button-bg: var(--color-accent);
     --primary-3000-button-border: var(--primary-3000-button-border-dark);
     --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-dark);
     --primary-alt-highlight: var(--primary-alt-highlight-dark);
@@ -1052,10 +1086,12 @@
 }
 
 @layer base {
-    /* stylelint-disable-next-line no-invalid-position-at-import-rule */ // allowing @import to be inside layer
+    // allowing @import to be inside layer
+    /* stylelint-disable-next-line no-invalid-position-at-import-rule */
     @import '../../node_modules/react-toastify/dist/ReactToastify'; // Toastify is in base so that we can override
 
-    /* stylelint-disable-next-line order/order */ // allowing @import to be first
+    // allowing @import to be first
+    /* stylelint-disable-next-line order/order */
     *,
     ::after,
     ::before,
@@ -1082,6 +1118,41 @@
         &::-webkit-search-results-button,
         &::-webkit-search-results-decoration {
             display: none;
+        }
+    }
+
+    a:focus-visible,
+    button:focus-visible,
+    [data-highlighted]:not(:hover) {
+        outline: 2px solid var(--color-accent);
+    }
+
+    .input-like {
+        --input-ring-color: var(--color-bg-fill-highlight-75);
+        --input-ring-size: 3px;
+
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+        outline: 0 solid transparent;
+        box-shadow: 0 0 0 0 transparent;
+        transition:
+            box-shadow 0.1s ease-in-out,
+            border-color 0.1s ease-in-out;
+
+        & input,
+        & textarea {
+            box-shadow: none;
+        }
+
+        &:not([disabled]):focus-visible,
+        &:not([disabled]):focus-within {
+            background-color: var(--color-bg-fill-input);
+            border-color: var(--color-border-secondary);
+            box-shadow: 0 0 0 var(--input-ring-size) var(--input-ring-color);
+        }
+
+        &:not([disabled]):hover {
+            border-color: var(--color-border-secondary) !important;
         }
     }
 
@@ -1507,7 +1578,11 @@
 
     .storybook-test-runner {
         &.storybook-test-runner--fullscreen {
-            height: fit-content;
+            height: auto;
+
+            // Ensure minimum viewport height while allowing content to expand beyond
+            // Using min-height instead of height: fit-content to prevent shorter-than-viewport screenshots
+            min-height: 100vh;
         }
 
         &.storybook-test-runner--padded {
@@ -1631,8 +1706,45 @@
         gap: 1px;
     }
 
+    // Safe-triangle hover cone for vertical menubars.
+    // An invisible triangle tracks the cursor and extends toward the popup,
+    // preventing accidental sibling menu activation while traveling to the open popup.
+    // The vertex follows --cone-x / --cone-y set by JS on mousemove.
+    .menubar-hover-cone {
+        overflow: visible;
+
+        // Active trigger sits above the cone so it keeps its hover state
+        [data-popup-open] {
+            position: relative;
+            z-index: 20;
+        }
+    }
+
+    .menubar-hover-cone-overlay {
+        position: absolute;
+        inset: -3rem -8px -3rem 0;
+        z-index: 10;
+
+        // Offset --cone-y by 3rem to compensate for the element extending above the container
+        clip-path: polygon(var(--cone-x, 50%) calc(var(--cone-y, 50%) + 3rem), 100% 0%, 100% 100%);
+        pointer-events: none;
+    }
+
+    .menubar-hover-cone:has([data-popup-open]) > .menubar-hover-cone-overlay {
+        pointer-events: auto;
+
+        &.debug {
+            background-color: rgb(255 255 255 / 50%);
+        }
+    }
+
     .animate-mark {
         animation: animate-mark 2s ease-in-out forwards;
+        animation-fill-mode: none;
+    }
+
+    .animate-pulse-glow {
+        animation: pulse-glow 2s ease-in-out forwards;
         animation-fill-mode: none;
     }
 
@@ -1671,6 +1783,19 @@
 
         100% {
             transform: rotateZ(360deg);
+        }
+    }
+
+    // Pass in a different color variable to change the color of the glow
+    // Example: <span className="[--pulse-glow-color:blue] animate-pulse-glow" />
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes pulse-glow {
+        0% {
+            box-shadow: 0 0 0 2px var(--pulse-glow-color, var(--color-accent));
+        }
+
+        100% {
+            box-shadow: 0 0 0 10px transparent;
         }
     }
 
@@ -1752,16 +1877,24 @@
         /* themeable variables */
         position: relative;
         display: inline-block;
-        color: transparent; /* hide glyphs under the cover */
+        color: transparent;
+
+        /* hide glyphs under the cover */
         cursor: pointer;
-        background: var(--color-bg-primary); /* the “black bar” */
+        background: var(--color-bg-primary);
+
+        /* the “black bar” */
         border-radius: var(--radius);
     }
 
     .hogqlx-redacted:hover,
     .hogqlx-redacted:focus-visible {
-        color: inherit; /* show the text */
-        background: transparent; /* remove the bar */
+        color: inherit;
+
+        /* show the text */
+        background: transparent;
+
+        /* remove the bar */
     }
 
     .hogqlx-redacted:focus-visible {
@@ -1770,7 +1903,9 @@
     }
 
     .animate-logomark-jump {
-        --logomark-airtime: 0.4s;
+        --logomark-jump-height-base: 12px;
+        --logomark-jump-magnitude: 1; // Overidden in code when someone wants a bigger jump
+        --logomark-airtime: 0.4s; // Sync with LOGOMARK_AIRTIME_MS in Intro.tsx
 
         svg {
             overflow: visible;
@@ -1781,10 +1916,14 @@
                 animation: Logomark__jump calc(var(--logomark-airtime) * 25) cubic-bezier(0.6, 0, 0.2, 0.8) infinite;
             }
 
+            // Delay one after the other to create a nice jump effect
+            // Delay in reverse order because we want the head to jump first (it's last on SVG)
             @for $i from 1 through 4 {
                 > *:nth-child(#{$i}) {
                     // Dividing by 15 just because it feels good
-                    animation-delay: calc(var(--logomark-airtime) / 15 * ($i - 1));
+                    animation-delay: calc(
+                        var(--logomark-airtime) / 15 / calc(sqrt(var(--logomark-jump-magnitude))) * (4 - ($i - 1))
+                    );
                 }
             }
         }
@@ -1796,7 +1935,7 @@
             }
 
             2% {
-                transform: translateY(-10px);
+                transform: translateY(calc(var(--logomark-jump-height-base) * var(--logomark-jump-magnitude) * -1));
             }
 
             4% {
@@ -1804,5 +1943,116 @@
                 transform: translateY(0);
             }
         }
+
+        @keyframes Logomark__jump-continuous {
+            0%,
+            44%,
+            100% {
+                transform: translateY(0);
+            }
+
+            22% {
+                transform: translateY(calc(var(--logomark-jump-height-base) * var(--logomark-jump-magnitude) * -1));
+            }
+        }
+
+        /* stylelint-disable-next-line order/order */
+        &-continuous {
+            @extend .animate-logomark-jump;
+
+            /* stylelint-disable-next-line order/order */
+            svg > * {
+                animation-name: Logomark__jump-continuous;
+                animation-duration: 0.9s;
+            }
+        }
+    }
+
+    /* stylelint-disable-next-line order/order */
+    .animate-fade-in {
+        animation: fade-in 0.4s ease-out forwards;
+    }
+
+    /* Overlay fade in/out transitions */
+    .overlay-fade {
+        opacity: 1;
+        transition: opacity 0.2s ease-out;
+
+        /* Exit animation - opacity controlled by utility class */
+        &.opacity-0 {
+            opacity: 0;
+        }
+
+        /* Entry animation - fade in from 0 */
+        @starting-style {
+            opacity: 0;
+        }
+    }
+
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes shimmer {
+        0% {
+            background-position: 200% 0;
+        }
+
+        100% {
+            background-position: -200% 0;
+        }
+    }
+
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes shimmer-opacity {
+        0%,
+        100% {
+            opacity: 0.4;
+        }
+
+        25% {
+            opacity: 1;
+        }
+
+        50% {
+            opacity: 0.4;
+        }
+
+        75% {
+            opacity: 1;
+        }
+    }
+
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes fade-in {
+        0% {
+            opacity: 0;
+            transform: translateY(2px);
+        }
+
+        100% {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+}
+
+// Setup highlight animation - used by quick start to draw attention to UI elements
+.setup-highlight-pulse {
+    position: relative !important;
+    border-radius: var(--radius);
+    animation: setup-highlight-pulse 1s ease-in-out 3 !important;
+}
+
+/* stylelint-disable-next-line keyframes-name-pattern */
+@keyframes setup-highlight-pulse {
+    0%,
+    100% {
+        outline: 3px solid transparent;
+        outline-offset: 2px;
+        box-shadow: 0 0 0 0 transparent;
+    }
+
+    50% {
+        outline: 3px solid var(--color-accent);
+        outline-offset: 2px;
+        box-shadow: 0 0 24px 8px var(--color-accent);
     }
 }

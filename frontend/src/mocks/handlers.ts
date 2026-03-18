@@ -10,10 +10,12 @@ import {
     MOCK_DEFAULT_USER,
     MOCK_PERSON_PROPERTIES,
     MOCK_SECOND_ORGANIZATION_MEMBER,
+    MOCK_EXPERIMENTS_STATS_RESPONSE,
 } from 'lib/api.mock'
 
 import { ResponseComposition, RestContext, RestRequest } from 'msw'
 
+import { INCIDENT_IO_STATUS_PAGE_BASE } from '~/layout/navigation-3000/incident/incidentStatus'
 import sdkVersions from '~/mocks/fixtures/api/sdk_versions.json'
 import teamSdkVersions from '~/mocks/fixtures/api/team_sdk_versions.json'
 import { SharingConfigurationType } from '~/types'
@@ -22,7 +24,7 @@ import { getAvailableProductFeatures } from './features'
 import { billingJson } from './fixtures/_billing'
 import _hogFunctionTemplatesDestinations from './fixtures/_hogFunctionTemplatesDestinations.json'
 import _hogFunctionTemplatesTransformations from './fixtures/_hogFunctionTemplatesTransformations.json'
-import * as statusPageAllOK from './fixtures/_status_page_all_ok.json'
+import * as incidentIoStatusPageAllOK from './fixtures/_incident_io_status_page_all_ok.json'
 import { MockSignature, Mocks, mocksToHandlers } from './utils'
 
 export const EMPTY_PAGINATED_RESPONSE = { count: 0, results: [] as any[], next: null, previous: null }
@@ -77,6 +79,7 @@ export const defaultMocks: Mocks = {
         '/api/environments/:team_id/dashboards/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/alerts/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/hog_functions/': EMPTY_PAGINATED_RESPONSE,
+        '/api/environments/:team_id/user_product_list/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/dashboard_templates': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/dashboard_templates/repository/': [],
         '/api/environments/:team_id/external_data_sources/': EMPTY_PAGINATED_RESPONSE,
@@ -106,14 +109,25 @@ export const defaultMocks: Mocks = {
         } as SharingConfigurationType,
         '/api/projects/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/property_definitions/': EMPTY_PAGINATED_RESPONSE,
+        // Property values endpoints - prevent 'Failed to load property values' error toasts
+        '/api/event/values/': [],
+        '/api/person/values/': [],
+        '/api/group/values/': [],
+        '/api/environments/:team_id/sessions/values/': [],
+        '/api/projects/:team_id/flag_value/values/': [],
+        '/api/projects/:team_id/groups/property_values/': [],
+        '/api/environments/:team_id/data_warehouse/property_values/': [],
         '/api/projects/:team_id/feature_flags/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/feature_flags/:feature_flag_id/role_access': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/experiments/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/experiments/eligible_feature_flags/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/experiments/stats/': MOCK_EXPERIMENTS_STATS_RESPONSE,
         '/api/environments/:team_id/warehouse_view_link/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/warehouse_saved_queries/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/warehouse_tables/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/core_memory/': { results: [] },
         '/api/environments/:team_id/conversations/': EMPTY_PAGINATED_RESPONSE,
+        '/api/user_home_settings/@me/': { tabs: [], homepage: null },
         '/api/organizations/@current/': (): MockSignature => [
             200,
             { ...MOCK_DEFAULT_ORGANIZATION, available_product_features: getAvailableProductFeatures() },
@@ -145,7 +159,6 @@ export const defaultMocks: Mocks = {
         ],
         '/api/users/@me/two_factor_status/': () => [200, { is_enabled: true, backup_codes: [], method: 'TOTP' }],
         '/api/users/@me/hedgehog_config/': {
-            skin: 'spiderhog',
             color: null,
             enabled: false,
             accessories: ['tophat', 'sunglasses'],
@@ -187,7 +200,7 @@ export const defaultMocks: Mocks = {
 
         '/api/billing/spend/': { results: [] },
         '/api/billing/usage/': { results: [] },
-        'https://status.posthog.com/api/v2/summary.json': statusPageAllOK,
+        [`${INCIDENT_IO_STATUS_PAGE_BASE}/api/v1/summary`]: incidentIoStatusPageAllOK,
         '/api/projects/:team_id/hog_function_templates': hogFunctionTemplatesMock,
         '/api/projects/:team_id/hog_function_templates/:id': hogFunctionTemplateRetrieveMock,
         '/api/projects/:team_id/hog_functions': EMPTY_PAGINATED_RESPONSE,
@@ -203,7 +216,14 @@ export const defaultMocks: Mocks = {
         '/api/organizations/:organization_id/proxy_records/': [],
         '/api/projects/:team_id/dashboard_templates/json_schema/': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/:organization_id/domains/': EMPTY_PAGINATED_RESPONSE,
+        '/api/environments/:team_id/default_evaluation_tags/': EMPTY_PAGINATED_RESPONSE,
+        '/api/environments/:team_id/default_evaluation_contexts/': {
+            default_evaluation_contexts: [],
+            available_contexts: [],
+            enabled: false,
+        },
         '/api/environments/:team_id/file_system/unfiled/': { count: 0 },
+        '/api/environments/:team_id/file_system/log_view': {},
         '/api/environments/:team_id/file_system': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/file_system_shortcut/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/insight_variables/': EMPTY_PAGINATED_RESPONSE,
@@ -221,6 +241,12 @@ export const defaultMocks: Mocks = {
         'api/projects/:team_id/notebooks/recording_comments': EMPTY_PAGINATED_RESPONSE,
         '/api/sdk_versions/': sdkVersions,
         '/api/team_sdk_versions/': teamSdkVersions,
+        '/api/environments/:team_id/endpoints/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/signal_source_configs/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/feature_flags/:feature_flag_id/dependent_flags/': EMPTY_PAGINATED_RESPONSE,
+        '/api/environments/:team_id/llm_prompts/resolve/': {},
+        '/api/environments/@current/llm_analytics/': {},
+        '/api/projects/:team_id/tags/': [],
     },
     post: {
         'https://us.i.posthog.com/e/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
@@ -230,12 +256,15 @@ export const defaultMocks: Mocks = {
         '/decide/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
         '/flags/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
         'https://us.i.posthog.com/engage/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
+        '/api/environments/:team_id/query/': [200, { results: [] }],
         '/api/environments/:team_id/insights/viewed/': (): MockSignature => [201, null],
-        'api/environments/:team_id/query': [200, { results: [] }],
+        '/api/environments/:team_id/file_system/log_view/': {},
     },
     patch: {
         '/api/projects/:team_id/session_recording_playlists/:playlist_id/': {},
+        '/api/environments/@current/add_product_intent/': MOCK_DEFAULT_TEAM,
         '/api/environments/:team_id/': MOCK_DEFAULT_TEAM,
+        '/api/user_home_settings/@me/': { tabs: [], homepage: null },
     },
     options: {
         'https://us.i.posthog.com/decide/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),

@@ -1,37 +1,50 @@
 import json
+import asyncio
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Optional
+from typing import Any, Optional
+
+from django.conf import settings
 
 import temporalio
 from temporalio import workflow
 from temporalio.common import RetryPolicy
+from temporalio.workflow import ParentClosePolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.logger import get_logger
+from posthog.temporal.oauth import PosthogMcpScopes
 
-from .activities.check_snapshot_exists_for_repository import (
-    CheckSnapshotExistsForRepositoryInput,
-    check_snapshot_exists_for_repository,
-)
-from .activities.cleanup_personal_api_key import cleanup_personal_api_key
+from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnapshotForRepositoryInput
+
 from .activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
-from .activities.clone_repository import CloneRepositoryInput, clone_repository
-from .activities.create_sandbox_from_snapshot import CreateSandboxFromSnapshotInput, create_sandbox_from_snapshot
-from .activities.create_snapshot import CreateSnapshotInput, create_snapshot
-from .activities.execute_task_in_sandbox import ExecuteTaskInput, ExecuteTaskOutput, execute_task_in_sandbox
-from .activities.get_sandbox_for_setup import GetSandboxForSetupInput, get_sandbox_for_setup
-from .activities.get_task_details import TaskDetails, get_task_details
-from .activities.inject_github_token import InjectGitHubTokenInput, inject_github_token
-from .activities.inject_personal_api_key import (
-    InjectPersonalAPIKeyInput,
-    InjectPersonalAPIKeyOutput,
-    inject_personal_api_key,
+from .activities.create_resume_snapshot import CreateResumeSnapshotInput, create_resume_snapshot
+from .activities.execute_task_in_sandbox import ExecuteTaskOutput
+from .activities.forward_pending_message import forward_pending_user_message
+from .activities.get_sandbox_for_repository import (
+    GetSandboxForRepositoryInput,
+    GetSandboxForRepositoryOutput,
+    get_sandbox_for_repository,
 )
-from .activities.setup_repository import SetupRepositoryInput, setup_repository
+from .activities.get_task_processing_context import (
+    GetTaskProcessingContextInput,
+    TaskProcessingContext,
+    get_task_processing_context,
+)
+from .activities.post_slack_update import PostSlackUpdateInput, post_slack_update
+from .activities.read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
+from .activities.relay_sandbox_events import RelaySandboxEventsInput, relay_sandbox_events
+from .activities.send_followup_to_sandbox import SendFollowupToSandboxInput, send_followup_to_sandbox
+from .activities.start_agent_server import StartAgentServerInput, StartAgentServerOutput, start_agent_server
 from .activities.track_workflow_event import TrackWorkflowEventInput, track_workflow_event
+from .activities.update_task_run_status import UpdateTaskRunStatusInput, update_task_run_status
 
-logger = get_logger(__name__)
+
+@dataclass
+class ProcessTaskInput:
+    run_id: str
+    create_pr: bool = True
+    slack_thread_context: Optional[dict[str, Any]] = None
+    posthog_mcp_scopes: PosthogMcpScopes = "read_only"
 
 
 @dataclass
@@ -42,77 +55,163 @@ class ProcessTaskOutput:
     sandbox_id: Optional[str] = None
 
 
+INACTIVITY_TIMEOUT_MINUTES = 5
+PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS = 180
+
+
 @temporalio.workflow.defn(name="process-task")
 class ProcessTaskWorkflow(PostHogWorkflow):
     def __init__(self) -> None:
-        self._task_details: Optional[TaskDetails] = None
+        self._context: Optional[TaskProcessingContext] = None
+        self._slack_thread_context: Optional[dict[str, Any]] = None
+        self._posthog_mcp_scopes: PosthogMcpScopes = "read_only"
+        self._task_completed: bool = False
+        self._completion_status: str = "completed"
+        self._completion_error: Optional[str] = None
+        self._heartbeat_received: bool = False
+        self._pending_followup: Optional[str] = None
 
     @property
-    def task_details(self) -> TaskDetails:
-        if self._task_details is None:
-            raise RuntimeError("task_details accessed before being set")
-        return self._task_details
+    def context(self) -> TaskProcessingContext:
+        if self._context is None:
+            raise RuntimeError("context accessed before being set")
+        return self._context
 
     @staticmethod
-    def parse_inputs(inputs: list[str]) -> str:
+    def parse_inputs(inputs: list[str]) -> ProcessTaskInput:
         loaded = json.loads(inputs[0])
-        return loaded["task_id"]
+        return ProcessTaskInput(
+            run_id=loaded["run_id"],
+            create_pr=loaded.get("create_pr", True),
+            slack_thread_context=loaded.get("slack_thread_context"),
+            posthog_mcp_scopes=loaded.get("posthog_mcp_scopes", "read_only"),
+        )
 
     @temporalio.workflow.run
-    async def run(self, task_id: str) -> ProcessTaskOutput:
+    async def run(self, input: ProcessTaskInput) -> ProcessTaskOutput:
         sandbox_id = None
-        personal_api_key_id = None
+        sandbox_cleaned = False
+        timed_out = False
+        run_id = input.run_id
+        self._slack_thread_context = input.slack_thread_context
 
         try:
-            self._task_details = await self._get_task_details(task_id)
+            self._context = await self._get_task_processing_context(input)
+            self._posthog_mcp_scopes = input.posthog_mcp_scopes
+            await self._update_task_run_status("in_progress")
 
             await self._track_workflow_event(
                 "process_task_workflow_started",
                 {
-                    "task_id": self.task_details.task_id,
-                    "repository": self.task_details.repository,
-                    "team_id": self.task_details.team_id,
+                    "run_id": run_id,
+                    "task_id": self.context.task_id,
+                    "repository": self.context.repository,
+                    "team_id": self.context.team_id,
                 },
             )
 
-            snapshot_id = await self._get_snapshot_for_repository()
+            await self._post_slack_update()
 
-            sandbox_id = await self._create_sandbox_from_snapshot(snapshot_id)
+            sandbox_output = await self._get_sandbox_for_repository()
+            sandbox_id = sandbox_output.sandbox_id
 
-            await self._inject_github_token(sandbox_id)
+            # TODO(tasks): Re-enable snapshot creation
+            # if sandbox_output.should_create_snapshot:
+            #     await self._trigger_snapshot_workflow()
 
-            api_key_output = await self._inject_personal_api_key(sandbox_id)
-            personal_api_key_id = api_key_output.personal_api_key_id
+            await self._post_slack_update()
 
-            result = await self._execute_task_in_sandbox(sandbox_id)
+            # Start agent-server for direct connection from PostHog Code
+            agent_server_output = await self._start_agent_server(sandbox_output)
 
             await self._track_workflow_event(
-                "process_task_workflow_completed",
+                "process_task_agent_server_started",
                 {
-                    "task_id": self.task_details.task_id,
+                    "task_id": self.context.task_id,
                     "sandbox_id": sandbox_id,
-                    "exit_code": result.exit_code,
+                    "sandbox_url": agent_server_output.sandbox_url,
+                    "used_snapshot": sandbox_output.used_snapshot,
                 },
             )
+
+            if self._context and self._context.mode == "interactive":
+                relay_task = asyncio.ensure_future(self._relay_sandbox_events(agent_server_output))
+            else:
+                relay_task = asyncio.ensure_future(asyncio.sleep(0))  # no-op future
+
+            is_resume = bool((self.context.state or {}).get("resume_from_run_id"))
+            if not is_resume:
+                try:
+                    await self._forward_pending_user_message()
+                except Exception as e:
+                    workflow.logger.warning(
+                        "forward_pending_user_message_failed_non_fatal",
+                        run_id=self.context.run_id,
+                        error=str(e),
+                    )
+
+            # Wait for completion signal or inactivity timeout.
+            # Heartbeat signals reset the inactivity timer, keeping the workflow alive
+            # as long as the agent is actively producing logs.
+            while not self._task_completed:
+                try:
+                    await workflow.wait_condition(
+                        lambda: self._task_completed or self._heartbeat_received or self._pending_followup is not None,
+                        timeout=timedelta(minutes=INACTIVITY_TIMEOUT_MINUTES),
+                    )
+                except TimeoutError:
+                    timed_out = True
+                    break
+
+                if self._pending_followup is not None:
+                    message = self._pending_followup
+                    self._pending_followup = None
+                    await self._send_followup_to_sandbox(message)
+                    continue
+
+                if self._heartbeat_received and not self._task_completed:
+                    self._heartbeat_received = False
+                    continue
+
+            # Stop the relay now that the main loop is done
+            await self._cancel_relay(relay_task)
+
+            if self._task_completed:
+                await self._update_task_run_status(self._completion_status, error_message=self._completion_error)
+            elif timed_out:
+                await self._update_task_run_status("completed", error_message="Run timed out due to inactivity")
+
+            await self._post_slack_update()
 
             return ProcessTaskOutput(
                 success=True,
-                task_result=result,
+                task_result=None,
                 error=None,
                 sandbox_id=sandbox_id,
             )
 
+        except asyncio.CancelledError:
+            await self._update_task_run_status("cancelled")
+            if sandbox_id:
+                await self._cleanup_sandbox(sandbox_id)
+                sandbox_id = None
+            raise
+
         except Exception as e:
-            if self._task_details:
+            error_message = str(e)[:500]
+            if self._context:
                 await self._track_workflow_event(
                     "process_task_workflow_failed",
                     {
-                        "task_id": self.task_details.task_id,
+                        "run_id": run_id,
+                        "task_id": self.context.task_id,
                         "error_type": type(e).__name__,
-                        "error_message": str(e)[:500],
+                        "error_message": error_message,
                         "sandbox_id": sandbox_id,
                     },
                 )
+                await self._update_task_run_status("failed", error_message=error_message)
+                await self._post_slack_update()
 
             return ProcessTaskOutput(
                 success=False,
@@ -122,93 +221,31 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
 
         finally:
-            if personal_api_key_id:
-                await self._cleanup_personal_api_key(personal_api_key_id)
             if sandbox_id:
+                # Create a resume snapshot for interactive sandboxes before cleanup
+                if self._context and self._context.mode == "interactive":
+                    await self._create_resume_snapshot(sandbox_id)
+
+                await self._read_sandbox_logs(sandbox_id)
                 await self._cleanup_sandbox(sandbox_id)
+                sandbox_cleaned = True
 
-    async def _get_task_details(self, task_id: str) -> TaskDetails:
+            if sandbox_cleaned and self._slack_thread_context and self._context:
+                await self._post_slack_update(sandbox_cleaned=True)
+
+    async def _get_task_processing_context(self, input: ProcessTaskInput) -> TaskProcessingContext:
         return await workflow.execute_activity(
-            get_task_details,
-            task_id,
+            get_task_processing_context,
+            GetTaskProcessingContextInput(run_id=input.run_id, create_pr=input.create_pr),
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-    async def _get_snapshot_for_repository(self) -> str:
-        check_input = CheckSnapshotExistsForRepositoryInput(
-            github_integration_id=self.task_details.github_integration_id,
-            repository=self.task_details.repository,
-        )
-
-        check_result = await workflow.execute_activity(
-            check_snapshot_exists_for_repository,
-            check_input,
-            start_to_close_timeout=timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-
-        if check_result.snapshot_id:
-            return check_result.snapshot_id
-
-        return await self._setup_snapshot_with_repository()
-
-    async def _get_sandbox_for_setup(self) -> str:
-        get_sandbox_input = GetSandboxForSetupInput(
-            github_integration_id=self.task_details.github_integration_id,
-            team_id=self.task_details.team_id,
-            task_id=self.task_details.task_id,
-            distinct_id=self.task_details.distinct_id,
-        )
+    async def _get_sandbox_for_repository(self) -> GetSandboxForRepositoryOutput:
         return await workflow.execute_activity(
-            get_sandbox_for_setup,
-            get_sandbox_input,
-            start_to_close_timeout=timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-
-    async def _clone_repository_in_sandbox(self, sandbox_id: str) -> None:
-        clone_input = CloneRepositoryInput(
-            sandbox_id=sandbox_id,
-            repository=self.task_details.repository,
-            github_integration_id=self.task_details.github_integration_id,
-            task_id=self.task_details.task_id,
-            distinct_id=self.task_details.distinct_id,
-        )
-        await workflow.execute_activity(
-            clone_repository,
-            clone_input,
-            start_to_close_timeout=timedelta(minutes=10),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-
-    async def _setup_repository_in_sandbox(self, sandbox_id: str) -> None:
-        setup_repo_input = SetupRepositoryInput(
-            sandbox_id=sandbox_id,
-            repository=self.task_details.repository,
-            task_id=self.task_details.task_id,
-            distinct_id=self.task_details.distinct_id,
-        )
-        await workflow.execute_activity(
-            setup_repository,
-            setup_repo_input,
-            start_to_close_timeout=timedelta(minutes=60),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-
-    async def _snapshot_sandbox(self, sandbox_id: str) -> str:
-        snapshot_input = CreateSnapshotInput(
-            sandbox_id=sandbox_id,
-            github_integration_id=self.task_details.github_integration_id,
-            team_id=self.task_details.team_id,
-            repository=self.task_details.repository,
-            task_id=self.task_details.task_id,
-            distinct_id=self.task_details.distinct_id,
-        )
-        return await workflow.execute_activity(
-            create_snapshot,
-            snapshot_input,
-            start_to_close_timeout=timedelta(minutes=20),
+            get_sandbox_for_repository,
+            GetSandboxForRepositoryInput(context=self.context),
+            start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
@@ -221,95 +258,45 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-    async def _setup_snapshot_with_repository(self) -> str:
-        setup_sandbox_id = None
-
+    async def _read_sandbox_logs(self, sandbox_id: str) -> None:
         try:
-            setup_sandbox_id = await self._get_sandbox_for_setup()
+            logs = await workflow.execute_activity(
+                read_sandbox_logs,
+                ReadSandboxLogsInput(sandbox_id=sandbox_id),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+            if logs:
+                workflow.logger.info(f"Agent-server logs from sandbox {sandbox_id}:\n{logs}")
+        except Exception as e:
+            workflow.logger.warning(f"Failed to read sandbox logs: {e}")
 
-            await self._clone_repository_in_sandbox(setup_sandbox_id)
-
-            await self._inject_personal_api_key(setup_sandbox_id)
-
-            await self._setup_repository_in_sandbox(setup_sandbox_id)
-
-            snapshot_id = await self._snapshot_sandbox(setup_sandbox_id)
-
-            return snapshot_id
-
-        finally:
-            if setup_sandbox_id:
-                await self._cleanup_sandbox(setup_sandbox_id)
-
-    async def _create_sandbox_from_snapshot(self, snapshot_id: str) -> str:
-        create_sandbox_input = CreateSandboxFromSnapshotInput(
-            snapshot_id=snapshot_id,
-            task_id=self.task_details.task_id,
-            distinct_id=self.task_details.distinct_id,
-        )
+    async def _start_agent_server(self, sandbox_output: GetSandboxForRepositoryOutput) -> StartAgentServerOutput:
         return await workflow.execute_activity(
-            create_sandbox_from_snapshot,
-            create_sandbox_input,
+            start_agent_server,
+            StartAgentServerInput(
+                context=self.context,
+                sandbox_id=sandbox_output.sandbox_id,
+                sandbox_url=sandbox_output.sandbox_url,
+                sandbox_connect_token=sandbox_output.connect_token,
+                posthog_mcp_scopes=self._posthog_mcp_scopes,
+            ),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-    async def _inject_github_token(self, sandbox_id: str) -> None:
-        inject_token_input = InjectGitHubTokenInput(
-            sandbox_id=sandbox_id,
-            github_integration_id=self.task_details.github_integration_id,
-            task_id=self.task_details.task_id,
-            distinct_id=self.task_details.distinct_id,
-        )
+    async def _forward_pending_user_message(self) -> None:
         await workflow.execute_activity(
-            inject_github_token,
-            inject_token_input,
-            start_to_close_timeout=timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-
-    async def _inject_personal_api_key(self, sandbox_id: str) -> InjectPersonalAPIKeyOutput:
-        inject_key_input = InjectPersonalAPIKeyInput(
-            sandbox_id=sandbox_id,
-            task_id=self.task_details.task_id,
-            distinct_id=self.task_details.distinct_id,
-        )
-        return await workflow.execute_activity(
-            inject_personal_api_key,
-            inject_key_input,
-            start_to_close_timeout=timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-
-    async def _cleanup_personal_api_key(self, personal_api_key_id: str) -> None:
-        try:
-            await workflow.execute_activity(
-                cleanup_personal_api_key,
-                personal_api_key_id,
-                start_to_close_timeout=timedelta(minutes=10),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-        except Exception as e:
-            logger.warning(f"Failed to cleanup personal API key {personal_api_key_id}: {e}")
-
-    async def _execute_task_in_sandbox(self, sandbox_id: str) -> ExecuteTaskOutput:
-        execute_input = ExecuteTaskInput(
-            sandbox_id=sandbox_id,
-            task_id=self.task_details.task_id,
-            repository=self.task_details.repository,
-            distinct_id=self.task_details.distinct_id,
-        )
-        return await workflow.execute_activity(
-            execute_task_in_sandbox,
-            execute_input,
-            start_to_close_timeout=timedelta(minutes=60),
-            retry_policy=RetryPolicy(maximum_attempts=3),
+            forward_pending_user_message,
+            self.context.run_id,
+            start_to_close_timeout=timedelta(seconds=PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS),
+            retry_policy=RetryPolicy(maximum_attempts=1),
         )
 
     async def _track_workflow_event(self, event_name: str, properties: dict) -> None:
         track_input = TrackWorkflowEventInput(
             event_name=event_name,
-            distinct_id=self.task_details.distinct_id,
+            distinct_id=self.context.distinct_id,
             properties=properties,
         )
         await workflow.execute_activity(
@@ -318,3 +305,132 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
+
+    async def _update_task_run_status(self, status: str, error_message: Optional[str] = None) -> None:
+        await workflow.execute_activity(
+            update_task_run_status,
+            UpdateTaskRunStatusInput(
+                run_id=self.context.run_id,
+                status=status,
+                error_message=error_message,
+            ),
+            start_to_close_timeout=timedelta(minutes=1),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+    async def _relay_sandbox_events(self, agent_server_output: StartAgentServerOutput) -> None:
+        """Start the SSE relay activity as a concurrent task (best-effort)."""
+        try:
+            relay_input = RelaySandboxEventsInput(
+                run_id=self.context.run_id,
+                task_id=self.context.task_id,
+                sandbox_url=agent_server_output.sandbox_url,
+                sandbox_connect_token=agent_server_output.connect_token,
+                team_id=self.context.team_id,
+                distinct_id=self.context.distinct_id,
+            )
+            await workflow.execute_activity(
+                relay_sandbox_events,
+                relay_input,
+                start_to_close_timeout=timedelta(minutes=65),
+                heartbeat_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+                cancellation_type=workflow.ActivityCancellationType.TRY_CANCEL,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            workflow.logger.warning(
+                "relay_sandbox_events_failed_non_fatal",
+                run_id=self.context.run_id,
+                error=str(e),
+            )
+
+    @staticmethod
+    async def _cancel_relay(relay_task: "asyncio.Task[None]") -> None:
+        """Cancel the relay task if still running."""
+        if relay_task.done():
+            return
+        relay_task.cancel()
+        try:
+            await relay_task
+        except (asyncio.CancelledError, Exception):
+            pass
+
+    async def _create_resume_snapshot(self, sandbox_id: str) -> None:
+        """Create a filesystem snapshot for interactive sandbox resume."""
+        try:
+            result = await workflow.execute_activity(
+                create_resume_snapshot,
+                CreateResumeSnapshotInput(sandbox_id=sandbox_id, run_id=self.context.run_id),
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+            if result.external_id:
+                workflow.logger.info(f"Resume snapshot created: {result.external_id} for sandbox {sandbox_id}")
+            elif result.error:
+                workflow.logger.warning(f"Resume snapshot skipped: {result.error}")
+        except Exception as e:
+            workflow.logger.warning(f"Resume snapshot failed (non-fatal): {e}")
+
+    async def _trigger_snapshot_workflow(self) -> None:
+        workflow_id = (
+            f"create-snapshot-for-repository-{self.context.github_integration_id}-"
+            f"{self.context.repository.replace('/', '-')}"
+        )
+
+        await workflow.start_child_workflow(
+            workflow="create-snapshot-for-repository",
+            arg=CreateSnapshotForRepositoryInput(
+                github_integration_id=self.context.github_integration_id,
+                repository=self.context.repository,
+                team_id=self.context.team_id,
+            ),
+            id=workflow_id,
+            task_queue=settings.TASKS_TASK_QUEUE,
+            parent_close_policy=ParentClosePolicy.ABANDON,  # This will allow the snapshot workflow to continue even if the task workflow fails or closes
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+    async def _post_slack_update(self, sandbox_cleaned: bool = False) -> None:
+        if not self._slack_thread_context:
+            return
+        await workflow.execute_activity(
+            post_slack_update,
+            PostSlackUpdateInput(
+                run_id=self.context.run_id,
+                slack_thread_context=self._slack_thread_context,
+                sandbox_cleaned=sandbox_cleaned,
+            ),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+
+    @temporalio.workflow.signal
+    async def complete_task(self, status: str = "completed", error_message: Optional[str] = None) -> None:
+        self._completion_status = status
+        self._completion_error = error_message
+        self._task_completed = True
+
+    @temporalio.workflow.signal
+    async def heartbeat(self) -> None:
+        self._heartbeat_received = True
+
+    @temporalio.workflow.signal
+    async def send_followup_message(self, message: str) -> None:
+        self._pending_followup = message
+
+    async def _send_followup_to_sandbox(self, message: str) -> None:
+        try:
+            await workflow.execute_activity(
+                send_followup_to_sandbox,
+                SendFollowupToSandboxInput(run_id=self.context.run_id, message=message),
+                start_to_close_timeout=timedelta(minutes=35),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except Exception as e:
+            workflow.logger.warning(
+                "send_followup_to_sandbox_failed",
+                run_id=self.context.run_id,
+                error=str(e),
+            )

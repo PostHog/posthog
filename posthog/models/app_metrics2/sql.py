@@ -1,4 +1,9 @@
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine, ttl_period
+from posthog.clickhouse.kafka_engine import (
+    CONSUMER_GROUP_APP_METRICS2,
+    KAFKA_COLUMNS_WITH_PARTITION,
+    kafka_engine,
+    ttl_period,
+)
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
 
@@ -91,7 +96,7 @@ CREATE TABLE IF NOT EXISTS {KAFKA_APP_METRICS2_TABLE}
     metric_name String,
     count Int64
 )
-ENGINE={kafka_engine(topic=KAFKA_APP_METRICS2)}
+ENGINE={kafka_engine(topic=KAFKA_APP_METRICS2, group=CONSUMER_GROUP_APP_METRICS2)}
 """
 )
 

@@ -125,7 +125,7 @@ def run_person_sync(team_id: int, live_run: bool, deletes: bool, sync: bool):
 def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool, sync: bool):
     logger.info("Running person distinct id table sync")
     # lookup what needs to be updated in ClickHouse and send kafka messages for only those
-    person_distinct_ids = PersonDistinctId.objects.filter(team_id=team_id)
+    person_distinct_ids = PersonDistinctId.objects.filter(team_id=team_id).select_related("person")
     rows = sync_execute(
         """
             SELECT distinct_id, max(version) FROM person_distinct_id2 WHERE team_id = %(team_id)s GROUP BY distinct_id HAVING max(is_deleted) = 0

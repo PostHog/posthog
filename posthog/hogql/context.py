@@ -7,11 +7,13 @@ from posthog.schema import HogQLNotice, HogQLQueryModifiers
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.timings import HogQLTimings
 
+from posthog.clickhouse.workload import Workload
+
 if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
     from posthog.hogql.transforms.property_types import PropertySwapper
 
-    from posthog.models import Team
+    from posthog.models import Team, User
 
 
 @dataclass
@@ -30,6 +32,10 @@ class HogQLContext:
     team_id: Optional[int] = None
     # Team making the queries - if team is passed in, then the team isn't queried when creating the database
     team: Optional["Team"] = None
+
+    # User making the queries - used for access control on system tables
+    user: Optional["User"] = None
+
     # Virtual database we're querying, will be populated from team_id if not present
     database: Optional["Database"] = None
     # If set, will save string constants to this dict. Inlines strings into the query if None.
@@ -62,6 +68,8 @@ class HogQLContext:
     debug: bool = False
 
     property_swapper: Optional["PropertySwapper"] = None
+    # Workload detected during AST resolution (set by prepare_ast_for_printing)
+    workload: Optional[Workload] = None
 
     def __post_init__(self):
         if self.team:

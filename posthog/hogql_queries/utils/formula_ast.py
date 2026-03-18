@@ -2,6 +2,8 @@ import ast
 import operator
 from typing import Any
 
+from posthog.hogql.errors import ExposedHogQLError
+
 
 class FormulaAST:
     op_map = {
@@ -49,6 +51,11 @@ class FormulaAST:
             left = self._evaluate(node.left, const_map)
             op = node.op
             right = self._evaluate(node.right, const_map)
+            # Handle None values that may come from empty query results
+            if left is None:
+                left = 0
+            if right is None:
+                right = 0
             try:
                 return self.op_map[type(op)](left, right)
             except ZeroDivisionError:
@@ -58,6 +65,9 @@ class FormulaAST:
 
         elif isinstance(node, ast.UnaryOp):
             operand = self._evaluate(node.operand, const_map)
+            # Handle None values that may come from empty query results
+            if operand is None:
+                operand = 0
             unary_op = node.op
             if isinstance(unary_op, ast.USub):
                 return -operand
@@ -72,6 +82,11 @@ class FormulaAST:
             try:
                 return const_map[node.id]
             except KeyError:
-                raise ValueError(f"Constant {node.id} not supported")
+                available = sorted(k.upper() for k in const_map if k.isalpha() and len(k) == 1)
+                series_word = "series is" if len(available) == 1 else "series are"
+                raise ExposedHogQLError(
+                    f"Formula references series {node.id.upper()}, "
+                    f"but only {len(available)} {series_word} defined ({', '.join(available) or 'none'})"
+                )
 
         raise TypeError(f"Unsupported operation: {node.__class__.__name__}")

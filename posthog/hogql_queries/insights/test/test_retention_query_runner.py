@@ -7,6 +7,7 @@ from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    _create_action,
     _create_event,
     _create_person,
     create_person_id_override_by_distinct_id,
@@ -17,7 +18,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
-from posthog.schema import RetentionQuery
+from posthog.schema import HogQLQueryModifiers, InCohortVia, RetentionQuery
 
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
@@ -38,13 +39,6 @@ from posthog.models.person import Person
 from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
-
-
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name}])
-    return action
 
 
 def _create_signup_actions(team, user_and_timestamps):
@@ -1964,6 +1958,168 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
+    def test_retention_with_properties_on_all_events_target_entity(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0), {"$target_event_property": "value"}),
+                ("person2", _date(0), {"$target_event_property": "other"}),
+                ("person1", _date(1)),
+                ("person2", _date(1)),
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(6, hour=0)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 7,
+                    "targetEntity": {
+                        "id": None,
+                        "type": TREND_FILTER_TYPE_EVENTS,
+                        "properties": [
+                            {
+                                "key": "$target_event_property",
+                                "type": "event",
+                                "operator": "exact",
+                                "value": ["value"],
+                            }
+                        ],
+                    },
+                    "returningEntity": {"id": None, "type": TREND_FILTER_TYPE_EVENTS},
+                },
+            }
+        )
+
+        self.assertEqual(result[0]["values"][0]["count"], 1)
+
+    def test_retention_with_properties_on_all_events_returning_entity(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person2", _date(0)),
+                ("person1", _date(1), {"$return_event_property": "value"}),
+                ("person2", _date(1), {"$return_event_property": "other"}),
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(6, hour=0)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 7,
+                    "targetEntity": {"id": None, "type": TREND_FILTER_TYPE_EVENTS},
+                    "returningEntity": {
+                        "id": None,
+                        "type": TREND_FILTER_TYPE_EVENTS,
+                        "properties": [
+                            {
+                                "key": "$return_event_property",
+                                "type": "event",
+                                "operator": "exact",
+                                "value": ["value"],
+                            }
+                        ],
+                    },
+                },
+            }
+        )
+
+        self.assertEqual(result[0]["values"][0]["count"], 2)
+        self.assertEqual(result[0]["values"][1]["count"], 1)
+
+    def test_retention_with_properties_on_action_target_entity(self):
+        action = Action.objects.create(team=self.team, name="pageview_action", steps_json=[{"event": "$pageview"}])
+
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0), {"$target_event_property": "value"}),
+                ("person2", _date(0), {"$target_event_property": "other"}),
+                ("person1", _date(1)),
+                ("person2", _date(1)),
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(6, hour=0)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 7,
+                    "targetEntity": {
+                        "id": action.pk,
+                        "type": TREND_FILTER_TYPE_ACTIONS,
+                        "properties": [
+                            {
+                                "key": "$target_event_property",
+                                "type": "event",
+                                "operator": "exact",
+                                "value": ["value"],
+                            }
+                        ],
+                    },
+                    "returningEntity": {"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS},
+                },
+            }
+        )
+
+        self.assertEqual(result[0]["values"][0]["count"], 1)
+
+    def test_retention_with_properties_on_action_returning_entity(self):
+        action = Action.objects.create(team=self.team, name="pageview_action", steps_json=[{"event": "$pageview"}])
+
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person2", _date(0)),
+                ("person1", _date(1), {"$return_event_property": "value"}),
+                ("person2", _date(1), {"$return_event_property": "other"}),
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(6, hour=0)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 7,
+                    "targetEntity": {"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS},
+                    "returningEntity": {
+                        "id": action.pk,
+                        "type": TREND_FILTER_TYPE_ACTIONS,
+                        "properties": [
+                            {
+                                "key": "$return_event_property",
+                                "type": "event",
+                                "operator": "exact",
+                                "value": ["value"],
+                            }
+                        ],
+                    },
+                },
+            }
+        )
+
+        self.assertEqual(result[0]["values"][0]["count"], 2)
+        self.assertEqual(result[0]["values"][1]["count"], 1)
+
     def test_retention_with_properties_on_return_event_with_first_time(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
         _create_person(team_id=self.team.pk, distinct_ids=["person2"])
@@ -3732,6 +3888,52 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             firefox_cohorts,
         )
 
+    def test_retention_cumulative_with_breakdown_event_properties(self):
+        """Test cumulative retention with breakdown by event properties - reproduces issue #41496"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"])
+
+        # Create events with different browser properties
+        _create_events(
+            self.team,
+            [
+                # Chrome cohort
+                ("person1", _date(0), {"browser": "Chrome"}),  # Day 0
+                ("person1", _date(1), {"browser": "Chrome"}),  # Day 1
+                ("person1", _date(3), {"browser": "Chrome"}),  # Day 3
+                # Safari cohort
+                ("person2", _date(0), {"browser": "Safari"}),  # Day 0
+                ("person2", _date(1), {"browser": "Safari"}),  # Day 1
+                ("person2", _date(2), {"browser": "Safari"}),  # Day 2
+                # Firefox cohort
+                ("person3", _date(0), {"browser": "Firefox"}),  # Day 0
+                ("person3", _date(2), {"browser": "Firefox"}),  # Day 2
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(5, hour=0)},
+                "retentionFilter": {
+                    "totalIntervals": 6,
+                    "period": "Day",
+                    "cumulative": True,  # This triggers the 'on or after' mode
+                },
+                "breakdownFilter": {"breakdowns": [{"property": "browser", "type": "event"}]},
+            }
+        )
+
+        # Verify the query runs without error and returns breakdown results
+        breakdown_values = {c.get("breakdown_value") for c in result}
+        self.assertEqual(breakdown_values, {"Chrome", "Safari", "Firefox"})
+
+        # Verify Chrome cohort results (cumulative mode means if they return on day 3, they count for days 1, 2, 3)
+        chrome_cohorts = pluck([c for c in result if c.get("breakdown_value") == "Chrome"], "values", "count")
+        # Day 0 cohort: 1 person, returns on day 1 and day 3
+        # In cumulative mode: day 1 = 1, day 2 = 1 (from day 1), day 3 = 1 (from day 1 and day 3)
+        self.assertEqual(chrome_cohorts[0][:4], [1, 1, 1, 1])
+
     def test_retention_actor_query_with_event_property_breakdown(self):
         """Test actor query with event property breakdown filter"""
         _create_person(team_id=self.team.pk, distinct_ids=["person1"])
@@ -4273,6 +4475,754 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             pluck(result_first_ever, "values", "count"),
             expected_first_ever_counts,
         )
+
+    def test_cohort_filter_optimization_with_property_filter(self):
+        """Test that cohort filters in properties trigger LEFTJOIN optimization"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        query = RetentionQuery(
+            dateRange={"date_from": "-7d"},
+            retentionFilter={},
+            properties=[{"type": "cohort", "key": "id", "value": cohort.pk}],
+        )
+
+        modifiers = HogQLQueryModifiers(inCohortVia=InCohortVia.AUTO)
+        runner = RetentionQueryRunner(query=query, team=self.team, modifiers=modifiers)
+
+        # Verify that inCohortVia was changed from AUTO to LEFTJOIN
+        assert runner.modifiers.inCohortVia == InCohortVia.LEFTJOIN
+
+    def test_cohort_filter_optimization_with_cohort_breakdown(self):
+        """Test that cohort breakdowns trigger LEFTJOIN optimization"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        query = RetentionQuery(
+            dateRange={"date_from": "-7d"},
+            retentionFilter={},
+            breakdownFilter={"breakdown_type": "cohort", "breakdown": cohort.pk},
+        )
+
+        modifiers = HogQLQueryModifiers(inCohortVia=InCohortVia.AUTO)
+        runner = RetentionQueryRunner(query=query, team=self.team, modifiers=modifiers)
+
+        # Verify that inCohortVia was changed from AUTO to LEFTJOIN
+        assert runner.modifiers.inCohortVia == InCohortVia.LEFTJOIN
+
+    def test_cohort_filter_optimization_with_nested_properties(self):
+        """Test that cohort filters in nested property groups trigger LEFTJOIN optimization"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        query = RetentionQuery(
+            dateRange={"date_from": "-7d"},
+            retentionFilter={},
+            properties=[
+                {"type": "event", "key": "$browser", "value": "Chrome"},
+                {"type": "cohort", "key": "id", "value": cohort.pk},
+            ],
+        )
+
+        modifiers = HogQLQueryModifiers(inCohortVia=InCohortVia.AUTO)
+        runner = RetentionQueryRunner(query=query, team=self.team, modifiers=modifiers)
+
+        # Verify that inCohortVia was changed from AUTO to LEFTJOIN
+        assert runner.modifiers.inCohortVia == InCohortVia.LEFTJOIN
+
+    def test_no_cohort_filter_keeps_auto_mode(self):
+        """Test that queries without cohort filters keep AUTO mode"""
+        query = RetentionQuery(
+            dateRange={"date_from": "-7d"},
+            retentionFilter={},
+            properties=[{"type": "event", "key": "$browser", "value": "Chrome"}],
+        )
+
+        modifiers = HogQLQueryModifiers(inCohortVia=InCohortVia.AUTO)
+        runner = RetentionQueryRunner(query=query, team=self.team, modifiers=modifiers)
+
+        # Verify that inCohortVia stayed as AUTO
+        assert runner.modifiers.inCohortVia == InCohortVia.AUTO
+
+    def test_cohort_filter_optimization_with_dashboard_filters(self):
+        """Test that cohort filters applied via dashboard filters_override trigger LEFTJOIN optimization"""
+        from posthog.schema import DashboardFilter
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Dashboard Cohort",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        # Create query without cohort filter
+        query = RetentionQuery(
+            dateRange={"date_from": "-7d"},
+            retentionFilter={},
+        )
+
+        modifiers = HogQLQueryModifiers(inCohortVia=InCohortVia.AUTO)
+        runner = RetentionQueryRunner(query=query, team=self.team, modifiers=modifiers)
+
+        # Apply dashboard filters (simulating what happens when insight is on dashboard)
+        dashboard_filter = DashboardFilter(properties=[{"type": "cohort", "key": "id", "value": cohort.pk}])
+        runner.apply_dashboard_filters(dashboard_filter)
+
+        # After dashboard filters are applied, should switch to LEFTJOIN
+        assert runner.modifiers.inCohortVia == InCohortVia.LEFTJOIN
+
+        # Verify the cohort filter was actually merged into query properties
+        assert runner.query.properties is not None
+
+    def test_retention_aggregation_sum(self):
+        """Test retention with SUM aggregation on a property"""
+        Person.objects.create(team=self.team, distinct_ids=["user1"])
+        Person.objects.create(team=self.team, distinct_ids=["user2"])
+
+        # User 1:
+        # Day 0: $pageview with revenue=10
+        # Day 1: $pageview with revenue=20
+        # Day 2: $pageview with revenue=30
+        _create_events(
+            self.team,
+            [
+                ("user1", _date(0), {"revenue": 10}),
+                ("user1", _date(1), {"revenue": 20}),
+                ("user1", _date(2), {"revenue": 30}),
+            ],
+        )
+
+        # User 2:
+        # Day 0: $pageview with revenue=40
+        # Day 1: $pageview with revenue=50
+        # Day 2: $pageview with revenue=60
+        _create_events(
+            self.team,
+            [
+                ("user2", _date(0), {"revenue": 40}),
+                ("user2", _date(1), {"revenue": 50}),
+                ("user2", _date(2), {"revenue": 60}),
+            ],
+        )
+
+        flush_persons_and_events()
+
+        # Test SUM aggregation
+        result_sum = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "sum",
+                    "aggregationProperty": "revenue",
+                },
+            }
+        )
+
+        # Expected result (SUM):
+        # Cohort (Day 0):
+        # Day 0: User 1 (10) + User 2 (40) = 50
+        # Day 1: User 1 (20) + User 2 (50) = 70
+        # Day 2: User 1 (30) + User 2 (60) = 90
+        self.assertEqual(
+            pluck(result_sum, "values", "aggregation_value"),
+            pad(
+                [
+                    [50, 70, 90, 0, 0, 0, 0],
+                    [
+                        70,
+                        90,
+                        0,
+                        0,
+                        0,
+                        0,
+                    ],  # Day 1 cohort: user1(20) + user2(50) on day 1, user1(30) + user2(60) on day 2
+                    [90, 0, 0, 0, 0],  # Day 2 cohort: user1(30) + user2(60) on day 2
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
+        )
+
+    def test_retention_aggregation_avg(self):
+        """Test retention with AVG aggregation on a property"""
+        Person.objects.create(team=self.team, distinct_ids=["user1"])
+        Person.objects.create(team=self.team, distinct_ids=["user2"])
+
+        # User 1:
+        # Day 0: $pageview with revenue=10
+        # Day 1: $pageview with revenue=20
+        # Day 2: $pageview with revenue=30
+        _create_events(
+            self.team,
+            [
+                ("user1", _date(0), {"revenue": 10}),
+                ("user1", _date(1), {"revenue": 20}),
+                ("user1", _date(2), {"revenue": 30}),
+            ],
+        )
+
+        # User 2:
+        # Day 0: $pageview with revenue=40
+        # Day 1: $pageview with revenue=50
+        # Day 2: $pageview with revenue=60
+        _create_events(
+            self.team,
+            [
+                ("user2", _date(0), {"revenue": 40}),
+                ("user2", _date(1), {"revenue": 50}),
+                ("user2", _date(2), {"revenue": 60}),
+            ],
+        )
+
+        flush_persons_and_events()
+
+        # Test AVG aggregation
+        result_avg = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "avg",
+                    "aggregationProperty": "revenue",
+                },
+            }
+        )
+
+        # Expected result (AVG):
+        # Cohort (Day 0):
+        # Day 0: (10 + 40) / 2 = 25
+        # Day 1: (20 + 50) / 2 = 35
+        # Day 2: (30 + 60) / 2 = 45
+        self.assertEqual(
+            pluck(result_avg, "values", "aggregation_value"),
+            pad(
+                [
+                    [25, 35, 45, 0, 0, 0, 0],
+                    [35, 45, 0, 0, 0, 0],
+                    [45, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
+        )
+
+    def test_retention_aggregation_multiple_events_same_day(self):
+        """Test that multiple events on the same day are correctly summed"""
+        Person.objects.create(team=self.team, distinct_ids=["user1"])
+        Person.objects.create(team=self.team, distinct_ids=["user2"])
+
+        # User 1: Multiple events on Day 1 and Day 2
+        _create_events(
+            self.team,
+            [
+                ("user1", _date(0), {"revenue": 10}),
+                ("user1", _date(1), {"revenue": 20}),
+                ("user1", _date(1), {"revenue": 30}),  # Second event on Day 1
+                ("user1", _date(2), {"revenue": 40}),
+                ("user1", _date(2), {"revenue": 50}),  # Second event on Day 2
+                ("user1", _date(2), {"revenue": 60}),  # Third event on Day 2
+            ],
+        )
+
+        # User 2: Single events per day
+        _create_events(
+            self.team,
+            [
+                ("user2", _date(0), {"revenue": 100}),
+                ("user2", _date(1), {"revenue": 200}),
+                ("user2", _date(2), {"revenue": 300}),
+            ],
+        )
+
+        flush_persons_and_events()
+
+        # Test SUM aggregation
+        result_sum = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "sum",
+                    "aggregationProperty": "revenue",
+                },
+            }
+        )
+
+        # Expected result (SUM):
+        # Cohort (Day 0):
+        # Day 0: User1(10) + User2(100) = 110
+        # Day 1: User1(20+30=50) + User2(200) = 250  # Multiple events on Day 1 for User1
+        # Day 2: User1(40+50+60=150) + User2(300) = 450  # Multiple events on Day 2 for User1
+        self.assertEqual(
+            pluck(result_sum, "values", "aggregation_value"),
+            pad(
+                [
+                    [110, 250, 450, 0, 0, 0, 0],
+                    [250, 450, 0, 0, 0, 0],
+                    [450, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
+        )
+
+        # Test AVG aggregation
+        result_avg = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "avg",
+                    "aggregationProperty": "revenue",
+                },
+            }
+        )
+
+        # Expected result (AVG):
+        # Cohort (Day 0):
+        # Day 0: (10 + 100) / 2 = 55
+        # Day 1: (50 + 200) / 2 = 125  # User1's multiple events are summed first: 20+30=50
+        # Day 2: (150 + 300) / 2 = 225  # User1's multiple events are summed first: 40+50+60=150
+        self.assertEqual(
+            pluck(result_avg, "values", "aggregation_value"),
+            pad(
+                [
+                    [55, 125, 225, 0, 0, 0, 0],
+                    [125, 225, 0, 0, 0, 0],
+                    [225, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
+        )
+
+    def test_retention_aggregation_cohort_size_sum(self):
+        """In SUM aggregation mode, the size column should reflect distinct actor count, not sum of values"""
+        _create_person(team_id=self.team.pk, distinct_ids=["user1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["user2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["user3"])
+
+        # Day 0: all 3 users perform the event
+        # Day 1: only user1 and user2 return
+        # Day 2: only user1 returns
+        _create_events(
+            self.team,
+            [
+                ("user1", _date(0), {"revenue": 10}),
+                ("user2", _date(0), {"revenue": 40}),
+                ("user3", _date(0), {"revenue": 100}),
+                ("user1", _date(1), {"revenue": 20}),
+                ("user2", _date(1), {"revenue": 50}),
+                ("user1", _date(2), {"revenue": 30}),
+            ],
+        )
+
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "sum",
+                    "aggregationProperty": "revenue",
+                },
+            }
+        )
+
+        # Day 0 cohort has 3 users, so size = 3
+        self.assertEqual(result[0]["values"][0]["aggregation_value"], 150)  # SUM of revenues: 10+40+100
+        self.assertEqual(result[0]["values"][0]["count"], 3)  # 3 distinct users
+        self.assertEqual(result[0]["values"][1]["count"], 2)  # only user1 and user2 returned on Day 1
+        self.assertEqual(result[0]["values"][2]["count"], 1)  # only user1 returned on Day 2
+
+    def test_retention_aggregation_cohort_size_avg(self):
+        """In AVG aggregation mode, the size column should reflect distinct actor count, not the avg value"""
+        _create_person(team_id=self.team.pk, distinct_ids=["user1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["user2"])
+
+        _create_events(
+            self.team,
+            [
+                ("user1", _date(0), {"revenue": 10}),
+                ("user2", _date(0), {"revenue": 40}),
+                ("user1", _date(1), {"revenue": 20}),
+                ("user2", _date(1), {"revenue": 50}),
+            ],
+        )
+
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "avg",
+                    "aggregationProperty": "revenue",
+                },
+            }
+        )
+
+        # Day 0 cohort has 2 users — size should be 2, not 25 (the avg)
+        self.assertEqual(result[0]["values"][0]["aggregation_value"], 25.0)  # AVG: (10+40)/2
+        self.assertEqual(result[0]["values"][0]["count"], 2)  # 2 distinct users
+        self.assertEqual(result[0]["values"][1]["count"], 2)  # both returned on Day 1
+
+    def test_retention_aggregation_cohort_size_with_breakdown(self):
+        """Cohort size reflects distinct actors per breakdown in property aggregation mode"""
+        _create_person(team_id=self.team.pk, distinct_ids=["user1"], properties={"$browser": "Chrome"})
+        _create_person(team_id=self.team.pk, distinct_ids=["user2"], properties={"$browser": "Chrome"})
+        _create_person(team_id=self.team.pk, distinct_ids=["user3"], properties={"$browser": "Firefox"})
+
+        _create_events(
+            self.team,
+            [
+                ("user1", _date(0), {"revenue": 10}),
+                ("user2", _date(0), {"revenue": 40}),
+                ("user3", _date(0), {"revenue": 100}),
+                ("user1", _date(1), {"revenue": 20}),
+                ("user3", _date(1), {"revenue": 200}),
+            ],
+        )
+
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "sum",
+                    "aggregationProperty": "revenue",
+                },
+                "breakdownFilter": {"breakdown": "$browser", "breakdown_type": "person"},
+            }
+        )
+
+        chrome_result = next(r for r in result if r["breakdown_value"] == "Chrome")
+        firefox_result = next(r for r in result if r["breakdown_value"] == "Firefox")
+
+        # Chrome: 2 users on Day 0
+        self.assertEqual(chrome_result["values"][0]["count"], 2)
+        # Chrome: only user1 returned on Day 1
+        self.assertEqual(chrome_result["values"][1]["count"], 1)
+
+        # Firefox: 1 user on Day 0
+        self.assertEqual(firefox_result["values"][0]["count"], 1)
+        # Firefox: user3 returned on Day 1
+        self.assertEqual(firefox_result["values"][1]["count"], 1)
+
+    def test_retention_aggregation_different_events_interval_0_includes_return_after_start(self):
+        # When start and return events are different, return events that happen after the
+        # start event within interval 0 should be included in the interval 0 aggregation.
+        # This is the primary use case: e.g. "signed_up" (no revenue) → "purchased" (revenue).
+        Person.objects.create(team=self.team, distinct_ids=["user1"])
+        Person.objects.create(team=self.team, distinct_ids=["user2"])
+
+        # user1: signed_up at hour 10, then purchased at hour 12 (after signup) → should be counted
+        # user1: purchased at hour 14 on day 1
+        _create_events(
+            self.team,
+            [("user1", _date(0, hour=10)), ("user1", _date(1, hour=5))],
+            event="signed_up",
+        )
+        _create_events(
+            self.team,
+            [
+                ("user1", _date(0, hour=12), {"revenue": 50}),
+                ("user1", _date(1, hour=5), {"revenue": 100}),
+            ],
+            event="purchased",
+        )
+
+        # user2: signed_up at hour 9, then purchased at hour 11 (after signup) → should be counted
+        _create_events(self.team, [("user2", _date(0, hour=9))], event="signed_up")
+        _create_events(self.team, [("user2", _date(0, hour=11), {"revenue": 30})], event="purchased")
+
+        flush_persons_and_events()
+
+        result_sum = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "targetEntity": {"id": "signed_up", "type": "events"},
+                    "returningEntity": {"id": "purchased", "type": "events"},
+                    "aggregationType": "sum",
+                    "aggregationProperty": "revenue",
+                },
+            }
+        )
+
+        day0_values = result_sum[0]["values"]
+        # Interval 0: user1(50) + user2(30) = 80 — return events after start event in same interval
+        self.assertEqual(day0_values[0]["aggregation_value"], 80)
+        # Interval 1: user1(100) only — user2 didn't return on day 1
+        self.assertEqual(day0_values[1]["aggregation_value"], 100)
+
+    def test_retention_aggregation_different_events_interval_0_excludes_return_before_start(self):
+        # Return events that happen BEFORE the start event in the same interval must NOT be
+        # counted in interval 0, even when start and return events are different event types.
+        Person.objects.create(team=self.team, distinct_ids=["user1"])
+
+        # user1: purchased at hour 8 (before signup) → should NOT count for interval 0
+        # user1: signed_up at hour 10
+        # user1: purchased at hour 12 (after signup) → should count
+        _create_events(self.team, [("user1", _date(0, hour=10))], event="signed_up")
+        _create_events(
+            self.team,
+            [
+                ("user1", _date(0, hour=8), {"revenue": 999}),
+                ("user1", _date(0, hour=12), {"revenue": 50}),
+            ],
+            event="purchased",
+        )
+
+        flush_persons_and_events()
+
+        result_sum = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "targetEntity": {"id": "signed_up", "type": "events"},
+                    "returningEntity": {"id": "purchased", "type": "events"},
+                    "aggregationType": "sum",
+                    "aggregationProperty": "revenue",
+                },
+            }
+        )
+
+        day0_values = result_sum[0]["values"]
+        # Interval 0: only 50 (hour-12 purchase), NOT 999 (hour-8 purchase before signup)
+        self.assertEqual(day0_values[0]["aggregation_value"], 50)
+
+    def test_retention_aggregation_same_events_interval_0_unchanged(self):
+        # When start and return events are the same, the interval 0 behavior is unchanged:
+        # only the start event itself contributes to interval 0 (no double-counting).
+        Person.objects.create(team=self.team, distinct_ids=["user1"])
+
+        _create_events(
+            self.team,
+            [
+                ("user1", _date(0), {"revenue": 10}),
+                ("user1", _date(1), {"revenue": 20}),
+            ],
+        )
+
+        flush_persons_and_events()
+
+        result_sum = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "sum",
+                    "aggregationProperty": "revenue",
+                },
+            }
+        )
+
+        day0_values = result_sum[0]["values"]
+        # Interval 0: 10 (just the start event value, no double-counting from return event)
+        self.assertEqual(day0_values[0]["aggregation_value"], 10)
+        # Interval 1: 20
+        self.assertEqual(day0_values[1]["aggregation_value"], 20)
+
+    def test_retention_aggregation_different_events_avg_interval_0(self):
+        # AVG aggregation with different start/return events includes return events in interval 0.
+        Person.objects.create(team=self.team, distinct_ids=["user1"])
+        Person.objects.create(team=self.team, distinct_ids=["user2"])
+
+        _create_events(
+            self.team,
+            [("user1", _date(0, hour=10)), ("user2", _date(0, hour=9))],
+            event="signed_up",
+        )
+        _create_events(
+            self.team,
+            [
+                ("user1", _date(0, hour=12), {"revenue": 50}),
+                ("user2", _date(0, hour=11), {"revenue": 30}),
+            ],
+            event="purchased",
+        )
+
+        flush_persons_and_events()
+
+        result_avg = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "targetEntity": {"id": "signed_up", "type": "events"},
+                    "returningEntity": {"id": "purchased", "type": "events"},
+                    "aggregationType": "avg",
+                    "aggregationProperty": "revenue",
+                },
+            }
+        )
+
+        day0_values = result_avg[0]["values"]
+        # Interval 0: (50 + 30) / 2 = 40 — avg of return events after start events per user
+        self.assertEqual(day0_values[0]["aggregation_value"], 40)
+
+    def test_retention_aggregation_person_property_sum(self):
+        """Aggregating on a person property reads person.properties, not event.properties."""
+        Person.objects.create(team=self.team, distinct_ids=["high_value"], properties={"account_value": 100})
+        Person.objects.create(team=self.team, distinct_ids=["low_value"], properties={"account_value": 10})
+
+        # Both users perform $pageview on Day 0 and Day 1.
+        # The event itself has no revenue property — value comes solely from person properties.
+        _create_events(
+            self.team,
+            [
+                ("high_value", _date(0)),
+                ("high_value", _date(1)),
+                ("low_value", _date(0)),
+                ("low_value", _date(1)),
+            ],
+        )
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "sum",
+                    "aggregationProperty": "account_value",
+                    "aggregationPropertyType": "person",
+                },
+            }
+        )
+
+        # Day 0 cohort (both users started):
+        # interval 0: high_value (100) + low_value (10) = 110
+        # interval 1: both returned — high_value (100) + low_value (10) = 110
+        day0_values = result[0]["values"]
+        self.assertEqual(day0_values[0]["count"], 2)
+        self.assertEqual(day0_values[0]["aggregation_value"], 110)
+        self.assertEqual(day0_values[1]["count"], 2)
+        self.assertEqual(day0_values[1]["aggregation_value"], 110)
+
+    def test_retention_aggregation_person_property_avg(self):
+        """AVG over a person property divides the sum by the number of distinct actors."""
+        Person.objects.create(team=self.team, distinct_ids=["user_a"], properties={"score": 80})
+        Person.objects.create(team=self.team, distinct_ids=["user_b"], properties={"score": 60})
+
+        _create_events(
+            self.team,
+            [
+                ("user_a", _date(0)),
+                ("user_a", _date(1)),
+                ("user_b", _date(0)),
+                ("user_b", _date(1)),
+            ],
+        )
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "avg",
+                    "aggregationProperty": "score",
+                    "aggregationPropertyType": "person",
+                },
+            }
+        )
+
+        # Day 0 cohort: avg((80 + 60) / 2) = 70
+        day0_values = result[0]["values"]
+        self.assertEqual(day0_values[0]["count"], 2)
+        self.assertEqual(day0_values[0]["aggregation_value"], 70)
+        self.assertEqual(day0_values[1]["count"], 2)
+        self.assertEqual(day0_values[1]["aggregation_value"], 70)
+
+    def test_retention_aggregation_person_property_no_self_join(self):
+        """Using person property aggregation must not generate a self-join (events__events)."""
+        from posthog.hogql.context import HogQLContext
+        from posthog.hogql.modifiers import create_default_modifiers_for_team
+        from posthog.hogql.printer import prepare_and_print_ast
+
+        runner = RetentionQueryRunner(
+            team=self.team,
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "sum",
+                    "aggregationProperty": "account_value",
+                    "aggregationPropertyType": "person",
+                },
+            },
+        )
+        actor_query = runner.actor_query()
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=create_default_modifiers_for_team(self.team),
+        )
+        sql, _ = prepare_and_print_ast(actor_query, context, "clickhouse", pretty=True)
+
+        self.assertNotIn("events__events", sql, "Self-join detected with person property aggregation")
+        self.assertIn("_start_event_data", sql)
+        self.assertIn("_return_event_data", sql)
+        # person properties are accessed via the persons join, not via event properties
+        self.assertIn("person", sql)
+
+    def test_retention_aggregation_event_property_default(self):
+        """Omitting aggregationPropertyType defaults to event property behaviour."""
+        from posthog.hogql.context import HogQLContext
+        from posthog.hogql.modifiers import create_default_modifiers_for_team
+        from posthog.hogql.printer import prepare_and_print_ast
+
+        runner = RetentionQueryRunner(
+            team=self.team,
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "sum",
+                    "aggregationProperty": "revenue",
+                },
+            },
+        )
+        actor_query = runner.actor_query()
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=create_default_modifiers_for_team(self.team),
+        )
+        sql, _ = prepare_and_print_ast(actor_query, context, "clickhouse", pretty=True)
+
+        self.assertNotIn("events__events", sql)
+        # event property access should be present, not person property access
+        self.assertIn("properties", sql)
 
 
 class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
@@ -5664,6 +6614,579 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         cohort_row = next(row for row in result if row.get("breakdown_value") == str(cohort1.pk))
         self.assertEqual(cohort_row["values"][0]["count"], 1)  # Interval 0
         self.assertEqual(cohort_row["values"][1]["count"], 0)  # Interval 1
+
+    def test_custom_brackets_day_period(self):
+        """
+        Validate custom bracket logic with day periods. Brackets start from Day 1 (Day 0 is the cohort day).
+
+        Setup:
+        - p1: start Day 0, returns Day 1, 5, 16  -> contributes to brackets [1-4], [5-14], [15-17]
+        - p2: start Day 0, returns Day 4, 10     -> contributes to brackets [1-4], [5-14]
+        - p3: start Day 0, no returns            -> cohort only
+
+        Expectations for Day 0 cohort with brackets [4, 10, 3] (i.e. Day 1-4, Day 5-14, Day 15-17):
+        counts: [cohort_size=3, bracket1=2, bracket2=2, bracket3=1]
+        labels: ['Day 0', 'Day 1-4', 'Day 5-14', 'Day 15-17']
+        """
+
+        # People
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["p2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["p3"])
+
+        # Events - all are $pageview (default start/return entity in runner)
+        _create_events(
+            self.team,
+            [
+                # p1: start + returns across 3 brackets
+                ("p1", _date(0)),
+                ("p1", _date(1)),  # Day 1  -> bracket 1
+                ("p1", _date(5)),  # Day 5  -> bracket 2
+                ("p1", _date(16)),  # Day 16 -> bracket 3
+                # p2: start + returns across first two brackets
+                ("p2", _date(0)),
+                ("p2", _date(4)),  # Day 4  -> bracket 1
+                ("p2", _date(10)),  # Day 10 -> bracket 2
+                # p3: start only
+                ("p3", _date(0)),
+            ],
+        )
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(20)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 21,
+                    "retentionCustomBrackets": [4, 10, 3],
+                },
+            }
+        )
+
+        # Find Day 0 row
+        day0_row = next(row for row in result if row["label"] == "Day 0")
+
+        # Column labels should reflect custom brackets
+        self.assertEqual(
+            [v["label"] for v in day0_row["values"]],
+            ["Day 0", "Day 1-4", "Day 5-14", "Day 15-17"],
+        )
+
+        # Counts per bracket for Day 0 cohort
+        self.assertEqual([v["count"] for v in day0_row["values"]], [3, 2, 2, 1])
+
+    def test_custom_brackets_day_period_single_day_bracket_label(self):
+        """
+        Bracket of size 1 should render as a single day label (e.g. 'Day 7') not a range.
+        """
+
+        _create_person(team_id=self.team.pk, distinct_ids=["a1"])  # start Day 0
+        _create_events(
+            self.team,
+            [
+                ("a1", _date(0)),
+                ("a1", _date(7)),  # Day 7 -> should fall into single-day bracket
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 11,
+                    "retentionCustomBrackets": [7, 2],  # Day 1-7, Day 8-9
+                },
+            }
+        )
+
+        day0_row = next(row for row in result if row["label"] == "Day 0")
+        # Expect labels Day 0, Day 1-7, Day 8-9
+        self.assertEqual(
+            [v["label"] for v in day0_row["values"]],
+            ["Day 0", "Day 1-7", "Day 8-9"],
+        )
+        # Counts: cohort size 1, returned in first bracket once, none in second
+        self.assertEqual([v["count"] for v in day0_row["values"]], [1, 1, 0])
+
+    def test_custom_brackets_with_person_breakdown(self):
+        """Test custom brackets with person property breakdown"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"country": "USA"})
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"country": "USA"})
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"], properties={"country": "Canada"})
+
+        _create_events(
+            self.team,
+            [
+                # USA users
+                ("person1", _date(0)),
+                ("person1", _date(2)),  # Day 2 -> bracket 1
+                ("person1", _date(6)),  # Day 6 -> bracket 2
+                ("person2", _date(0)),
+                ("person2", _date(3)),  # Day 3 -> bracket 1
+                # Canada user
+                ("person3", _date(0)),
+                ("person3", _date(7)),  # Day 7 -> bracket 2
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 11,
+                    "retentionCustomBrackets": [4, 6],  # Day 1-4, Day 5-10
+                },
+                "breakdownFilter": {"breakdown": "country", "breakdown_type": "person"},
+            }
+        )
+
+        # Get USA results
+        usa_results = [r for r in result if r.get("breakdown_value") == "USA"]
+        usa_day0 = next(r for r in usa_results if r["label"] == "Day 0")
+
+        # Check labels
+        self.assertEqual(
+            [v["label"] for v in usa_day0["values"]],
+            ["Day 0", "Day 1-4", "Day 5-10"],
+        )
+
+        # USA: 2 users start, both return in bracket 1, 1 returns in bracket 2
+        self.assertEqual([v["count"] for v in usa_day0["values"]], [2, 2, 1])
+
+        # Get Canada results
+        canada_results = [r for r in result if r.get("breakdown_value") == "Canada"]
+        canada_day0 = next(r for r in canada_results if r["label"] == "Day 0")
+
+        # Canada: 1 user starts, doesn't return in bracket 1, returns in bracket 2
+        self.assertEqual([v["count"] for v in canada_day0["values"]], [1, 0, 1])
+
+    def test_custom_brackets_with_event_breakdown(self):
+        """Test custom brackets with event property breakdown"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0), {"browser": "Chrome"}),
+                ("person1", _date(2), {"browser": "Chrome"}),  # bracket 1
+                ("person1", _date(8), {"browser": "Chrome"}),  # bracket 2
+                ("person2", _date(0), {"browser": "Safari"}),
+                ("person2", _date(3), {"browser": "Safari"}),  # bracket 1
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 11,
+                    "retentionCustomBrackets": [5, 5],  # Day 1-5, Day 6-10
+                },
+                "breakdownFilter": {"breakdown": "browser", "breakdown_type": "event"},
+            }
+        )
+
+        # Chrome results
+        chrome_results = [r for r in result if r.get("breakdown_value") == "Chrome"]
+        chrome_day0 = next(r for r in chrome_results if r["label"] == "Day 0")
+        self.assertEqual([v["count"] for v in chrome_day0["values"]], [1, 1, 1])
+
+        # Safari results
+        safari_results = [r for r in result if r.get("breakdown_value") == "Safari"]
+        safari_day0 = next(r for r in safari_results if r["label"] == "Day 0")
+        self.assertEqual([v["count"] for v in safari_day0["values"]], [1, 1, 0])
+
+    def test_custom_brackets_with_cohort_breakdown(self):
+        """Test custom brackets with cohort breakdown"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"age": "25"})
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"age": "30"})
+
+        flush_persons_and_events()
+
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            name="Young users",
+            groups=[{"properties": [{"key": "age", "value": "25", "type": "person"}]}],
+        )
+        cohort1.calculate_people_ch(pending_version=0)
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person1", _date(2)),  # bracket 1
+                ("person1", _date(7)),  # bracket 2
+                ("person2", _date(0)),
+                ("person2", _date(3)),  # bracket 1
+            ],
+        )
+
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 11,
+                    "retentionCustomBrackets": [4, 5],  # Day 1-4, Day 5-9
+                },
+                "breakdownFilter": {"breakdown": [cohort1.pk], "breakdown_type": "cohort"},
+            }
+        )
+
+        cohort_results = [r for r in result if r.get("breakdown_value") == str(cohort1.pk)]
+        cohort_day0 = next(r for r in cohort_results if r["label"] == "Day 0")
+        self.assertEqual([v["count"] for v in cohort_day0["values"]], [1, 1, 1])
+
+    def test_custom_brackets_first_time_ever(self):
+        """Test custom brackets with first-ever occurrence retention"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        # person1: first event Day 0, signup Day 1
+        _create_events(self.team, [("person1", _date(0))], "$pageview")
+        _create_events(self.team, [("person1", _date(1))], "$user_signed_up")
+        _create_events(
+            self.team,
+            [("person1", _date(3)), ("person1", _date(8))],  # bracket 1, bracket 2
+            "$pageview",
+        )
+
+        # person2: first event signup Day 2
+        _create_events(self.team, [("person2", _date(2))], "$user_signed_up")
+        _create_events(self.team, [("person2", _date(4)), ("person2", _date(9))], "$pageview")  # bracket 1, bracket 2
+
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(10)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 11,
+                    "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
+                    "targetEntity": {"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "retentionCustomBrackets": [5, 5],  # Day 1-5, Day 6-10
+                },
+            }
+        )
+
+        # person1 cohorts on Day 1 (first signup), returns Day 3 (bracket 1), Day 8 (bracket 2)
+        day1_row = next(r for r in result if r["label"] == "Day 1")
+        self.assertEqual([v["label"] for v in day1_row["values"]], ["Day 0", "Day 1-5", "Day 6-10"])
+        self.assertEqual([v["count"] for v in day1_row["values"]], [1, 1, 1])
+
+        # person2 cohorts on Day 2, returns Day 4 (bracket 1), Day 9 (bracket 2)
+        day2_row = next(r for r in result if r["label"] == "Day 2")
+        self.assertEqual([v["count"] for v in day2_row["values"]], [1, 1, 1])
+
+    def test_custom_brackets_first_time_matching_filters(self):
+        """Test custom brackets with first-time matching filters retention"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+
+        # Events without property
+        _create_events(self.team, [("person1", _date(0))], "$pageview")
+
+        # First event with property on Day 2
+        _create_events(self.team, [("person1", _date(2), {"premium": "true"})], "$pageview")
+
+        # Return events
+        _create_events(
+            self.team,
+            [("person1", _date(4)), ("person1", _date(9))],  # bracket 1, bracket 2
+            "$pageview",
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 11,
+                    "retentionType": RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
+                    "targetEntity": {
+                        "id": "$pageview",
+                        "type": "events",
+                        "properties": [{"key": "premium", "value": "true", "type": "event"}],
+                    },
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "retentionCustomBrackets": [4, 5],  # Day 1-4, Day 5-9
+                },
+            }
+        )
+
+        # Cohorts on Day 2 (first event with premium property)
+        day2_row = next(r for r in result if r["label"] == "Day 2")
+        self.assertEqual([v["count"] for v in day2_row["values"]], [1, 1, 1])
+
+    def test_custom_brackets_with_minimum_occurrences(self):
+        """Test custom brackets with minimum occurrences (counted per day within bracket)"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        _create_events(
+            self.team,
+            [
+                # person1: returns with 2+ events on Day 2 (bracket 1), only 1 event on Day 7 (bracket 2)
+                ("person1", _date(0)),
+                ("person1", _date(2)),
+                ("person1", _date(2)),  # 2 events on same day in bracket 1 (Day 1-5)
+                ("person1", _date(7)),  # 1 event in bracket 2 (Day 6-10) - won't count
+                # person2: returns with 1 event on Day 3 (won't count), 2 events on Day 8 (bracket 2)
+                ("person2", _date(0)),
+                ("person2", _date(3)),  # 1 event in bracket 1 - won't count
+                ("person2", _date(8)),
+                ("person2", _date(8)),  # 2 events on same day in bracket 2
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 11,
+                    "retentionCustomBrackets": [5, 5],  # Day 1-5, Day 6-10
+                    "minimumOccurrences": 2,
+                },
+            }
+        )
+
+        day0_row = next(row for row in result if row["label"] == "Day 0")
+        # Both start, person1 qualifies for bracket 1 only (Day 2 has 2 events), person2 qualifies for bracket 2 only (Day 8 has 2 events)
+        self.assertEqual([v["count"] for v in day0_row["values"]], [2, 1, 1])
+
+    def test_custom_brackets_week_period(self):
+        """Test custom brackets with week period"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+
+        # Week 0: June 10, Week 3: July 1 (21 days = 3 weeks), Week 6: July 22 (42 days = 6 weeks)
+        _create_events(
+            self.team,
+            [
+                ("person1", datetime(2020, 6, 10, 5, 0).isoformat()),  # Week 0
+                ("person1", datetime(2020, 7, 1, 5, 0).isoformat()),  # Week 3 -> bracket 1 (Week 1-4)
+                ("person1", datetime(2020, 7, 22, 5, 0).isoformat()),  # Week 6 -> bracket 2 (Week 5-8)
+            ],
+        )
+
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": datetime(2020, 10, 1).isoformat()},
+                "retentionFilter": {
+                    "period": "Week",
+                    "totalIntervals": 17,
+                    "retentionCustomBrackets": [4, 4],  # Week 1-4, Week 5-8
+                },
+            }
+        )
+
+        week0_row = next(row for row in result if row["label"] == "Week 0")
+        self.assertEqual([v["label"] for v in week0_row["values"]], ["Week 0", "Week 1-4", "Week 5-8"])
+        self.assertEqual([v["count"] for v in week0_row["values"]], [1, 1, 1])
+
+    def test_custom_brackets_month_period(self):
+        """Test custom brackets with month period"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0, month=0)),  # June 2020
+                ("person1", _date(0, month=2)),  # August 2020 (Month 2) -> bracket 1
+                ("person1", _date(0, month=5)),  # November 2020 (Month 5) -> bracket 2
+            ],
+        )
+
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": datetime(2021, 2, 10).isoformat()},
+                "retentionFilter": {
+                    "period": "Month",
+                    "totalIntervals": 9,
+                    "retentionCustomBrackets": [3, 3],  # Month 1-3, Month 4-6
+                },
+            }
+        )
+
+        month0_row = next(row for row in result if row["label"] == "Month 0")
+        self.assertEqual([v["label"] for v in month0_row["values"]], ["Month 0", "Month 1-3", "Month 4-6"])
+        self.assertEqual([v["count"] for v in month0_row["values"]], [1, 1, 1])
+
+    def test_custom_brackets_cumulative(self):
+        """Test custom brackets with cumulative retention"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        _create_events(
+            self.team,
+            [
+                # person1: returns in bracket 2 (should count for both brackets in cumulative)
+                ("person1", _date(0)),
+                ("person1", _date(8)),  # bracket 2
+                # person2: returns in bracket 1 only
+                ("person2", _date(0)),
+                ("person2", _date(3)),  # bracket 1
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 11,
+                    "retentionCustomBrackets": [5, 5],  # Day 1-5, Day 6-10
+                    "cumulative": True,
+                },
+            }
+        )
+
+        day0_row = next(row for row in result if row["label"] == "Day 0")
+        # Both start, both count in bracket 1 (cumulative), only person1 in bracket 2
+        self.assertEqual([v["count"] for v in day0_row["values"]], [2, 2, 1])
+
+    def test_custom_brackets_with_properties_on_events(self):
+        """Test custom brackets with properties on start and return events"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0), {"source": "organic"}),
+                ("person1", _date(2), {"source": "organic"}),  # bracket 1
+                ("person1", _date(7), {"source": "organic"}),  # bracket 2
+                ("person1", _date(8), {"source": "paid"}),  # doesn't count
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 11,
+                    "retentionCustomBrackets": [4, 6],  # Day 1-4, Day 5-10
+                    "returningEntity": {
+                        "id": "$pageview",
+                        "properties": [{"key": "source", "value": "organic", "type": "event"}],
+                    },
+                },
+            }
+        )
+
+        day0_row = next(row for row in result if row["label"] == "Day 0")
+        # Returns in bracket 1 and 2 with matching property
+        self.assertEqual([v["count"] for v in day0_row["values"]], [1, 1, 1])
+
+    def test_custom_brackets_actors_query(self):
+        """Test actors query works with custom brackets"""
+        person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person1", _date(2)),  # bracket 1
+                ("person1", _date(7)),  # bracket 2
+                ("person2", _date(0)),
+                ("person2", _date(3)),  # bracket 1
+            ],
+        )
+
+        flush_persons_and_events()
+
+        result = self.run_actors_query(
+            interval=0,
+            query={
+                "dateRange": {"date_to": _date(10)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 11,
+                    "retentionCustomBrackets": [4, 6],  # Day 1-4, Day 5-10
+                },
+            },
+        )
+
+        self.assertEqual(len(result), 2)
+        person1_result = next(r for r in result if r[0]["id"] == person1.uuid)
+        # person1 appears in intervals 0 (cohort), 1 (bracket 1), 2 (bracket 2)
+        self.assertEqual(person1_result[1], [0, 1, 2])
+
+    def test_custom_brackets_empty_bracket_handling(self):
+        """Test that empty brackets in the middle are handled correctly"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person1", _date(12)),  # Only returns in bracket 3
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(15)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 16,
+                    "retentionCustomBrackets": [3, 5, 4],  # Day 1-3, Day 4-8, Day 9-12
+                },
+            }
+        )
+
+        day0_row = next(row for row in result if row["label"] == "Day 0")
+        # No returns in brackets 1 or 2, but returns in bracket 3
+        self.assertEqual([v["count"] for v in day0_row["values"]], [1, 0, 0, 1])
+
+    def test_custom_brackets_different_start_cohorts(self):
+        """Test custom brackets work correctly for different cohort start days"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        _create_events(
+            self.team,
+            [
+                # person1 starts Day 0
+                ("person1", _date(0)),
+                ("person1", _date(2)),  # bracket 1 relative to Day 0
+                # person2 starts Day 3
+                ("person2", _date(3)),
+                ("person2", _date(5)),  # bracket 1 relative to Day 3
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 11,
+                    "retentionCustomBrackets": [3, 4],  # Day 1-3, Day 4-7
+                },
+            }
+        )
+
+        day0_row = next(row for row in result if row["label"] == "Day 0")
+        # person1 returns in bracket 1 (Day 2)
+        self.assertEqual([v["count"] for v in day0_row["values"]], [1, 1, 0])
+
+        day3_row = next(row for row in result if row["label"] == "Day 3")
+        # person2 returns in bracket 1 (Day 5, which is 2 days after Day 3)
+        self.assertEqual([v["count"] for v in day3_row["values"]], [1, 1, 0])
 
     def test_retention_24h_window_weekly_cohorts(self):
         # Test 24-hour windows with weekly retention cohorts

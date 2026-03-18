@@ -14,7 +14,6 @@ import {
     IconDashboard,
     IconExpand,
     IconEye,
-    IconGear,
     IconLeave,
     IconLogomark,
     IconRedux,
@@ -32,6 +31,7 @@ import {
     ItemAnyCommentDetail,
 } from 'scenes/session-recordings/player/inspector/components/ItemAnyComment'
 import { ItemInactivity } from 'scenes/session-recordings/player/inspector/components/ItemInactivity'
+import { ItemSessionChange } from 'scenes/session-recordings/player/inspector/components/ItemSessionChange'
 import { ItemSummary } from 'scenes/session-recordings/player/inspector/components/ItemSummary'
 
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
@@ -39,14 +39,24 @@ import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { ItemPerformanceEvent, ItemPerformanceEventDetail } from '../../../apm/playerInspector/ItemPerformanceEvent'
 import { IconWindow } from '../../icons'
 import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
-import { InspectorListItem, playerInspectorLogic } from '../playerInspectorLogic'
+import {
+    InspectorListItem,
+    InspectorListItemConsole,
+    InspectorListItemEvent,
+    playerInspectorLogic,
+} from '../playerInspectorLogic'
 import { ItemAppState, ItemAppStateDetail, ItemConsoleLog, ItemConsoleLogDetail } from './ItemConsoleLog'
 import { ItemDoctor, ItemDoctorDetail } from './ItemDoctor'
 import { ItemEvent, ItemEventDetail, ItemEventMenu } from './ItemEvent'
 
 const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 1
 
-const typeToIconAndDescription = {
+interface IconAndDescription {
+    Icon: FunctionComponent | undefined
+    tooltip: string | undefined
+}
+
+const typeToIconAndDescription: Record<InspectorListItem['type'], IconAndDescription> = {
     events: {
         Icon: undefined,
         tooltip: 'Recording event',
@@ -71,21 +81,17 @@ const typeToIconAndDescription = {
         Icon: IconEye,
         tooltip: 'browser tab/window became visible or hidden',
     },
-    $session_config: {
-        Icon: IconGear,
-        tooltip: 'Session recording config',
-    },
     doctor: {
         Icon: undefined,
         tooltip: 'Doctor event',
     },
+    'session-change': {
+        Icon: undefined,
+        tooltip: 'User session changed',
+    },
     comment: {
         Icon: IconChat,
         tooltip: 'A user commented on this timestamp in the recording',
-    },
-    annotation: {
-        Icon: IconChat,
-        tooltip: 'An annotation was added to this timestamp',
     },
     'inspector-summary': {
         Icon: undefined,
@@ -96,6 +102,8 @@ const typeToIconAndDescription = {
         tooltip: undefined,
     },
 }
+
+const notExpandable = ['inspector-summary', 'inactivity', 'session-change']
 
 // TODO @posthog/icons doesn't export the type we need here
 // eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types,@typescript-eslint/explicit-function-return-type
@@ -151,20 +159,22 @@ function IconWithOptionalBadge({
 function RowItemTitle({
     item,
     finalTimestamp,
+    groupCount,
 }: {
     item: InspectorListItem
     finalTimestamp: Dayjs | null
+    groupCount?: number
 }): JSX.Element {
     return (
         <div className="flex items-center text-text-3000" data-attr="row-item-title">
             {item.type === 'network' ? (
                 <ItemPerformanceEvent item={item.data} finalTimestamp={finalTimestamp} />
             ) : item.type === 'console' ? (
-                <ItemConsoleLog item={item} />
+                <ItemConsoleLog item={item} groupCount={groupCount} />
             ) : item.type === 'app-state' ? (
                 <ItemAppState item={item} />
             ) : item.type === 'events' ? (
-                <ItemEvent item={item} />
+                <ItemEvent item={item} groupCount={groupCount} />
             ) : item.type === 'offline-status' ? (
                 <div className="flex w-full items-start p-2 text-xs font-light font-mono">
                     {item.offline ? 'Browser went offline' : 'Browser returned online'}
@@ -181,6 +191,8 @@ function RowItemTitle({
                 <ItemSummary item={item} />
             ) : item.type === 'inactivity' ? (
                 <ItemInactivity item={item} />
+            ) : item.type === 'session-change' ? (
+                <ItemSessionChange item={item} />
             ) : null}
         </div>
     )
@@ -197,22 +209,25 @@ function RowItemMenu({ item }: { item: InspectorListItem }): JSX.Element | null 
 function RowItemDetail({
     item,
     finalTimestamp,
-    onClick,
+    groupedItems,
 }: {
     item: InspectorListItem
     finalTimestamp: Dayjs | null
-    onClick: () => void
+    groupedItems?: InspectorListItem[]
 }): JSX.Element | null {
     return (
-        <div onClick={onClick}>
+        <div>
             {item.type === 'network' ? (
                 <ItemPerformanceEventDetail item={item.data} finalTimestamp={finalTimestamp} />
             ) : item.type === 'app-state' ? (
                 <ItemAppStateDetail item={item} />
             ) : item.type === 'console' ? (
-                <ItemConsoleLogDetail item={item} />
+                <ItemConsoleLogDetail
+                    item={item}
+                    groupedItems={groupedItems as InspectorListItemConsole[] | undefined}
+                />
             ) : item.type === 'events' ? (
-                <ItemEventDetail item={item} />
+                <ItemEventDetail item={item} groupedItems={groupedItems as InspectorListItemEvent[] | undefined} />
             ) : item.type === 'offline-status' ? null : item.type === 'browser-visibility' ? null : item.type ===
               'doctor' ? (
                 <ItemDoctorDetail item={item} />
@@ -227,10 +242,12 @@ const ListItemTitle = memo(function ListItemTitle({
     item,
     index,
     hoverRef,
+    groupCount,
 }: {
     item: InspectorListItem
     index: number
     hoverRef: React.RefObject<HTMLDivElement>
+    groupCount?: number
 }) {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
@@ -298,14 +315,14 @@ const ListItemTitle = memo(function ListItemTitle({
                         'flex-1 overflow-hidden',
                         item.highlightColor === 'danger' && `bg-fill-error-highlight`,
                         item.highlightColor === 'warning' && `bg-fill-warning-highlight`,
-                        item.highlightColor === 'primary' && `bg-fill-accent-highlight-secondary`
+                        item.highlightColor === 'primary' && `bg-fill-success-highlight`
                     )}
                 >
-                    <RowItemTitle item={item} finalTimestamp={end} />
+                    <RowItemTitle item={item} finalTimestamp={end} groupCount={groupCount} />
                 </div>
             </div>
             {isExpanded && <RowItemMenu item={item} />}
-            {item.type !== 'inspector-summary' && item.type !== 'inactivity' && (
+            {!notExpandable.includes(item.type) && (
                 <LemonButton
                     icon={isExpanded ? <IconCollapse /> : <IconExpand />}
                     size="small"
@@ -323,16 +340,19 @@ const ListItemTitle = memo(function ListItemTitle({
     )
 })
 
-const ListItemDetail = memo(function ListItemDetail({ item, index }: { item: InspectorListItem; index: number }) {
+const ListItemDetail = memo(function ListItemDetail({
+    item,
+    index,
+    groupedItems,
+}: {
+    item: InspectorListItem
+    index: number
+    groupedItems?: InspectorListItem[]
+}) {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { seekToTime } = useActions(sessionRecordingPlayerLogic)
 
     const { end } = useValues(playerInspectorLogic(logicProps))
     const { setItemExpanded } = useActions(playerInspectorLogic(logicProps))
-
-    // NOTE: We offset by 1 second so that the playback starts just before the event occurs.
-    // Ceiling second is used since this is what's displayed to the user.
-    const seekToEvent = (): void => seekToTime(ceilMsToClosestSecond(item.timeInRecording) - 1000)
 
     return (
         <div
@@ -342,7 +362,7 @@ const ListItemDetail = memo(function ListItemDetail({ item, index }: { item: Ins
             )}
         >
             <div className="text-xs">
-                <RowItemDetail item={item} finalTimestamp={end} onClick={() => seekToEvent()} />
+                <RowItemDetail item={item} finalTimestamp={end} groupedItems={groupedItems} />
                 <LemonDivider dashed />
 
                 <div
@@ -360,10 +380,14 @@ export const PlayerInspectorListItem = memo(function PlayerInspectorListItem({
     item,
     index,
     onLayout,
+    groupCount,
+    groupedItems,
 }: {
     item: InspectorListItem
     index: number
-    onLayout: (layout: { width: number; height: number }) => void
+    onLayout?: (layout: { width: number; height: number }) => void
+    groupCount?: number
+    groupedItems?: InspectorListItem[]
 }): JSX.Element {
     const hoverRef = useRef<HTMLDivElement>(null)
 
@@ -373,7 +397,7 @@ export const PlayerInspectorListItem = memo(function PlayerInspectorListItem({
 
     const isExpanded = expandedItems.includes(index)
 
-    const onLayoutDebounced = useDebouncedCallback(onLayout, 500)
+    const onLayoutDebounced = useDebouncedCallback(onLayout ?? (() => {}), 500)
     const { ref, width, height } = useResizeObserver({})
 
     const totalHeight = height ? height + PLAYER_INSPECTOR_LIST_ITEM_MARGIN : height
@@ -381,7 +405,7 @@ export const PlayerInspectorListItem = memo(function PlayerInspectorListItem({
     // Height changes should lay out immediately but width ones (browser resize can be much slower)
     useEffect(
         () => {
-            if (!width || !totalHeight) {
+            if (!onLayout || !width || !totalHeight) {
                 return
             }
             onLayoutDebounced({ width, height: totalHeight })
@@ -393,7 +417,7 @@ export const PlayerInspectorListItem = memo(function PlayerInspectorListItem({
 
     useEffect(
         () => {
-            if (!width || !totalHeight) {
+            if (!onLayout || !width || !totalHeight) {
                 return
             }
             onLayout({ width, height: totalHeight })
@@ -419,9 +443,9 @@ export const PlayerInspectorListItem = memo(function PlayerInspectorListItem({
                 zIndex: isExpanded ? 1 : 0,
             }}
         >
-            <ListItemTitle item={item} index={index} hoverRef={hoverRef} />
+            <ListItemTitle item={item} index={index} hoverRef={hoverRef} groupCount={groupCount} />
 
-            {isExpanded ? <ListItemDetail item={item} index={index} /> : null}
+            {isExpanded ? <ListItemDetail item={item} index={index} groupedItems={groupedItems} /> : null}
         </div>
     )
 }, objectsEqual)

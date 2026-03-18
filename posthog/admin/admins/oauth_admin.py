@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+from urllib.parse import urlencode
+
 from django import forms
 from django.contrib import admin
 from django.urls import reverse
@@ -53,15 +57,37 @@ class OAuthApplicationAdmin(admin.ModelAdmin):
         "id",
         "name",
         "client_id",
+        "auth_brand",
+        "is_verified",
+        "is_dcr_client",
+        "is_first_party",
         "user_link",
         "organization_link",
         "authorization_grant_type",
     )
     list_display_links = ("id", "name")
-    list_filter = ("authorization_grant_type",)
+    list_filter = ("authorization_grant_type", "is_verified", "is_dcr_client", "is_first_party", "auth_brand")
     search_fields = ("name", "client_id", "user__email", "organization__name")
     autocomplete_fields = ("user", "organization")
     ordering = ("name",)
+
+    def view_on_site(self, obj: OAuthApplication):
+        code_verifier = "test"
+        digest = hashlib.sha256(code_verifier.encode("utf-8")).digest()
+        code_challenge = base64.urlsafe_b64encode(digest).decode("utf-8").replace("=", "")
+
+        redirect_uri = obj.redirect_uris.split()[0] if obj.redirect_uris else ""
+
+        params = {
+            "response_type": "code",
+            "code_challenge": code_challenge,
+            "code_challenge_method": "S256",
+            "client_id": obj.client_id,
+            "redirect_uri": redirect_uri,
+            "scope": "experiment:read query:read insight:read project:read organization:read openid",
+        }
+
+        return f"/oauth/authorize/?{urlencode(params)}"
 
     def get_readonly_fields(self, request, obj=None):
         if obj:
@@ -72,21 +98,23 @@ class OAuthApplicationAdmin(admin.ModelAdmin):
     def get_fieldsets(self, request, obj=None):
         if obj:
             return (
-                (None, {"fields": ("id", "name", "client_id", "client_type")}),
+                (None, {"fields": ("id", "name", "client_id", "client_type", "auth_brand")}),
                 (
                     "Authorization",
                     {"fields": ("authorization_grant_type", "redirect_uris", "algorithm")},
                 ),
                 ("Ownership", {"fields": ("user", "organization")}),
+                ("Status", {"fields": ("is_verified", "is_dcr_client", "is_first_party")}),
             )
         else:
             return (
-                (None, {"fields": ("name", "client_id", "client_secret", "client_type")}),
+                (None, {"fields": ("name", "client_id", "client_secret", "client_type", "auth_brand")}),
                 (
                     "Authorization",
                     {"fields": ("authorization_grant_type", "redirect_uris", "algorithm")},
                 ),
                 ("Ownership", {"fields": ("user", "organization")}),
+                ("Status", {"fields": ("is_verified", "is_first_party")}),
             )
 
     def get_form(self, request, obj=None, change=False, **kwargs):

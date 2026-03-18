@@ -6,22 +6,12 @@ from rest_framework import status
 
 
 class TestUrls(APIBaseTest):
-    def test_logout_temporary_token_reset(self):
-        # update temporary token
-        self.user.temporary_token = "token123"
-        self.user.save()
-
-        # logout
-        with self.settings(TEST=False):
-            response = self.client.post("/logout", follow=True)
-            self.assertRedirects(response, "/login")
-
-        # no more token
-        self.user.refresh_from_db()
-        self.assertEqual(self.user.temporary_token, None)
-
     def test_logged_out_user_is_redirected_to_login(self):
         self.client.logout()
+
+        # Root path should redirect to /login without ?next=/ since "/" is the default destination
+        response = self.client.get("/")
+        self.assertRedirects(response, "/login")
 
         response = self.client.get("/events")
         self.assertRedirects(response, "/login?next=/events")
@@ -59,42 +49,41 @@ class TestUrls(APIBaseTest):
 
         response = self.client.get(
             "/authorize_and_redirect/?redirect=https://not-permitted.com",
-            HTTP_REFERER="https://not-permitted.com",
+            headers={"referer": "https://not-permitted.com"},
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertTrue("Can only redirect to a permitted domain." in str(response.content))
+        content = response.content.decode()
+        self.assertIn("Domain not authorized", content)
+        self.assertIn("not-permitted.com", content)
+        self.assertIn("/settings/project-toolbar#authorized-urls", content)
 
         response = self.client.get(
-            "/authorize_and_redirect/?redirect=https://domain.com",
-            HTTP_REFERER="https://not.com",
+            "/authorize_and_redirect/?redirect=https://domain.com", headers={"referer": "https://not.com"}
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertTrue("Can only redirect to the same domain as the referer: not.com" in str(response.content))
 
         response = self.client.get(
-            "/authorize_and_redirect/?redirect=http://domain.com",
-            HTTP_REFERER="https://domain.com",
+            "/authorize_and_redirect/?redirect=http://domain.com", headers={"referer": "https://domain.com"}
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertTrue("Can only redirect to the same scheme as the referer: https" in str(response.content))
 
         response = self.client.get(
-            "/authorize_and_redirect/?redirect=https://domain.com:555",
-            HTTP_REFERER="https://domain.com:443",
+            "/authorize_and_redirect/?redirect=https://domain.com:555", headers={"referer": "https://domain.com:443"}
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertTrue("Can only redirect to the same port as the referer: 443" in str(response.content))
 
         response = self.client.get(
             "/authorize_and_redirect/?redirect=https://domain.com:555",
-            HTTP_REFERER="https://domain.com/no-port",
+            headers={"referer": "https://domain.com/no-port"},
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertTrue("Can only redirect to the same port as the referer: no port in URL" in str(response.content))
 
         response = self.client.get(
-            "/authorize_and_redirect/?redirect=https://domain.com/sdf",
-            HTTP_REFERER="https://domain.com/asd",
+            "/authorize_and_redirect/?redirect=https://domain.com/sdf", headers={"referer": "https://domain.com/asd"}
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         # TODO: build frontend before backend tests, or find a way to mock the template

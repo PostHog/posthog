@@ -30,6 +30,9 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
     def visit_select_query(self, node: ast.SelectQuery) -> bool:
         return False
 
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> bool:
+        return False
+
     def visit_field(self, node: ast.Field) -> bool:
         if node.type and isinstance(node.type, ast.FieldType):
             resolved_field = node.type.resolve_database_field(self.context)
@@ -86,6 +89,9 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
         return False
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> bool:
+        return False
+
+    def visit_between_expr(self, node: ast.BetweenExpr) -> bool:
         return False
 
     def visit_and(self, node: ast.And) -> bool:
@@ -173,8 +179,14 @@ class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
     def visit_select_query(self, node: ast.SelectQuery) -> bool:
         return False
 
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> bool:
+        return False
+
     def visit_compare_operation(self, node: ast.CompareOperation) -> bool:
         return self.visit(node.left) and self.visit(node.right)
+
+    def visit_between_expr(self, node: ast.BetweenExpr) -> bool:
+        return False
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> bool:
         return self.visit(node.left) and self.visit(node.right)
@@ -190,6 +202,8 @@ class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
             "toDateTime64",
             "toTimeZone",
             "assumeNotNull",
+            "UUIDv7ToDateTime",
+            "toUUID",
         ] or any(node.name.startswith(prefix) for prefix in ["toInterval", "toStartOf"]):
             return self.visit(node.args[0])
 
@@ -250,10 +264,16 @@ class IsStartOfPeriodConstantVisitor(Visitor[bool], ABC):
     def visit_select_query(self, node: ast.SelectQuery) -> bool:
         return False
 
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> bool:
+        return False
+
     def visit_compare_operation(self, node: ast.CompareOperation) -> bool:
         return False
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> bool:
+        return False
+
+    def visit_between_expr(self, node: ast.BetweenExpr) -> bool:
         return False
 
     def visit_call(self, node: ast.Call) -> bool:
@@ -388,7 +408,13 @@ class IsEndOfPeriodConstantVisitor(Visitor[bool], ABC):
     def visit_select_query(self, node: ast.SelectQuery) -> bool:
         return False
 
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> bool:
+        return False
+
     def visit_compare_operation(self, node: ast.CompareOperation) -> bool:
+        return False
+
+    def visit_between_expr(self, node: ast.BetweenExpr) -> bool:
         return False
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> bool:

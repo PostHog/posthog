@@ -1,5 +1,5 @@
 import type { Monaco } from '@monaco-editor/react'
-import { actions, connect, kea, key, path, props, propsChanged, selectors } from 'kea'
+import { actions, connect, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 // Note: we can oly import types and not values from monaco-editor, because otherwise some Monaco code breaks
@@ -26,8 +26,10 @@ import {
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 import type { codeEditorLogicType } from './codeEditorLogicType'
+import { getContextSourceQuery } from './sourceQueryUtils'
 
 const METADATA_LANGUAGES = [HogLanguage.hog, HogLanguage.hogQL, HogLanguage.hogQLExpr, HogLanguage.hogTemplate]
+const VIM_COMMAND_HISTORY_LIMIT = 50
 
 export interface ModelMarker extends editor.IMarkerData {
     hogQLFix?: string
@@ -55,6 +57,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
     key((props) => props.key),
     actions({
         reloadMetadata: true,
+        appendVimCommand: (command: string) => ({ command }),
     }),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
@@ -80,6 +83,11 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                         props.sourceQuery?.kind === NodeKind.HogQLQuery
                             ? (props.sourceQuery.variables ?? undefined)
                             : undefined
+                    const connectionId =
+                        props.sourceQuery?.kind === NodeKind.HogQLQuery
+                            ? (props.sourceQuery.connectionId ?? undefined)
+                            : undefined
+                    const sourceQuery = getContextSourceQuery(props.sourceQuery, query)
 
                     const response = await performQuery<HogQLMetadata>(
                         setLatestVersionsOnQuery(
@@ -89,8 +97,9 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                                 query: query,
                                 filters: props.metadataFilters,
                                 globals: props.globals,
-                                sourceQuery: props.sourceQuery,
+                                sourceQuery,
                                 variables,
+                                connectionId,
                             },
                             { recursion: false }
                         )
@@ -144,6 +153,21 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
             },
         ],
     })),
+    reducers({
+        vimCommandHistory: [
+            [] as string[],
+            { persist: true, storageKey: 'posthog-vim-command-history' },
+            {
+                appendVimCommand: (state, { command }) => {
+                    if (!command) {
+                        return state
+                    }
+                    const deduped = state.filter((c) => c !== command)
+                    return [...deduped, command].slice(-VIM_COMMAND_HISTORY_LIMIT)
+                },
+            },
+        ],
+    }),
     selectors({
         hasErrors: [
             (s) => [s.modelMarkers],
@@ -168,10 +192,16 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
         },
     })),
     propsChanged(({ actions, props }, oldProps) => {
+        const previousConnectionId =
+            oldProps.sourceQuery?.kind === NodeKind.HogQLQuery ? (oldProps.sourceQuery.connectionId ?? null) : null
+        const nextConnectionId =
+            props.sourceQuery?.kind === NodeKind.HogQLQuery ? (props.sourceQuery.connectionId ?? null) : null
+
         if (
             props.query !== oldProps.query ||
             props.language !== oldProps.language ||
-            props.editor !== oldProps.editor
+            props.editor !== oldProps.editor ||
+            nextConnectionId !== previousConnectionId
         ) {
             actions.reloadMetadata()
         }

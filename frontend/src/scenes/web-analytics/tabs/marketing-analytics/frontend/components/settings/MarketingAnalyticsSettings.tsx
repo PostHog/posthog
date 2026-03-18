@@ -1,6 +1,9 @@
+import { LemonCollapse } from '@posthog/lemon-ui'
+
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
-import { Scene } from 'scenes/sceneTypes'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
@@ -8,9 +11,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { AttributionSettings } from './AttributionSettings'
 import { ConversionGoalsConfiguration } from './ConversionGoalsConfiguration'
-import { NativeExternalDataSourceConfiguration } from './NativeExternalDataSourceConfiguration'
-import { NonNativeExternalDataSourceConfiguration } from './NonNativeExternalDataSourceConfiguration'
-import { SelfManagedExternalDataSourceConfiguration } from './SelfManagedExternalDataSourceConfiguration'
+import { ExternalDataSourceConfiguration } from './ExternalDataSourceConfiguration'
+import { MarketingIntegrationAdvancedSettings } from './MarketingIntegrationAdvancedSettings'
 
 export function MarketingAnalyticsSettings({
     hideTitle = false,
@@ -30,22 +32,32 @@ export function MarketingAnalyticsSettings({
                     }}
                 />
             )}
+            <ExternalDataSourceConfiguration />
+            <SceneDivider />
+            <ConversionGoalsConfiguration />
+            <SceneDivider />
+            <AttributionSettings />
+            <SceneDivider />
             {!hideBaseCurrency && (
                 <>
                     <SceneDivider />
                     <BaseCurrency />
                 </>
             )}
-            <SceneDivider />
-            <AttributionSettings />
-            <SceneDivider />
-            <ConversionGoalsConfiguration />
-            <SceneDivider />
-            <NativeExternalDataSourceConfiguration />
-            <SceneDivider />
-            <NonNativeExternalDataSourceConfiguration />
-            <SceneDivider />
-            <SelfManagedExternalDataSourceConfiguration />
+            <FlaggedFeature flag="advance-marketing-analytics-settings">
+                <>
+                    <SceneDivider />
+                    <LemonCollapse
+                        panels={[
+                            {
+                                key: 'advanced-marketing-settings',
+                                header: 'Advanced marketing settings',
+                                content: <MarketingIntegrationAdvancedSettings />,
+                            },
+                        ]}
+                    />
+                </>
+            </FlaggedFeature>
         </SceneContent>
     )
 }

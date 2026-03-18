@@ -22,10 +22,10 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.models import Action
 from posthog.models.team.team import Team
-from posthog.warehouse.models import DataWarehouseTable, ExternalDataSource
-from posthog.warehouse.models.credential import DataWarehouseCredential
-from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
 
+from products.data_warehouse.backend.models import DataWarehouseTable, ExternalDataSource
+from products.data_warehouse.backend.models.credential import DataWarehouseCredential
+from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
     MarketingAnalyticsTableQueryRunner,
 )
@@ -37,34 +37,34 @@ DEFAULT_LIMIT = 100
 
 FACEBOOK_SOURCE_MAP = {
     "campaign": "campaign1",
-    "source": "source1",
+    "source": "const:Facebook Ads",
     "cost": "spend1",
     "date": "date1",
     "impressions": "impressions1",
     "clicks": "clicks1",
-    "currency": "USD",
+    "currency": "const:USD",
     "reported_conversion": "conversions1",
 }
 
 TIKTOK_SOURCE_MAP = {
     "campaign": "campaign2",
-    "source": "source2",
+    "source": "const:TikTok Ads",
     "cost": "spend2",
     "date": "date2",
     "impressions": "impressions2",
     "clicks": "clicks2",
-    "currency": "USD",
+    "currency": "const:USD",
     "reported_conversion": None,
 }
 
 LINKEDIN_SOURCE_MAP = {
     "campaign": "campaign3",
-    "source": "source3",
+    "source": "const:LinkedIn Ads",
     "cost": "spend3",
     "date": "date3",
     "impressions": "impressions3",
     "clicks": "clicks3",
-    "currency": "USD",
+    "currency": "const:USD",
     "reported_conversion": None,
 }
 
@@ -330,9 +330,9 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         assert response.results is not None
         assert len(response.results) == 5, f"Expected 5 campaigns from CSV, got {len(response.results)}"
 
-        total_cost = sum(float(row[2].value or 0) for row in response.results)
-        total_clicks = sum(int(row[3].value or 0) for row in response.results)
-        total_impressions = sum(int(row[4].value or 0) for row in response.results)
+        total_cost = sum(float(row[3].value or 0) for row in response.results)
+        total_clicks = sum(int(row[4].value or 0) for row in response.results)
+        total_impressions = sum(int(row[5].value or 0) for row in response.results)
 
         assert round(total_cost, 2) == 18.66, f"Expected cost $18.66, got ${total_cost}"
         assert total_impressions == 1676, f"Expected {1676} impressions, got {total_impressions}"
@@ -371,12 +371,12 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         assert len(response.results) == 5, f"Expected 5 Facebook campaigns, got {len(response.results)}"
 
         # Verify all results are from Facebook
-        sources = [row[1].value for row in response.results]
+        sources = [row[2].value for row in response.results]
         assert all(source == "Facebook Ads" for source in sources), f"Expected all Facebook sources, got {sources}"
 
-        total_cost = sum(float(row[2].value or 0) for row in response.results)
-        total_clicks = sum(int(row[3].value or 0) for row in response.results)
-        total_impressions = sum(int(row[4].value or 0) for row in response.results)
+        total_cost = sum(float(row[3].value or 0) for row in response.results)
+        total_clicks = sum(int(row[4].value or 0) for row in response.results)
+        total_impressions = sum(int(row[5].value or 0) for row in response.results)
 
         assert round(total_cost, 2) == 18.66, f"Expected Facebook cost $18.66, got ${total_cost}"
         assert total_impressions == 1676, f"Expected Facebook impressions 1676, got {total_impressions}"
@@ -444,10 +444,10 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
 
         source_efficiency = {}
         for row in response.results:
-            source = row[1].value
-            cost = float(row[2].value or 0)
-            clicks = int(row[3].value or 0)
-            impressions = int(row[4].value or 0)
+            source = row[2].value
+            cost = float(row[3].value or 0)
+            clicks = int(row[4].value or 0)
+            impressions = int(row[5].value or 0)
 
             if source not in source_efficiency:
                 source_efficiency[source] = {
@@ -459,7 +459,7 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
 
             source_efficiency[source]["campaigns"].append(
                 {
-                    "campaign": row[0].value,
+                    "campaign": row[1].value,
                     "cost": cost,
                     "clicks": clicks,
                     "impressions": impressions,
@@ -476,17 +476,17 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         for source, data in source_efficiency.items():
             campaigns_with_clicks = [c for c in data["campaigns"] if c["clicks"] > 0]
             if source == "Facebook Ads":
-                assert (
-                    len(campaigns_with_clicks) == 4
-                ), f"Expected 4 Facebook campaigns with clicks, got {len(campaigns_with_clicks)}"
+                assert len(campaigns_with_clicks) == 4, (
+                    f"Expected 4 Facebook campaigns with clicks, got {len(campaigns_with_clicks)}"
+                )
             elif source == "TikTok Ads":
-                assert (
-                    len(campaigns_with_clicks) == 4
-                ), f"Expected 4 TikTok campaigns with clicks, got {len(campaigns_with_clicks)}"
+                assert len(campaigns_with_clicks) == 4, (
+                    f"Expected 4 TikTok campaigns with clicks, got {len(campaigns_with_clicks)}"
+                )
             elif source == "LinkedIn Ads":
-                assert (
-                    len(campaigns_with_clicks) == 8
-                ), f"Expected 8 LinkedIn campaigns with clicks, got {len(campaigns_with_clicks)}"
+                assert len(campaigns_with_clicks) == 8, (
+                    f"Expected 8 LinkedIn campaigns with clicks, got {len(campaigns_with_clicks)}"
+                )
 
             best_cpc_campaign = min(campaigns_with_clicks, key=lambda x: x["cpc"])
             worst_cpc_campaign = max(campaigns_with_clicks, key=lambda x: x["cpc"])
@@ -509,22 +509,22 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
 
         response = runner.calculate()
 
-        zero_cost_campaigns = [row for row in response.results if float(row[2].value or 0) == 0]
-        paid_campaigns = [row for row in response.results if float(row[2].value or 0) != 0]
+        zero_cost_campaigns = [row for row in response.results if float(row[3].value or 0) == 0]
+        paid_campaigns = [row for row in response.results if float(row[3].value or 0) != 0]
 
         assert len(zero_cost_campaigns) == 5, f"Expected 5 zero-cost campaigns, got {len(zero_cost_campaigns)}"
         assert len(paid_campaigns) == 4, f"Expected 4 paid campaigns, got {len(paid_campaigns)}"
 
         # Check total impressions and clicks for zero-cost campaigns
-        total_zero_total_impressions = sum(int(row[4].value or 0) for row in zero_cost_campaigns)
-        total_zero_total_clicks = sum(int(row[3].value or 0) for row in zero_cost_campaigns)
+        total_zero_total_impressions = sum(int(row[5].value or 0) for row in zero_cost_campaigns)
+        total_zero_total_clicks = sum(int(row[4].value or 0) for row in zero_cost_campaigns)
 
-        assert (
-            total_zero_total_impressions == 56
-        ), f"Expected 56 total impressions for zero-cost campaigns, got {total_zero_total_impressions}"
-        assert (
-            total_zero_total_clicks == 0
-        ), f"Expected 0 total clicks for zero-cost campaigns, got {total_zero_total_clicks}"
+        assert total_zero_total_impressions == 56, (
+            f"Expected 56 total impressions for zero-cost campaigns, got {total_zero_total_impressions}"
+        )
+        assert total_zero_total_clicks == 0, (
+            f"Expected 0 total clicks for zero-cost campaigns, got {total_zero_total_clicks}"
+        )
 
     def test_pagination_basic(self):
         linkedin_info = self._setup_csv_table("linkedin_ads")
@@ -561,12 +561,12 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         assert len(response_page2.results) == 4, "Page 2 should return exactly 4 results"
         assert response_page2.offset == 5, "Page 2 offset should be 5"
 
-        page1_campaigns = [row[0].value for row in response.results]
-        page2_campaigns = [row[0].value for row in response_page2.results]
+        page1_campaigns = [row[1].value for row in response.results]
+        page2_campaigns = [row[1].value for row in response_page2.results]
 
-        assert set(page1_campaigns).isdisjoint(
-            set(page2_campaigns)
-        ), "Page 1 and Page 2 should have different campaigns"
+        assert set(page1_campaigns).isdisjoint(set(page2_campaigns)), (
+            "Page 1 and Page 2 should have different campaigns"
+        )
 
     def test_pagination_edge_cases(self):
         facebook_info = self._setup_csv_table("facebook_ads")
@@ -631,11 +631,11 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         response_narrow = runner_narrow.calculate()
 
         assert len(response_narrow.results) == 1, "Should have exactly 1 campaign from Dec 15"
-        actual_campaigns = [row[0].value for row in response_narrow.results]
+        actual_campaigns = [row[1].value for row in response_narrow.results]
         expected_campaigns = ["test_brand_campaign"]
-        assert any(
-            campaign in expected_campaigns for campaign in actual_campaigns
-        ), "Should have expected campaigns from Dec 15"
+        assert any(campaign in expected_campaigns for campaign in actual_campaigns), (
+            "Should have expected campaigns from Dec 15"
+        )
 
     def test_invalid_table_configuration(self):
         source_configs = [
@@ -707,61 +707,7 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         assert isinstance(response, MarketingAnalyticsTableQueryResponse)
         assert response.results is not None
 
-        expected_columns = 10
-        actual_columns = len(response.columns) if response.columns else 0
-        assert (
-            actual_columns == expected_columns
-        ), f"Expected {expected_columns} columns, got {actual_columns}: {response.columns}"
-
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
-
-    def test_multiple_conversion_goals(self):
-        facebook_info = self._setup_csv_table("facebook_ads")
-
-        source_configs = [
-            {
-                "table_id": facebook_info.table.id,
-                "source_map": FACEBOOK_SOURCE_MAP,
-            }
-        ]
-        self._setup_team_source_configs(source_configs)
-
-        signup_action = _create_action(self.team, "signup_action")
-        purchase_action = _create_action(self.team, "purchase_action")
-
-        team_conversion_goals = [
-            {
-                "name": "Signup Goal",
-                "kind": NodeKind.ACTIONS_NODE,
-                "conversion_goal_id": "signup_goal",
-                "conversion_goal_name": "Signup Goal",
-                "id": str(signup_action.id),
-                "math": BaseMathType.TOTAL,
-                "schema_map": {"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
-            },
-            {
-                "name": "Purchase Goal",
-                "kind": NodeKind.ACTIONS_NODE,
-                "conversion_goal_id": "purchase_goal",
-                "conversion_goal_name": "Purchase Goal",
-                "id": str(purchase_action.id),
-                "math": BaseMathType.TOTAL,
-                "schema_map": {"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
-            },
-        ]
-
-        config = self.team.marketing_analytics_config
-        config.conversion_goals = team_conversion_goals
-        config.save()
-
-        query = self._create_basic_query()
-        runner = get_default_query_runner(query, self.team)
-
-        response = runner.calculate()
-
-        assert isinstance(response, MarketingAnalyticsTableQueryResponse)
-        assert response.results is not None
-        assert len(response.columns) == 12, "Should have 12 columns including multiple conversion goal columns"
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_comprehensive_marketing_analytics_basic(self):
@@ -800,12 +746,12 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         assert response.results is not None
         assert len(response.results) == 3, "Should have 3 Facebook campaigns in November 2024"
 
-        sources = [row[1].value for row in response.results]
+        sources = [row[2].value for row in response.results]
         assert all(source == "Facebook Ads" for source in sources), "All sources should be Facebook Ads"
 
-        total_cost = sum(float(row[2].value or 0) for row in response.results)
-        total_clicks = sum(int(row[3].value or 0) for row in response.results)
-        total_impressions = sum(int(row[4].value or 0) for row in response.results)
+        total_cost = sum(float(row[3].value or 0) for row in response.results)
+        total_clicks = sum(int(row[4].value or 0) for row in response.results)
+        total_impressions = sum(int(row[5].value or 0) for row in response.results)
 
         assert round(total_cost, 2) == 8.40, f"Expected cost $8.40, got ${total_cost}"
         assert total_clicks == 4, f"Expected 4 clicks, got {total_clicks}"
@@ -901,21 +847,21 @@ def test_campaign_performance_ranking(test_name, order_by, expected_sort_reverse
         # Extract values based on test_name
         values: list[float | int | str]
         if test_name == "cost":
-            values = [float(row[2].value or 0) for row in response.results]
+            values = [float(row[3].value or 0) for row in response.results]
         elif test_name == "clicks":
-            values = [int(row[3].value or 0) for row in response.results]
-        elif test_name == "impressions":
             values = [int(row[4].value or 0) for row in response.results]
+        elif test_name == "impressions":
+            values = [int(row[5].value or 0) for row in response.results]
         elif test_name == "campaign":
-            values = [str(row[0].value) for row in response.results]
+            values = [str(row[1].value) for row in response.results]
         else:
             raise ValueError(f"Unknown test_name: {test_name}")
 
         # Verify ordering
         expected_values = sorted(values, reverse=expected_sort_reverse)
-        assert (
-            values == expected_values
-        ), f"{test_name} should be in {'descending' if expected_sort_reverse else 'ascending'} order. Got {values}, expected {expected_values}"
+        assert values == expected_values, (
+            f"{test_name} should be in {'descending' if expected_sort_reverse else 'ascending'} order. Got {values}, expected {expected_values}"
+        )
     finally:
         test_instance.tearDown()
         test_instance.tearDownClass()

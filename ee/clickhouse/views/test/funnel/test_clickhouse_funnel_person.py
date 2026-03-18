@@ -264,7 +264,6 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
                     {"id": "buy", "order": 2},
                 ]
             ),
-            "insight": INSIGHT_FUNNELS,
             "date_from": "2020-01-01",
             "date_to": "2020-01-08",
             "funnel_window_days": 7,

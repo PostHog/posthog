@@ -10,6 +10,12 @@ declare module '*.png' {
     export default content
 }
 
+// This fixes TS errors when importing a .gif file
+declare module '*.gif' {
+    const content: any
+    export default content
+}
+
 // This fixes TS errors when importing an .mp3 file
 declare module '*.mp3' {
     const content: any
@@ -40,7 +46,18 @@ declare module '*.json?url' {
     export default content
 }
 
+// This fixes TS errors when importing an .sql file with ?raw suffix
+declare module '*.sql?raw' {
+    const content: string
+    export default content
+}
+
 // This fixes a TS error where @tiptap/react/menus cannot be found because of our moduleResolution
 declare module '@tiptap/react/menus' {
     export * from '@tiptap/react/dist/menus/index.d.ts'
+}
+
+// This fixes a TS error where react-grid-layout/extras cannot be found because of our moduleResolution
+declare module 'react-grid-layout/extras' {
+    export * from 'react-grid-layout/dist/extras'
 }

@@ -1,8 +1,7 @@
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { ActionsTable } from '../components/ActionsTable'
@@ -25,7 +24,6 @@ export function Actions(): JSX.Element {
                 }}
                 actions={<NewActionButton />}
             />
-            <SceneDivider />
             <ActionsTable />
         </SceneContent>
     )

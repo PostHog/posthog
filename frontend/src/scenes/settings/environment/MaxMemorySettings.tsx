@@ -3,6 +3,8 @@ import { Form } from 'kea-forms'
 
 import { LemonButton, LemonSkeleton, LemonTextArea } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -11,6 +13,10 @@ import { maxSettingsLogic } from './maxSettingsLogic'
 export function MaxMemorySettings(): JSX.Element {
     const { currentProject, currentProjectLoading } = useValues(projectLogic)
     const { isLoading, isUpdating } = useValues(maxSettingsLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     return (
         <Form
@@ -25,21 +31,22 @@ export function MaxMemorySettings(): JSX.Element {
                     <LemonSkeleton className="h-16" />
                 </div>
             ) : (
-                <LemonField name="text" label="Max’s memory">
+                <LemonField name="text" label="PostHog AI's memory">
                     <LemonTextArea
                         id="product-description-textarea" // Slightly dirty ID for .focus() elsewhere
-                        placeholder={`What should Max know about ${
+                        placeholder={`What should PostHog AI know about ${
                             currentProject ? currentProject.name : 'your company or this product'
                         }?`}
                         maxLength={10000}
                         maxRows={5}
+                        disabled={!!restrictedReason}
                     />
                 </LemonField>
             )}
             <LemonButton
                 type="primary"
                 htmlType="submit"
-                disabledReason={!currentProject || isLoading ? 'Loading project and memory...' : undefined}
+                disabledReason={!currentProject || isLoading ? 'Loading project and memory...' : restrictedReason}
                 loading={isUpdating}
             >
                 Save memory

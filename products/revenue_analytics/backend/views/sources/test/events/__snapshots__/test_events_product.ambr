@@ -1,9 +1,9 @@
 # serializer version: 1
 # name: TestProductEventsBuilder.test_build_product_queries_even_for_events_without_product_property
   '''
-  SELECT NULL AS id,
-         NULL AS source_label,
-         NULL AS name
+  SELECT '' AS id,
+         '' AS source_label,
+         '' AS name
   WHERE false
   '''
 # ---

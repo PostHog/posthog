@@ -1,4 +1,5 @@
-import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
+import { Fragment } from 'react'
+
 import {
     ActivityChange,
     ActivityLogItem,
@@ -9,6 +10,7 @@ import {
     detectBoolean,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { Link } from 'lib/lemon-ui/Link'
@@ -22,6 +24,16 @@ import {
     FeatureFlagGroupType,
     FeatureFlagType,
 } from '~/types'
+
+const getChangedPayloadKeys = (
+    filtersBefore: FeatureFlagFilters | undefined,
+    filtersAfter: FeatureFlagFilters
+): string[] =>
+    Object.keys(filtersAfter.payloads ?? {}).filter((key) => {
+        const before = filtersBefore?.payloads?.[key]?.toString() || null
+        const after = filtersAfter.payloads?.[key]?.toString() || null
+        return before !== after
+    })
 
 const nameOrLinkToFlag = (id: string | undefined, name: string | null | undefined): string | JSX.Element => {
     const displayName = name || '(empty string)'
@@ -79,11 +91,10 @@ const featureFlagActionsMapping: Record<
                 // there are no rollout groups or all are at 0%
                 changes.push(<>changed the filter conditions to apply to no users</>)
             } else {
-                filtersAfter.payloads &&
-                    Object.keys(filtersAfter.payloads).forEach((key: string) => {
-                        const changedPayload = filtersAfter.payloads?.[key]?.toString() || null
-                        changes.push(<SentenceList listParts={[changedPayload]} prefix="changed payload to" />)
-                    })
+                getChangedPayloadKeys(filtersBefore, filtersAfter).forEach((key) => {
+                    const changedPayload = filtersAfter.payloads?.[key]?.toString() || null
+                    changes.push(<SentenceList listParts={[changedPayload]} prefix="changed payload to" />)
+                })
 
                 const groupAdditions: (string | JSX.Element | null)[] = []
                 const groupRemovals: (string | JSX.Element | null)[] = []
@@ -102,19 +113,19 @@ const featureFlagActionsMapping: Record<
                             const newButtons =
                                 nonEmptyProperties.map((property, idx) => {
                                     return (
-                                        <>
+                                        <Fragment key={property.key ?? idx}>
                                             {' '}
                                             {idx === 0 && (
                                                 <span>
                                                     <strong>{rollout_percentage ?? 100}%</strong> of{' '}
                                                 </span>
                                             )}
-                                            <PropertyFilterButton key={property.key} item={property} />
-                                        </>
+                                            <PropertyFilterButton item={property} />
+                                        </Fragment>
                                     )
                                 }) || []
                             newButtons[0] = (
-                                <>
+                                <Fragment key={nonEmptyProperties[0].key ?? 0}>
                                     <span>
                                         <strong>{rollout_percentage ?? 100}%</strong> of{' '}
                                     </span>
@@ -122,7 +133,7 @@ const featureFlagActionsMapping: Record<
                                         key={nonEmptyProperties[0].key}
                                         item={nonEmptyProperties[0]}
                                     />
-                                </>
+                                </Fragment>
                             )
                             groupAdditions.push(...newButtons)
                         } else {
@@ -174,41 +185,48 @@ const featureFlagActionsMapping: Record<
                 />
             )
         } else if (isMultivariateFlag) {
-            filtersAfter.payloads &&
-                Object.keys(filtersAfter.payloads).forEach((key: string) => {
-                    const changedPayload = filtersAfter.payloads?.[key]?.toString() || null
-                    changes.push(
-                        <SentenceList
-                            listParts={[
-                                <span key={key} className="highlighted-activity">
-                                    {changedPayload}
-                                </span>,
-                            ]}
-                            prefix={
-                                <span>
-                                    changed payload on <b>variant: {key}</b> to
-                                </span>
-                            }
-                        />
-                    )
-                })
+            getChangedPayloadKeys(filtersBefore, filtersAfter).forEach((key) => {
+                const changedPayload = filtersAfter.payloads?.[key]?.toString() || null
+                changes.push(
+                    <SentenceList
+                        listParts={[
+                            <span key={key} className="highlighted-activity">
+                                {changedPayload}
+                            </span>,
+                        ]}
+                        prefix={
+                            <span>
+                                changed payload on <b>variant: {key}</b> to
+                            </span>
+                        }
+                    />
+                )
+            })
 
             // Identify removed variants
             const beforeVariants = new Set((filtersBefore?.multivariate?.variants || []).map((v) => v.key))
             const afterVariants = new Set((filtersAfter?.multivariate?.variants || []).map((v) => v.key))
             const removedVariants = [...beforeVariants].filter((key) => !afterVariants.has(key))
 
-            // First add the rollout percentage changes
-            changes.push(
-                <SentenceList
-                    listParts={(filtersAfter.multivariate?.variants || []).map((v) => (
-                        <div key={v.key} className="highlighted-activity">
-                            {v.key}: <strong>{v.rollout_percentage}%</strong>
-                        </div>
-                    ))}
-                    prefix="changed the rollout percentage for the variants to"
-                />
+            // Only show rollout percentage changes if they actually changed
+            const beforeVariantMap = new Map(
+                (filtersBefore?.multivariate?.variants || []).map((v) => [v.key, v.rollout_percentage])
             )
+            const changedVariants = (filtersAfter.multivariate?.variants || []).filter(
+                (v) => beforeVariantMap.get(v.key) !== v.rollout_percentage
+            )
+            if (changedVariants.length > 0) {
+                changes.push(
+                    <SentenceList
+                        listParts={changedVariants.map((v) => (
+                            <div key={v.key} className="highlighted-activity">
+                                {v.key}: <strong>{v.rollout_percentage}%</strong>
+                            </div>
+                        ))}
+                        prefix="changed the rollout percentage for the variants to"
+                    />
+                )
+            }
 
             // Then add removed variants if any
             if (removedVariants.length > 0) {
@@ -240,17 +258,8 @@ const featureFlagActionsMapping: Record<
     deleted: function onSoftDelete(change, logItem) {
         const isDeleted = detectBoolean(change?.after)
         return {
-            description: [<>{isDeleted ? 'deleted' : 'un-deleted'}</>],
+            description: [<>{isDeleted ? 'deleted' : 'restored'}</>],
             suffix: <>{nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>,
-        }
-    },
-    rollout_percentage: function onRolloutPercentage(change) {
-        return {
-            description: [
-                <>
-                    changed rollout percentage to <div className="highlighted-activity">{change?.after as string}%</div>
-                </>,
-            ],
         }
     },
     key: function onKey(change, logItem) {
@@ -276,6 +285,30 @@ const featureFlagActionsMapping: Record<
                 <>
                     changed the evaluation runtime from <strong>{getRuntimeLabel(runtimeBefore)}</strong> to{' '}
                     <strong>{getRuntimeLabel(runtimeAfter)}</strong>
+                </>,
+            ],
+        }
+    },
+    bucketing_identifier: function onBucketingIdentifier(change) {
+        const identifierAfter = change?.after as string
+        const identifierBefore = change?.before as string
+
+        const getBucketingLabel = (identifier: string): string => {
+            switch (identifier) {
+                case 'distinct_id':
+                    return 'User'
+                case 'device_id':
+                    return 'Device'
+                default:
+                    return identifier || 'User'
+            }
+        }
+
+        return {
+            description: [
+                <>
+                    changed the bucketing identifier from <strong>{getBucketingLabel(identifierBefore)}</strong> to{' '}
+                    <strong>{getBucketingLabel(identifierAfter)}</strong>
                 </>,
             ],
         }
@@ -306,46 +339,43 @@ const featureFlagActionsMapping: Record<
 
         return { description: changes }
     },
-    evaluation_tags: function onEvaluationTags(change) {
-        const tagsBefore = change?.before as string[]
-        const tagsAfter = change?.after as string[]
-        const addedTags = tagsAfter.filter((t) => tagsBefore.indexOf(t) === -1)
-        const removedTags = tagsBefore.filter((t) => tagsAfter.indexOf(t) === -1)
+    evaluation_contexts: function onEvaluationContexts(change) {
+        const contextsBefore = (change?.before as string[]) || []
+        const contextsAfter = (change?.after as string[]) || []
+        const addedContexts = contextsAfter.filter((c) => contextsBefore.indexOf(c) === -1)
+        const removedContexts = contextsBefore.filter((c) => contextsAfter.indexOf(c) === -1)
 
         const changes: Description[] = []
-        if (addedTags.length) {
+        if (addedContexts.length) {
             changes.push(
                 <>
-                    added {pluralize(addedTags.length, 'evaluation tag', 'evaluation tags', false)}{' '}
-                    <ObjectTags tags={addedTags} saving={false} style={{ display: 'inline' }} staticOnly />
+                    added {pluralize(addedContexts.length, 'evaluation context', 'evaluation contexts', false)}{' '}
+                    <ObjectTags tags={addedContexts} saving={false} style={{ display: 'inline' }} staticOnly />
                 </>
             )
         }
-        if (removedTags.length) {
+        if (removedContexts.length) {
             changes.push(
                 <>
-                    removed {pluralize(removedTags.length, 'evaluation tag', 'evaluation tags', false)}{' '}
-                    <ObjectTags tags={removedTags} saving={false} style={{ display: 'inline' }} staticOnly />
+                    removed {pluralize(removedContexts.length, 'evaluation context', 'evaluation contexts', false)}{' '}
+                    <ObjectTags tags={removedContexts} saving={false} style={{ display: 'inline' }} staticOnly />
                 </>
             )
         }
 
         return { description: changes }
     },
+    // Suppressed in favor of evaluation_contexts to avoid duplicate activity entries
+    evaluation_tags: () => null,
     // fields that are excluded on the backend
     id: () => null,
     created_at: () => null,
     created_by: () => null,
     updated_at: () => null,
-    is_simple_flag: () => null,
     experiment_set: () => null,
     features: () => null,
     usage_dashboard: () => null,
-    // TODO: handle activity
-    rollback_conditions: () => null,
-    performed_rollback: () => null,
     can_edit: () => null,
-    analytics_dashboards: () => null,
     has_enriched_analytics: () => null,
     surveys: () => null,
     user_access_level: () => null,
@@ -354,6 +384,8 @@ const featureFlagActionsMapping: Record<
     status: () => null,
     version: () => null,
     last_modified_by: () => null,
+    last_called_at: () => null,
+    is_used_in_replay_settings: () => null,
     _create_in_folder: () => null,
     _should_create_usage_dashboard: () => null,
 }
@@ -363,11 +395,12 @@ const getActorName = (logItem: ActivityLogItem): JSX.Element => {
     if (logItem.detail.trigger?.job_type === 'scheduled_change') {
         return (
             <>
-                <strong>{userName}</strong> <span className="text-muted">(via scheduled change)</span>
+                <strong className="ph-no-capture">{userName}</strong>{' '}
+                <span className="text-muted">(via scheduled change)</span>
             </>
         )
     }
-    return <strong>{userName}</strong>
+    return <strong className="ph-no-capture">{userName}</strong>
 }
 
 export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
@@ -402,7 +435,11 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
                 continue // feature flag updates have to have a "field" to be described
             }
 
-            const possibleLogItem = featureFlagActionsMapping[change.field as keyof FeatureFlagType](change, logItem)
+            const fieldHandler = featureFlagActionsMapping[change.field as keyof FeatureFlagType]
+            if (!fieldHandler) {
+                console.error({ field: change.field, change }, 'No activity describer found for feature flag field')
+            }
+            const possibleLogItem = fieldHandler ? fieldHandler(change, logItem) : null
             if (possibleLogItem) {
                 const { description, suffix } = possibleLogItem
                 if (description) {

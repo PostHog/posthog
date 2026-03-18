@@ -1,14 +1,37 @@
+import copy
 import json
+from contextlib import contextmanager
 from pathlib import Path
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
+from unittest.mock import AsyncMock, patch
+
+from parameterized import parameterized
 
 from ee.billing.salesforce_enrichment.enrichment import (
+    _extract_domain,
+    _is_yc_funded,
+    _normalize_datetime_string,
+    _values_match,
+    enrich_accounts_async,
+    get_salesforce_accounts_by_domain,
     is_excluded_domain,
     prepare_salesforce_update_data,
     transform_harmonic_data,
 )
+
+
+@contextmanager
+def mock_harmonic_client():
+    """Context manager providing a mocked AsyncHarmonicClient."""
+    with patch("ee.billing.salesforce_enrichment.enrichment.AsyncHarmonicClient") as mock_class:
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_class.return_value = mock_client
+        yield mock_client
 
 
 def load_harmonic_fixture():
@@ -20,53 +43,105 @@ def load_harmonic_fixture():
 
 
 class TestDomainExclusion(BaseTest):
-    def test_is_excluded_domain_handles_none_and_empty(self):
-        """Test that None and empty domains are excluded (safe default)."""
-        assert is_excluded_domain(None) is True
-        assert is_excluded_domain("") is True
-        assert is_excluded_domain("   ") is True
+    @parameterized.expand(
+        [
+            # None and empty values
+            (None, True, "None input"),
+            ("", True, "empty string"),
+            ("   ", True, "whitespace only"),
+            # Standard personal email domains
+            ("gmail.com", True, "gmail"),
+            ("yahoo.com", True, "yahoo"),
+            ("hotmail.com", True, "hotmail"),
+            ("outlook.com", True, "outlook"),
+            # International domains (3+ parts)
+            ("yahoo.co.uk", True, "yahoo UK"),
+            ("yahoo.com.au", True, "yahoo Australia"),
+            ("yahoo.co.jp", True, "yahoo Japan"),
+            # Subdomains of personal domains
+            ("mail.gmail.com", True, "gmail subdomain"),
+            ("login.yahoo.com", True, "yahoo subdomain"),
+            ("accounts.yahoo.com", True, "yahoo accounts subdomain"),
+            # www prefix handling
+            ("www.gmail.com", True, "gmail with www"),
+            ("www.yahoo.co.uk", True, "yahoo UK with www"),
+            # Case insensitivity
+            ("GMAIL.COM", True, "uppercase gmail"),
+            ("Yahoo.Com", True, "mixed case yahoo"),
+            # Business domains (not excluded)
+            ("posthog.com", False, "posthog"),
+            ("stripe.com", False, "stripe"),
+            ("microsoft.com", False, "microsoft"),
+            ("api.example.com", False, "business subdomain"),
+            # Edge cases
+            ("gmail", False, "no TLD"),
+            (".com", False, "no domain name"),
+            ("notgmail.com", False, "similar but not excluded"),
+        ]
+    )
+    def test_is_excluded_domain(self, domain, expected, description):
+        result = is_excluded_domain(domain)
+        assert result is expected, f"Failed for: {description}"
 
-    def test_is_excluded_domain_standard_personal_domains(self):
-        """Test standard personal email domains are excluded."""
-        assert is_excluded_domain("gmail.com") is True
-        assert is_excluded_domain("yahoo.com") is True
-        assert is_excluded_domain("hotmail.com") is True
-        assert is_excluded_domain("outlook.com") is True
 
-    def test_is_excluded_domain_international_domains(self):
-        """Test international domains (3+ parts) are excluded."""
-        assert is_excluded_domain("yahoo.co.uk") is True
-        assert is_excluded_domain("yahoo.com.au") is True
-        assert is_excluded_domain("yahoo.co.jp") is True
+class TestExtractDomain(BaseTest):
+    """Unit tests for _extract_domain helper function."""
 
-    def test_is_excluded_domain_subdomains(self):
-        """Test that subdomains of personal domains are excluded."""
-        assert is_excluded_domain("mail.gmail.com") is True
-        assert is_excluded_domain("login.yahoo.com") is True
-        assert is_excluded_domain("accounts.yahoo.com") is True
+    @parameterized.expand(
+        [
+            # (input, expected_output, description)
+            ("example.com", "example.com", "bare domain"),
+            ("https://example.com", "example.com", "domain with https"),
+            ("http://example.com", "example.com", "domain with http"),
+            ("www.example.com", "example.com", "domain with www prefix"),
+            ("https://www.example.com", "example.com", "full URL with www"),
+            ("EXAMPLE.COM", "example.com", "uppercase domain"),
+            ("  example.com  ", "example.com", "domain with whitespace"),
+            ("https://subdomain.example.com", "subdomain.example.com", "subdomain"),
+            ("https://example.com/path", "example.com", "domain with path"),
+            ("https://example.com:8080", "example.com", "domain with port"),
+            ("https://example.com/path?query=1", "example.com", "domain with path and query"),
+            ("https://www.EXAMPLE.com/Path?query=1", "example.com", "complex URL"),
+            ("", None, "empty string"),
+            (None, None, "None input"),
+            ("   ", None, "whitespace only"),
+            ("WWW.EXAMPLE.COM", "example.com", "uppercase with www"),
+            ("https://www.example.com:443/path#fragment", "example.com", "full URL with all parts"),
+        ]
+    )
+    def test_extract_domain(self, input_url, expected, description):
+        result = _extract_domain(input_url)
+        assert result == expected, f"Failed for: {description}"
 
-    def test_is_excluded_domain_www_prefix_handling(self):
-        """Test that www prefix is stripped correctly."""
-        assert is_excluded_domain("www.gmail.com") is True
-        assert is_excluded_domain("www.yahoo.co.uk") is True
 
-    def test_is_excluded_domain_case_insensitive(self):
-        """Test case insensitive matching."""
-        assert is_excluded_domain("GMAIL.COM") is True
-        assert is_excluded_domain("Yahoo.Com") is True
+class TestYCCompanyDetection(BaseTest):
+    """Unit tests for Y Combinator company detection."""
 
-    def test_is_excluded_domain_business_domains(self):
-        """Test that business domains are not excluded."""
-        assert is_excluded_domain("posthog.com") is False
-        assert is_excluded_domain("stripe.com") is False
-        assert is_excluded_domain("microsoft.com") is False
-        assert is_excluded_domain("api.example.com") is False
-
-    def test_is_excluded_domain_edge_cases(self):
-        """Test edge cases and malformed domains."""
-        assert is_excluded_domain("gmail") is False  # No TLD
-        assert is_excluded_domain(".com") is False  # No domain
-        assert is_excluded_domain("notgmail.com") is False  # Similar but not excluded
+    @parameterized.expand(
+        [
+            # (investors_list, expected_result, description)
+            ([{"name": "Y Combinator"}], True, "exact YC company match"),
+            (
+                [{"name": "GV"}, {"name": "Y Combinator"}, {"name": "Stripe"}],
+                True,
+                "YC among other investors",
+            ),
+            ([{"fullName": "Y Combinator Partner"}], False, "person name containing YC - not a match"),
+            ([{"name": "Formus Capital"}, {"name": "Peak XV Partners"}], False, "no YC in list"),
+            ([], False, "empty investors list"),
+            (None, False, "None investors"),
+            ([{"name": "YCombinator"}], False, "no space - not a match"),
+            ([{"name": "y combinator"}], True, "lowercase YC match"),
+            # Edge cases: non-dict items in investors list
+            ([{"name": "GV"}, None, "invalid", {"name": "Y Combinator"}], True, "YC with invalid items in list"),
+            ([None, "string", 123], False, "list with only invalid items"),
+            # YC subsidiary fund matching
+            ([{"name": "Y Combinator Continuity Fund"}], True, "YC subsidiary fund matches"),
+        ]
+    )
+    def test_is_yc_funded(self, investors, expected, description):
+        result = _is_yc_funded(investors)
+        assert result == expected, f"Failed for: {description}"
 
 
 class TestHarmonicDataTransformation(BaseTest):
@@ -122,6 +197,17 @@ class TestHarmonicDataTransformation(BaseTest):
         assert metrics["headcountEngineering"]["historical"]["90d"]["value"] == 880
         assert metrics["headcountEngineering"]["historical"]["180d"]["value"] == 886
 
+        # Tags
+        tags = result["tags"]
+        assert isinstance(tags, list)
+        assert len(tags) == 3
+        assert tags[0]["displayValue"] == "Enterprise Software"
+        assert tags[0]["isPrimaryTag"] is True
+
+        tags_v2 = result["tagsV2"]
+        assert isinstance(tags_v2, list)
+        assert len(tags_v2) == 3
+
     @freeze_time("2025-07-29T12:00:00Z")
     def test_prepare_salesforce_update_data_with_fixture(self):
         """Test complete pipeline: fixture → transform → Salesforce field mapping."""
@@ -140,6 +226,7 @@ class TestHarmonicDataTransformation(BaseTest):
         # Company info fields
         assert salesforce_data["harmonic_company_name__c"] == "Example Corp"
         assert salesforce_data["harmonic_company_type__c"] == "STARTUP"
+        assert salesforce_data["harmonic_industry__c"] == "Enterprise Software"
         assert "harmonic_last_update__c" in salesforce_data
         assert salesforce_data["Founded_year__c"] == 1983
 
@@ -179,7 +266,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_transform_harmonic_data_missing_funding(self):
         """Test transform_harmonic_data handles missing funding section."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         del harmonic_data["funding"]
 
         result = transform_harmonic_data(harmonic_data)
@@ -191,7 +278,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_transform_harmonic_data_missing_company_fields(self):
         """Test transform_harmonic_data handles missing company info fields."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         del harmonic_data["name"]
         del harmonic_data["companyType"]
         del harmonic_data["description"]
@@ -208,7 +295,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_transform_harmonic_data_malformed_website(self):
         """Test transform_harmonic_data handles malformed website data."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         harmonic_data["website"] = "not-a-dict"  # Should be dict, now string
 
         result = transform_harmonic_data(harmonic_data)
@@ -219,7 +306,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_transform_harmonic_data_malformed_founding_date(self):
         """Test transform_harmonic_data handles malformed founding date."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         harmonic_data["foundingDate"] = "1983-01-01"  # Should be dict, now string
 
         result = transform_harmonic_data(harmonic_data)
@@ -230,7 +317,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_transform_harmonic_data_missing_traction_metrics(self):
         """Test transform_harmonic_data handles missing tractionMetrics."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         del harmonic_data["tractionMetrics"]
 
         result = transform_harmonic_data(harmonic_data)
@@ -243,7 +330,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_transform_harmonic_data_metric_missing_latest_value(self):
         """Test transform_harmonic_data handles metrics without latestMetricValue."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         # Remove latestMetricValue from headcount metric
         del harmonic_data["tractionMetrics"]["headcount"]["latestMetricValue"]
 
@@ -258,7 +345,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_transform_harmonic_data_metric_with_null_latest_value(self):
         """Test transform_harmonic_data handles metrics with null latestMetricValue."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         harmonic_data["tractionMetrics"]["headcount"]["latestMetricValue"] = None
 
         result = transform_harmonic_data(harmonic_data)
@@ -272,7 +359,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_transform_harmonic_data_empty_historical_metrics(self):
         """Test transform_harmonic_data handles empty historical data."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         harmonic_data["tractionMetrics"]["headcount"]["metrics"] = []
 
         result = transform_harmonic_data(harmonic_data)
@@ -281,3 +368,566 @@ class TestHarmonicDataTransformation(BaseTest):
         assert "headcount" in result["metrics"]
         assert result["metrics"]["headcount"]["current_value"] == 5015
         assert result["metrics"]["headcount"]["historical"] == {}
+
+    @freeze_time("2025-07-29T12:00:00Z")
+    def test_transform_harmonic_data_missing_tags(self):
+        """Test transform_harmonic_data handles missing tags."""
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
+        del harmonic_data["tags"]
+        del harmonic_data["tagsV2"]
+
+        result = transform_harmonic_data(harmonic_data)
+
+        assert result is not None
+        assert result["tags"] == []
+        assert result["tagsV2"] == []
+
+    @freeze_time("2025-07-29T12:00:00Z")
+    def test_prepare_salesforce_update_no_primary_tag_uses_first(self):
+        """Test Salesforce update falls back to first tag when there's no primary tag."""
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
+        # Remove isPrimaryTag from all tags
+        for tag in harmonic_data.get("tags", []):
+            tag["isPrimaryTag"] = False
+
+        transformed_data = transform_harmonic_data(harmonic_data)
+        assert transformed_data is not None
+        salesforce_data = prepare_salesforce_update_data("001TEST", transformed_data)
+
+        # Should use first tag as fallback
+        assert salesforce_data is not None
+        assert salesforce_data["harmonic_industry__c"] == "Enterprise Software"
+
+    @freeze_time("2025-07-29T12:00:00Z")
+    def test_prepare_salesforce_update_empty_tags(self):
+        """Test Salesforce update when both tags and tagsV2 arrays are empty."""
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
+        harmonic_data["tags"] = []
+        harmonic_data["tagsV2"] = []
+
+        transformed_data = transform_harmonic_data(harmonic_data)
+        assert transformed_data is not None
+        salesforce_data = prepare_salesforce_update_data("001TEST", transformed_data)
+
+        # harmonic_industry__c should not be in the data (filtered out as None)
+        assert salesforce_data is not None
+        assert "harmonic_industry__c" not in salesforce_data
+
+    @freeze_time("2025-07-29T12:00:00Z")
+    def test_prepare_salesforce_update_with_primary_tag(self):
+        """Test Salesforce update correctly extracts primary tag."""
+        harmonic_data = load_harmonic_fixture()
+        transformed_data = transform_harmonic_data(harmonic_data)
+        assert transformed_data is not None
+        salesforce_data = prepare_salesforce_update_data("001TEST", transformed_data)
+
+        # Primary tag should be extracted
+        assert salesforce_data is not None
+        assert salesforce_data["harmonic_industry__c"] == "Enterprise Software"
+
+    @freeze_time("2025-07-29T12:00:00Z")
+    def test_prepare_salesforce_update_fallback_to_tagsv2_market_vertical(self):
+        """Test Salesforce update falls back to tagsV2 MARKET_VERTICAL when tags is empty."""
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
+        harmonic_data["tags"] = []  # Empty tags array
+
+        transformed_data = transform_harmonic_data(harmonic_data)
+        assert transformed_data is not None
+        salesforce_data = prepare_salesforce_update_data("001TEST", transformed_data)
+
+        # Should use MARKET_VERTICAL from tagsV2
+        assert salesforce_data is not None
+        assert salesforce_data["harmonic_industry__c"] == "Business Intelligence"
+
+    @freeze_time("2025-07-29T12:00:00Z")
+    def test_prepare_salesforce_update_fallback_to_tagsv2_first_tag(self):
+        """Test Salesforce update falls back to first tagsV2 tag when no MARKET_VERTICAL."""
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
+        harmonic_data["tags"] = []  # Empty tags array
+        # Remove MARKET_VERTICAL from tagsV2
+        harmonic_data["tagsV2"] = [
+            {"type": "INDUSTRY", "displayValue": "Software", "dateAdded": "2024-01-15T00:00:00Z"},
+            {"type": "CATEGORY", "displayValue": "B2B", "dateAdded": "2024-01-15T00:00:00Z"},
+        ]
+
+        transformed_data = transform_harmonic_data(harmonic_data)
+        assert transformed_data is not None
+        salesforce_data = prepare_salesforce_update_data("001TEST", transformed_data)
+
+        # Should use first tag from tagsV2
+        assert salesforce_data is not None
+        assert salesforce_data["harmonic_industry__c"] == "Software"
+
+    @freeze_time("2025-07-29T12:00:00Z")
+    def test_prepare_salesforce_update_skips_empty_displayvalue(self):
+        """Test Salesforce update skips tags with empty displayValue."""
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
+        harmonic_data["tags"] = [
+            {"type": "INDUSTRY", "displayValue": "", "isPrimaryTag": True},
+            {"type": "CATEGORY", "displayValue": "Fallback", "isPrimaryTag": False},
+        ]
+
+        transformed_data = transform_harmonic_data(harmonic_data)
+        assert transformed_data is not None
+        salesforce_data = prepare_salesforce_update_data("001TEST", transformed_data)
+
+        # Should skip empty displayValue and use the fallback
+        assert salesforce_data is not None
+        assert salesforce_data["harmonic_industry__c"] == "Fallback"
+
+    @freeze_time("2025-07-29T12:00:00Z")
+    def test_transform_harmonic_data_includes_is_yc_company_field(self):
+        """Test transform_harmonic_data includes is_yc_company field."""
+        harmonic_data = load_harmonic_fixture()
+        # Fixture already has investors including mock data
+
+        result = transform_harmonic_data(harmonic_data)
+
+        assert result is not None
+        assert "is_yc_company" in result
+        # The fixture has investors but not YC, so this should be False
+        assert result["is_yc_company"] is False
+
+    @freeze_time("2025-07-29T12:00:00Z")
+    def test_transform_harmonic_data_includes_is_yc_company_with_yc_investor(self):
+        """Test transform_harmonic_data sets is_yc_company=True when YC is an investor."""
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
+        harmonic_data["funding"]["investors"] = [
+            {"name": "GV"},
+            {"name": "Y Combinator"},
+            {"name": "Stripe"},
+        ]
+
+        result = transform_harmonic_data(harmonic_data)
+
+        assert result is not None
+        assert result["is_yc_company"] is True
+
+    @freeze_time("2025-07-29T12:00:00Z")
+    def test_transform_harmonic_data_is_yc_company_false_missing_funding(self):
+        """Test transform_harmonic_data sets is_yc_company=False when no funding section."""
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
+        del harmonic_data["funding"]
+
+        result = transform_harmonic_data(harmonic_data)
+
+        assert result is not None
+        assert result["is_yc_company"] is False
+
+    @freeze_time("2025-07-29T12:00:00Z")
+    def test_prepare_salesforce_update_includes_yc_company_flag(self):
+        """Test Salesforce update includes harmonic_is_yc_company__c field."""
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
+        harmonic_data["funding"]["investors"] = [{"name": "Y Combinator"}]
+
+        transformed_data = transform_harmonic_data(harmonic_data)
+        assert transformed_data is not None
+        salesforce_data = prepare_salesforce_update_data("001TEST", transformed_data)
+
+        assert salesforce_data is not None
+        assert "harmonic_is_yc_company__c" in salesforce_data
+        assert salesforce_data["harmonic_is_yc_company__c"] is True
+
+    @freeze_time("2025-07-29T12:00:00Z")
+    def test_prepare_salesforce_update_yc_company_false(self):
+        """Test Salesforce update includes harmonic_is_yc_company__c=False when not YC funded."""
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
+        harmonic_data["funding"]["investors"] = [{"name": "GV"}, {"name": "Sequoia"}]
+
+        transformed_data = transform_harmonic_data(harmonic_data)
+        assert transformed_data is not None
+        salesforce_data = prepare_salesforce_update_data("001TEST", transformed_data)
+
+        assert salesforce_data is not None
+        assert "harmonic_is_yc_company__c" in salesforce_data
+        assert salesforce_data["harmonic_is_yc_company__c"] is False
+
+
+class TestSalesforceAccountQuery(BaseTest):
+    def test_get_salesforce_accounts_by_domain_escapes_quotes(self):
+        """Test that single quotes in domain are properly escaped to prevent SOQL injection."""
+        malicious_domain = "test'OR'1'='1"
+
+        mock_sf_client = patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client")
+        with mock_sf_client as mock_get_sf:
+            mock_sf = mock_get_sf.return_value
+            mock_sf.query_all.return_value = {"records": []}
+
+            get_salesforce_accounts_by_domain(malicious_domain)
+
+            # Verify query_all was called
+            assert mock_sf.query_all.called
+
+            # Get the actual query that was executed
+            actual_query = mock_sf.query_all.call_args[0][0]
+
+            # format_soql uses backslash escaping for single quotes
+            # Note: domain is lowercased during normalization
+            assert "test\\'or\\'1\\'=\\'1" in actual_query
+            # Should NOT contain unescaped single quotes that would break query
+            assert "test'or'1'='1" not in actual_query.replace("\\'", "")
+
+    def test_get_salesforce_accounts_by_domain_normalizes_domain(self):
+        """Test that domain is properly normalized before querying."""
+        mock_sf_client = patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client")
+        with mock_sf_client as mock_get_sf:
+            mock_sf = mock_get_sf.return_value
+            mock_sf.query_all.return_value = {"records": []}
+
+            # Test with URL instead of plain domain
+            get_salesforce_accounts_by_domain("https://www.example.com/path")
+
+            # Should query with normalized domain (exact match or subdomain match)
+            actual_query = mock_sf.query_all.call_args[0][0]
+            # Verify SOQL query contains expected domain patterns (not URL sanitization)
+            # lgtm[py/incomplete-url-substring-sanitization]
+            assert "example.com" in actual_query
+            assert ".example.com" in actual_query  # subdomain pattern
+            assert "www." not in actual_query
+            assert "https://" not in actual_query
+
+    def test_get_salesforce_accounts_by_domain_returns_empty_for_invalid(self):
+        """Test that invalid domains return empty list."""
+        result = get_salesforce_accounts_by_domain("")
+        assert result == []
+
+    def test_get_salesforce_accounts_by_domain_returns_empty_for_whitespace(self):
+        """Test that whitespace-only domains return empty list."""
+        result = get_salesforce_accounts_by_domain("   ")
+        assert result == []
+
+    def test_get_salesforce_accounts_by_domain_precise_matching(self):
+        """Test that domain matching is precise and doesn't match unintended domains."""
+        mock_sf_client = patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client")
+        with mock_sf_client as mock_get_sf:
+            mock_sf = mock_get_sf.return_value
+            # Simulate SF returning multiple accounts with similar domains
+            mock_sf.query_all.return_value = {
+                "records": [
+                    {"Id": "001", "Name": "Exact Match", "Domain__c": "example.com"},
+                    {"Id": "002", "Name": "Subdomain Match", "Domain__c": "www.example.com"},
+                ]
+            }
+
+            get_salesforce_accounts_by_domain("example.com")
+
+            # Verify query_all was called
+            assert mock_sf.query_all.called
+
+            # Get the actual query that was executed
+            actual_query = mock_sf.query_all.call_args[0][0]
+
+            # Verify query uses exact match OR subdomain match pattern
+            # Should match: example.com (exact) or *.example.com (subdomain)
+            # Should NOT match: tryexample.com or example.com.evil.com
+            assert "Domain__c = " in actual_query  # exact match clause
+            assert "Domain__c LIKE " in actual_query  # subdomain match clause
+            assert ".example.com" in actual_query  # subdomain pattern with dot prefix
+
+            # Verify it doesn't use the old %domain% pattern that would match unintended domains
+            assert "LIKE '%example.com%'" not in actual_query
+
+
+class TestSpecificDomainEnrichment(BaseTest):
+    @pytest.mark.asyncio
+    @freeze_time("2025-07-29T12:00:00Z")
+    async def test_specific_domain_enrichment_success(self):
+        """Test enriching a specific domain returns Harmonic data and updates Salesforce."""
+        harmonic_response = load_harmonic_fixture()
+
+        # Mock Salesforce accounts
+        mock_accounts = [
+            {"Id": "001EXAMPLE1", "Name": "Test Company 1", "Domain__c": "example.com"},
+            {"Id": "001EXAMPLE2", "Name": "Test Company 2", "Domain__c": "example.com"},
+        ]
+
+        with mock_harmonic_client() as mock_client:
+            mock_client.enrich_companies_batch = AsyncMock(return_value=[harmonic_response])
+
+            with patch(
+                "ee.billing.salesforce_enrichment.enrichment.get_salesforce_accounts_by_domain",
+                return_value=mock_accounts,
+            ):
+                with patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client"):
+                    with patch(
+                        "ee.billing.salesforce_enrichment.enrichment.bulk_update_salesforce_accounts"
+                    ) as mock_bulk_update:
+                        result = await enrich_accounts_async(specific_domain="example.com")
+
+                        # Check summary
+                        assert result["summary"]["harmonic_data_found"] is True
+                        assert result["summary"]["salesforce_update_succeeded"] is True
+                        assert result["summary"]["salesforce_accounts_count"] == 2
+                        assert result["summary"]["accounts_updated"] == 2
+
+                        # Check counts
+                        assert result["records_processed"] == 2
+                        assert result["records_enriched"] == 1
+                        assert result["records_updated"] == 2
+
+                        # Check data
+                        assert result["enriched_data"] is not None
+                        assert result["enriched_data"]["company_info"]["name"] == "Example Corp"
+                        assert result["raw_harmonic_response"] == harmonic_response
+
+                        # Verify Harmonic called once
+                        mock_client.enrich_companies_batch.assert_called_once_with(["example.com"])
+
+                        # Verify Salesforce bulk update called with 2 accounts
+                        mock_bulk_update.assert_called_once()
+                        update_records = mock_bulk_update.call_args[0][1]
+                        assert len(update_records) == 2
+
+    @pytest.mark.asyncio
+    @freeze_time("2025-07-29T12:00:00Z")
+    async def test_specific_domain_enrichment_with_full_url(self):
+        """Test enriching a specific domain from a full URL."""
+        harmonic_response = load_harmonic_fixture()
+
+        mock_accounts = [
+            {"Id": "001EXAMPLE1", "Name": "Test Company 1", "Domain__c": "example.com"},
+        ]
+
+        with mock_harmonic_client() as mock_client:
+            mock_client.enrich_companies_batch = AsyncMock(return_value=[harmonic_response])
+
+            with patch(
+                "ee.billing.salesforce_enrichment.enrichment.get_salesforce_accounts_by_domain",
+                return_value=mock_accounts,
+            ):
+                with patch("ee.billing.salesforce_enrichment.enrichment.bulk_update_salesforce_accounts"):
+                    result = await enrich_accounts_async(specific_domain="https://www.example.com/path")
+
+                    assert result["records_enriched"] == 1
+                    assert result["enriched_data"] is not None
+                    mock_client.enrich_companies_batch.assert_called_once_with(["example.com"])
+
+    @pytest.mark.asyncio
+    async def test_specific_domain_enrichment_excluded_domain(self):
+        """Test that personal email domains are excluded."""
+        result = await enrich_accounts_async(specific_domain="gmail.com")
+
+        assert result["records_processed"] == 1
+        assert result["records_enriched"] == 0
+        assert result["summary"]["harmonic_data_found"] is False
+        assert result["summary"]["salesforce_update_succeeded"] is False
+        assert "excluded" in result["error"]
+
+    @pytest.mark.asyncio
+    @freeze_time("2025-07-29T12:00:00Z")
+    async def test_specific_domain_enrichment_no_harmonic_data(self):
+        """Test handling when Harmonic returns no data for domain."""
+        mock_accounts = [
+            {"Id": "001EXAMPLE1", "Name": "Test Company 1", "Domain__c": "unknown-domain.xyz"},
+        ]
+
+        with mock_harmonic_client() as mock_client:
+            mock_client.enrich_companies_batch = AsyncMock(return_value=[None])
+
+            with patch(
+                "ee.billing.salesforce_enrichment.enrichment.get_salesforce_accounts_by_domain",
+                return_value=mock_accounts,
+            ):
+                result = await enrich_accounts_async(specific_domain="unknown-domain.xyz")
+
+                assert result["records_processed"] == 1
+                assert result["records_enriched"] == 0
+                assert result["summary"]["harmonic_data_found"] is False
+                assert result["summary"]["salesforce_update_succeeded"] is False
+                assert "No Harmonic data found" in result["error"]
+
+    @pytest.mark.asyncio
+    @freeze_time("2025-07-29T12:00:00Z")
+    async def test_specific_domain_no_salesforce_accounts(self):
+        """Test handling when no Salesforce accounts match the domain."""
+        with patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_accounts_by_domain", return_value=[]):
+            result = await enrich_accounts_async(specific_domain="nonexistent-domain.com")
+
+            assert result["records_processed"] == 1
+            assert result["records_enriched"] == 0
+            assert result["summary"]["harmonic_data_found"] is False
+            assert result["summary"]["salesforce_update_succeeded"] is False
+            assert result["summary"]["salesforce_accounts_count"] == 0
+            assert "No Salesforce accounts found" in result["error"]
+
+    @pytest.mark.asyncio
+    @freeze_time("2025-07-29T12:00:00Z")
+    async def test_specific_domain_calls_salesforce_and_updates(self):
+        """Test that specific_domain queries Salesforce and updates matching accounts."""
+        harmonic_response = load_harmonic_fixture()
+        mock_accounts = [
+            {"Id": "001EXAMPLE1", "Name": "Test Company 1", "Domain__c": "example.com"},
+        ]
+
+        with mock_harmonic_client() as mock_client:
+            mock_client.enrich_companies_batch = AsyncMock(return_value=[harmonic_response])
+
+            with patch(
+                "ee.billing.salesforce_enrichment.enrichment.get_salesforce_accounts_by_domain",
+                return_value=mock_accounts,
+            ) as mock_get_accounts:
+                with patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client"):
+                    with patch(
+                        "ee.billing.salesforce_enrichment.enrichment.bulk_update_salesforce_accounts"
+                    ) as mock_bulk_update:
+                        result = await enrich_accounts_async(specific_domain="example.com")
+
+                        # Verify Salesforce was queried
+                        mock_get_accounts.assert_called_once_with("example.com")
+
+                        # Verify Salesforce was updated
+                        mock_bulk_update.assert_called_once()
+
+                        # Verify result
+                        assert result["summary"]["salesforce_update_succeeded"] is True
+
+    @pytest.mark.asyncio
+    @freeze_time("2025-07-29T12:00:00Z")
+    async def test_specific_domain_multiple_accounts_all_updated(self):
+        """Test that when multiple Salesforce accounts match a domain, all are updated."""
+        harmonic_response = load_harmonic_fixture()
+
+        # Multiple accounts with same domain (duplicate scenario)
+        mock_accounts = [
+            {"Id": "001ACCOUNT1", "Name": "Company A", "Domain__c": "example.com"},
+            {"Id": "001ACCOUNT2", "Name": "Company B", "Domain__c": "example.com"},
+            {"Id": "001ACCOUNT3", "Name": "Company C", "Domain__c": "example.com"},
+        ]
+
+        with mock_harmonic_client() as mock_client:
+            mock_client.enrich_companies_batch = AsyncMock(return_value=[harmonic_response])
+
+            with patch(
+                "ee.billing.salesforce_enrichment.enrichment.get_salesforce_accounts_by_domain",
+                return_value=mock_accounts,
+            ):
+                with patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client"):
+                    with patch(
+                        "ee.billing.salesforce_enrichment.enrichment.bulk_update_salesforce_accounts"
+                    ) as mock_bulk_update:
+                        result = await enrich_accounts_async(specific_domain="example.com")
+
+                        # Check summary shows all accounts
+                        assert result["summary"]["harmonic_data_found"] is True
+                        assert result["summary"]["salesforce_update_succeeded"] is True
+                        assert result["summary"]["salesforce_accounts_count"] == 3
+                        assert result["summary"]["accounts_updated"] == 3
+                        assert len(result["summary"]["salesforce_accounts"]) == 3
+
+                        # Check counts reflect all accounts processed
+                        assert result["records_processed"] == 3
+                        assert result["records_enriched"] == 1  # Harmonic called once
+                        assert result["records_updated"] == 3  # All 3 accounts updated
+
+                        # Verify Harmonic called only once (efficient)
+                        mock_client.enrich_companies_batch.assert_called_once_with(["example.com"])
+
+                        # Verify all 3 accounts passed to bulk update
+                        mock_bulk_update.assert_called_once()
+                        update_records = mock_bulk_update.call_args[0][1]
+                        assert len(update_records) == 3
+
+                        # Verify each account ID is in the update batch
+                        updated_ids = {record["Id"] for record in update_records}
+                        assert updated_ids == {"001ACCOUNT1", "001ACCOUNT2", "001ACCOUNT3"}
+
+    @pytest.mark.asyncio
+    @freeze_time("2025-07-29T12:00:00Z")
+    async def test_specific_domain_enrichment_returns_updated_account_data(self):
+        """Test that updated_salesforce_accounts contains the refreshed SF data after update."""
+        harmonic_response = load_harmonic_fixture()
+
+        mock_accounts = [
+            {"Id": "001EXAMPLE1", "Name": "Test Company", "Domain__c": "example.com"},
+        ]
+
+        # Mock the updated account data returned by the SOQL query
+        mock_updated_account = {
+            "Id": "001EXAMPLE1",
+            "Name": "Test Company",
+            "Domain__c": "example.com",
+            "harmonic_company_name__c": "Example Corp",
+            "harmonic_company_type__c": "STARTUP",
+            "harmonic_headcount__c": 5015,
+            "harmonic_industry__c": "Technology",
+            "harmonic_description__c": "A technology company",
+            "harmonic_city__c": "San Francisco",
+            "harmonic_state__c": "CA",
+            "harmonic_country__c": "USA",
+            "harmonic_founding_date__c": "1983-01-01",
+            "harmonic_funding_total__c": 900000000,
+            "harmonic_funding_rounds__c": 5,
+            "harmonic_last_funding_date__c": "2025-02-25",
+            "harmonic_last_funding_type__c": "Series E",
+            "harmonic_last_funding_total__c": 500000000,
+            "harmonic_funding_stage__c": "EXITED",
+        }
+
+        with mock_harmonic_client() as mock_client:
+            mock_client.enrich_companies_batch = AsyncMock(return_value=[harmonic_response])
+
+            with patch(
+                "ee.billing.salesforce_enrichment.enrichment.get_salesforce_accounts_by_domain",
+                return_value=mock_accounts,
+            ):
+                with patch("ee.billing.salesforce_enrichment.enrichment.bulk_update_salesforce_accounts"):
+                    with patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client") as mock_get_sf:
+                        mock_sf = mock_get_sf.return_value
+                        # Mock the single SOQL query that fetches updated accounts
+                        mock_sf.query_all.return_value = {"records": [mock_updated_account]}
+
+                        result = await enrich_accounts_async(specific_domain="example.com")
+
+                        # Verify updated_salesforce_accounts is populated
+                        assert "updated_salesforce_accounts" in result
+                        assert len(result["updated_salesforce_accounts"]) == 1
+
+                        updated_account = result["updated_salesforce_accounts"][0]
+                        assert updated_account["Id"] == "001EXAMPLE1"
+                        assert updated_account["Name"] == "Test Company"
+                        assert updated_account["harmonic_company_name__c"] == "Example Corp"
+                        assert updated_account["harmonic_company_type__c"] == "STARTUP"
+                        assert updated_account["harmonic_headcount__c"] == 5015
+                        assert updated_account["harmonic_funding_stage__c"] == "EXITED"
+
+                        # Verify query_all was called to fetch the updated data
+                        assert mock_sf.query_all.called
+
+
+class TestValuesMatch(BaseTest):
+    @parameterized.expand(
+        [
+            ("2025-07-29T12:00:00Z", "2025-07-29T12:00:00.000+0000", True, "ISO Z to Salesforce format"),
+            ("2025-07-29T12:00:00Z", "2025-07-29T12:00:00Z", True, "identical ISO format"),
+            ("2025-07-29T12:00:00Z", "2025-07-30T12:00:00Z", False, "different dates"),
+            ("hello", "hello", True, "identical strings"),
+            ("hello", "world", False, "different strings"),
+            (100, 100, True, "identical integers"),
+            (100, 200, False, "different integers"),
+            (None, None, True, "identical None values"),
+            ("value", None, False, "string vs None"),
+        ]
+    )
+    def test_values_match(self, sent, fetched, expected, description):
+        result = _values_match(sent, fetched)
+        assert result == expected, f"Failed for: {description}"
+
+    def test_normalize_datetime_string_iso_z_format(self):
+        result = _normalize_datetime_string("2025-07-29T12:00:00Z")
+        assert result is not None
+        assert result.year == 2025
+        assert result.month == 7
+        assert result.day == 29
+        assert result.hour == 12
+
+    def test_normalize_datetime_string_salesforce_format(self):
+        result = _normalize_datetime_string("2025-07-29T12:00:00.000+0000")
+        assert result is not None
+        assert result.year == 2025
+        assert result.month == 7
+        assert result.day == 29
+        assert result.hour == 12
+
+    def test_normalize_datetime_string_invalid_format(self):
+        result = _normalize_datetime_string("not-a-date")
+        assert result is None

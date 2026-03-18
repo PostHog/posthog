@@ -1,4 +1,5 @@
-import { actions, connect, kea, listeners, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
@@ -19,10 +20,10 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
     connect(({ key, query }: IssuesDataNodeLogicProps) => {
         const nodeLogic = dataNodeLogic({ key, query, refresh: 'blocking' })
         return {
-            values: [nodeLogic, ['response', 'responseLoading']],
+            values: [nodeLogic, ['response', 'responseLoading'], issueActionsLogic, ['needsReload']],
             actions: [
                 nodeLogic,
-                ['setResponse', 'loadData', 'cancelQuery'],
+                ['setResponse', 'loadData', 'loadDataSuccess', 'loadDataFailure', 'cancelQuery'],
                 issueActionsLogic,
                 [
                     'mergeIssues',
@@ -34,6 +35,7 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
                     'updateIssueStatus',
                     'mutationSuccess',
                     'mutationFailure',
+                    'clearNeedsReload',
                 ],
             ],
         }
@@ -41,6 +43,16 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
 
     actions({
         reloadData: () => ({}),
+        setLoadStartTime: (startTime: number | null) => ({ startTime }),
+    }),
+
+    reducers({
+        loadStartTime: [
+            null as number | null,
+            {
+                setLoadStartTime: (_, { startTime }) => startTime,
+            },
+        ],
     }),
 
     selectors({
@@ -50,9 +62,40 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
         ],
     }),
 
-    listeners(({ values, actions }) => ({
-        reloadData: async () => {
+    listeners(({ values, actions, props }) => ({
+        reloadData: () => {
             actions.loadData('force_blocking')
+        },
+        loadData: () => {
+            actions.setLoadStartTime(performance.now())
+        },
+        loadDataSuccess: () => {
+            const durationMs =
+                values.loadStartTime !== null ? Math.round(performance.now() - values.loadStartTime) : null
+            actions.setLoadStartTime(null)
+
+            const response = values.response as Record<string, any> | null
+            const results = response && 'results' in response ? response.results : []
+            const query = props.query as Record<string, any>
+            const filterGroups = query?.filterGroup?.values ?? []
+            const filterCount = filterGroups.reduce(
+                (count: number, group: any) => count + (group?.values?.length ?? 0),
+                0
+            )
+            const sortBy = query?.orderBy ?? null
+            const sortDirection = query?.orderDirection ?? null
+            const isV2 = query?.useQueryV2 ?? false
+            const eventName = isV2 ? 'error_tracking_issue_list_loaded_v2' : 'error_tracking_issue_list_loaded'
+            posthog.capture(eventName, {
+                duration_ms: durationMs,
+                result_count: (results as ErrorTrackingIssue[]).length,
+                is_cached: response?.is_cached ?? null,
+                filter_count: filterCount,
+                sort_by: sortBy,
+                sort_direction: sortDirection,
+                assignee_filter: !!query?.assignee,
+                status_filter: query?.status ?? null,
+            })
         },
         // optimistically update local results
         mergeIssues: ({ ids }) => {
@@ -156,4 +199,11 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
         mutationSuccess: () => actions.reloadData(),
         mutationFailure: () => actions.reloadData(),
     })),
+
+    afterMount(({ values, actions }) => {
+        if (values.needsReload) {
+            actions.clearNeedsReload()
+            actions.reloadData()
+        }
+    }),
 ])

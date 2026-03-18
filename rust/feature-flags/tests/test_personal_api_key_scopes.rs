@@ -94,6 +94,9 @@ async fn test_personal_api_key_scoped_organizations_allowed() {
         .create_user_with_options(&user_email, &org_id, Some(team.id), true)
         .await
         .unwrap();
+    ctx.add_user_to_organization(user_id, &org_id, 15)
+        .await
+        .unwrap();
     let (pak_id, secure_value) = ctx
         .create_personal_api_key(
             user_id,
@@ -357,6 +360,9 @@ async fn test_personal_api_key_mixed_scopes_both_valid() {
     let user_email = format!("test_{}@example.com", Uuid::new_v4());
     let user_id = ctx
         .create_user_with_options(&user_email, &org_id, Some(team.id), true)
+        .await
+        .unwrap();
+    ctx.add_user_to_organization(user_id, &org_id, 15)
         .await
         .unwrap();
     let (pak_id, secure_value) = ctx

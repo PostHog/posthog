@@ -36,6 +36,7 @@ def get_transpiled_site_source(id: int, token: str) -> Optional[WebJsSource]:
     from posthog.models import PluginConfig, PluginSourceFile
 
     response = (
+        # nosemgrep: idor-lookup-without-team (token-based auth; web_token acts as secret access key)
         PluginConfig.objects.filter(
             id=id,
             web_token=token,
@@ -109,6 +110,8 @@ def get_decide_site_apps(team: "Team", using_database: str = "default") -> list[
     )
 
     def site_app_url(source: tuple) -> str:
+        # this just hashes a timestamp
+        # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
         hash = md5(f"{source[2]}-{source[3]}-{source[4]}".encode()).hexdigest()
         return f"/site_app/{source[0]}/{source[1]}/{hash}/"
 
@@ -135,6 +138,8 @@ def get_decide_site_functions(team: "Team", using_database: str = "default") -> 
     )
 
     def site_function_url(source: tuple) -> str:
+        # this just hashes a timestamp
+        # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
         hash = md5(str(source[1]).encode()).hexdigest()
         return f"/site_function/{source[0]}/{hash}/"
 

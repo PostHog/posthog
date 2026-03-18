@@ -1,0 +1,5 @@
+# User paths (pageviews, three steps, applied path cleaning and filters, maximum 50 paths)
+
+```sql
+{{ render_hogql_example({"kind": "PathsQuery", "filterTestAccounts": false, "dateRange": {"date_from": "-7d"}, "pathsFilter": {"includeEventTypes": ["$pageview"], "stepLimit": 3, "localPathCleaningFilters": [{"regex": "^https:\\/\\/[a-z-]+\\.posthog\\.com", "alias": "https://<region>.posthog.com"}, {"regex": "\\/project\\/\\d+", "alias": "/project/<team_id>"}, {"regex": "\\/llm-analytics\\/traces\\/[0-9a-f\\-]+", "alias": "/llm-analytics/traces/<trace_id>"}, {"regex": "\\/llm-analytics\\/sessions\\/[0-9a-f\\-]+", "alias": "/llm-analytics/sessions/<session_id>"}, {"regex": "\\/llm-analytics\\/evaluations\\/[0-9a-f\\-]+", "alias": "/llm-analytics/evaluations/<evaluation_id>"}, {"regex": "\\/llm-analytics\\/datasets\\/[0-9a-f\\-]+", "alias": "/llm-analytics/datasets/<dataset_id>"}]}, "properties": [{"type": "event", "key": "$pathname", "operator": "icontains", "value": "llm-analytics"}, {"type": "event", "key": "$pathname", "operator": "not_icontains", "value": "docs"}]}) }}
+```

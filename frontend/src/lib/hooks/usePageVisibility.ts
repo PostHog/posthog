@@ -1,4 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
+
+// See https://developer.mozilla.org/en-US/docs/Web/API/Page_Visibility_API
+const VISIBILITY_CHANGE_EVENT = 'visibilitychange'
+
+function isPageVisible(): boolean {
+    return !document.hidden
+}
 
 /**
  *
@@ -14,38 +21,29 @@ import { useEffect, useState } from 'react'
  */
 export function usePageVisibilityCb(callback: (pageIsVisible: boolean) => void): void {
     useEffect(() => {
-        // adapted from https://developer.mozilla.org/en-US/docs/Web/API/Page_Visibility_API#example
-        // Opera 12.10 and Firefox 18 and later support
-        let hidden = 'hidden'
-        let visibilityChange = 'visibilitychange'
-        // @ts-expect-error - to avoid complaint that msHidden isn't on document
-        if (typeof document.msHidden !== 'undefined') {
-            hidden = 'msHidden'
-            visibilityChange = 'msvisibilitychange'
-            // @ts-expect-error - to avoid complaint that webkitHidden isn't on document
-        } else if (typeof document.webkitHidden !== 'undefined') {
-            hidden = 'webkitHidden'
-            visibilityChange = 'webkitvisibilitychange'
-        }
-
         const onVisibilityChange = (): void => {
-            callback(!document[hidden])
+            callback(isPageVisible())
         }
 
-        document.addEventListener(visibilityChange, onVisibilityChange)
+        document.addEventListener(VISIBILITY_CHANGE_EVENT, onVisibilityChange)
 
         return function cleanUp() {
-            document.removeEventListener(visibilityChange, onVisibilityChange)
+            document.removeEventListener(VISIBILITY_CHANGE_EVENT, onVisibilityChange)
         }
     }, [callback])
 }
 
+/**
+ * Hook that returns the current page visibility state and triggers re-renders when it changes.
+ */
 export function usePageVisibility(): { isVisible: boolean } {
-    const [isVisible, setIsVisible] = useState<boolean>(!document.hidden)
-
-    usePageVisibilityCb((pageIsVisible) => {
-        setIsVisible(pageIsVisible)
-    })
+    const isVisible = useSyncExternalStore(
+        (callback: () => void) => {
+            document.addEventListener(VISIBILITY_CHANGE_EVENT, callback)
+            return () => document.removeEventListener(VISIBILITY_CHANGE_EVENT, callback)
+        },
+        () => isPageVisible()
+    )
 
     return { isVisible }
 }

@@ -19,10 +19,10 @@ from posthog.schema import (
     CachedEventsQueryResponse,
     CachedHogQLQueryResponse,
     CachedRetentionQueryResponse,
-    DataWarehouseNode,
     EventPropertyFilter,
     EventsQuery,
-    FunnelsQuery,
+    HogLanguage,
+    HogQLAutocomplete,
     HogQLPropertyFilter,
     HogQLQuery,
     MeanRetentionCalculation,
@@ -33,10 +33,11 @@ from posthog.schema import (
 
 from posthog.hogql.constants import LimitContext
 
-from posthog.api.services.query import process_query_dict
+from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.models.insight_variable import InsightVariable
-from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.models.utils import UUIDT
+
+from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
@@ -147,6 +148,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "results": [[2, "sign out"], [1, "sign up"]],
                 },
             )
+
+    @patch("posthog.api.services.query.get_query_runner")
+    def test_hogql_autocomplete_bypasses_query_runner(self, mock_get_query_runner):
+        query = HogQLAutocomplete(
+            kind="HogQLAutocomplete",
+            query="select event from events",
+            language=HogLanguage.HOG_QL,
+            startPosition=6,
+            endPosition=6,
+        )
+
+        result = process_query_model(self.team, query, user=self.user)
+
+        self.assertIn("suggestions", result.model_dump())  # type: ignore
+        mock_get_query_runner.assert_not_called()
 
     @also_test_with_materialized_columns(["key"])
     @snapshot_clickhouse_queries
@@ -354,14 +370,13 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response_post = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
             self.assertEqual(response_post.status_code, status.HTTP_400_BAD_REQUEST)
 
-            self.assertEqual(
-                response_post.json(),
-                {
-                    "type": "validation_error",
-                    "code": "illegal_type_of_argument",
-                    "detail": f"Illegal types DateTime64(6, 'UTC') and String of arguments of function plus: In scope SELECT toTimeZone(events.timestamp, 'UTC') + 'string' FROM events WHERE (events.team_id = {self.team.id}) AND (toTimeZone(events.timestamp, 'UTC') < toDateTime64('2024-10-16 22:10:34.691212', 6, 'UTC')) AND (toTimeZone(events.timestamp, 'UTC') > toDateTime64('2024-10-15 22:10:29.691212', 6, 'UTC')) ORDER BY toTimeZone(events.timestamp, 'UTC') + 'string' ASC LIMIT 0, 101 SETTINGS readonly = 2, max_execution_time = 60, allow_experimental_object_type = 1, format_csv_allow_double_quotes = 0, max_ast_elements = 4000000, max_expanded_ast_elements = 4000000, max_bytes_before_external_group_by = 0, transform_null_in = 1, optimize_min_equality_disjunction_chain_length = 4294967295, allow_experimental_join_condition = 1.",
-                    "attr": None,
-                },
+            response = response_post.json()
+            self.assertEqual(response["type"], "validation_error")
+            self.assertEqual(response["code"], "illegal_type_of_argument")
+            self.assertEqual(response["attr"], None)
+            self.assertIn(
+                "Illegal types DateTime64(6, 'UTC') and String of arguments of function plus",
+                response["detail"],
             )
 
     @patch(
@@ -653,6 +668,42 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response, CachedHogQLQueryResponse)
         self.assertEqual(len(response.results), 15)
 
+    @patch("posthog.api.query.process_query_model")
+    def test_query_limit_context_posthog_ai(self, mock_process_query_model):
+        mock_process_query_model.return_value = {"results": []}
+        self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {
+                "query": {"kind": "HogQLQuery", "query": "select 1"},
+                "limit_context": "posthog_ai",
+            },
+        )
+        mock_process_query_model.assert_called_once()
+        self.assertEqual(mock_process_query_model.call_args[1]["limit_context"], LimitContext.POSTHOG_AI)
+
+    @patch("posthog.api.query.process_query_model")
+    def test_query_limit_context_default(self, mock_process_query_model):
+        mock_process_query_model.return_value = {"results": []}
+        self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {
+                "query": {"kind": "HogQLQuery", "query": "select 1"},
+            },
+        )
+        mock_process_query_model.assert_called_once()
+        # HogQLQuery is an insight query, so it gets QUERY_ASYNC by default
+        self.assertEqual(mock_process_query_model.call_args[1]["limit_context"], LimitContext.QUERY_ASYNC)
+
+    def test_query_limit_context_invalid_value(self):
+        api_response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {
+                "query": {"kind": "HogQLQuery", "query": "select 1"},
+                "limit_context": "export",
+            },
+        )
+        self.assertEqual(api_response.status_code, 400)
+
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
     def test_full_events_query_limit(self, MAX_SELECT_RETURNED_ROWS=15, DEFAULT_RETURNED_ROWS=10):
@@ -741,39 +792,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             "Input tag 'Tomato Soup' found using 'kind' does not match any of the expected tags",
             api_response.json()["detail"],
             api_response.content,
-        )
-
-    def test_funnel_query_with_data_warehouse_node_temporarily_raises(self):
-        # As of September 2024, funnels don't support data warehouse tables YET, so we want a helpful error message
-        api_response = self.client.post(
-            f"/api/environments/{self.team.id}/query/",
-            {
-                "query": FunnelsQuery(
-                    series=[
-                        DataWarehouseNode(
-                            id="xyz",
-                            table_name="xyz",
-                            id_field="id",
-                            distinct_id_field="customer_email",
-                            timestamp_field="created",
-                        ),
-                        DataWarehouseNode(
-                            id="abc",
-                            table_name="abc",
-                            id_field="id",
-                            distinct_id_field="customer_email",
-                            timestamp_field="timestamp",
-                        ),
-                    ],
-                ).model_dump()
-            },
-        )
-        self.assertEqual(api_response.status_code, 400)
-        self.assertDictEqual(
-            api_response.json(),
-            self.validation_error_response(
-                "Data warehouse tables are not supported in funnels just yet. For now, please try this funnel without the data warehouse-based step."
-            ),
         )
 
     def test_missing_query(self):

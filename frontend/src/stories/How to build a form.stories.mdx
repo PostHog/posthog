@@ -16,44 +16,44 @@ creating a new `forms` object:
 
 ```ts
 export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>({
-    path: (key) => ['scenes', 'feature-flags', 'featureFlagLogic', key],
-    props: {} as FeatureFlagLogicProps,
-    key: ({ id }) => id ?? 'new',
+  path: (key) => ['scenes', 'feature-flags', 'featureFlagLogic', key],
+  props: {} as FeatureFlagLogicProps,
+  key: ({ id }) => id ?? 'new',
 
-    loaders: ({ values, props }) => ({
-        featureFlag: [
-            { ...NEW_FLAG } as FeatureFlagModel,
-            {
-                loadFeatureFlag: () => api.get(`api/projects/${values.currentProjectId}/feature_flags/${props.id}`),
-            },
-        ],
-    }),
+  loaders: ({ values, props }) => ({
+    featureFlag: [
+      { ...NEW_FLAG } as FeatureFlagModel,
+      {
+        loadFeatureFlag: () => api.get(`api/projects/${values.currentProjectId}/feature_flags/${props.id}`),
+      },
+    ],
+  }),
 
-    forms: ({ actions }) => ({
-        featureFlag: {
-            // not really needed again since loader already defines it
-            defaults: { ...NEW_FLAG } as FeatureFlagModel,
+  forms: ({ actions }) => ({
+    featureFlag: {
+      // not really needed again since loader already defines it
+      defaults: { ...NEW_FLAG } as FeatureFlagModel,
 
-            // sync validation, will be shown as errors in the form
-            errors: (featureFlag) => ({
-                key: !featureFlag.key ? 'Must have a key' : undefined,
-            }),
+      // sync validation, will be shown as errors in the form
+      errors: (featureFlag) => ({
+        key: !featureFlag.key ? 'Must have a key' : undefined,
+      }),
 
-            // called on the form's onSubmit, unless a validation fails
-            submit: async (featureFlag, breakpoint) => {
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                const { created_at, id, ...flag } = featureFlag
-                const newFeatureFlag = updatedFlag.id
-                    ? await api.update(`api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`, flag)
-                    : await api.create(`api/projects/${values.currentProjectId}/feature_flags`, flag)
-                breakpoint()
-                actions.setFeatureFlagValues(newFeatureFlag)
-                lemonToast.success('Feature flag saved')
-                featureFlagsLogic.findMounted()?.actions.updateFlag(featureFlag)
-                router.actions.replace(urls.featureFlag(featureFlag.id))
-            },
-        },
-    }),
+      // called on the form's onSubmit, unless a validation fails
+      submit: async (featureFlag, breakpoint) => {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { created_at, id, ...flag } = featureFlag
+        const newFeatureFlag = updatedFlag.id
+          ? await api.update(`api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`, flag)
+          : await api.create(`api/projects/${values.currentProjectId}/feature_flags`, flag)
+        breakpoint()
+        actions.setFeatureFlagValues(newFeatureFlag)
+        lemonToast.success('Feature flag saved')
+        featureFlagsLogic.findMounted()?.actions.updateFlag(featureFlag)
+        router.actions.replace(urls.featureFlag(featureFlag.id))
+      },
+    },
+  }),
 })
 ```
 
@@ -62,33 +62,33 @@ to `featureFlagLogic`. This is the list as of kea-forms v0.2.1:
 
 ```tsx
 export interface featureFlagLogicType extends Logic {
-    actions: {
-        // kea-loaders
-        loadFeatureFlag: () => void
-        loadFeatureFlagSuccess: (featureFlag: any, payload?: any) => void
-        loadFeatureFlagFailure: (error: string, errorObject?: any) => void
+  actions: {
+    // kea-loaders
+    loadFeatureFlag: () => void
+    loadFeatureFlagSuccess: (featureFlag: any, payload?: any) => void
+    loadFeatureFlagFailure: (error: string, errorObject?: any) => void
 
-        // kea-forms
-        setFeatureFlagValue: (key: FieldName, value: any) => void
-        setFeatureFlagValues: (values: DeepPartial<FeatureFlagType>) => void
-        touchFeatureFlagField: (key: string) => void
-        resetFeatureFlag: (values?: FeatureFlagType) => void
-        submitFeatureFlag: () => void
-        submitFeatureFlagRequest: (featureFlag: FeatureFlagType) => void
-        submitFeatureFlagSuccess: (featureFlag: FeatureFlagType) => void
-        submitFeatureFlagFailure: (error: Error) => void
-    }
-    values: {
-        // kea-loaders
-        featureFlag: FeatureFlagType
-        featureFlagLoading: boolean
+    // kea-forms
+    setFeatureFlagValue: (key: FieldName, value: any) => void
+    setFeatureFlagValues: (values: DeepPartial<FeatureFlagType>) => void
+    touchFeatureFlagField: (key: string) => void
+    resetFeatureFlag: (values?: FeatureFlagType) => void
+    submitFeatureFlag: () => void
+    submitFeatureFlagRequest: (featureFlag: FeatureFlagType) => void
+    submitFeatureFlagSuccess: (featureFlag: FeatureFlagType) => void
+    submitFeatureFlagFailure: (error: Error) => void
+  }
+  values: {
+    // kea-loaders
+    featureFlag: FeatureFlagType
+    featureFlagLoading: boolean
 
-        // kea-forms
-        isFeatureFlagSubmitting: boolean
-        showFeatureFlagErrors: boolean
-        featureFlagChanged: boolean
-        featureFlagTouches: Record<string, boolean>
-    }
+    // kea-forms
+    isFeatureFlagSubmitting: boolean
+    showFeatureFlagErrors: boolean
+    featureFlagChanged: boolean
+    featureFlagTouches: Record<string, boolean>
+  }
 }
 ```
 

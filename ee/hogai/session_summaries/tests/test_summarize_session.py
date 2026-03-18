@@ -48,7 +48,7 @@ class TestSummarizeSession:
             # Get the generator (stream simulation)
             empty_context = ExtraSummaryContext()
             result_generator = execute_summarize_session_stream(
-                session_id=mock_session_id, user_id=mock_user.id, team=mock_team, extra_summary_context=empty_context
+                session_id=mock_session_id, user=mock_user, team=mock_team, extra_summary_context=empty_context
             )
             # Get all results from generator (consume the stream fully)
             results = list(result_generator)
@@ -124,14 +124,14 @@ class TestSummarizeSession:
                 return_value=iter([ready_summary]),
             ) as mock_execute,
         ):
-            async_gen = stream_recording_summary(session_id=mock_session_id, user_id=mock_user.id, team=mock_team)
+            async_gen = stream_recording_summary(session_id=mock_session_id, user=mock_user, team=mock_team)
             assert isinstance(async_gen, SyncIterableToAsync)
             results = [chunk async for chunk in async_gen]
             assert len(results) == 1
             assert results[0] == ready_summary
             mock_execute.assert_called_once_with(
                 session_id=mock_session_id,
-                user_id=mock_user.id,
+                user=mock_user,
                 team=mock_team,
                 extra_summary_context=None,
                 local_reads_prod=False,
@@ -155,13 +155,13 @@ class TestSummarizeSession:
                 return_value=iter([ready_summary]),
             ) as mock_execute,
         ):
-            result_gen = stream_recording_summary(session_id=mock_session_id, user_id=mock_user.id, team=mock_team)
+            result_gen = stream_recording_summary(session_id=mock_session_id, user=mock_user, team=mock_team)
             results = list(result_gen)  # type: ignore[arg-type]
             assert len(results) == 1
             assert results[0] == ready_summary
             mock_execute.assert_called_once_with(
                 session_id=mock_session_id,
-                user_id=mock_user.id,
+                user=mock_user,
                 team=mock_team,
                 extra_summary_context=None,
                 local_reads_prod=False,

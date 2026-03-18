@@ -10,7 +10,6 @@ use serde;
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
 use thiserror::Error;
 use tokio::sync::Mutex;
-use tracing::error;
 
 /// Enumeration of parsing errors in PgQueue.
 #[derive(Error, Debug)]

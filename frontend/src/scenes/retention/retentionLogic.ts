@@ -1,5 +1,5 @@
 import { mean, sum } from 'd3'
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { dayjs } from 'lib/dayjs'
@@ -21,11 +21,13 @@ const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 export const OVERALL_MEAN_KEY = '__overall__'
 export const DEFAULT_RETENTION_TOTAL_INTERVALS = 8
 export const RETENTION_EMPTY_BREAKDOWN_VALUE = '(empty)'
+export const MAX_BRACKETS = 30
 
 // Define a type for the output of the retentionMeans selector
 export interface MeanRetentionValue {
     label: string | number | null
     meanPercentages: number[]
+    meanValues: number[]
     totalCohortSize: number
     isOverall?: boolean
 }
@@ -43,16 +45,70 @@ export const retentionLogic = kea<retentionLogicType>([
             cohortsModel,
             ['cohortsById'],
         ],
-        actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateDateRange', 'updateBreakdownFilter']],
+        actions: [
+            insightVizDataLogic(props),
+            ['updateInsightFilter', 'updateDateRange', 'updateBreakdownFilter', 'updateQuerySource'],
+        ],
     })),
     actions({
         setSelectedBreakdownValue: (value: string | number | boolean | null) => ({ value }),
+        setLocalCustomBrackets: (brackets: (string | number)[]) => ({ brackets }),
+        updateLocalCustomBracket: (index: number, value: number | undefined) => ({ index, value }),
+        addCustomBracket: () => ({}),
+        removeCustomBracket: (index: number) => ({ index }),
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         updateBreakdownFilter: () => {
             // Reset selected breakdown value when breakdown filter changes
             // This prevents the dropdown from showing invalid cohort IDs
             actions.setSelectedBreakdownValue(null)
+            // Reset selected interval when breakdown filter changes
+            actions.updateInsightFilter({ selectedInterval: null })
+        },
+        updateLocalCustomBracket: async (_, breakpoint) => {
+            await breakpoint(1000)
+            const { localCustomBrackets, retentionFilter } = values
+            const numericBrackets = localCustomBrackets
+                .map((b) => (typeof b === 'string' ? parseInt(b, 10) : b))
+                .filter((b): b is number => !isNaN(Number(b)) && Number(b) > 0)
+
+            if (JSON.stringify(numericBrackets) !== JSON.stringify(retentionFilter?.retentionCustomBrackets || [])) {
+                actions.updateInsightFilter({
+                    retentionCustomBrackets: numericBrackets.length > 0 ? numericBrackets : undefined,
+                })
+            }
+        },
+        updateInsightFilter: ({ insightFilter }) => {
+            const retentionFilter = insightFilter as RetentionFilter
+            if (retentionFilter.retentionCustomBrackets !== undefined) {
+                const { localCustomBrackets } = values
+                const numericLocal = localCustomBrackets
+                    .map((b) => (typeof b === 'string' ? parseInt(b, 10) : b))
+                    .filter((b): b is number => !isNaN(Number(b)) && Number(b) > 0)
+
+                const incomingBrackets = retentionFilter.retentionCustomBrackets || []
+
+                if (JSON.stringify(numericLocal) !== JSON.stringify(incomingBrackets)) {
+                    actions.setLocalCustomBrackets([...incomingBrackets])
+                }
+            }
+        },
+        removeCustomBracket: async (_, breakpoint) => {
+            await breakpoint(1000)
+            const { localCustomBrackets, retentionFilter } = values
+            const numericBrackets = localCustomBrackets
+                .map((b) => (typeof b === 'string' ? parseInt(b, 10) : b))
+                .filter((b): b is number => !isNaN(Number(b)) && Number(b) > 0)
+
+            // Only update if we still have at least one bracket (even if empty) to keep custom brackets enabled
+            if (
+                localCustomBrackets.length > 0 &&
+                JSON.stringify(numericBrackets) !== JSON.stringify(retentionFilter?.retentionCustomBrackets || [])
+            ) {
+                actions.updateInsightFilter({
+                    retentionCustomBrackets: numericBrackets.length > 0 ? numericBrackets : [],
+                })
+            }
         },
     })),
     reducers({
@@ -62,12 +118,52 @@ export const retentionLogic = kea<retentionLogicType>([
                 setSelectedBreakdownValue: (_, { value }) => value,
             },
         ],
+        localCustomBrackets: [
+            [] as (string | number)[],
+            {
+                setLocalCustomBrackets: (_, { brackets }) => brackets,
+                updateLocalCustomBracket: (state, { index, value }) => {
+                    const newBrackets = [...state]
+                    newBrackets[index] = value ?? ''
+                    return newBrackets
+                },
+                addCustomBracket: (state) => {
+                    if (state.length >= MAX_BRACKETS) {
+                        return state
+                    }
+                    return [...state, '']
+                },
+                removeCustomBracket: (state, { index }) => {
+                    const newBrackets = [...state]
+                    newBrackets.splice(index, 1)
+                    if (newBrackets.filter((b) => b !== '').length === 0) {
+                        return ['']
+                    }
+                    return newBrackets
+                },
+            },
+        ],
     }),
     selectors({
         hasValidBreakdown: [(s) => [s.breakdownFilter], (breakdownFilter) => isValidBreakdown(breakdownFilter)],
+        isPropertyValueAggregation: [
+            (s) => [s.retentionFilter],
+            (retentionFilter: RetentionFilter | undefined) =>
+                retentionFilter?.aggregationType === 'sum' || retentionFilter?.aggregationType === 'avg',
+        ],
         results: [
-            (s) => [s.insightQuery, s.insightData, s.retentionFilter, s.timezone],
-            (insightQuery, insightData, retentionFilter, timezone): ProcessedRetentionPayload[] => {
+            (s) => [s.insightQuery, s.insightData, s.retentionFilter, s.timezone, s.isPropertyValueAggregation],
+            (
+                insightQuery,
+                insightData,
+                retentionFilter,
+                timezone,
+                isPropertyValueAggregation
+            ): ProcessedRetentionPayload[] => {
+                if (isPropertyValueAggregation && !retentionFilter?.aggregationProperty) {
+                    return []
+                }
+
                 const rawResults = isRetentionQuery(insightQuery) ? (insightData?.result ?? []) : []
 
                 const results: ProcessedRetentionPayload[] = rawResults.map((result: RetentionResult) => ({
@@ -110,18 +206,36 @@ export const retentionLogic = kea<retentionLogicType>([
             },
         ],
 
+        filteredResults: [
+            (s) => [s.results, s.selectedBreakdownValue],
+            (results, selectedBreakdownValue) => {
+                if (!results || results.length === 0) {
+                    return []
+                }
+                if (selectedBreakdownValue === null) {
+                    return results
+                }
+
+                // Return only results for the selected breakdown
+                return results.filter((result) => result.breakdown_value === selectedBreakdownValue)
+            },
+        ],
+
         retentionMeans: [
-            (s) => [s.results, s.retentionFilter, s.hasValidBreakdown],
+            (s) => [s.results, s.retentionFilter, s.hasValidBreakdown, s.isPropertyValueAggregation],
             (
                 results: ProcessedRetentionPayload[],
                 retentionFilter: RetentionFilter | undefined,
-                hasValidBreakdown: boolean
+                hasValidBreakdown: boolean,
+                isPropertyValueAggregation: boolean
             ): Record<string, MeanRetentionValue> => {
                 if (!results.length || !retentionFilter) {
                     return {}
                 }
 
-                const { totalIntervals = DEFAULT_RETENTION_TOTAL_INTERVALS, meanRetentionCalculation } = retentionFilter
+                const { meanRetentionCalculation } = retentionFilter
+                const numIntervals = results.length > 0 ? results[0].values.length : 0
+
                 const groupedByBreakdown: Record<string, ProcessedRetentionPayload[]> = {}
 
                 if (hasValidBreakdown) {
@@ -146,12 +260,13 @@ export const retentionLogic = kea<retentionLogicType>([
                     }
 
                     const meanPercentagesForBreakdown: number[] = []
+                    const meanValuesForBreakdown: number[] = []
                     const isOverallGroupWithoutBreakdown = breakdownKey === OVERALL_MEAN_KEY && !hasValidBreakdown
                     const label = isOverallGroupWithoutBreakdown
                         ? 'Overall'
                         : (breakdownRows[0]?.breakdown_value ?? null)
 
-                    for (let intervalIndex = 0; intervalIndex < totalIntervals; intervalIndex++) {
+                    for (let intervalIndex = 0; intervalIndex < numIntervals; intervalIndex++) {
                         const validRows = breakdownRows.filter(
                             (row) =>
                                 row.values[intervalIndex] && // Ensure data for this interval exists
@@ -160,21 +275,39 @@ export const retentionLogic = kea<retentionLogicType>([
                         )
 
                         let currentIntervalMean = 0
+                        let currentIntervalMeanValue = 0
                         if (validRows.length > 0) {
                             if (meanRetentionCalculation === 'weighted') {
                                 const weightedValueSum = sum(
                                     validRows,
                                     (row) => (row.values[intervalIndex]?.percentage || 0) * (row.values[0]?.count || 0)
                                 )
+                                const weightedCountSum = sum(
+                                    validRows,
+                                    (row) =>
+                                        (isPropertyValueAggregation
+                                            ? row.values[intervalIndex]?.aggregation_value || 0
+                                            : row.values[intervalIndex]?.count || 0) * (row.values[0]?.count || 0)
+                                )
                                 const totalWeight = sum(validRows, (row) => row.values[0]?.count || 0)
                                 currentIntervalMean = totalWeight > 0 ? weightedValueSum / totalWeight : 0
+                                currentIntervalMeanValue = totalWeight > 0 ? weightedCountSum / totalWeight : 0
                             } else {
                                 // Simple mean
                                 currentIntervalMean =
                                     mean(validRows.map((row) => row.values[intervalIndex]?.percentage || 0)) || 0
+                                currentIntervalMeanValue =
+                                    mean(
+                                        validRows.map((row) =>
+                                            isPropertyValueAggregation
+                                                ? row.values[intervalIndex]?.aggregation_value || 0
+                                                : row.values[intervalIndex]?.count || 0
+                                        )
+                                    ) || 0
                             }
                         }
                         meanPercentagesForBreakdown.push(currentIntervalMean)
+                        meanValuesForBreakdown.push(currentIntervalMeanValue)
                     }
 
                     const totalCohortSizeForGroup = sum(breakdownRows.map((row) => row.values[0]?.count || 0))
@@ -182,6 +315,7 @@ export const retentionLogic = kea<retentionLogicType>([
                     means[breakdownKey] = {
                         label: label,
                         meanPercentages: meanPercentagesForBreakdown,
+                        meanValues: meanValuesForBreakdown,
                         totalCohortSize: totalCohortSizeForGroup,
                         isOverall: isOverallGroupWithoutBreakdown,
                     }
@@ -252,7 +386,7 @@ export const retentionLogic = kea<retentionLogicType>([
                 cohortsById: Partial<Record<string | number, CohortType>>
             ): Record<string, string> => {
                 return breakdownValues.reduce(
-                    (acc, breakdownValue) => {
+                    (acc, breakdownValue, breakdownIndex) => {
                         const key = String(breakdownValue ?? '')
 
                         if (breakdownValue === null || breakdownValue === '') {
@@ -269,7 +403,8 @@ export const retentionLogic = kea<retentionLogicType>([
                                 originalBreakdownValue as BreakdownKeyType,
                                 breakdownFilter,
                                 cohorts,
-                                undefined
+                                undefined,
+                                breakdownIndex
                             )
                             acc[key] = formattedLabel
                         }
@@ -280,4 +415,12 @@ export const retentionLogic = kea<retentionLogicType>([
             },
         ],
     }),
+    events(({ actions, values }) => ({
+        afterMount: () => {
+            const brackets = values.retentionFilter?.retentionCustomBrackets
+            if (brackets !== undefined) {
+                actions.setLocalCustomBrackets([...brackets])
+            }
+        },
+    })),
 ])

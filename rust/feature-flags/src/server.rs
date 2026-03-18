@@ -3,51 +3,81 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use common_geoip::GeoIpClient;
-use common_redis::RedisClient;
-use health::{HealthHandle, HealthRegistry};
-use limiters::redis::QUOTA_LIMITER_CACHE_KEY;
-use tokio::net::TcpListener;
-
 use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::config::Config;
 use crate::database_pools::DatabasePools;
 use crate::db_monitor::DatabasePoolMonitor;
+use crate::rayon_dispatcher::RayonDispatcher;
 use crate::router;
+use crate::tokio_monitor::TokioRuntimeMonitor;
+use common_cache::NegativeCache;
 use common_cookieless::CookielessManager;
+use common_geoip::GeoIpClient;
+use common_hypercache::{HyperCacheConfig, HyperCacheReader};
+use common_redis::{
+    Client, CompressionConfig, ReadWriteClient, ReadWriteClientConfig, RedisClient,
+};
+use health::{HealthHandle, HealthRegistry};
+use limiters::redis::QUOTA_LIMITER_CACHE_KEY;
+use tokio::net::TcpListener;
+use tokio_retry::strategy::{jitter, ExponentialBackoff};
+use tokio_retry::Retry;
 
-pub async fn serve<F>(config: Config, listener: TcpListener, shutdown: F)
-where
+pub async fn serve<F>(
+    config: Config,
+    listener: TcpListener,
+    rayon_dispatcher: RayonDispatcher,
+    shutdown: F,
+) where
     F: Future<Output = ()> + Send + 'static,
 {
-    // Create separate Redis clients for reading and writing
-    // NB: if either of these URLs don't exist in the config, we default to the writer
-    let redis_reader_client =
-        match RedisClient::new(config.get_redis_reader_url().to_string()).await {
-            Ok(client) => Arc::new(client),
-            Err(e) => {
-                tracing::error!(
-                    "Failed to create Redis reader client for URL {}: {}",
-                    config.get_redis_reader_url(),
-                    e
-                );
-                return;
-            }
-        };
+    // Configure compression based on environment variable
+    let compression_config = if *config.redis_compression_enabled {
+        let config = CompressionConfig::default();
+        tracing::info!(
+            "Redis compression enabled (threshold: {} bytes)",
+            config.threshold
+        );
+        config
+    } else {
+        tracing::info!("Redis compression disabled");
+        CompressionConfig::disabled()
+    };
 
-    let redis_writer_client =
-        match RedisClient::new(config.get_redis_writer_url().to_string()).await {
-            Ok(client) => Arc::new(client),
-            Err(e) => {
-                tracing::error!(
-                    "Failed to create Redis writer client for URL {}: {}",
-                    config.get_redis_writer_url(),
-                    e
-                );
-                return;
-            }
-        };
+    // Create ReadWriteClient for shared Redis (non-critical path: analytics, billing, cookieless)
+    // "shared" means the Redis client shares the cache with the Django PostHog web app.
+    // Automatically routes reads to replica and writes to primary
+    let Some(redis_client) = create_readwrite_client(
+        config.get_redis_writer_url(),
+        config.get_redis_reader_url(),
+        "shared",
+        compression_config.clone(),
+        config.redis_response_timeout_ms,
+        config.redis_connection_timeout_ms,
+        config.redis_client_retry_count,
+    )
+    .await
+    else {
+        return;
+    };
+
+    // Create dedicated ReadWriteClient for flags cache (critical path isolation)
+    let dedicated_redis_client =
+        create_dedicated_readwrite_client(&config, compression_config.clone()).await;
+
+    // Log the cache migration mode based on configuration
+    let cache_mode = match (
+        dedicated_redis_client.is_some(),
+        *config.flags_redis_enabled,
+    ) {
+        (false, _) => "Mode 1 (Shared-only): All caches use shared Redis",
+        (true, false) => {
+            "Mode 2 (Dual-write): Reading from shared Redis, warming dedicated Redis in background"
+        }
+        (true, true) => "Mode 3 (Dedicated-only): All flags caches use dedicated Redis",
+    };
+    tracing::info!("Feature flags cache migration mode: {}", cache_mode);
 
     // Create database pools with persons routing support
     let database_pools = match DatabasePools::from_config(&config).await {
@@ -81,13 +111,14 @@ where
 
     let cohort_cache = Arc::new(CohortCacheManager::new(
         database_pools.non_persons_reader.clone(),
-        Some(config.cache_max_cohort_entries),
+        Some(config.cohort_cache_capacity_bytes),
         Some(config.cache_ttl_seconds),
     ));
 
     let health = HealthRegistry::new("liveness");
 
-    // TODO - we don't have a more complex health check yet, but we should add e.g. some around DB operations
+    // Liveness checks only verify the process is alive (simple heartbeat loop).
+    // Readiness checks (in router.rs) verify the pod isn't shutting down via a preStop marker file.
     let simple_loop = health
         .register(
             "simple_loop".to_string(),
@@ -102,9 +133,24 @@ where
         db_monitor.start_monitoring().await;
     });
 
+    // Start cohort cache monitoring
+    let cohort_cache_clone = cohort_cache.clone();
+    let cohort_cache_monitor_interval = config.cohort_cache_monitor_interval_secs;
+    tokio::spawn(async move {
+        cohort_cache_clone
+            .start_monitoring(cohort_cache_monitor_interval)
+            .await;
+    });
+
+    // Start Tokio runtime monitoring
+    let tokio_monitor = TokioRuntimeMonitor::new(&tokio::runtime::Handle::current());
+    tokio::spawn(async move {
+        tokio_monitor.start_monitoring().await;
+    });
+
     let feature_flags_billing_limiter = match FeatureFlagsLimiter::new(
         Duration::from_secs(config.billing_limiter_cache_ttl_secs),
-        redis_reader_client.clone(), // NB: the limiter only reads from redis, so it's safe to just use the reader client
+        redis_client.clone(), // Limiter only reads from redis, ReadWriteClient automatically routes reads to replica
         QUOTA_LIMITER_CACHE_KEY.to_string(),
         None,
     ) {
@@ -117,7 +163,7 @@ where
 
     let session_replay_billing_limiter = match SessionReplayLimiter::new(
         Duration::from_secs(config.billing_limiter_cache_ttl_secs),
-        redis_reader_client.clone(), // NB: the limiter only reads from redis, so it's safe to just use the reader client
+        redis_client.clone(), // Limiter only reads from redis, ReadWriteClient automatically routes reads to replica
         QUOTA_LIMITER_CACHE_KEY.to_string(),
         None,
     ) {
@@ -128,27 +174,180 @@ where
         }
     };
 
-    let redis_cookieless_client =
-        match RedisClient::new(config.get_redis_cookieless_url().to_string()).await {
-            Ok(client) => Arc::new(client),
-            Err(e) => {
-                tracing::error!(
-                    "Failed to create Redis cookieless client for URL {}: {}",
-                    config.get_redis_cookieless_url(),
-                    e
-                );
-                return;
-            }
-        };
+    let Some(redis_cookieless_client) = create_redis_client(
+        &config.get_redis_cookieless_url(),
+        "cookieless",
+        compression_config.clone(),
+        config.redis_response_timeout_ms,
+        config.redis_connection_timeout_ms,
+        config.redis_client_retry_count,
+    )
+    .await
+    else {
+        return;
+    };
 
     let cookieless_manager = Arc::new(CookielessManager::new(
         config.get_cookieless_config(),
         redis_cookieless_client.clone(),
     ));
 
+    // Create HyperCacheReader for feature flags at startup
+    // This avoids per-request AWS SDK initialization overhead
+    let flags_redis_client = dedicated_redis_client
+        .clone()
+        .unwrap_or_else(|| redis_client.clone());
+
+    let mut flags_hypercache_config = HyperCacheConfig::new(
+        "feature_flags".to_string(),
+        "flags.json".to_string(),
+        config.object_storage_region.clone(),
+        config.object_storage_bucket.clone(),
+    );
+
+    if !config.object_storage_endpoint.is_empty() {
+        flags_hypercache_config.s3_endpoint = Some(config.object_storage_endpoint.clone());
+    }
+
+    let flags_hypercache_reader =
+        match HyperCacheReader::new(flags_redis_client, flags_hypercache_config).await {
+            Ok(reader) => {
+                tracing::info!("Created HyperCacheReader for feature flags");
+                Arc::new(reader)
+            }
+            Err(e) => {
+                tracing::error!("Failed to create flags HyperCacheReader: {:?}", e);
+                return;
+            }
+        };
+
+    // Create HyperCacheReader for team metadata at startup
+    // Uses token-based lookup instead of team_id
+    let team_redis_client = dedicated_redis_client
+        .clone()
+        .unwrap_or_else(|| redis_client.clone());
+
+    let mut team_hypercache_config = HyperCacheConfig::new(
+        "team_metadata".to_string(),
+        "full_metadata.json".to_string(),
+        config.object_storage_region.clone(),
+        config.object_storage_bucket.clone(),
+    );
+    team_hypercache_config.token_based = true;
+
+    if !config.object_storage_endpoint.is_empty() {
+        team_hypercache_config.s3_endpoint = Some(config.object_storage_endpoint.clone());
+    }
+
+    let team_hypercache_reader =
+        match HyperCacheReader::new(team_redis_client, team_hypercache_config).await {
+            Ok(reader) => {
+                tracing::info!("Created HyperCacheReader for team metadata");
+                Arc::new(reader)
+            }
+            Err(e) => {
+                tracing::error!("Failed to create team HyperCacheReader: {:?}", e);
+                return;
+            }
+        };
+
+    // Create HyperCacheReader for flags with cohorts (used by /flags/definitions endpoint)
+    // Uses the shared cache (redis_client) - same cache Django writes to via HyperCache
+    let flags_with_cohorts_redis_client = redis_client.clone();
+
+    let mut flags_with_cohorts_config = HyperCacheConfig::new(
+        "feature_flags".to_string(),
+        "flags_with_cohorts.json".to_string(),
+        config.object_storage_region.clone(),
+        config.object_storage_bucket.clone(),
+    );
+
+    if !config.object_storage_endpoint.is_empty() {
+        flags_with_cohorts_config.s3_endpoint = Some(config.object_storage_endpoint.clone());
+    }
+
+    let flags_with_cohorts_hypercache_reader =
+        match HyperCacheReader::new(flags_with_cohorts_redis_client, flags_with_cohorts_config)
+            .await
+        {
+            Ok(reader) => {
+                tracing::info!("Created HyperCacheReader for flags with cohorts");
+                Arc::new(reader)
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Failed to create flags with cohorts HyperCacheReader: {:?}",
+                    e
+                );
+                return;
+            }
+        };
+
+    // Create HyperCacheReader for remote config (array/config.json)
+    // This reads the pre-computed config blob from Python's RemoteConfig.build_config()
+    // Uses token-based lookup (api_token) to match Python's HyperCache key pattern
+    let config_redis_client = dedicated_redis_client
+        .clone()
+        .unwrap_or_else(|| redis_client.clone());
+
+    let mut config_hypercache_config = HyperCacheConfig::new(
+        "array".to_string(),
+        "config.json".to_string(),
+        config.object_storage_region.clone(),
+        config.object_storage_bucket.clone(),
+    );
+    config_hypercache_config.token_based = true;
+
+    if !config.object_storage_endpoint.is_empty() {
+        config_hypercache_config.s3_endpoint = Some(config.object_storage_endpoint.clone());
+    }
+
+    let config_hypercache_reader =
+        match HyperCacheReader::new(config_redis_client, config_hypercache_config).await {
+            Ok(reader) => {
+                tracing::info!("Created HyperCacheReader for remote config");
+                Arc::new(reader)
+            }
+            Err(e) => {
+                tracing::error!("Failed to create config HyperCacheReader: {:?}", e);
+                return;
+            }
+        };
+
+    let team_negative_cache = NegativeCache::new(
+        config.team_negative_cache_capacity,
+        config.team_negative_cache_ttl_seconds,
+    );
+    tracing::info!(
+        capacity = config.team_negative_cache_capacity,
+        ttl_seconds = config.team_negative_cache_ttl_seconds,
+        "Created team negative cache for invalid API tokens"
+    );
+
+    if *config.skip_writes {
+        tracing::warn!(
+            "SKIP_WRITES is enabled: all writes to PostgreSQL and Redis are disabled. \
+             This instance is running in read-only mode for safe performance testing."
+        );
+    }
+
+    // Warn about deprecated environment variables
+    if std::env::var("TEAM_CACHE_TTL_SECONDS").is_ok() {
+        tracing::warn!(
+            "TEAM_CACHE_TTL_SECONDS is deprecated and ignored. \
+             Team cache TTL is now managed by Django's HyperCache."
+        );
+    }
+    if std::env::var("FLAGS_CACHE_TTL_SECONDS").is_ok() {
+        tracing::warn!(
+            "FLAGS_CACHE_TTL_SECONDS is deprecated and ignored. \
+             Flags cache TTL is now managed by Django's HyperCache."
+        );
+    }
+
     let app = router::router(
-        redis_reader_client,
-        redis_writer_client,
+        redis_client,
+        dedicated_redis_client,
         database_pools,
         cohort_cache,
         geoip_service,
@@ -156,6 +355,12 @@ where
         feature_flags_billing_limiter,
         session_replay_billing_limiter,
         cookieless_manager,
+        flags_hypercache_reader,
+        flags_with_cohorts_hypercache_reader,
+        team_hypercache_reader,
+        config_hypercache_reader,
+        rayon_dispatcher,
+        team_negative_cache,
         config,
     );
 
@@ -169,9 +374,328 @@ where
     .unwrap()
 }
 
+/// Create a ReadWriteClient that automatically routes reads to replica and writes to primary
+///
+/// Returns None and logs error if client creation fails after all retries
+async fn create_readwrite_client(
+    writer_url: &str,
+    reader_url: &str,
+    client_type: &str,
+    compression_config: CompressionConfig,
+    response_timeout_ms: u64,
+    connection_timeout_ms: u64,
+    retry_count: u32,
+) -> Option<Arc<dyn Client + Send + Sync>> {
+    let rw_config = ReadWriteClientConfig::new(
+        writer_url.to_string(),
+        reader_url.to_string(),
+        compression_config,
+        common_redis::RedisValueFormat::default(),
+        if response_timeout_ms == 0 {
+            None
+        } else {
+            Some(Duration::from_millis(response_timeout_ms))
+        },
+        if connection_timeout_ms == 0 {
+            None
+        } else {
+            Some(Duration::from_millis(connection_timeout_ms))
+        },
+    );
+
+    // Use exponential backoff with jitter: 100ms, 200ms, 400ms, etc.
+    let retry_strategy = ExponentialBackoff::from_millis(100)
+        .map(jitter)
+        .take(retry_count as usize);
+
+    let client_type_owned = client_type.to_string();
+
+    let result = Retry::spawn(retry_strategy, || async {
+        match ReadWriteClient::with_config(rw_config.clone()).await {
+            Ok(client) => Ok(Ok(client)),
+            Err(e) => {
+                if e.is_unrecoverable_error() {
+                    tracing::error!(
+                        "Permanent error creating {} ReadWriteClient: {}",
+                        client_type_owned,
+                        e
+                    );
+                    Ok(Err(e))
+                } else {
+                    tracing::debug!(
+                        "Transient error creating {} ReadWriteClient, will retry: {}",
+                        client_type_owned,
+                        e
+                    );
+                    Err(e)
+                }
+            }
+        }
+    })
+    .await;
+
+    match result {
+        Ok(Ok(client)) => {
+            tracing::info!(
+                "Created {} ReadWriteClient (writer: {}, reader: {})",
+                client_type,
+                writer_url,
+                reader_url
+            );
+            Some(Arc::new(client))
+        }
+        Ok(Err(_)) => None,
+        Err(e) => {
+            tracing::error!(
+                "Failed to create {} ReadWriteClient after {} retries: {}",
+                client_type_owned,
+                retry_count,
+                e
+            );
+            None
+        }
+    }
+}
+
+/// Create dedicated ReadWriteClient for flags cache with graceful fallback
+///
+/// Implements fallback strategy:
+/// 1. FLAGS_REDIS_READER_URL is not set → use FLAGS_REDIS_URL for both reads and writes
+/// 2. FLAGS_REDIS_URL is not set → return None (use shared Redis)
+///
+/// Returns: Optional ReadWriteClient
+async fn create_dedicated_readwrite_client(
+    config: &Config,
+    compression_config: CompressionConfig,
+) -> Option<Arc<dyn Client + Send + Sync>> {
+    let writer_url = config.get_flags_redis_writer_url();
+    let reader_url = config.get_flags_redis_reader_url();
+
+    match (writer_url, reader_url) {
+        (Some(w_url), Some(r_url)) => {
+            tracing::info!(
+                "Creating dedicated flags ReadWriteClient with separate reader endpoint"
+            );
+            create_readwrite_client(
+                w_url,
+                r_url,
+                "dedicated flags",
+                compression_config,
+                config.redis_response_timeout_ms,
+                config.redis_connection_timeout_ms,
+                config.redis_client_retry_count,
+            )
+            .await
+        }
+        (Some(w_url), None) => {
+            tracing::info!("Creating dedicated flags ReadWriteClient using writer URL for both reads and writes");
+            create_readwrite_client(
+                w_url,
+                w_url,
+                "dedicated flags",
+                compression_config,
+                config.redis_response_timeout_ms,
+                config.redis_connection_timeout_ms,
+                config.redis_client_retry_count,
+            )
+            .await
+        }
+        (None, Some(_)) => {
+            tracing::warn!(
+                "FLAGS_REDIS_READER_URL set but FLAGS_REDIS_URL not set. \
+                 Cannot use reader without writer. Falling back to shared Redis."
+            );
+            None
+        }
+        (None, None) => {
+            tracing::info!(
+                "Using shared Redis for flags cache (no dedicated flags Redis configured)"
+            );
+            None
+        }
+    }
+}
+
+/// Helper to create a Redis client with error logging and retry logic
+/// Returns None and logs an error if client creation fails after all retries
+///
+/// Retry behavior:
+/// - Delegates to redis crate's `is_unrecoverable_error()` for error classification
+/// - Overrides: InvalidClientConfig and AuthenticationFailed always treated as permanent (no retry)
+/// - In practice, most connection errors (DNS, connection refused) are also permanent
+/// - Uses exponential backoff with jitter when retrying transient errors
+async fn create_redis_client(
+    url: &str,
+    client_type: &str,
+    compression_config: CompressionConfig,
+    response_timeout_ms: u64,
+    connection_timeout_ms: u64,
+    retry_count: u32,
+) -> Option<Arc<RedisClient>> {
+    // Use exponential backoff with jitter: 100ms, 200ms, 400ms, etc.
+    // When retry_count=0, .take(0) means no retries (only initial attempt)
+    let retry_strategy = ExponentialBackoff::from_millis(100)
+        .map(jitter)
+        .take(retry_count as usize);
+
+    let url_owned = url.to_string();
+    let client_type_owned = client_type.to_string();
+
+    let result = Retry::spawn(retry_strategy, || async {
+        match RedisClient::with_config(
+            url_owned.clone(),
+            compression_config.clone(),
+            common_redis::RedisValueFormat::default(),
+            if response_timeout_ms == 0 {
+                None
+            } else {
+                Some(Duration::from_millis(response_timeout_ms))
+            },
+            if connection_timeout_ms == 0 {
+                None
+            } else {
+                Some(Duration::from_millis(connection_timeout_ms))
+            },
+        )
+        .await
+        {
+            Ok(client) => Ok(Ok(client)),
+            Err(e) => {
+                if e.is_unrecoverable_error() {
+                    tracing::error!(
+                        "Permanent error creating {} Redis client for URL {}: {}",
+                        client_type_owned,
+                        url_owned,
+                        e
+                    );
+                    // Return Ok(Err) to stop retrying but signal error
+                    Ok(Err(e))
+                } else {
+                    tracing::debug!(
+                        "Transient error creating {} Redis client, will retry: {}",
+                        client_type_owned,
+                        e
+                    );
+                    Err(e)
+                }
+            }
+        }
+    })
+    .await;
+
+    // Use nested Result to distinguish:
+    // - Ok(Ok(client)): successful connection
+    // - Ok(Err(e)): permanent error, don't retry
+    // - Err(e): retryable error that will trigger retry logic
+    match result {
+        Ok(Ok(client)) => Some(Arc::new(client)),
+        Ok(Err(_)) => {
+            // Permanent error - already logged above
+            None
+        }
+        Err(e) => {
+            tracing::error!(
+                "Failed to create {} Redis client for URL {} after {} retries: {}",
+                client_type_owned,
+                url_owned,
+                retry_count,
+                e
+            );
+            None
+        }
+    }
+}
+
 async fn liveness_loop(handle: HealthHandle) {
     loop {
         handle.report_healthy().await;
         tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_create_dedicated_readwrite_client_no_config() {
+        // When FLAGS_REDIS_URL is not set, should return None
+        let config = Config {
+            flags_redis_url: "".to_string(),
+            flags_redis_reader_url: "".to_string(),
+            redis_client_retry_count: 0,
+            ..Config::default_test_config()
+        };
+
+        let compression_config = CompressionConfig::disabled();
+        let client = create_dedicated_readwrite_client(&config, compression_config).await;
+
+        assert!(client.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_create_dedicated_readwrite_client_with_invalid_url() {
+        // When FLAGS_REDIS_URL is set but unreachable, should return None
+        let config = Config {
+            flags_redis_url: "redis://invalid-host:6379/".to_string(),
+            flags_redis_reader_url: "".to_string(),
+            redis_client_retry_count: 0, // No retries for fast test
+            ..Config::default_test_config()
+        };
+
+        let compression_config = CompressionConfig::disabled();
+        let client = create_dedicated_readwrite_client(&config, compression_config).await;
+
+        assert!(client.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_create_dedicated_readwrite_client_reader_without_writer() {
+        // When only FLAGS_REDIS_READER_URL is set (misconfiguration), should return None
+        let config = Config {
+            flags_redis_url: "".to_string(),
+            flags_redis_reader_url: "redis://localhost:6379/".to_string(),
+            redis_client_retry_count: 0,
+            ..Config::default_test_config()
+        };
+
+        let compression_config = CompressionConfig::disabled();
+        let client = create_dedicated_readwrite_client(&config, compression_config).await;
+
+        assert!(client.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_redis_error_types() {
+        use common_redis::RedisClient;
+
+        let test_cases = vec![
+            ("absolutegarbage", "Garbage URL"),
+            ("wrong-protocol://localhost:6379", "Wrong protocol"),
+            ("redis://localhost:6378", "Wrong port (connection refused)"),
+        ];
+
+        for (url, description) in test_cases {
+            println!("\n--- Testing: {description} ---");
+            println!("URL: {url}");
+
+            let result = RedisClient::with_config(
+                url.to_string(),
+                CompressionConfig::disabled(),
+                common_redis::RedisValueFormat::default(),
+                Some(Duration::from_millis(100)),
+                Some(Duration::from_millis(5000)),
+            )
+            .await;
+
+            match result {
+                Ok(_) => println!("✅ Success (unexpected!)"),
+                Err(e) => {
+                    println!("❌ Error type: {e:?}");
+                    println!("   Error message: {e}");
+                    println!("   Is recoverable: {}", !e.is_unrecoverable_error());
+                }
+            }
+        }
     }
 }

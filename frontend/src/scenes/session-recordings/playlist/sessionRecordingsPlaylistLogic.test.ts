@@ -1,18 +1,22 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
+import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { sessionRecordingDataCoordinatorLogic } from '../player/sessionRecordingDataCoordinatorLogic'
-import { playlistLogic } from './playlistLogic'
+import { playlistFiltersLogic } from './playlistFiltersLogic'
 import {
     DEFAULT_RECORDING_FILTERS,
     convertLegacyFiltersToUniversalFilters,
     convertUniversalFiltersToRecordingsQuery,
+    getDefaultFilters,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
 
@@ -23,14 +27,20 @@ describe('sessionRecordingsPlaylistLogic', () => {
         viewed: false,
         recording_duration: 10,
         start_time: '2023-10-12T16:55:36.404000Z',
+        end_time: '2023-10-12T16:55:46.404000Z',
         console_error_count: 50,
+        viewers: [],
+        snapshot_source: 'web' as const,
     }
     const bRecording = {
         id: 'def',
         viewed: false,
         recording_duration: 10,
         start_time: '2023-05-12T16:55:36.404000Z',
+        end_time: '2023-05-12T16:55:46.404000Z',
         console_error_count: 100,
+        viewers: [],
+        snapshot_source: 'web' as const,
     }
     const listOfSessionRecordings = [aRecording, bRecording]
     const offsetRecording = {
@@ -38,7 +48,10 @@ describe('sessionRecordingsPlaylistLogic', () => {
         viewed: false,
         recording_duration: 10,
         start_time: '2023-08-12T16:55:36.404000Z',
+        end_time: '2023-08-12T16:55:46.404000Z',
         console_error_count: 75,
+        viewers: [],
+        snapshot_source: 'web' as const,
     }
 
     beforeEach(() => {
@@ -128,12 +141,12 @@ describe('sessionRecordingsPlaylistLogic', () => {
     describe('global logic', () => {
         beforeEach(() => {
             logic = sessionRecordingsPlaylistLogic({
-                key: 'tests',
+                logicKey: 'tests',
                 updateSearchParams: true,
             })
             logic.mount()
-            playlistLogic.mount()
-            playlistLogic.actions.setIsFiltersExpanded(false)
+            playlistFiltersLogic.mount()
+            playlistFiltersLogic.actions.setIsFiltersExpanded(false)
         })
 
         describe('core assumptions', () => {
@@ -192,6 +205,68 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     activeSessionRecording: listOfSessionRecordings[0],
                 })
                 expect(router.values.searchParams).not.toHaveProperty('sessionRecordingId', 'not-in-list')
+            })
+        })
+
+        describe('nextSessionRecording', () => {
+            it('returns next older recording when autoplay direction is null (autoplay off)', async () => {
+                playerSettingsLogic.mount()
+                playerSettingsLogic.actions.setAutoplayDirection(null)
+
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId('abc'))
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        activeSessionRecording: listOfSessionRecordings[0],
+                        nextSessionRecording: listOfSessionRecordings[1],
+                    })
+            })
+
+            it('returns next older recording when autoplay direction is older', async () => {
+                playerSettingsLogic.mount()
+                playerSettingsLogic.actions.setAutoplayDirection('older')
+
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId('abc'))
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        activeSessionRecording: listOfSessionRecordings[0],
+                        nextSessionRecording: listOfSessionRecordings[1],
+                    })
+            })
+
+            it('returns next newer recording when autoplay direction is newer', async () => {
+                playerSettingsLogic.mount()
+                playerSettingsLogic.actions.setAutoplayDirection('newer')
+
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId('def'))
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        activeSessionRecording: listOfSessionRecordings[1],
+                        nextSessionRecording: listOfSessionRecordings[0],
+                    })
+            })
+
+            it('returns undefined when at the end of the list (older direction)', async () => {
+                playerSettingsLogic.mount()
+                playerSettingsLogic.actions.setAutoplayDirection('older')
+
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId('def'))
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        activeSessionRecording: listOfSessionRecordings[1],
+                        nextSessionRecording: undefined,
+                    })
+            })
+
+            it('returns undefined when at the start of the list (newer direction)', async () => {
+                playerSettingsLogic.mount()
+                playerSettingsLogic.actions.setAutoplayDirection('newer')
+
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId('abc'))
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        activeSessionRecording: listOfSessionRecordings[0],
+                        nextSessionRecording: undefined,
+                    })
             })
         })
 
@@ -271,7 +346,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
             it('reads filters from the logic props', async () => {
                 logic = sessionRecordingsPlaylistLogic({
-                    key: 'tests-with-props',
+                    logicKey: 'tests-with-props',
                     filters: {
                         duration: [],
                         filter_group: {
@@ -387,7 +462,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 router.actions.push('/replay/recent', { sessionRecordingId: 'abc' })
 
                 logic = sessionRecordingsPlaylistLogic({
-                    key: 'hash-recording-tests',
+                    logicKey: 'hash-recording-tests',
                     updateSearchParams: true,
                 })
                 logic.mount()
@@ -395,8 +470,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toMatchValues({
                     selectedRecordingId: 'abc',
                 })
-
-                logic.actions.setSelectedRecordingId('1234')
             })
         })
 
@@ -548,12 +621,123 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     },
                 })
         })
+
+        describe('deleting recordings', () => {
+            it('otherRecordings filters out deleted recording ids', async () => {
+                await expectLogic(logic)
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({ otherRecordings: [aRecording, bRecording] })
+
+                deletedRecordingsLogic.actions.addDeletedRecordings(['abc'])
+
+                await expectLogic(logic).toMatchValues({
+                    otherRecordings: [bRecording],
+                })
+            })
+
+            it('clears selectedRecordingId when the active recording is deleted', async () => {
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId('abc'))
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({ selectedRecordingId: 'abc' })
+
+                deletedRecordingsLogic.actions.addDeletedRecordings(['abc'])
+
+                await expectLogic(logic).toMatchValues({
+                    selectedRecordingId: null,
+                })
+            })
+
+            it('does not clear selectedRecordingId when a different recording is deleted', async () => {
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId('abc'))
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({ selectedRecordingId: 'abc' })
+
+                deletedRecordingsLogic.actions.addDeletedRecordings(['def'])
+
+                await expectLogic(logic).toMatchValues({
+                    selectedRecordingId: 'abc',
+                })
+            })
+
+            it('bulk delete marks recordings as deleted after API success', async () => {
+                jest.spyOn(api.recordings, 'bulkDeleteRecordings').mockResolvedValue({
+                    success: true,
+                    deleted_count: 2,
+                    total_requested: 2,
+                    failed_ids: [],
+                })
+
+                await expectLogic(logic)
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({ otherRecordings: [aRecording, bRecording] })
+
+                logic.actions.setSelectedRecordingsIds(['abc', 'def'])
+                logic.actions.setIsDeleteSelectedRecordingsDialogOpen(true)
+
+                await expectLogic(logic, () => logic.actions.handleDeleteSelectedRecordings(undefined))
+                    .toDispatchActions(['addDeletedRecordings', 'setSelectedRecordingsIds'])
+                    .toMatchValues({
+                        otherRecordings: [],
+                        selectedRecordingsIds: [],
+                    })
+
+                expect(api.recordings.bulkDeleteRecordings).toHaveBeenCalledWith(['abc', 'def'], '-3d')
+            })
+
+            it('deleted recordings are excluded from hiddenRecordings count', async () => {
+                playerSettingsLogic.mount()
+
+                await expectLogic(logic)
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({ otherRecordings: [aRecording, bRecording] })
+
+                // mark abc as viewed so it becomes "hidden" when hideViewedRecordings is on
+                logic.actions.setSelectedRecordingId('abc')
+                await expectLogic(logic).toFinishAllListeners()
+                // deselect so selectedRecordingId exclusion doesn't interfere
+                logic.actions.setSelectedRecordingId(null)
+                playerSettingsLogic.actions.setHideViewedRecordings('current-user')
+
+                // abc is now hidden (viewed but not selected)
+                await expectLogic(logic).toMatchValues({
+                    hiddenRecordings: [expect.objectContaining({ id: 'abc' })],
+                })
+
+                // delete abc — should no longer be in hiddenRecordings
+                deletedRecordingsLogic.actions.addDeletedRecordings(['abc'])
+
+                await expectLogic(logic).toMatchValues({
+                    hiddenRecordings: [],
+                })
+            })
+
+            it('bulk delete only marks successfully deleted recordings', async () => {
+                jest.spyOn(api.recordings, 'bulkDeleteRecordings').mockResolvedValue({
+                    success: true,
+                    deleted_count: 1,
+                    total_requested: 2,
+                    failed_ids: ['def'],
+                })
+
+                await expectLogic(logic)
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({ otherRecordings: [aRecording, bRecording] })
+
+                logic.actions.setSelectedRecordingsIds(['abc', 'def'])
+
+                await expectLogic(logic, () => logic.actions.handleDeleteSelectedRecordings(undefined))
+                    .toDispatchActions(['addDeletedRecordings'])
+                    .toMatchValues({
+                        otherRecordings: [bRecording],
+                    })
+            })
+        })
     })
 
     describe('person specific logic', () => {
         beforeEach(() => {
             logic = sessionRecordingsPlaylistLogic({
-                key: 'cool_user_99',
+                logicKey: 'cool_user_99',
                 personUUID: 'cool_user_99',
                 updateSearchParams: true,
             })
@@ -570,14 +754,16 @@ describe('sessionRecordingsPlaylistLogic', () => {
             router.actions.push('/person/123', { sessionRecordingId: 'abc' })
             expect(router.values.searchParams).toHaveProperty('sessionRecordingId', 'abc')
 
-            await expectLogic(logic).toDispatchActions([logic.actionCreators.setSelectedRecordingId('abc')])
+            await expectLogic(logic)
+                .toDispatchActions([logic.actionCreators.setSelectedRecordingId('abc')])
+                .toFinishAllListeners()
         })
     })
 
     describe('total filters count', () => {
         beforeEach(() => {
             logic = sessionRecordingsPlaylistLogic({
-                key: 'cool_user_99',
+                logicKey: 'cool_user_99',
                 personUUID: 'cool_user_99',
                 updateSearchParams: true,
             })
@@ -637,7 +823,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
     describe('resetting filters', () => {
         beforeEach(() => {
             logic = sessionRecordingsPlaylistLogic({
-                key: 'cool_user_99',
+                logicKey: 'cool_user_99',
                 personUUID: 'cool_user_99',
                 updateSearchParams: true,
             })
@@ -672,7 +858,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
     describe('set filters', () => {
         beforeEach(() => {
             logic = sessionRecordingsPlaylistLogic({
-                key: 'cool_user_99',
+                logicKey: 'cool_user_99',
                 personUUID: 'cool_user_99',
                 updateSearchParams: true,
             })
@@ -693,7 +879,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
     })
 
     describe('convertUniversalFiltersToRecordingsQuery', () => {
-        it('expands the visited_page filter to a pageview with $current_url property', () => {
+        it('passes the visited_page filter as a recording property', () => {
             const result = convertUniversalFiltersToRecordingsQuery({
                 ...DEFAULT_RECORDING_FILTERS,
                 filter_group: {
@@ -721,21 +907,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 console_log_filters: [],
                 date_from: '-3d',
                 date_to: null,
-                events: [
-                    {
-                        id: '$pageview',
-                        name: '$pageview',
-                        properties: [
-                            {
-                                key: '$current_url',
-                                operator: 'exact',
-                                type: 'event',
-                                value: ['https://example-url.com'],
-                            },
-                        ],
-                        type: 'events',
-                    },
-                ],
+                events: [],
                 filter_test_accounts: false,
                 having_predicates: [
                     {
@@ -749,7 +921,53 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 operand: 'AND',
                 order: 'console_error_count',
                 order_direction: 'DESC',
+                properties: [
+                    {
+                        key: 'visited_page',
+                        operator: 'exact',
+                        type: 'recording',
+                        value: ['https://example-url.com'],
+                    },
+                ],
+            })
+        })
+
+        it('passes through session_ids when provided', () => {
+            const result = convertUniversalFiltersToRecordingsQuery({
+                ...DEFAULT_RECORDING_FILTERS,
+                filter_group: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [],
+                        },
+                    ],
+                },
+                session_ids: ['session-1', 'session-2', 'session-3'],
+            })
+
+            expect(result).toEqual({
+                actions: [],
+                console_log_filters: [],
+                date_from: '-3d',
+                date_to: null,
+                events: [],
+                filter_test_accounts: false,
+                having_predicates: [
+                    {
+                        key: 'active_seconds',
+                        operator: 'gt',
+                        type: 'recording',
+                        value: 5,
+                    },
+                ],
+                kind: 'RecordingsQuery',
+                operand: 'AND',
+                order: 'start_time',
+                order_direction: 'DESC',
                 properties: [],
+                session_ids: ['session-1', 'session-2', 'session-3'],
             })
         })
     })
@@ -841,6 +1059,39 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 order: 'start_time',
                 order_direction: 'DESC',
             })
+        })
+    })
+
+    describe('getDefaultFilters', () => {
+        beforeEach(() => {
+            localStorage.clear()
+        })
+
+        it('returns filter_test_accounts as false when localStorage is empty', () => {
+            const result = getDefaultFilters()
+            expect(result.filter_test_accounts).toBe(false)
+        })
+
+        it('returns filter_test_accounts as true when localStorage has default_filter_test_accounts set to true', () => {
+            localStorage.setItem('default_filter_test_accounts', 'true')
+            const result = getDefaultFilters()
+            expect(result.filter_test_accounts).toBe(true)
+        })
+
+        it('returns filter_test_accounts as false when localStorage has default_filter_test_accounts set to false', () => {
+            localStorage.setItem('default_filter_test_accounts', 'false')
+            const result = getDefaultFilters()
+            expect(result.filter_test_accounts).toBe(false)
+        })
+
+        it('returns date_from as -30d for person recordings', () => {
+            const result = getDefaultFilters('person-uuid')
+            expect(result.date_from).toBe('-30d')
+        })
+
+        it('returns date_from as -3d for non-person recordings', () => {
+            const result = getDefaultFilters()
+            expect(result.date_from).toBe('-3d')
         })
     })
 })

@@ -1,10 +1,10 @@
 use chrono::Utc;
 use common_redis::{Client, CustomRedisError};
+use dashmap::DashMap;
 use metrics::gauge;
+use std::sync::Arc;
 use std::time::Duration;
-use std::{collections::HashSet, sync::Arc};
 use strum::Display;
-use tokio::sync::RwLock;
 use tokio::task;
 use tokio::time::interval;
 
@@ -83,7 +83,7 @@ impl ServiceName {
 
 #[derive(Clone)]
 pub struct RedisLimiter {
-    limited: Arc<RwLock<HashSet<String>>>,
+    limited: Arc<DashMap<String, bool>>,
     redis: Arc<dyn Client + Send + Sync>,
     key: String,
     interval: Duration,
@@ -107,7 +107,7 @@ impl RedisLimiter {
         resource: QuotaResource,
         service_name: ServiceName,
     ) -> anyhow::Result<RedisLimiter> {
-        let limited = Arc::new(RwLock::new(HashSet::new()));
+        let limited = Arc::new(DashMap::new());
         let key_prefix = redis_key_prefix.unwrap_or_default();
 
         let limiter = RedisLimiter {
@@ -137,15 +137,16 @@ impl RedisLimiter {
             loop {
                 match RedisLimiter::fetch_limited(&redis, &key).await {
                     Ok(set) => {
-                        let set = HashSet::from_iter(set.iter().cloned());
                         gauge!(
                             format!("{}_billing_limits_loaded_tokens", service_name),
                             "cache_key" => key.clone(),
                         )
                         .set(set.len() as f64);
 
-                        let mut limited_lock = limited.write().await;
-                        *limited_lock = set;
+                        limited.clear();
+                        for item in set {
+                            limited.insert(item, true);
+                        }
                     }
                     Err(e) => {
                         tracing::warn!("Failed to update cache from Redis: {:?}", e);
@@ -168,8 +169,7 @@ impl RedisLimiter {
     }
 
     pub async fn is_limited(&self, value: &str) -> bool {
-        let limited = self.limited.read().await;
-        limited.contains(value)
+        self.limited.get(value).is_some()
     }
 }
 

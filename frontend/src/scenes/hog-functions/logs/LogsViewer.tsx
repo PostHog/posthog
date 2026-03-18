@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCalendar, IconEye, IconList, IconSearch, IconTableOfContents } from '@posthog/icons'
+import { IconCalendar, IconEye, IconList, IconRefresh, IconSearch, IconTableOfContents } from '@posthog/icons'
 import {
     LemonButton,
     LemonInput,
@@ -16,13 +16,20 @@ import {
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconEyeHidden, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconWithCount } from 'lib/lemon-ui/icons'
 import { pluralize } from 'lib/utils'
 
 import { LogEntryLevel } from '~/types'
 
 import { LogLevelsPicker } from './LogLevelsPicker'
-import { GroupedLogEntry, LOG_VIEWER_LIMIT, LogEntry, LogsViewerLogicProps, logsViewerLogic } from './logsViewerLogic'
+import {
+    GroupedLogEntry,
+    LOG_GROUP_LIMIT,
+    LOG_VIEWER_LIMIT,
+    LogEntry,
+    LogsViewerLogicProps,
+    logsViewerLogic,
+} from './logsViewerLogic'
 
 export const tagTypeForLevel = (level: LogEntryLevel): LemonTagProps['type'] => {
     switch (level.toLowerCase()) {
@@ -61,7 +68,7 @@ export type LogsViewerProps = LogsViewerLogicProps & {
 }
 
 /**
- * NOTE: There is a loose attempt to keeep this generic so we can use it as an abstract log component in the future.
+ * NOTE: There is a loose attempt to keep this generic so we can use it as an abstract log component in the future.
  */
 
 export function LogsViewer({
@@ -172,7 +179,9 @@ export function LogsViewer({
             center
             disabledReason={!isThereMoreToLoad ? "There's nothing more to load" : undefined}
         >
-            {isThereMoreToLoad ? `Load up to ${LOG_VIEWER_LIMIT} older entries` : 'No older entries'}
+            {isThereMoreToLoad
+                ? `Load up to ${isGrouped ? LOG_GROUP_LIMIT : LOG_VIEWER_LIMIT} older ${isGrouped ? 'groups' : 'entries'}`
+                : 'No older entries'}
         </LemonButton>
     )
 
@@ -182,7 +191,7 @@ export function LogsViewer({
                 <div className="flex items-center gap-2 flex-1 min-w-100">
                     <LemonInput
                         type="search"
-                        placeholder="Search for messages containing…"
+                        placeholder="Search messages or invocation ID…"
                         fullWidth
                         onChange={(value) => setFilters({ search: value })}
                         value={filters.search}
@@ -249,7 +258,7 @@ export function LogsViewer({
                         type="secondary"
                         icon={
                             <IconWithCount count={hiddenLogs.length}>
-                                {hiddenLogs.length ? <IconEye /> : <IconEyeHidden />}
+                                {hiddenLogs.length ? <IconEye /> : <IconRefresh />}
                             </IconWithCount>
                         }
                         disabledReason={

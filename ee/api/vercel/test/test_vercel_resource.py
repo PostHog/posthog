@@ -273,3 +273,46 @@ class TestVercelResourceAPI(VercelTestBase):
 
         response = self.request("post", url, data)
         self.assert_bad_request(response)
+
+    def test_rotate_secrets_returns_current_secrets(self):
+        url = f"{self.primary_resource['resource_url']}secrets/rotate/"
+        headers = self.auth_headers(self.installation_id, "system")
+
+        response = self.client.post(url, **headers)
+
+        self.assert_success(response)
+        data = response.json()
+        self.assertIn("secrets", data)
+        secrets = data["secrets"]
+        self.assertEqual(len(secrets), 2)
+
+        secret_names = [s["name"] for s in secrets]
+        self.assertIn("NEXT_PUBLIC_POSTHOG_KEY", secret_names)
+        self.assertIn("NEXT_PUBLIC_POSTHOG_HOST", secret_names)
+
+        api_key_secret = next(s for s in secrets if s["name"] == "NEXT_PUBLIC_POSTHOG_KEY")
+        self.assertEqual(api_key_secret["value"], self.team.api_token)
+
+    def test_rotate_secrets_requires_system_auth(self):
+        url = f"{self.primary_resource['resource_url']}secrets/rotate/"
+        headers = self.auth_headers(self.installation_id, "user")
+
+        response = self.client.post(url, **headers)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_rotate_secrets_validates_installation(self):
+        other_installation = self.create_installation()
+
+        url = f"/api/vercel/v1/installations/{other_installation['id']}/resources/{self.primary_resource['resource_id']}/secrets/rotate/"
+        headers = self.auth_headers(other_installation["id"], "system")
+
+        response = self.client.post(url, **headers)
+        self.assert_permission_denied(response)
+
+    def test_rotate_secrets_nonexistent_resource_not_found(self):
+        url = f"{self.primary_resource['base_url']}/99999/secrets/rotate/"
+        headers = self.auth_headers(self.installation_id, "system")
+
+        response = self.client.post(url, **headers)
+        self.assert_not_found(response)

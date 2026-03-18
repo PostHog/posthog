@@ -19,6 +19,7 @@ Your Analytical Approach:
 Critical Constraints:
 - ONLY assign events with `confusion: true`, `exception: blocking`, `exception: non-blocking`, or `abandonment: true`
 - Each event can belong to maximum ONE pattern
+- Each session can contribute maximum ONE event per pattern - select the most representative one
 - Pattern indicators are guidelines, not exhaustive requirements
 - Some patterns may have zero matches - this is expected and correct
 

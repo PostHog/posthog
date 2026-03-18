@@ -1,0 +1,296 @@
+import inspect
+import dataclasses
+from datetime import timedelta
+
+from django.contrib.auth import get_user_model
+from django.contrib.auth.signals import user_logged_in, user_logged_out
+from django.core.signing import TimestampSigner
+from django.dispatch import receiver
+from django.http import HttpRequest
+
+import structlog
+from loginas import settings as la_settings
+from loginas.utils import is_impersonated_session
+
+from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
+from posthog.exceptions_capture import capture_exception
+from posthog.helpers.impersonation import get_original_user_from_session
+from posthog.models.activity_logging.activity_log import (
+    ActivityContextBase,
+    ActivityScope,
+    Detail,
+    LogActivityEntry,
+    bulk_log_activity,
+    changes_between,
+    log_activity,
+)
+from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.signals import model_activity_signal, mutable_receiver
+from posthog.models.user import User
+from posthog.utils import get_ip_address, get_short_user_agent
+
+logger = structlog.get_logger(__name__)
+
+
+@dataclasses.dataclass(frozen=True)
+class UserLoginContext(ActivityContextBase):
+    login_method: str
+    ip_address: str
+    user_agent: str
+    reauth: bool
+
+
+@dataclasses.dataclass(frozen=True)
+class UserLogoutContext(ActivityContextBase):
+    ip_address: str
+    user_agent: str
+
+
+def _get_logout_user_context(user, request):
+    """Determine the correct user context and attribution for logout activity logging."""
+    was_impersonated = is_impersonated_session(request)
+    log_user = user
+    item_id = str(user.id)
+
+    if was_impersonated and hasattr(request, "session") and request.session:
+        admin_user = get_original_user_from_session(request)
+        if admin_user:
+            log_user = admin_user
+            item_id = str(user.id)
+
+    return was_impersonated, log_user, item_id
+
+
+def _detect_impersonation_for_login(user, request):
+    """Detect impersonation context for login events using stack inspection and session state."""
+    has_impersonation_session = (
+        hasattr(request, "session") and request.session and la_settings.USER_SESSION_FLAG in request.session
+    )
+
+    for frame in inspect.stack():
+        if "loginas" in frame.filename:
+            try:
+                if "original_user_pk" in frame.frame.f_locals:
+                    User = get_user_model()
+                    original_user_pk = frame.frame.f_locals["original_user_pk"]
+                    admin_user = User.objects.get(pk=original_user_pk)
+                    return True, admin_user, str(user.id), "impersonation"
+            except Exception:
+                pass
+
+            return True, user, str(user.id), "impersonation"
+
+    if has_impersonation_session:
+        try:
+            original_user_pk = TimestampSigner().unsign(
+                request.session.get(la_settings.USER_SESSION_FLAG),
+                max_age=timedelta(days=la_settings.USER_SESSION_DAYS_TIMESTAMP),
+            )
+            User = get_user_model()
+            admin_user = User.objects.get(pk=original_user_pk)
+            return True, admin_user, str(user.id), "impersonation"
+        except Exception:
+            pass
+
+    return False, user, str(user.id), "normal"
+
+
+def _determine_login_method(request, was_impersonated):
+    """Determine the login method based on the request and impersonation status."""
+
+    if was_impersonated:
+        return "Impersonation"
+
+    backend = request.session.get("_auth_user_backend", "django.contrib.auth.backends.ModelBackend")
+    login_method = AUTH_BACKEND_DISPLAY_NAMES.get(backend, "Unknown")
+
+    return login_method
+
+
+@receiver(user_logged_in)
+def log_user_login_activity(sender, user, request: HttpRequest, **kwargs):  # noqa: ARG001
+    try:
+        was_impersonated, log_user, item_id, _ = _detect_impersonation_for_login(user, request)
+        ip_address = get_ip_address(request)
+        user_agent = get_short_user_agent(request)
+        reauth = request.session.get("reauth") == "true"
+
+        organization_id = user.current_organization_id
+
+        if organization_id is None:
+            logger.info("Skipping login activity log - user has no organization", user_id=user.id)
+            return
+
+        log_activity(
+            organization_id=organization_id,
+            team_id=None,
+            user=log_user,
+            item_id=item_id,
+            scope="User",
+            activity="logged_in",
+            detail=Detail(
+                name=user.email,
+                changes=[],
+                context=UserLoginContext(
+                    login_method=_determine_login_method(request, was_impersonated),
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    reauth=reauth,
+                ),
+            ),
+            was_impersonated=was_impersonated,
+        )
+    except Exception as e:
+        logger.exception("Failed to log user login activity", user_id=user.id, error=e)
+        capture_exception(e)
+
+
+@receiver(user_logged_out)
+def log_user_logout_activity(sender, user, request: HttpRequest, **kwargs):  # noqa: ARG001
+    if not user:
+        return
+
+    try:
+        was_impersonated, log_user, item_id = _get_logout_user_context(user, request)
+
+        ip_address = get_ip_address(request)
+        user_agent = get_short_user_agent(request)
+
+        organization_id = user.current_organization_id
+
+        if organization_id is None:
+            logger.info("Skipping logout activity log - user has no organization", user_id=user.id)
+            return
+
+        log_activity(
+            organization_id=organization_id,
+            team_id=None,
+            user=log_user,
+            item_id=item_id,
+            scope="User",
+            activity="logged_out",
+            detail=Detail(
+                name=user.email,
+                changes=[],
+                context=UserLogoutContext(
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                ),
+            ),
+            was_impersonated=was_impersonated,
+        )
+    except Exception as e:
+        logger.exception("Failed to log user logout activity", user_id=user.id, error=e)
+        capture_exception(e)
+
+
+@mutable_receiver(model_activity_signal, sender=User)
+def log_user_change_activity(
+    sender: type[User],
+    scope: ActivityScope,
+    before_update: User | None,
+    after_update: User | None,
+    activity: str,
+    user: User | None,
+    was_impersonated: bool = False,
+    **kwargs,
+) -> None:
+    """
+    Handle User model activity signals for create and update events.
+
+    Unlike other models that log to a single organization, User activity is logged to ALL
+    organizations the user belongs to.
+    """
+    try:
+        target_user = after_update or before_update
+
+        if not target_user:
+            return
+
+        memberships = list(target_user.organization_memberships.all())
+
+        if not memberships:
+            logger.info(
+                "Skipping user activity log - user has no organization memberships",
+                user_id=target_user.id,
+                activity=activity,
+            )
+            return
+
+        changes = changes_between(scope, previous=before_update, current=after_update)
+        user_name = f"{target_user.first_name} {target_user.last_name}".strip() or target_user.email
+
+        log_entries: list[LogActivityEntry] = []
+        for membership in memberships:
+            log_entries.append(
+                LogActivityEntry(
+                    organization_id=membership.organization_id,
+                    team_id=None,
+                    user=user,
+                    item_id=target_user.id,
+                    scope=scope,
+                    activity=activity,
+                    detail=Detail(
+                        changes=changes,
+                        name=user_name,
+                    ),
+                    was_impersonated=was_impersonated,
+                )
+            )
+
+        if log_entries:
+            bulk_log_activity(log_entries)
+
+    except Exception as e:
+        logger.exception(
+            "Failed to log user activity",
+            user_id=target_user.id if target_user else None,
+            activity=activity,
+            error=e,
+        )
+        capture_exception(e)
+
+
+@dataclasses.dataclass(frozen=True)
+class OrganizationDomainContext(ActivityContextBase):
+    organization_id: str
+    organization_name: str
+    domain: str
+
+
+@mutable_receiver(model_activity_signal, sender=OrganizationDomain)
+def handle_organization_domain_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    domain_instance = after_update or before_update
+
+    if not domain_instance:
+        return
+
+    context = OrganizationDomainContext(
+        organization_id=str(domain_instance.organization_id),
+        organization_name=domain_instance.organization.name,
+        domain=domain_instance.domain,
+    )
+
+    if activity == "created":
+        detail_name = f"Domain {domain_instance.domain} added to {domain_instance.organization.name}"
+    elif activity == "deleted":
+        detail_name = f"Domain {domain_instance.domain} removed from {domain_instance.organization.name}"
+    else:
+        detail_name = f"Domain {domain_instance.domain} updated in {domain_instance.organization.name}"
+
+    log_activity(
+        organization_id=domain_instance.organization_id,
+        team_id=None,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=domain_instance.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=detail_name,
+            context=context,
+        ),
+    )

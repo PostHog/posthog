@@ -8,14 +8,34 @@ use petgraph::{
 
 use crate::api::errors::FlagError;
 use crate::flags::flag_models::FeatureFlag;
-use crate::metrics::consts::FLAG_EVALUATION_ERROR_COUNTER;
+use crate::metrics::consts::{FLAG_EVALUATION_ERROR_COUNTER, TOMBSTONE_COUNTER};
 use common_metrics::inc;
 use tracing::warn;
+
+/// Increments the tombstone counter for a graph_utils operation.
+fn inc_graph_tombstone(operation: &str) {
+    inc(
+        TOMBSTONE_COUNTER,
+        &[
+            ("namespace".to_string(), "feature_flags".to_string()),
+            ("operation".to_string(), operation.to_string()),
+            ("component".to_string(), "graph_utils".to_string()),
+        ],
+        1,
+    );
+}
 
 #[derive(Debug, Clone)]
 pub enum GraphError<Id> {
     MissingDependency(Id),
     CycleDetected(Id),
+}
+
+impl<Id> GraphError<Id> {
+    /// Returns true if this error represents a cycle in the dependency graph.
+    pub fn is_cycle(&self) -> bool {
+        matches!(self, GraphError::CycleDetected(_))
+    }
 }
 
 /// Trait for types that can provide their dependencies
@@ -90,39 +110,40 @@ where
     /// - All dependencies must be evaluated before evaluating dependents.
     /// - Cycles indicate invalid configuration and must be rejected.
     pub fn new(root: T, pool: &[T]) -> Result<Self, T::Error> {
-        let lookup: HashMap<T::Id, T> = pool
-            .iter()
-            .map(|item| (item.get_id(), item.clone()))
-            .collect();
+        let lookup: HashMap<T::Id, &T> = pool.iter().map(|item| (item.get_id(), item)).collect();
 
         let mut visited = HashSet::new();
         let mut queue = VecDeque::new();
-        queue.push_back(root.get_id());
-        visited.insert(root.get_id());
+        let root_id = root.get_id();
+        queue.push_back(root_id);
+        visited.insert(root_id);
 
-        let mut nodes_to_include = vec![root.clone()];
+        let mut nodes_to_include = vec![root];
+        let mut edges: HashMap<T::Id, HashSet<T::Id>> = HashMap::with_capacity(pool.len());
 
         while let Some(current_id) = queue.pop_front() {
             let current_node = lookup.get(&current_id).ok_or_else(|| {
                 FlagError::DependencyNotFound(T::dependency_type(), current_id.into())
             })?;
 
-            for dep in current_node.extract_dependencies()? {
+            let deps = current_node.extract_dependencies()?;
+            for &dep in &deps {
                 // Strict: fail if dependency is not present in pool
                 let dep_node = lookup.get(&dep).ok_or_else(|| {
                     FlagError::DependencyNotFound(T::dependency_type(), dep.into())
                 })?;
 
                 if visited.insert(dep) {
-                    nodes_to_include.push(dep_node.clone());
+                    nodes_to_include.push((*dep_node).clone());
                     queue.push_back(dep);
                 }
             }
+            edges.insert(current_id, deps);
         }
 
-        let (graph, errors) = Self::from_nodes(&nodes_to_include)?;
+        let (graph, errors, _nodes_with_missing_deps) = Self::from_nodes(nodes_to_include, &edges)?;
 
-        // If there are any errors (missing dependencies or cycles), fail
+        // Single-root constructor fails strictly on any error
         if !errors.is_empty() {
             // Return the first error as the failure reason
             match errors[0] {
@@ -140,49 +161,89 @@ where
         Ok(graph)
     }
 
-    /// Builds a full multi-root dependency graph from the provided set of nodes.
-    /// Returns a tuple of the graph and a vector of errors.
-    /// The errors are returned in the order they were encountered.
-    /// The graph is returned even if there are errors.
-    /// - Cycles are detected and removed from the graph.
-    /// - Missing dependencies are detected and removed from the graph.
-    /// - A partial-graph is returned even if there are errors.
+    /// Builds a multi-root dependency graph from nodes and a pre-computed edge
+    /// map. Returns a partial graph even if there are errors (missing
+    /// dependencies, cycles).
     #[allow(clippy::type_complexity)]
-    pub fn from_nodes(nodes: &[T]) -> Result<(Self, Vec<GraphError<T::Id>>), T::Error> {
+    pub fn from_nodes(
+        nodes: Vec<T>,
+        edges: &HashMap<T::Id, HashSet<T::Id>>,
+    ) -> Result<(Self, Vec<GraphError<T::Id>>, HashSet<T::Id>), T::Error> {
         let mut graph = DiGraph::new();
         let mut id_map = HashMap::with_capacity(nodes.len());
-        let mut errors = Vec::new();
-        let mut nodes_with_missing_deps = Vec::new();
 
-        // Insert all nodes first
         for node in nodes {
-            let idx = graph.add_node(node.clone());
-            id_map.insert(node.get_id(), idx);
+            let id = node.get_id();
+            let idx = graph.add_node(node);
+            id_map.insert(id, idx);
         }
 
-        // Insert edges and track nodes with missing dependencies
-        for node in nodes {
-            let source_idx = id_map[&node.get_id()];
-            for dep_id in node.extract_dependencies()? {
-                if let Some(target_idx) = id_map.get(&dep_id) {
+        let mut errors = Vec::new();
+        let mut nodes_with_direct_missing_deps: HashSet<NodeIndex> = HashSet::new();
+        let empty_deps = HashSet::new();
+        for (&node_id, &source_idx) in &id_map {
+            let deps = edges.get(&node_id).unwrap_or(&empty_deps);
+            for dep_id in deps {
+                if let Some(target_idx) = id_map.get(dep_id) {
                     graph.add_edge(source_idx, *target_idx, ());
                 } else {
-                    errors.push(GraphError::MissingDependency(dep_id));
-                    nodes_with_missing_deps.push(source_idx);
+                    errors.push(GraphError::MissingDependency(*dep_id));
+                    nodes_with_direct_missing_deps.insert(source_idx);
                 }
             }
         }
 
-        // Remove all nodes with missing dependencies and their dependents
-        nodes_with_missing_deps.sort_by(|a, b| b.cmp(a));
-        for node_idx in nodes_with_missing_deps {
-            Self::remove_node_and_dependents_from_graph(&mut graph, node_idx);
-        }
+        Self::finalize(graph, errors, nodes_with_direct_missing_deps)
+    }
+
+    /// Shared post-processing: propagate missing deps transitively and remove cycles.
+    #[allow(clippy::type_complexity)]
+    fn finalize(
+        mut graph: DiGraph<T, ()>,
+        mut errors: Vec<GraphError<T::Id>>,
+        nodes_with_direct_missing_deps: HashSet<NodeIndex>,
+    ) -> Result<(Self, Vec<GraphError<T::Id>>, HashSet<T::Id>), T::Error> {
+        let mut nodes_with_missing_deps: HashSet<T::Id> = HashSet::new();
+
+        // Propagate missing dependency status transitively.
+        // Any node that depends (directly or transitively) on a node with a missing
+        // dependency should also be marked, so it evaluates to false (fail closed).
+        Self::propagate_missing_deps_transitively(
+            &graph,
+            &nodes_with_direct_missing_deps,
+            &mut nodes_with_missing_deps,
+        );
 
         // Remove all cycles from the graph
         Self::remove_all_cycles(&mut graph, &mut errors);
 
-        Ok((Self { graph }, errors))
+        Ok((Self { graph }, errors, nodes_with_missing_deps))
+    }
+
+    /// Propagates missing dependency status transitively through the graph.
+    /// Any node that depends (directly or transitively) on a node with a missing
+    /// dependency will be added to the output set.
+    fn propagate_missing_deps_transitively(
+        graph: &DiGraph<T, ()>,
+        nodes_with_direct_missing_deps: &HashSet<NodeIndex>,
+        output: &mut HashSet<T::Id>,
+    ) {
+        use petgraph::Direction::Incoming;
+        let mut visited: HashSet<NodeIndex> = HashSet::new();
+        let mut stack: Vec<NodeIndex> = nodes_with_direct_missing_deps.iter().copied().collect();
+
+        while let Some(idx) = stack.pop() {
+            if visited.insert(idx) {
+                // Add this node's ID to the output set
+                output.insert(graph[idx].get_id());
+                // Find all nodes that depend on this node (incoming edges = dependents)
+                for dependent_idx in graph.neighbors_directed(idx, Incoming) {
+                    if !visited.contains(&dependent_idx) {
+                        stack.push(dependent_idx);
+                    }
+                }
+            }
+        }
     }
 
     /// Removes all cycles from the graph, adding cycle errors to the errors vector.
@@ -270,11 +331,40 @@ where
     /// The algorithm works by repeatedly finding all nodes that have no remaining dependencies (out-degree == 0),
     /// evaluating them as one stage, and then decrementing the remaining dependencies of their dependents.
     pub fn evaluation_stages(&self) -> Result<Vec<Vec<&T>>, T::Error> {
-        let mut out_degree = self.build_evaluation_maps()?;
-        Self::compute_stages(&self.graph, &mut out_degree)
+        let out_degree = self.build_evaluation_maps();
+        Self::compute_stages(&self.graph, out_degree)
     }
 
-    fn build_evaluation_maps(&self) -> Result<HashMap<NodeIndex, usize>, T::Error> {
+    /// Like `evaluation_stages`, but consumes the graph and returns owned values.
+    /// Avoids cloning flags when they need to be moved into another context (e.g. rayon).
+    pub fn into_evaluation_stages(self) -> Result<Vec<Vec<T>>, T::Error> {
+        let out_degree = self.build_evaluation_maps();
+        let stage_indices = Self::compute_stage_indices(&self.graph, out_degree)?;
+        let (nodes, _) = self.graph.into_nodes_edges();
+        let mut node_slots: Vec<Option<T>> = nodes.into_iter().map(|n| Some(n.weight)).collect();
+
+        Ok(stage_indices
+            // SAFETY: compute_stage_indices guarantees each node appears in exactly one stage
+            .into_iter()
+            .map(|stage| {
+                stage
+                    .into_iter()
+                    .map(|idx| {
+                        node_slots[idx.index()]
+                            .take()
+                            .expect("node used in multiple stages")
+                    })
+                    .collect()
+            })
+            .collect())
+    }
+
+    /// Returns an iterator over all nodes (items) in the graph.
+    pub fn iter_nodes(&self) -> impl Iterator<Item = &T> {
+        self.graph.node_indices().map(|idx| &self.graph[idx])
+    }
+
+    fn build_evaluation_maps(&self) -> HashMap<NodeIndex, usize> {
         use petgraph::Direction::Outgoing;
         let node_count = self.graph.node_count();
         let mut out_degree: HashMap<NodeIndex, usize> = HashMap::with_capacity(node_count);
@@ -282,38 +372,57 @@ where
             let deg = self.graph.edges_directed(node_idx, Outgoing).count();
             out_degree.insert(node_idx, deg);
         }
-        Ok(out_degree)
+        out_degree
     }
 
-    fn compute_stages<'a>(
-        graph: &'a DiGraph<T, ()>,
-        out_degree: &mut HashMap<NodeIndex, usize>,
-    ) -> Result<Vec<Vec<&'a T>>, T::Error> {
+    fn compute_stage_indices(
+        graph: &DiGraph<T, ()>,
+        mut out_degree: HashMap<NodeIndex, usize>,
+    ) -> Result<Vec<Vec<NodeIndex>>, T::Error> {
         use petgraph::Direction::Incoming;
-        let node_count = graph.node_count();
-        let mut stages = Vec::with_capacity(node_count);
-        while !out_degree.is_empty() {
-            let mut current_stage = Vec::new();
-            for (&node_idx, &deg) in out_degree.iter() {
-                if deg == 0 {
-                    current_stage.push(node_idx);
-                }
-            }
-            if current_stage.is_empty() {
-                return Err(FlagError::DependencyCycle(T::dependency_type(), -1).into());
-            }
-            let stage_items: Vec<&'a T> = current_stage.iter().map(|idx| &graph[*idx]).collect();
-            stages.push(stage_items);
-            for node_idx in &current_stage {
-                for parent in graph.neighbors_directed(*node_idx, Incoming) {
+
+        // Kahn's algorithm: seed queue with all zero-degree nodes, then push
+        // nodes as their degree drops to zero. O(V+E) vs O(V²) repeated scans.
+        let mut queue: VecDeque<NodeIndex> = out_degree
+            .iter()
+            .filter(|(_, &deg)| deg == 0)
+            .map(|(&idx, _)| idx)
+            .collect();
+
+        let mut stages = Vec::new();
+        while !queue.is_empty() {
+            let current_stage: Vec<NodeIndex> = queue.drain(..).collect();
+            for &node_idx in &current_stage {
+                out_degree.remove(&node_idx);
+                for parent in graph.neighbors_directed(node_idx, Incoming) {
                     if let Some(deg) = out_degree.get_mut(&parent) {
                         *deg -= 1;
+                        if *deg == 0 {
+                            queue.push_back(parent);
+                        }
                     }
                 }
-                out_degree.remove(node_idx);
             }
+            stages.push(current_stage);
         }
+
+        if let Some((&cycle_idx, _)) = out_degree.iter().next() {
+            let cycle_id: i64 = graph[cycle_idx].get_id().into();
+            return Err(FlagError::DependencyCycle(T::dependency_type(), cycle_id).into());
+        }
+
         Ok(stages)
+    }
+
+    fn compute_stages(
+        graph: &DiGraph<T, ()>,
+        out_degree: HashMap<NodeIndex, usize>,
+    ) -> Result<Vec<Vec<&T>>, T::Error> {
+        let stage_indices = Self::compute_stage_indices(graph, out_degree)?;
+        Ok(stage_indices
+            .into_iter()
+            .map(|stage| stage.into_iter().map(|idx| &graph[idx]).collect())
+            .collect())
     }
 
     /// Helper to get a node's ID as an i64
@@ -348,39 +457,140 @@ where
     }
 }
 
+/// Result of building a dependency graph, including the graph, errors, and flags with missing dependencies.
+pub struct DependencyGraphResult {
+    /// The dependency graph (may include nodes with missing dependencies)
+    pub graph: DependencyGraph<FeatureFlag>,
+    /// Errors encountered during construction (missing dependencies, cycles)
+    pub errors: Vec<GraphError<i32>>,
+    /// Set of flag IDs that have missing dependencies and should evaluate to false
+    pub flags_with_missing_deps: HashSet<i32>,
+}
+
 /// Builds a dependency graph for flag evaluation.
-/// Returns None only if there were fatal errors during graph construction.
-/// Partial errors (cycles, missing dependencies) are returned in the errors vector
-/// and the graph contains only the valid nodes.
+/// Returns None only for fatal errors. Partial errors (cycles, missing dependencies)
+/// are returned in the result and nodes with missing dependencies are kept in the graph.
+///
+/// Only includes flags reachable from the seed set via their transitive dependency closure.
+/// The seed set excludes flags in `filtered_out_flag_ids` (inactive, deleted, survey-excluded,
+/// runtime-mismatched, and tag-filtered). Filtered-out flags pulled in as dependencies are
+/// included as nodes but their own dependencies are not followed, since they evaluate to false.
 pub fn build_dependency_graph(
     feature_flags: &crate::flags::flag_models::FeatureFlagList,
     team_id: common_types::TeamId,
-) -> Option<(DependencyGraph<FeatureFlag>, Vec<GraphError<i32>>)> {
-    // Build the global dependency graph once, handling partial errors gracefully
-    let (global_graph, errors) = match DependencyGraph::from_nodes(&feature_flags.flags) {
-        Ok((graph, graph_errors)) => (graph, graph_errors),
-        Err(e) => {
-            log_dependency_graph_operation_error("build global dependency graph", &e, team_id);
-            return None; // Only return None for fatal errors
+) -> Option<DependencyGraphResult> {
+    // Build lookup table: flag_id -> &FeatureFlag (no cloning).
+    // If duplicate IDs exist, the last flag wins and we log a warning.
+    let mut lookup: HashMap<i32, &FeatureFlag> = HashMap::with_capacity(feature_flags.flags.len());
+    for flag in &feature_flags.flags {
+        if lookup.insert(flag.id, flag).is_some() {
+            warn!(
+                team_id = team_id,
+                flag_id = flag.id,
+                "duplicate flag ID in FeatureFlagList, last occurrence wins"
+            );
         }
-    };
+    }
 
-    // Log any dependency errors but continue with the valid graph
+    // Seed set: flags not excluded by the request-scoped filter.
+    // filtered_out_flag_ids already contains inactive, deleted, and other
+    // request-specific exclusions, so one check covers all categories.
+    let flag_count = feature_flags.flags.len();
+    let mut visited: HashSet<i32> = HashSet::with_capacity(flag_count);
+    let mut queue: VecDeque<i32> = VecDeque::with_capacity(flag_count);
+    for flag in &feature_flags.flags {
+        if !feature_flags.filtered_out_flag_ids.contains(&flag.id) {
+            visited.insert(flag.id);
+            queue.push_back(flag.id);
+        }
+    }
+
+    // BFS to compute transitive dependency closure, collecting edges along the way.
+    // Capacity is based on the seed set size since that's the minimum number of entries.
+    let mut edges: HashMap<i32, HashSet<i32>> = HashMap::with_capacity(visited.len());
+    while let Some(current_id) = queue.pop_front() {
+        let Some(flag) = lookup.get(&current_id) else {
+            // Invariant: every queued ID comes from lookup's keys. Fire tombstone and skip.
+            inc_graph_tombstone("bfs_closure_lookup_miss");
+            continue;
+        };
+        // Filtered-out flags (inactive, deleted, survey-excluded, etc.) are
+        // pre-seeded as `false` during evaluation, so their own dependencies
+        // are irrelevant. extract_dependencies() already returns empty for
+        // !active || deleted; this extends the same treatment to all
+        // filtered-out categories (runtime mismatch, tag filter, etc.).
+        if feature_flags.filtered_out_flag_ids.contains(&current_id) {
+            edges.insert(current_id, HashSet::new());
+            continue;
+        }
+        match flag.extract_dependencies() {
+            Ok(deps) => {
+                // Only follow deps that exist in the flag list; missing deps are
+                // left in `edges` so from_nodes can report them.
+                for dep_id in &deps {
+                    if lookup.contains_key(dep_id) && visited.insert(*dep_id) {
+                        queue.push_back(*dep_id);
+                    }
+                }
+                edges.insert(current_id, deps);
+            }
+            Err(e) => {
+                log_dependency_graph_operation_error(
+                    "extract dependencies during closure",
+                    &e,
+                    team_id,
+                );
+                return None;
+            }
+        }
+    }
+
+    // Clone only the flags in the closure set
+    let closure_flags: Vec<FeatureFlag> = feature_flags
+        .flags
+        .iter()
+        .filter(|f| visited.contains(&f.id))
+        .cloned()
+        .collect();
+
+    let (graph, errors, flags_with_missing_deps) =
+        match DependencyGraph::from_nodes(closure_flags, &edges) {
+            Ok(result) => result,
+            Err(e) => {
+                log_dependency_graph_operation_error("build global dependency graph", &e, team_id);
+                return None;
+            }
+        };
+
     if !errors.is_empty() {
         log_dependency_graph_construction_errors(&errors, team_id);
     }
 
-    Some((global_graph, errors))
+    Some(DependencyGraphResult {
+        graph,
+        errors,
+        flags_with_missing_deps,
+    })
+}
+
+/// Result of filtering a dependency graph.
+pub struct FilteredGraphResult {
+    /// The filtered dependency graph
+    pub graph: DependencyGraph<FeatureFlag>,
+    /// Subset of flags_with_missing_deps that are in the filtered graph
+    pub flags_with_missing_deps: HashSet<i32>,
 }
 
 /// Filters a dependency graph to include only the requested flags and their dependencies.
+/// Also filters the flags_with_missing_deps set to only include flags in the filtered graph.
 /// Returns None if:
 /// - There were errors during filtering
 /// - The global_graph's internal state is corrupted
 pub fn filter_graph_by_keys(
     global_graph: &DependencyGraph<FeatureFlag>,
     requested_keys: &[String],
-) -> Option<DependencyGraph<FeatureFlag>> {
+    flags_with_missing_deps: &HashSet<i32>,
+) -> Option<FilteredGraphResult> {
     let mut nodes_to_include = HashSet::new();
 
     // Build an index from flag keys to node indices for O(1) lookups
@@ -390,17 +600,24 @@ pub fn filter_graph_by_keys(
         .map(|idx| (global_graph.graph[idx].key.as_str(), idx))
         .collect();
 
-    // For each requested flag, traverse the global graph to collect dependencies
+    // For each requested flag, traverse the global graph to collect dependencies.
+    // Share visited state across keys to avoid redundant traversals when keys
+    // share dependency subtrees.
+    let mut visited = HashSet::new();
     for key in requested_keys {
         // Find the flag in the global graph using the index
         let node_idx = key_to_node.get(key.as_str());
 
         if let Some(&start_idx) = node_idx {
+            if !visited.insert(start_idx) {
+                // Already traversed from a previous key
+                nodes_to_include.insert(start_idx);
+                continue;
+            }
+
             // Use BFS to collect all reachable nodes (dependencies) from this flag
-            let mut visited = HashSet::new();
             let mut queue = std::collections::VecDeque::new();
             queue.push_back(start_idx);
-            visited.insert(start_idx);
 
             while let Some(current_idx) = queue.pop_front() {
                 nodes_to_include.insert(current_idx);
@@ -432,10 +649,13 @@ pub fn filter_graph_by_keys(
     // Create a new graph with only the filtered nodes
     let mut filtered_graph = DiGraph::new();
     let mut node_mapping = HashMap::new();
+    let mut filtered_missing_deps = HashSet::new();
 
-    // Add all the nodes we want to include
     for &node_idx in &nodes_to_include {
         let flag = global_graph.graph[node_idx].clone();
+        if flags_with_missing_deps.contains(&flag.id) {
+            filtered_missing_deps.insert(flag.id);
+        }
         let new_idx = filtered_graph.add_node(flag);
         node_mapping.insert(node_idx, new_idx);
     }
@@ -455,8 +675,11 @@ pub fn filter_graph_by_keys(
         }
     }
 
-    Some(DependencyGraph {
-        graph: filtered_graph,
+    Some(FilteredGraphResult {
+        graph: DependencyGraph {
+            graph: filtered_graph,
+        },
+        flags_with_missing_deps: filtered_missing_deps,
     })
 }
 
@@ -485,15 +708,16 @@ pub fn log_dependency_graph_construction_errors(
     errors: &[GraphError<i32>],
     team_id: common_types::TeamId,
 ) {
-    inc(
-        FLAG_EVALUATION_ERROR_COUNTER,
-        &[
-            ("reason".to_string(), "dependency_graph_error".to_string()),
-            ("team_id".to_string(), team_id.to_string()),
-        ],
-        1,
-    );
-    tracing::error!(
+    for error in errors {
+        let failure_type = match error {
+            GraphError::MissingDependency(_) => "flag_dependency_missing",
+            GraphError::CycleDetected(_) => "flag_dependency_cycle",
+        };
+
+        inc_graph_tombstone(failure_type);
+    }
+
+    tracing::warn!(
         "There were errors building the feature flag dependency graph for team {}. Will attempt to evaluate the rest of the flags: {:?}",
         team_id, errors
     );

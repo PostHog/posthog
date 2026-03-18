@@ -48,7 +48,7 @@ export const staffUsersLogic = kea<staffUsersLogicType>([
                     await api.update<UserType>(`api/users/${userUuid}`, { is_staff: false })
                     if (values.user?.uuid === userUuid) {
                         actions.loadUser() // Loads the main user object to properly reflect staff user changes
-                        router.actions.push(urls.projectHomepage())
+                        router.actions.push(urls.projectRoot())
                     }
                     const updatedAllUsers = [...values.allUsers]
                     for (const user of updatedAllUsers) {

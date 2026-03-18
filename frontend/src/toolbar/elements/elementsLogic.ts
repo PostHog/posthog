@@ -10,20 +10,65 @@ import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
-import { ActionElementWithMetadata, ElementWithMetadata } from '~/toolbar/types'
+import { ActionElementWithMetadata, ActionForm, ElementWithMetadata } from '~/toolbar/types'
+import { ActionType } from '~/types'
 
 import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForElement } from '../utils'
+import { FragileSelectorResult, checkSelectorFragilityCached } from '../utils/selectorQuality'
 import type { elementsLogicType } from './elementsLogicType'
 import { heatmapToolbarMenuLogic } from './heatmapToolbarMenuLogic'
 
 export type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
 export type ElementMap = Map<HTMLElement, ElementWithMetadata>
 
+const VIEWPORT_BUFFER_PX = 200
+
+function getElementMetaWithSelectorQuality(
+    element: HTMLElement | null,
+    elementMap: ElementMap,
+    actionsForElementMap: ActionElementMap,
+    dataAttributes: string[]
+): (ElementWithMetadata & { selectorQuality: FragileSelectorResult | null }) | null {
+    if (!element) {
+        return null
+    }
+    const meta = elementMap.get(element)
+    if (!meta) {
+        return null
+    }
+    const actions = actionsForElementMap.get(element)
+    const actionStep = elementToActionStep(meta.element, dataAttributes)
+    const selectorQuality = actionStep?.selector ? checkSelectorFragilityCached(actionStep.selector) : null
+
+    return {
+        ...meta,
+        actionStep,
+        actions: actions || [],
+        selectorQuality,
+    }
+}
+
+let zIndexCache = new WeakMap<Element, number>()
+
+function clearZIndexCache(): void {
+    zIndexCache = new WeakMap()
+}
+
 const getMaxZIndex = (element: Element): number => {
+    const cached = zIndexCache.get(element)
+    if (cached !== undefined) {
+        return cached
+    }
+
     let maxZIndex = 0
     let currentElement: Element | null = element
 
     while (currentElement) {
+        const parentCached = zIndexCache.get(currentElement)
+        if (parentCached !== undefined) {
+            maxZIndex = Math.max(maxZIndex, parentCached)
+            break
+        }
         const zIndex = parseInt(getComputedStyle(currentElement).zIndex)
         if (!isNaN(zIndex) && zIndex > maxZIndex) {
             maxZIndex = zIndex
@@ -31,6 +76,7 @@ const getMaxZIndex = (element: Element): number => {
         currentElement = currentElement.parentElement
     }
 
+    zIndexCache.set(element, maxZIndex)
     return maxZIndex
 }
 
@@ -153,14 +199,26 @@ export const elementsLogic = kea<elementsLogicType>([
                 s.rectUpdateCounter,
                 toolbarConfigLogic.selectors.buttonVisible,
             ],
-            (countedElements) =>
-                countedElements.map(
-                    (e) =>
-                        ({
-                            ...e,
-                            rect: getRectForElement(e.element),
-                        }) as ElementWithMetadata
-                ),
+            (countedElements) => {
+                const windowHeight = window.innerHeight
+
+                const result: ElementWithMetadata[] = []
+
+                for (const e of countedElements) {
+                    if (e.visible === false) {
+                        continue
+                    }
+                    const rect = getRectForElement(e.element)
+                    const inViewport =
+                        rect.bottom >= -VIEWPORT_BUFFER_PX && rect.top <= windowHeight + VIEWPORT_BUFFER_PX
+
+                    if (inViewport) {
+                        result.push({ ...e, rect } as ElementWithMetadata)
+                    }
+                }
+
+                return result
+            },
         ],
 
         allInspectElements: [
@@ -202,8 +260,7 @@ export const elementsLogic = kea<elementsLogicType>([
 
         _actionElements: [
             (s) => [s.displayActionElements, s.actionForm],
-            (displayActionElements, actionForm): ElementWithMetadata[] => {
-                // This function is expensive so should be calculated as rarely as possible
+            (displayActionElements: boolean, actionForm: ActionForm): ElementWithMetadata[] => {
                 if (displayActionElements && actionForm?.steps) {
                     const allElements = collectAllElementsDeep('*', document)
                     const steps: ElementWithMetadata[] = []
@@ -255,8 +312,7 @@ export const elementsLogic = kea<elementsLogicType>([
 
         _actionsForElementMap: [
             () => [actionsLogic.selectors.sortedActions],
-            (sortedActions): ActionElementMap => {
-                // This function is expensive so should be calculated as rarely as possible
+            (sortedActions: ActionType[]): ActionElementMap => {
                 const allElements = collectAllElementsDeep('*', document)
                 const actionsForElementMap = new Map<HTMLElement, ActionElementWithMetadata[]>()
                 sortedActions.forEach((action, index) => {
@@ -372,38 +428,14 @@ export const elementsLogic = kea<elementsLogicType>([
                 s.actionsForElementMap,
                 toolbarConfigLogic.selectors.dataAttributes,
             ],
-            (selectedElement, elementMap, actionsForElementMap, dataAttributes) => {
-                if (selectedElement) {
-                    const meta = elementMap.get(selectedElement)
-                    if (meta) {
-                        const actions = actionsForElementMap.get(selectedElement)
-                        return {
-                            ...meta,
-                            actionStep: elementToActionStep(meta.element, dataAttributes),
-                            actions: actions || [],
-                        }
-                    }
-                }
-                return null
-            },
+            (selectedElement, elementMap, actionsForElementMap, dataAttributes) =>
+                getElementMetaWithSelectorQuality(selectedElement, elementMap, actionsForElementMap, dataAttributes),
         ],
 
         hoverElementMeta: [
             (s) => [s.hoverElement, s.elementMap, s.actionsForElementMap, toolbarConfigLogic.selectors.dataAttributes],
-            (hoverElement, elementMap, actionsForElementMap, dataAttributes) => {
-                if (hoverElement) {
-                    const meta = elementMap.get(hoverElement)
-                    if (meta) {
-                        const actions = actionsForElementMap.get(hoverElement)
-                        return {
-                            ...meta,
-                            actionStep: elementToActionStep(meta.element, dataAttributes),
-                            actions: actions || [],
-                        }
-                    }
-                }
-                return null
-            },
+            (hoverElement, elementMap, actionsForElementMap, dataAttributes) =>
+                getElementMetaWithSelectorQuality(hoverElement, elementMap, actionsForElementMap, dataAttributes),
         ],
 
         highlightElementMeta: [
@@ -413,20 +445,8 @@ export const elementsLogic = kea<elementsLogicType>([
                 s.actionsForElementMap,
                 toolbarConfigLogic.selectors.dataAttributes,
             ],
-            (highlightElement, elementMap, actionsForElementMap, dataAttributes) => {
-                if (highlightElement) {
-                    const meta = elementMap.get(highlightElement)
-                    if (meta) {
-                        const actions = actionsForElementMap.get(highlightElement)
-                        return {
-                            ...meta,
-                            actionStep: elementToActionStep(meta.element, dataAttributes),
-                            actions: actions || [],
-                        }
-                    }
-                }
-                return null
-            },
+            (highlightElement, elementMap, actionsForElementMap, dataAttributes) =>
+                getElementMetaWithSelectorQuality(highlightElement, elementMap, actionsForElementMap, dataAttributes),
         ],
         activeMeta: [
             (s) => [s.selectedElementMeta, s.hoverElementMeta],
@@ -435,7 +455,10 @@ export const elementsLogic = kea<elementsLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
+        updateRects: () => {
+            clearZIndexCache()
+        },
         enableInspect: () => {
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'inspect', enabled: true })
             actionsLogic.actions.getActions()
@@ -482,6 +505,14 @@ export const elementsLogic = kea<elementsLogicType>([
                 }
             }
 
+            const meta = getElementMetaWithSelectorQuality(
+                element,
+                values.elementMap,
+                values.actionsForElementMap,
+                toolbarConfigLogic.values.dataAttributes
+            )
+            const selector = meta?.actionStep?.selector
+
             toolbarPosthogJS.capture('toolbar selected HTML element', {
                 element_tag: element?.tagName.toLowerCase() ?? null,
                 element_type: (element as HTMLInputElement)?.type ?? null,
@@ -492,6 +523,11 @@ export const elementsLogic = kea<elementsLogicType>([
                 has_data_attr: data_attributes.includes('data-attr'),
                 data_attributes: data_attributes,
                 attribute_length: element?.attributes.length ?? null,
+                selector_quality: meta?.selectorQuality?.isFragile ? 'fragile' : 'good',
+                selector_has_position_selectors: selector?.includes(':nth-') ?? false,
+                selector_depth: selector
+                    ? selector.split(/\s+/).filter((part) => part !== '>' && part !== '+' && part !== '~').length
+                    : null,
             })
         },
         createAction: ({ element }) => {
@@ -519,17 +555,14 @@ export const elementsLogic = kea<elementsLogicType>([
             }, 'clickListener')
 
             const onScrollResize = (): void => {
-                // Clear any existing timeout
-                cache.disposables.dispose('clickDelayTimeout')
-                actions.updateRects()
-
-                // Add new timeout
-                cache.disposables.add(() => {
-                    const timeout = window.setTimeout(actions.updateRects, 100)
-                    return () => window.clearTimeout(timeout)
-                }, 'clickDelayTimeout')
-
-                cache.updateRelativePosition()
+                if (!cache.rectUpdateScheduled) {
+                    cache.rectUpdateScheduled = true
+                    actions.updateRects()
+                    cache.updateRelativePosition()
+                    requestAnimationFrame(() => {
+                        cache.rectUpdateScheduled = false
+                    })
+                }
             }
 
             cache.disposables.add(() => {
@@ -567,8 +600,8 @@ export const elementsLogic = kea<elementsLogicType>([
             }, 'keydownListener')
 
             cache.disposables.add(() => {
-                window.document.addEventListener('scroll', onScrollResize, true)
-                return () => window.document.removeEventListener('scroll', onScrollResize, true)
+                window.document.addEventListener('scroll', onScrollResize, { capture: true, passive: true })
+                return () => window.document.removeEventListener('scroll', onScrollResize, { capture: true })
             }, 'scrollListener')
             cache.updateRelativePosition()
         },

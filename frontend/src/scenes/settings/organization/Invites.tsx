@@ -12,13 +12,13 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { OrganizationInviteType } from '~/types'
 
-import { EmailUnavailableForInvitesBanner } from './InviteModal'
 import { inviteLogic } from './inviteLogic'
+import { EmailUnavailableForInvitesBanner } from './InviteModal'
 
 function InviteLinkComponent(id: string, invite: OrganizationInviteType): JSX.Element {
     const url = new URL(`/signup/${id}`, document.baseURI).href
@@ -85,7 +85,7 @@ export function InvitesTable(): JSX.Element {
             key: 'target_email',
             render: function TargetEmail(_, invite): JSX.Element | string {
                 return invite.target_email ? (
-                    <div className="flex items-center">
+                    <div className="ph-no-capture flex items-center">
                         {invite.target_email}
                         {invite.first_name ? ` (${invite.first_name})` : ''}
                     </div>

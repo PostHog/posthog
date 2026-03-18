@@ -19,11 +19,15 @@ import {
 import { getSeriesColor, getSeriesColorPalette } from 'lib/colors'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { ChartDisplayType } from '~/types'
+
 import { AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'
+import { HeatmapSeriesTab } from './Heatmap/HeatmapSeriesTab'
 import { AxisBreakdownSeries, seriesBreakdownLogic } from './seriesBreakdownLogic'
 import { YSeriesLogicProps, YSeriesSettingsTab, ySeriesLogic } from './ySeriesLogic'
 
 export const SeriesTab = (): JSX.Element => {
+    const { effectiveVisualizationType } = useValues(dataVisualizationLogic)
     const {
         columns,
         numericalColumns,
@@ -42,6 +46,10 @@ export const SeriesTab = (): JSX.Element => {
 
     const hideAddYSeries = yData.length >= numericalColumns.length
     const hideAddSeriesBreakdown = !(!showSeriesBreakdown && selectedXAxis && columns.length > yData.length)
+
+    if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
+        return <HeatmapSeriesTab />
+    }
 
     if (showTableSettings) {
         return (
@@ -113,7 +121,14 @@ export const SeriesTab = (): JSX.Element => {
     )
 }
 
-const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number }): JSX.Element => {
+const FORMATTING_STYLE_LABELS: Record<string, string> = {
+    none: 'None',
+    number: 'Number',
+    short: 'Short Number',
+    percent: 'Percentage',
+}
+
+const YSeries = ({ series, index }: { series: AxisSeries<number | null>; index: number }): JSX.Element => {
     const { columns, numericalColumns, responseLoading, dataVisualizationProps, showTableSettings } =
         useValues(dataVisualizationLogic)
     const { updateSeriesIndex, deleteYSeries } = useActions(dataVisualizationLogic)
@@ -138,6 +153,11 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
                 <LemonTag className="ml-2" type="default">
                     {type.name}
                 </LemonTag>
+                {series.settings?.formatting?.style && series.settings.formatting.style !== 'none' && (
+                    <LemonTag className="ml-1" type="default">
+                        {FORMATTING_STYLE_LABELS[series.settings.formatting.style] || series.settings.formatting.style}
+                    </LemonTag>
+                )}
             </div>
         ),
     }))
@@ -201,16 +221,17 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
 }
 
 const YSeriesFormattingTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLogicProps }): JSX.Element => {
+    const { formatting } = useValues(ySeriesLogic(ySeriesLogicProps))
+
     return (
         <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="formatting" className="deprecated-space-y-4">
             {ySeriesLogicProps.series.column.type.isNumerical && (
                 <LemonField name="style" label="Style" className="gap-1">
                     <LemonSelect
-                        options={[
-                            { value: 'none', label: 'None' },
-                            { value: 'number', label: 'Number' },
-                            { value: 'percent', label: 'Percentage' },
-                        ]}
+                        options={['none', 'number', 'short', 'percent'].map((value) => ({
+                            value,
+                            label: FORMATTING_STYLE_LABELS[value] ?? value,
+                        }))}
                     />
                 </LemonField>
             )}
@@ -222,7 +243,15 @@ const YSeriesFormattingTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSerie
             </LemonField>
             {ySeriesLogicProps.series.column.type.isNumerical && (
                 <LemonField name="decimalPlaces" label="Decimal places">
-                    <LemonInput type="number" min={0} />
+                    <LemonInput
+                        type="number"
+                        min={0}
+                        disabledReason={
+                            formatting.style === 'short'
+                                ? 'Decimal places has no effect when using short number format'
+                                : undefined
+                        }
+                    />
                 </LemonField>
             )}
         </Form>

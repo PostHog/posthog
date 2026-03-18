@@ -10,7 +10,6 @@ import { membershipLevelToName } from 'lib/utils/permissioning'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { OrganizationMemberScopedApiKeysResponse, OrganizationMemberType } from '~/types'
 
 import type { membersLogicType } from './membersLogicType'
@@ -179,11 +178,6 @@ export const membersLogic = kea<membersLogicType>([
                 actions.loadAllMembers()
             } else {
                 actions.loadMemberUpdates()
-            }
-        },
-        loadAllMembersSuccess: ({ members }) => {
-            if (members && members.length > 1) {
-                activationLogic.findMounted()?.actions?.markTaskAsCompleted(ActivationTask.InviteTeamMember)
             }
         },
     })),

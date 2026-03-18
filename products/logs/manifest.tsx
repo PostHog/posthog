@@ -1,9 +1,8 @@
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconType } from '~/queries/schema/schema-general'
+import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Logs',
@@ -12,10 +11,12 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/LogsScene'),
             projectBased: true,
             name: 'Logs',
-            activityScope: 'Logs',
+            activityScope: ActivityScope.LOG,
             layout: 'app-container',
             iconType: 'logs',
             description: 'Monitor and analyze your logs to understand and fix issues.',
+            defaultDocsPath: '/docs/logs',
+            changelogTeamSlug: 'Logs',
         },
     },
     routes: {
@@ -28,12 +29,11 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Logs',
-            category: 'Unreleased',
+            intents: [ProductKey.LOGS],
+            category: 'Behavior',
             iconType: 'logs' as FileSystemIconType,
             iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
             href: urls.logs(),
-            flag: FEATURE_FLAGS.LOGS_PRE_EARLY_ACCESS,
-            tags: ['alpha'],
             sceneKey: 'Logs',
         },
     ],

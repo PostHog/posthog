@@ -4,12 +4,16 @@ import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { DisplayOption, llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
+
+const blankScene = (): any => ({ scene: { component: () => null, logic: null } })
+const scenes: any = { LLMAnalyticsTrace: blankScene }
 
 describe('llmAnalyticsTraceLogic', () => {
     let logic: ReturnType<typeof llmAnalyticsTraceLogic.build>
@@ -21,7 +25,11 @@ describe('llmAnalyticsTraceLogic', () => {
             },
         })
         initKeaTests()
-        logic = llmAnalyticsTraceLogic()
+        sceneLogic({ scenes }).mount()
+        sceneLogic.actions.setTabs([
+            { id: '1', title: '...', pathname: '/', search: '', hash: '', active: true, iconType: 'blank' },
+        ])
+        logic = llmAnalyticsTraceLogic({ tabId: '1' })
         logic.mount()
     })
 
@@ -71,6 +79,19 @@ describe('llmAnalyticsTraceLogic', () => {
             traceId: traceIdWithColon,
             eventId: eventId,
             dateRange: { dateFrom: '2024-01-01T23:40:00.000Z', dateTo: '2024-01-02T00:20:00.000Z' },
+        })
+    })
+
+    it('preserves timestamp when both timestamp and tab parameters are present', async () => {
+        const traceId = 'test-trace-id'
+        const timestamp = '2024-01-15T12:00:00Z'
+        const traceUrl = combineUrl(urls.llmAnalyticsTrace(traceId, { timestamp, tab: 'conversation' }))
+
+        router.actions.push(addProjectIdIfMissing(traceUrl.url, MOCK_TEAM_ID))
+        await expectLogic(logic).toMatchValues({
+            traceId: traceId,
+            dateRange: { dateFrom: timestamp, dateTo: null },
+            viewMode: 'conversation',
         })
     })
 
@@ -326,6 +347,14 @@ describe('llmAnalyticsTraceLogic', () => {
         beforeEach(() => {
             const mockLocation = {
                 search: '',
+                pathname: '/test',
+                origin: 'http://localhost',
+                protocol: 'http:',
+                host: 'localhost',
+                hostname: 'localhost',
+                port: '',
+                href: 'http://localhost/test',
+                hash: '',
             }
             Object.defineProperty(window, 'location', {
                 value: mockLocation,

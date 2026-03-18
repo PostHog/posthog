@@ -2,8 +2,9 @@ import { useActions } from 'kea'
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { IconRefresh } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconRefresh } from 'lib/lemon-ui/icons'
 
 import { ExperimentIdType } from '~/types'
 
@@ -12,17 +13,24 @@ import { AuthorizedUrlListType, KeyedAppUrl, authorizedUrlListLogic } from './au
 type EmptyStateProps = {
     type: AuthorizedUrlListType
     experimentId?: ExperimentIdType | null
+    productTourId?: string | null
     actionId?: number | null
     displaySuggestions?: boolean
 }
 
 export function EmptyState({
     experimentId,
+    productTourId,
     actionId,
     type,
     displaySuggestions = true,
 }: EmptyStateProps): JSX.Element | null {
-    const logic = authorizedUrlListLogic({ experimentId: experimentId ?? null, actionId: actionId ?? null, type })
+    const logic = authorizedUrlListLogic({
+        experimentId: experimentId ?? null,
+        productTourId: productTourId ?? null,
+        actionId: actionId ?? null,
+        type,
+    })
     const { urlsKeyed, suggestionsLoading, isAddUrlFormVisible } = useValues(logic)
     const { loadSuggestions } = useActions(logic)
 
@@ -95,7 +103,7 @@ export function EmptyState({
                 {displaySuggestions && (
                     <div className="flex flex-col items-end gap-2">
                         <LemonButton
-                            onClick={loadSuggestions}
+                            onClick={() => loadSuggestions()}
                             disabled={suggestionsLoading}
                             type="secondary"
                             icon={<IconRefresh />}

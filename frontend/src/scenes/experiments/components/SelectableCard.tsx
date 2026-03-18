@@ -12,7 +12,7 @@ type SelectableCardProps = {
     onClick: () => void
     className?: string
     'data-attr'?: string
-} & ({ disabled: true; disabledReason: string } | { disabled?: false; disabledReason?: never })
+} & ({ disabled?: false; disabledReason?: never } | { disabled: boolean; disabledReason: string })
 
 export function SelectableCard({
     title,

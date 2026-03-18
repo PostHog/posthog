@@ -40,17 +40,3 @@
         }
     }
 }
-
-.saved-insights-grid {
-    position: relative;
-    display: grid;
-    grid-gap: 1rem;
-
-    @include screen($xl) {
-        grid-template-columns: repeat(2, 1fr);
-    }
-
-    @include screen($xxl) {
-        grid-template-columns: repeat(3, 1fr);
-    }
-}

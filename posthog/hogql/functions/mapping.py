@@ -62,6 +62,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     # conditional
     "if": HogQLFunctionMeta("if", 3, 3, case_sensitive=False),
     "multiIf": HogQLFunctionMeta("multiIf", 3, None),
+    "throwIf": HogQLFunctionMeta("throwIf", 2, 2),
     # maps
     "map": HogQLFunctionMeta("map", 0, None),
     "mapFromArrays": HogQLFunctionMeta("mapFromArrays", 2, 2),
@@ -168,6 +169,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "formatReadableTimeDelta": HogQLFunctionMeta("formatReadableTimeDelta", 1, 2),
     "least": HogQLFunctionMeta("least", 2, 2, case_sensitive=False),
     "greatest": HogQLFunctionMeta("greatest", 2, 2, case_sensitive=False),
+    "indexHint": HogQLFunctionMeta("indexHint", 1, 1),
+    "extractIPv4Substrings": HogQLFunctionMeta("extractIPv4Substrings", 1, 1),
     # time window
     "tumble": HogQLFunctionMeta("tumble", 2, 2),
     "hop": HogQLFunctionMeta("hop", 3, 3),

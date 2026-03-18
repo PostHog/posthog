@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -7,10 +9,14 @@ import { timeZoneLabel } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-export function TimezoneConfig(): JSX.Element {
+export function TimezoneConfig({ displayWarning = true }: { displayWarning?: boolean }): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { currentTeam, timezone: currentTimezone, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     if (!preflight?.available_timezones || !currentTeam) {
         return <LemonSkeleton className="w-1/2 h-4" />
@@ -25,8 +31,7 @@ export function TimezoneConfig(): JSX.Element {
             <LemonInputSelect
                 mode="single"
                 placeholder="Select a time zone"
-                loading={currentTeamLoading}
-                disabled={currentTeamLoading}
+                disabled={currentTeamLoading || !!restrictedReason}
                 value={[currentTeam.timezone]}
                 popoverClassName="z-[1000]"
                 virtualized
@@ -37,7 +42,7 @@ export function TimezoneConfig(): JSX.Element {
                     }
                     const currentOffset = preflight.available_timezones[currentTimezone]
                     const newOffset = preflight.available_timezones[newTimezone]
-                    if (currentOffset === newOffset) {
+                    if (currentOffset === newOffset || !displayWarning) {
                         updateCurrentTeam({ timezone: newTimezone })
                     } else {
                         LemonDialog.open({

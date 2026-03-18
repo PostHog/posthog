@@ -1,4 +1,3 @@
-import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
     ActivityChange,
     ActivityLogItem,
@@ -9,9 +8,10 @@ import {
     detectBoolean,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { Link } from 'lib/lemon-ui/Link'
 import { IconVerifiedEvent } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
 import { pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
@@ -132,7 +132,7 @@ export function dataManagementActivityDescriber(logItem: ActivityLogItem, asNoti
                 description: (
                     <SentenceList
                         listParts={changes}
-                        prefix={<strong>{userNameForLogItem(logItem)}</strong>}
+                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
                         suffix={changeSuffix}
                     />
                 ),
@@ -144,8 +144,8 @@ export function dataManagementActivityDescriber(logItem: ActivityLogItem, asNoti
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> deleted <DescribeType logItem={logItem} />{' '}
-                    {nameAndLink(logItem)}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted{' '}
+                    <DescribeType logItem={logItem} /> {nameAndLink(logItem)}
                 </>
             ),
         }

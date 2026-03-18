@@ -1,13 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCalendar } from '@posthog/icons'
+import { IconCalendar, IconRefresh } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { IconRefresh } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { userLogic } from 'scenes/userLogic'
 
@@ -83,11 +82,10 @@ export function MetricsTab(): JSX.Element {
                         }
                         dataSource={
                             rowsPerMetric[row.key].map((rowData) => {
-                                const rowObject: Record<string, any> = {}
-                                rowData.forEach((value, index) => {
-                                    rowObject[`col${index}`] = value
-                                })
-                                return rowObject
+                                return rowData.reduce<Record<string, string>>((acc, value, index) => {
+                                    acc[`col${index}`] = value
+                                    return acc
+                                }, {})
                             }) || []
                         }
                         loading={deadLetterQueueMetricsLoading}

@@ -9,9 +9,9 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { ChartParams } from '~/types'
 
-import { useFunnelTooltip } from '../FunnelTooltip'
 import { funnelDataLogic } from '../funnelDataLogic'
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
+import { useFunnelTooltip } from '../FunnelTooltip'
 import { StepBarLabels } from './StepBarLabels'
 import { StepBars } from './StepBars'
 import { StepLegend } from './StepLegend'
@@ -21,7 +21,10 @@ interface FunnelBarVerticalCSSProperties extends React.CSSProperties {
     '--bar-row-height': string
 }
 
-export function FunnelBarVertical({ showPersonsModal: showPersonsModalProp = true }: ChartParams): JSX.Element {
+export function FunnelBarVertical({
+    showPersonsModal: showPersonsModalProp = true,
+    inCardView,
+}: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { visibleStepsWithConversionMetrics } = useValues(funnelDataLogic(insightProps))
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
@@ -119,6 +122,7 @@ export function FunnelBarVertical({ showPersonsModal: showPersonsModalProp = tru
                                         stepIndex={stepIndex}
                                         showTime={showTime}
                                         showPersonsModal={showPersonsModal}
+                                        inCardView={inCardView}
                                     />
                                 </td>
                             ))}

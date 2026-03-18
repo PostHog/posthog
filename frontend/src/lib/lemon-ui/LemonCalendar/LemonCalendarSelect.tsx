@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useMemo, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { IconX } from '@posthog/icons'
 
@@ -37,11 +37,19 @@ function scrollToTimeElement(
     })
 }
 
-function proposedDate(target: dayjs.Dayjs | null, { value, unit }: GetLemonButtonTimePropsOpts): dayjs.Dayjs {
+function proposedDate(
+    target: dayjs.Dayjs | null,
+    { value, unit }: GetLemonButtonTimePropsOpts,
+    use24HourFormat: boolean = false
+): dayjs.Dayjs {
     let date = target || dayjs().startOf('day')
     if (value != date.format(unit)) {
         if (unit === 'h') {
-            date = date.hour(date.format('a') === 'am' || value === 12 ? Number(value) : Number(value) + 12)
+            if (use24HourFormat) {
+                date = date.hour(Number(value))
+            } else {
+                date = date.hour(date.format('a') === 'am' || value === 12 ? Number(value) : Number(value) + 12)
+            }
         } else if (unit === 'm') {
             date = date.minute(Number(value))
         } else if (unit === 'a') {
@@ -97,6 +105,8 @@ export interface LemonCalendarSelectProps {
     selectionPeriodLimit?: dayjs.Dayjs | null
     showTimeToggle?: boolean
     onToggleTime?: (value: boolean) => void
+    /** Use 24-hour format instead of 12-hour with AM/PM */
+    use24HourFormat?: boolean
 }
 
 export function LemonCalendarSelect({
@@ -109,18 +119,18 @@ export function LemonCalendarSelect({
     selectionPeriodLimit,
     showTimeToggle,
     onToggleTime,
+    use24HourFormat = false,
 }: LemonCalendarSelectProps): JSX.Element {
     const calendarRef = useRef<HTMLDivElement | null>(null)
     const [selectValue, setSelectValue] = useState<dayjs.Dayjs | null>(value ? value.startOf(granularity) : null)
 
     const now = dayjs()
     const today = now.startOf('day')
-    const isAM = useMemo(() => selectValue?.format('a') === 'am', [selectValue])
 
     const scrollToTime = (date: dayjs.Dayjs, skipAnimation: boolean): void => {
         const calendarEl = calendarRef.current
         if (calendarEl && date) {
-            const hour = isAM ? date.hour() : date.hour() - 12
+            const hour = use24HourFormat ? date.hour() : date.hour() % 12 || 12
             scrollToTimeElement(calendarEl, { unit: 'h', value: hour }, skipAnimation)
             scrollToTimeElement(calendarEl, { unit: 'm', value: date.minute() }, skipAnimation)
         }
@@ -150,7 +160,7 @@ export function LemonCalendarSelect({
     })
 
     const onTimeClick = (props: GetLemonButtonTimePropsOpts): void => {
-        const date = proposedDate(selectValue, props)
+        const date = proposedDate(selectValue, props, use24HourFormat)
         scrollToTime(date, false)
         setSelectValue(date)
     }
@@ -200,8 +210,12 @@ export function LemonCalendarSelect({
                     return modifiedProps
                 }}
                 getLemonButtonTimeProps={(props) => {
-                    const selected = selectValue ? selectValue.format(props.unit) : null
-                    const newDate = proposedDate(selectValue, props)
+                    const selected = selectValue
+                        ? props.unit === 'h' && use24HourFormat
+                            ? String(selectValue.hour())
+                            : selectValue.format(props.unit)
+                        : null
+                    const newDate = proposedDate(selectValue, props, use24HourFormat)
 
                     const periodValidityDisabledReason =
                         selectionPeriod === 'upcoming' && newDate.isBefore(now)
@@ -224,6 +238,7 @@ export function LemonCalendarSelect({
                     }
                 }}
                 granularity={granularity}
+                use24HourFormat={use24HourFormat}
             />
             <div
                 className={clsx(
@@ -316,7 +331,15 @@ export function LemonCalendarSelectInput(props: LemonCalendarSelectInputProps): 
                 {props.value?.format(
                     props.format ??
                         `MMMM D, YYYY${
-                            props.granularity === 'minute' ? ' h:mm A' : props.granularity === 'hour' ? ' h A' : ''
+                            props.granularity === 'minute'
+                                ? props.use24HourFormat
+                                    ? ' HH:mm'
+                                    : ' h:mm A'
+                                : props.granularity === 'hour'
+                                  ? props.use24HourFormat
+                                      ? ' HH:00'
+                                      : ' h A'
+                                  : ''
                         }`
                 ) ??
                     placeholder ??

@@ -1,6 +1,6 @@
 import dataclasses
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from uuid import uuid4
 
 from freezegun.api import freeze_time
@@ -65,6 +65,16 @@ class TestEventDefinitionAPI(APIBaseTest):
             )
             assert abs((dateutil.parser.isoparse(response_item["created_at"]) - timezone.now()).total_seconds()) < 1
 
+    def test_list_event_definitions_with_excluded_properties(self):
+        response = self.client.get(
+            '/api/projects/@current/event_definitions/?excluded_properties=["installed_app", "purchase"]'
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == len(self.EXPECTED_EVENT_DEFINITIONS) - 2
+        result_names = [r["name"] for r in response.json()["results"]]
+        assert "installed_app" not in result_names
+        assert "purchase" not in result_names
+
     @parameterized.expand(
         [
             (
@@ -127,7 +137,21 @@ class TestEventDefinitionAPI(APIBaseTest):
         mock_capture.assert_called_once_with(
             distinct_id=self.user.distinct_id,
             event="event definition deleted",
-            properties={"name": "test_event"},
+            properties={
+                "source": ANY,
+                "$current_url": ANY,
+                "$host": ANY,
+                "$pathname": ANY,
+                "$session_id": ANY,
+                "was_impersonated": ANY,
+                "mcp_user_agent": ANY,
+                "mcp_client_name": ANY,
+                "mcp_client_version": ANY,
+                "mcp_protocol_version": ANY,
+                "mcp_oauth_client_name": ANY,
+                "$set_once": ANY,
+                "name": "test_event",
+            },
             groups={
                 "instance": ANY,
                 "organization": str(self.organization.id),
@@ -140,6 +164,7 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert activity_log.activity == "deleted"
         assert activity_log.item_id == str(event_definition.id)
         assert activity_log.scope == "EventDefinition"
+        assert activity_log.detail is not None
         assert activity_log.detail["name"] == str(event_definition.name)
 
     def test_pagination_of_event_definitions(self):
@@ -217,6 +242,43 @@ class TestEventDefinitionAPI(APIBaseTest):
         for item in response.json()["results"]:
             assert item["name"] in ["watched_movie"]
 
+    @parameterized.expand(
+        [
+            ("shorter match first for 'app'", "app", ["rated_app", "installed_app"]),
+            ("shorter match first for uppercase 'APP'", "APP", ["rated_app", "installed_app"]),
+            ("shorter match first for encoded ' app '", "%20app%20", ["rated_app", "installed_app"]),
+            (
+                "multiple matches sorted by length for 'ed'",
+                "ed",
+                ["rated_app", "installed_app", "watched_movie", "entered_free_trial"],
+            ),
+        ]
+    )
+    def test_search_results_ordered_by_name_length(
+        self, _name: str, search_term: str, expected_names: list[str]
+    ) -> None:
+        response = self.client.get(f"/api/projects/@current/event_definitions/?search={search_term}")
+        assert response.status_code == status.HTTP_200_OK
+        result_names = [r["name"] for r in response.json()["results"]]
+        assert result_names == expected_names
+
+    def test_search_keeps_explicit_ordering(self) -> None:
+        response = self.client.get("/api/projects/@current/event_definitions/?search=app&ordering=name")
+        assert response.status_code == status.HTTP_200_OK
+        result_names = [r["name"] for r in response.json()["results"]]
+        assert result_names == ["installed_app", "rated_app"]
+
+    def test_whitespace_search_does_not_change_default_ordering(self) -> None:
+        default_response = self.client.get("/api/projects/@current/event_definitions/")
+        assert default_response.status_code == status.HTTP_200_OK
+        default_names = [r["name"] for r in default_response.json()["results"]]
+
+        whitespace_search_response = self.client.get("/api/projects/@current/event_definitions/?search=%20%20")
+        assert whitespace_search_response.status_code == status.HTTP_200_OK
+        whitespace_search_names = [r["name"] for r in whitespace_search_response.json()["results"]]
+
+        assert whitespace_search_names == default_names
+
     def test_event_type_event(self):
         action = Action.objects.create(team=self.demo_team, name="action1_app")
 
@@ -236,29 +298,6 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert response.json()["count"] == 1
         assert response.json()["results"][0]["name"] == "$pageview"
 
-    @patch("posthog.models.Organization.is_feature_available", return_value=False)
-    def test_update_event_definition_without_taxonomy_entitlement(self, mock_is_feature_available):
-        event_definition = EventDefinition.objects.create(team=self.demo_team, name="test_event")
-
-        response = self.client.patch(
-            f"/api/projects/@current/event_definitions/{event_definition.id}",
-            {"name": "updated_event"},
-        )
-
-        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
-
-    @patch("posthog.models.Organization.is_feature_available", return_value=False)
-    def test_update_event_definition_cannot_set_verified_without_entitlement(self, mock_is_feature_available):
-        """Test that enterprise-only fields require license"""
-        event_definition = EventDefinition.objects.create(team=self.demo_team, name="test_event")
-
-        response = self.client.patch(
-            f"/api/projects/@current/event_definitions/{event_definition.id}",
-            {"verified": True},  # This should be blocked since it's enterprise-only
-        )
-
-        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
-
     @patch("posthog.settings.EE_AVAILABLE", True)
     @patch("posthog.models.Organization.is_feature_available", return_value=True)
     def test_update_event_definition_with_taxonomy_entitlement(self, *mocks):
@@ -273,6 +312,97 @@ class TestEventDefinitionAPI(APIBaseTest):
 
         # Verify the enterprise-only field was updated
         assert response.json()["verified"]
+
+    def test_create_event_definition_basic(self):
+        """Test creating a basic event definition with just a name"""
+        response = self.client.post(
+            "/api/projects/@current/event_definitions/",
+            {"name": "my_custom_event"},
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["name"] == "my_custom_event"
+        assert response.json()["created_at"] is None
+        assert response.json()["last_seen_at"] is None
+
+        # Verify it was actually created in the database
+        event_def = EventDefinition.objects.get(name="my_custom_event", team=self.demo_team)
+        assert event_def.created_at is None
+        assert event_def.last_seen_at is None
+
+        # Verify activity log was created
+        activity_log = ActivityLog.objects.filter(
+            scope="EventDefinition", activity="created", item_id=str(event_def.id)
+        ).first()
+        assert activity_log is not None
+        assert activity_log.detail is not None
+        detail = cast(dict[str, Any], activity_log.detail)
+        assert detail["name"] == "my_custom_event"
+
+    def test_create_event_definition_duplicate_name(self):
+        """Test that creating an event with a duplicate name fails"""
+        EventDefinition.objects.create(team=self.demo_team, name="existing_event")
+
+        response = self.client.post(
+            "/api/projects/@current/event_definitions/",
+            {"name": "existing_event"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_event_definition_missing_name(self):
+        """Test that creating an event without a name fails"""
+        response = self.client.post(
+            "/api/projects/@current/event_definitions/",
+            {},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_event_definition_with_tags(self):
+        """Test creating an event definition with tags"""
+        response = self.client.post(
+            "/api/projects/@current/event_definitions/",
+            {"name": "tagged_event", "tags": ["important", "production"]},
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["name"] == "tagged_event"
+        # Just verify the event was created successfully
+        # Tag handling is managed by TaggedItemSerializerMixin
+        event_def = EventDefinition.objects.get(name="tagged_event", team=self.demo_team)
+        assert event_def is not None
+
+    def test_by_name_returns_event_definition(self):
+        response = self.client.get("/api/projects/@current/event_definitions/by_name/?name=installed_app")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["name"] == "installed_app"
+
+    def test_by_name_not_found(self):
+        response = self.client.get("/api/projects/@current/event_definitions/by_name/?name=nonexistent")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_by_name_missing_param(self):
+        response = self.client.get("/api/projects/@current/event_definitions/by_name/")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_event_definition_cross_team_isolation(self):
+        """Test that manually created events are isolated by team"""
+        # Create an event in demo_team
+        response1 = self.client.post(
+            "/api/projects/@current/event_definitions/",
+            {"name": "team_specific_event"},
+        )
+        assert response1.status_code == status.HTTP_201_CREATED
+
+        # Verify the event exists in the database for demo_team
+        event_def = EventDefinition.objects.get(name="team_specific_event", team=self.demo_team)
+        assert event_def is not None
+
+        # Verify it cannot be accessed by a different team
+        other_team = create_team(organization=self.organization)
+        other_team_event_exists = EventDefinition.objects.filter(name="team_specific_event", team=other_team).exists()
+        assert not other_team_event_exists
 
 
 @dataclasses.dataclass

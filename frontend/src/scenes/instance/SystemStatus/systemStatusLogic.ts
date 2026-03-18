@@ -27,7 +27,6 @@ export type InstanceStatusTabName = 'overview' | 'metrics' | 'settings' | 'staff
  * For example: async migrations settings are handled in their own page.
  */
 const EDITABLE_INSTANCE_SETTINGS = [
-    'RECORDINGS_TTL_WEEKS',
     'RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS',
     'EMAIL_ENABLED',
     'EMAIL_HOST',
@@ -45,9 +44,13 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'SLACK_APP_CLIENT_ID',
     'SLACK_APP_CLIENT_SECRET',
     'SLACK_APP_SIGNING_SECRET',
+    'SUPPORT_SLACK_APP_CLIENT_ID',
+    'SUPPORT_SLACK_APP_CLIENT_SECRET',
+    'SUPPORT_SLACK_SIGNING_SECRET',
     'PARALLEL_DASHBOARD_ITEM_CACHE',
     'RATE_LIMIT_ENABLED',
     'RATE_LIMITING_ALLOW_LIST_TEAMS',
+    'CLICKHOUSE_KILL_SWITCH',
     'SENTRY_AUTH_TOKEN',
     'SENTRY_ORGANIZATION',
 ]

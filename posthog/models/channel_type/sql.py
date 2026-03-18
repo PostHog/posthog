@@ -53,8 +53,9 @@ CHANNEL_DEFINITION_DATA_SQL = (
     lambda channel_definitions=CHANNEL_DEFINITIONS: f"""
 INSERT INTO channel_definition (domain, kind, domain_type, type_if_paid, type_if_organic) VALUES
 {
-''',
-'''.join(f'({" ,".join(map(format_value, x[:5]))})' for x in channel_definitions)},
+        ''',
+'''.join(f"({' ,'.join(map(format_value, x[:5]))})" for x in channel_definitions)
+    },
 ;
 """
 )

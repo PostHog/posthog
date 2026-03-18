@@ -1,5 +1,3 @@
-from inline_snapshot import snapshot
-
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.loops.template_loops import (
     template as template_loops,
@@ -31,23 +29,21 @@ class TestTemplateLoops(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_fetch_calls()[0] == snapshot(
-            (
-                "https://app.loops.so/api/v1/contacts/update",
-                {
-                    "method": "POST",
-                    "headers": {
-                        "Content-Type": "application/json",
-                        "Authorization": "Bearer 1cac089e00a708680bdb1ed9f082d5bf",
-                    },
-                    "body": {
-                        "email": "max@posthog.com",
-                        "userId": "c44562aa-c649-426a-a9d4-093fef0c2a4a",
-                        "firstName": "Max",
-                        "lastName": "AI",
-                    },
+        assert self.get_mock_fetch_calls()[0] == (
+            "https://app.loops.so/api/v1/contacts/update",
+            {
+                "method": "POST",
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer 1cac089e00a708680bdb1ed9f082d5bf",
                 },
-            )
+                "body": {
+                    "email": "max@posthog.com",
+                    "userId": "c44562aa-c649-426a-a9d4-093fef0c2a4a",
+                    "firstName": "Max",
+                    "lastName": "AI",
+                },
+            },
         )
 
     def test_include_all_properties(self):
@@ -61,24 +57,22 @@ class TestTemplateLoops(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_fetch_calls()[0] == snapshot(
-            (
-                "https://app.loops.so/api/v1/contacts/update",
-                {
-                    "method": "POST",
-                    "headers": {
-                        "Content-Type": "application/json",
-                        "Authorization": "Bearer 1cac089e00a708680bdb1ed9f082d5bf",
-                    },
-                    "body": {
-                        "email": "max@posthog.com",
-                        "userId": "c44562aa-c649-426a-a9d4-093fef0c2a4a",
-                        "company": "PostHog",
-                        "firstName": "Max",
-                        "lastName": "AI",
-                    },
+        assert self.get_mock_fetch_calls()[0] == (
+            "https://app.loops.so/api/v1/contacts/update",
+            {
+                "method": "POST",
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer 1cac089e00a708680bdb1ed9f082d5bf",
                 },
-            )
+                "body": {
+                    "email": "max@posthog.com",
+                    "userId": "c44562aa-c649-426a-a9d4-093fef0c2a4a",
+                    "company": "PostHog",
+                    "firstName": "Max",
+                    "lastName": "AI",
+                },
+            },
         )
 
     def test_function_requires_identifier(self):
@@ -87,7 +81,7 @@ class TestTemplateLoops(BaseHogFunctionTemplateTest):
         )
 
         assert not self.get_mock_fetch_calls()
-        assert self.get_mock_print_calls() == snapshot([("No email set. Skipping...",)])
+        assert self.get_mock_print_calls() == [("No email set. Skipping...",)]
 
 
 class TestTemplateLoopsEvent(BaseHogFunctionTemplateTest):
@@ -118,25 +112,23 @@ class TestTemplateLoopsEvent(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_fetch_calls()[0] == snapshot(
-            (
-                "https://app.loops.so/api/v1/events/send",
-                {
-                    "method": "POST",
-                    "headers": {
-                        "Content-Type": "application/json",
-                        "Authorization": "Bearer 1cac089e00a708680bdb1ed9f082d5bf",
-                    },
-                    "body": {
-                        "email": "max@posthog.com",
-                        "userId": "c44562aa-c649-426a-a9d4-093fef0c2a4a",
-                        "eventName": "pageview",
-                        "eventProperties": {
-                            "product": "PostHog",
-                        },
+        assert self.get_mock_fetch_calls()[0] == (
+            "https://app.loops.so/api/v1/events/send",
+            {
+                "method": "POST",
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer 1cac089e00a708680bdb1ed9f082d5bf",
+                },
+                "body": {
+                    "email": "max@posthog.com",
+                    "userId": "c44562aa-c649-426a-a9d4-093fef0c2a4a",
+                    "eventName": "pageview",
+                    "eventProperties": {
+                        "product": "PostHog",
                     },
                 },
-            )
+            },
         )
 
     def test_include_all_properties(self):
@@ -154,26 +146,24 @@ class TestTemplateLoopsEvent(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_fetch_calls()[0] == snapshot(
-            (
-                "https://app.loops.so/api/v1/events/send",
-                {
-                    "method": "POST",
-                    "headers": {
-                        "Content-Type": "application/json",
-                        "Authorization": "Bearer 1cac089e00a708680bdb1ed9f082d5bf",
-                    },
-                    "body": {
-                        "email": "max@posthog.com",
-                        "userId": "c44562aa-c649-426a-a9d4-093fef0c2a4a",
-                        "eventName": "pageview",
-                        "eventProperties": {
-                            "product": "PostHog",
-                            "pathname": "/pricing",
-                        },
+        assert self.get_mock_fetch_calls()[0] == (
+            "https://app.loops.so/api/v1/events/send",
+            {
+                "method": "POST",
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer 1cac089e00a708680bdb1ed9f082d5bf",
+                },
+                "body": {
+                    "email": "max@posthog.com",
+                    "userId": "c44562aa-c649-426a-a9d4-093fef0c2a4a",
+                    "eventName": "pageview",
+                    "eventProperties": {
+                        "product": "PostHog",
+                        "pathname": "/pricing",
                     },
                 },
-            )
+            },
         )
 
     def test_function_requires_identifier(self):
@@ -182,4 +172,4 @@ class TestTemplateLoopsEvent(BaseHogFunctionTemplateTest):
         )
 
         assert not self.get_mock_fetch_calls()
-        assert self.get_mock_print_calls() == snapshot([("No email set. Skipping...",)])
+        assert self.get_mock_print_calls() == [("No email set. Skipping...",)]

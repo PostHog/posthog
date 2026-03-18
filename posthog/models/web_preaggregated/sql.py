@@ -13,13 +13,22 @@ def is_eu_cluster() -> bool:
     return getattr(settings, "CLOUD_DEPLOYMENT", None) == "EU"
 
 
+def get_create_clause(table_name: str, replace: bool = False) -> str:
+    use_replace = replace or settings.DEBUG
+    if use_replace:
+        return f"CREATE OR REPLACE TABLE {table_name}"
+    return f"CREATE TABLE IF NOT EXISTS {table_name}"
+
+
 def TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True, force_unique_zk_path=False, replace=False):
     engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
     if force_unique_zk_path:
         engine.set_zookeeper_path_key(str(uuid.uuid4()))
 
+    create_clause = get_create_clause(table_name, replace)
+
     return f"""
-    {f"REPLACE TABLE {table_name}" if replace else f"CREATE TABLE IF NOT EXISTS {table_name}"} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
+    {create_clause} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
     (
         period_bucket DateTime,
         team_id UInt64,
@@ -41,8 +50,10 @@ def HOURLY_TABLE_TEMPLATE(
 
     ttl_clause = f"TTL period_bucket + INTERVAL {ttl} DELETE" if ttl else ""
 
+    create_clause = get_create_clause(table_name, replace)
+
     return f"""
-    {f"REPLACE TABLE {table_name}" if replace else f"CREATE TABLE IF NOT EXISTS {table_name}"} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
+    {create_clause} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
     (
         period_bucket DateTime,
         team_id UInt64,
@@ -68,52 +79,12 @@ def DROP_WEB_BOUNCES_SQL():
     return _DROP_TABLE_TEMPLATE("web_pre_aggregated_bounces")
 
 
-def DROP_WEB_STATS_DAILY_SQL():
-    return _DROP_TABLE_TEMPLATE("web_stats_daily")
-
-
-def DROP_WEB_BOUNCES_DAILY_SQL():
-    return _DROP_TABLE_TEMPLATE("web_bounces_daily")
-
-
-def DROP_WEB_STATS_HOURLY_SQL():
-    return _DROP_TABLE_TEMPLATE("web_stats_hourly")
-
-
-def DROP_WEB_BOUNCES_HOURLY_SQL():
-    return _DROP_TABLE_TEMPLATE("web_bounces_hourly")
-
-
 def DROP_WEB_STATS_STAGING_SQL():
     return _DROP_TABLE_TEMPLATE("web_pre_aggregated_stats_staging")
 
 
 def DROP_WEB_BOUNCES_STAGING_SQL():
     return _DROP_TABLE_TEMPLATE("web_pre_aggregated_bounces_staging")
-
-
-def REPLACE_WEB_BOUNCES_HOURLY_STAGING_SQL():
-    return HOURLY_TABLE_TEMPLATE(
-        "web_bounces_hourly_staging",
-        WEB_BOUNCES_COLUMNS,
-        WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"),
-        ttl="24 HOUR",
-        force_unique_zk_path=True,
-        replace=True,
-        on_cluster=False,
-    )
-
-
-def REPLACE_WEB_STATS_HOURLY_STAGING_SQL():
-    return HOURLY_TABLE_TEMPLATE(
-        "web_stats_hourly_staging",
-        WEB_STATS_COLUMNS,
-        WEB_STATS_ORDER_BY_FUNC("period_bucket"),
-        ttl="24 HOUR",
-        force_unique_zk_path=True,
-        replace=True,
-        on_cluster=False,
-    )
 
 
 # Hardcoded production column definitions to match exact table structure
@@ -386,32 +357,12 @@ def DROP_PARTITION_SQL(table_name, date_start, granularity="daily"):
     """
 
 
-def WEB_STATS_DAILY_SQL(table_name="web_stats_daily", on_cluster=False):
-    return TABLE_TEMPLATE(table_name, WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"), on_cluster)
-
-
-def WEB_BOUNCES_DAILY_SQL(table_name="web_bounces_daily", on_cluster=False):
-    return TABLE_TEMPLATE(table_name, WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"), on_cluster)
-
-
 def WEB_STATS_SQL(table_name="web_pre_aggregated_stats", on_cluster=False):
     return TABLE_TEMPLATE(table_name, WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"), on_cluster)
 
 
 def WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces", on_cluster=False):
     return TABLE_TEMPLATE(table_name, WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"), on_cluster)
-
-
-def WEB_STATS_HOURLY_SQL():
-    return HOURLY_TABLE_TEMPLATE(
-        "web_stats_hourly", WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"), ttl="24 HOUR"
-    )
-
-
-def WEB_BOUNCES_HOURLY_SQL():
-    return HOURLY_TABLE_TEMPLATE(
-        "web_bounces_hourly", WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"), ttl="24 HOUR"
-    )
 
 
 def format_team_ids(team_ids: list[int]) -> str:
@@ -943,20 +894,3 @@ def WEB_BOUNCES_EXPORT_SQL(
     ORDER BY team_id, period_bucket
     SETTINGS {settings}
     """
-
-
-def create_combined_view_sql(table_prefix):
-    return f"""
-    CREATE OR REPLACE VIEW {table_prefix}_combined AS
-    SELECT * FROM {table_prefix}_daily WHERE period_bucket < toStartOfDay(now(), 'UTC')
-    UNION ALL
-    SELECT * FROM {table_prefix}_hourly WHERE period_bucket >= toStartOfDay(now(), 'UTC')
-    """
-
-
-def WEB_STATS_COMBINED_VIEW_SQL():
-    return create_combined_view_sql("web_stats")
-
-
-def WEB_BOUNCES_COMBINED_VIEW_SQL():
-    return create_combined_view_sql("web_bounces")

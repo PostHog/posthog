@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Optional
+from typing import Any, Literal, Optional, cast
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -8,14 +8,11 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
 
-from dateutil.rrule import FR, MO, SA, SU, TH, TU, WE, rrule
+from dateutil.rrule import DAILY, FR, MO, MONTHLY, SA, SU, TH, TU, WE, WEEKLY, YEARLY, rrule
 
 from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
 from posthog.utils import absolute_uri
-
-# Copied from rrule as it is not exported
-FREQNAMES = ["YEARLY", "MONTHLY", "WEEKLY", "DAILY", "HOURLY", "MINUTELY", "SECONDLY"]
 
 UNSUBSCRIBE_TOKEN_EXP_DAYS = 30
 
@@ -65,10 +62,24 @@ class Subscription(models.Model):
         SATURDAY = "saturday"
         SUNDAY = "sunday"
 
+    RRULE_FIELDS = {"frequency", "count", "interval", "start_date", "until_date", "bysetpos", "byweekday"}
+
     # Relations - i.e. WHAT are we exporting?
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, null=True)
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, null=True)
+    dashboard_export_insights = models.ManyToManyField(
+        "posthog.Insight",
+        blank=True,
+        related_name="subscriptions_dashboard_export",
+    )
+    integration = models.ForeignKey(
+        "posthog.Integration",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_index=False,
+    )
 
     # Subscription type (email, slack etc.)
     title = models.CharField(max_length=100, null=True, blank=True)
@@ -97,22 +108,38 @@ class Subscription(models.Model):
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(default=False)
 
+    class Meta:
+        indexes = [
+            models.Index(fields=["integration"], name="posthog_sub_integration_idx"),
+        ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Only cache rrule if all required fields are loaded (not deferred).
+        # The rrule property accesses multiple fields (frequency, count, interval, etc).
+        # If ANY field is deferred, accessing it triggers refresh_from_db which creates
+        # a new instance with OTHER fields deferred, causing infinite recursion.
+        if not (self.get_deferred_fields() & self.RRULE_FIELDS):
+            self._rrule = self.rrule
+
     def save(self, *args, **kwargs) -> None:
         # Only if the schedule has changed do we update the next delivery date
-        if not self.id or str(self._rrule) != str(self.rrule):
+        # _rrule may not be set if object was loaded with deferred fields
+        if not self.id or str(getattr(self, "_rrule", None)) != str(self.rrule):
             self.set_next_delivery_date()
             if "update_fields" in kwargs:
                 kwargs["update_fields"].append("next_delivery_date")
         super().save(*args, **kwargs)
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._rrule = self.rrule
-
     @property
     def rrule(self):
-        freq = FREQNAMES.index(self.frequency.upper())
-
+        freq_map: dict[str, int] = {
+            self.SubscriptionFrequency.DAILY: DAILY,
+            self.SubscriptionFrequency.WEEKLY: WEEKLY,
+            self.SubscriptionFrequency.MONTHLY: MONTHLY,
+            self.SubscriptionFrequency.YEARLY: YEARLY,
+        }
+        freq = cast(Literal[0, 1, 2, 3, 4, 5, 6], freq_map[self.frequency])
         return rrule(
             freq=freq,
             count=self.count,

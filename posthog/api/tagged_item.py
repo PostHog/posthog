@@ -1,40 +1,33 @@
 import dataclasses
-from typing import Optional
+from typing import Literal, Optional
 
 from django.db.models import Prefetch, Q, QuerySet
-from django.dispatch import receiver
 
-from rest_framework import response, serializers, status, viewsets
+from rest_framework import response, serializers, viewsets
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.constants import AvailableFeature
-from posthog.models import Tag, TaggedItem, User
-from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
+from posthog.models import Tag, TaggedItem
+from posthog.models.activity_logging.activity_log import (
+    ActivityContextBase,
+    Change,
+    Detail,
+    changes_between,
+    log_activity,
+)
 from posthog.models.activity_logging.tag_utils import get_tagged_item_related_object_info
-from posthog.models.signals import model_activity_signal
+from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.tag import tagify
 
 
 class TaggedItemSerializerMixin(serializers.Serializer):
     """
-    Serializer mixin that resolves appropriate response for tags depending on license.
+    Serializer mixin that handles tags for objects.
     """
 
     tags = serializers.ListField(required=False)
 
-    def _is_licensed(self):
-        return (
-            "request" in self.context
-            and not self.context["request"].user.is_anonymous
-            and self.context["request"].user.organization.is_feature_available(AvailableFeature.TAGGING)
-        )
-
-    def _attempt_set_tags(self, tags, obj, force_create=False):
-        if not force_create and not self._is_licensed() and tags is not None:
-            # Silently fail on updating tags so that entire request isn't blocked
-            return
-
+    def _attempt_set_tags(self, tags, obj):
         if not obj or tags is None:
             # If the object hasn't been created yet, this method will be called again on the create method.
             return
@@ -63,12 +56,10 @@ class TaggedItemSerializerMixin(serializers.Serializer):
 
     def to_representation(self, obj):
         ret = super().to_representation(obj)
-        ret["tags"] = []
-        if self._is_licensed():
-            if hasattr(obj, "prefetched_tags"):
-                ret["tags"] = [p.tag.name for p in obj.prefetched_tags]
-            else:
-                ret["tags"] = list(obj.tagged_items.values_list("tag__name", flat=True)) if obj.tagged_items else []
+        if hasattr(obj, "prefetched_tags"):
+            ret["tags"] = [p.tag.name for p in obj.prefetched_tags]
+        else:
+            ret["tags"] = list(obj.tagged_items.values_list("tag__name", flat=True)) if obj.tagged_items else []
         return ret
 
     def create(self, validated_data):
@@ -83,23 +74,8 @@ class TaggedItemSerializerMixin(serializers.Serializer):
         return instance
 
 
-def is_licensed_for_tagged_items(user: User) -> bool:
-    return (
-        not user.is_anonymous
-        # The below triggers an extra query to resolve user's organization.
-        and user.organization is not None
-        and user.organization.is_feature_available(AvailableFeature.TAGGING)
-    )
-
-
 class TaggedItemViewSetMixin(viewsets.GenericViewSet):
-    def is_licensed(self):
-        return is_licensed_for_tagged_items(self.request.user)  # type: ignore
-
     def prefetch_tagged_items_if_available(self, queryset: QuerySet) -> QuerySet:
-        if not self.is_licensed():
-            return queryset
-
         return queryset.prefetch_related(
             Prefetch(
                 "tagged_items",
@@ -126,9 +102,6 @@ class TaggedItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     queryset = Tag.objects.none()
 
     def list(self, request, *args, **kwargs) -> response.Response:
-        if not is_licensed_for_tagged_items(self.request.user):  # type: ignore
-            return response.Response([], status=status.HTTP_402_PAYMENT_REQUIRED)
-
         return response.Response(Tag.objects.filter(team=self.team).values_list("name", flat=True).distinct())
 
 
@@ -148,7 +121,7 @@ class TaggedItemContext(ActivityContextBase):
     related_object_name: Optional[str] = None
 
 
-@receiver(model_activity_signal, sender=Tag)
+@mutable_receiver(model_activity_signal, sender=Tag)
 def handle_tag_change(sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs):
     context = TagContext(
         team_id=after_update.team_id,
@@ -171,7 +144,7 @@ def handle_tag_change(sender, scope, before_update, after_update, activity, user
     )
 
 
-@receiver(model_activity_signal, sender=TaggedItem)
+@mutable_receiver(model_activity_signal, sender=TaggedItem)
 def handle_tagged_item_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
@@ -204,3 +177,32 @@ def handle_tagged_item_change(
                 context=context,
             ),
         )
+
+        # Also log to the related object's activity stream for Ticket
+        if related_object_type == "ticket" and related_object_id:
+            ticket = tagged_item.ticket
+            ticket_name = f"Ticket #{ticket.ticket_number}" if ticket else related_object_name
+            tag_action: Literal["created", "deleted"] = "created" if activity == "created" else "deleted"
+            log_activity(
+                organization_id=tagged_item.tag.team.organization_id
+                if tagged_item.tag and tagged_item.tag.team
+                else None,
+                team_id=tagged_item.tag.team_id if tagged_item.tag else None,
+                user=user,
+                was_impersonated=was_impersonated,
+                item_id=related_object_id,
+                scope="Ticket",
+                activity="updated",
+                detail=Detail(
+                    name=ticket_name,
+                    changes=[
+                        Change(
+                            type="Ticket",
+                            field="tag",
+                            action=tag_action,
+                            after=tagged_item.tag.name if activity == "created" else None,
+                            before=tagged_item.tag.name if activity == "deleted" else None,
+                        )
+                    ],
+                ),
+            )

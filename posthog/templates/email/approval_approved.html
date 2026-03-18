@@ -1,0 +1,16 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block heading %}{{ approver_name }} approved your change{% endblock %}
+{% block section %}
+<p>
+    Nice! Your change in <b>{{ team_name }}</b> got the green light from <b>{{ approver_name }}</b>. Once all required approvals are in, it'll be applied automatically.
+</p>
+<div class="mb mt text-center">
+    <a class="button" href="{{ change_request_url }}">View details</a>
+</div>
+<div class="mt">
+    <p>
+        If the button above doesn't work, paste this link into your browser:<br />
+        <a href="{{ change_request_url }}">{{ change_request_url }}</a>
+    </p>
+</div>
+{% endblock %}

@@ -10,7 +10,7 @@ def dlt_source_to_source_response(source: DltSource) -> SourceResponse:
     resource_name, resource = resources[0]
 
     return SourceResponse(
-        items=resource,
+        items=lambda: resource,
         primary_keys=_get_primary_keys(resource),
         name=resource_name,
         column_hints=_get_column_hints(resource),

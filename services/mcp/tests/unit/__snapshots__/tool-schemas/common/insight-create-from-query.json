@@ -1,0 +1,49 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "data": {
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "favorited": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "query": {
+                    "properties": {
+                        "kind": {
+                            "anyOf": [
+                                {
+                                    "const": "InsightVizNode",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "DataVisualizationNode",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "source": {
+                            "description": "For new insights, use the query from your successful query-run tool call. For updates, the existing query can optionally be reused."
+                        }
+                    },
+                    "required": ["kind", "source"],
+                    "type": "object"
+                },
+                "tags": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["name", "query", "favorited"],
+            "type": "object"
+        }
+    },
+    "required": ["data"],
+    "type": "object"
+}

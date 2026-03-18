@@ -1,0 +1,146 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Feature flags
+feature: flags
+url_prefix: /feature_flags
+tools:
+    feature-flag-get-all:
+        operation: feature_flags_list
+        enabled: true
+        scopes:
+            - feature_flag:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        list: true
+        title: Get all feature flags
+        description: >
+            Get feature flags in the current project. Supports list filters including search by feature flag key or name
+            (case-insensitive), then use the returned ID for get/update/delete tools.
+        param_overrides:
+            search:
+                description:
+                    Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete
+                    tools.
+        mcp_version: 1
+    feature-flag-get-definition:
+        operation: feature_flags_retrieve_2
+        enabled: true
+        scopes:
+            - feature_flag:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get feature flag definition
+        description: |
+            Get a feature flag by ID.
+        mcp_version: 1
+    create-feature-flag:
+        operation: feature_flags_create
+        enabled: true
+        scopes:
+            - feature_flag:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Create feature flag
+        description: |
+            Create a feature flag in the current project.
+        include_params:
+            - key
+            - name
+            - filters
+            - active
+            - tags
+            - evaluation_tags
+    update-feature-flag:
+        operation: feature_flags_partial_update
+        enabled: true
+        scopes:
+            - feature_flag:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Update feature flag
+        description: |
+            Update a feature flag by ID in the current project.
+        include_params:
+            - key
+            - name
+            - filters
+            - active
+            - tags
+            - evaluation_tags
+    delete-feature-flag:
+        operation: feature_flags_destroy
+        enabled: true
+        scopes:
+            - feature_flag:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete feature flag
+        description: |
+            Soft-delete a feature flag by ID in the current project.
+        soft_delete: true
+    feature-flags-update:
+        operation: feature_flags_update
+        enabled: false
+    feature-flags-activity-retrieve:
+        operation: feature_flags_activity_retrieve
+        enabled: false
+    feature-flags-create-static-cohort-for-flag-create:
+        operation: feature_flags_create_static_cohort_for_flag_create
+        enabled: false
+    feature-flags-dashboard-create:
+        operation: feature_flags_dashboard_create
+        enabled: false
+    feature-flags-dependent-flags-retrieve:
+        operation: feature_flags_dependent_flags_retrieve
+        enabled: false
+    feature-flags-enrich-usage-dashboard-create:
+        operation: feature_flags_enrich_usage_dashboard_create
+        enabled: false
+    feature-flags-remote-config-retrieve:
+        operation: feature_flags_remote_config_retrieve
+        enabled: false
+    feature-flags-status-retrieve:
+        operation: feature_flags_status_retrieve
+        enabled: false
+    feature-flags-bulk-delete-create:
+        operation: feature_flags_bulk_delete_create
+        enabled: false
+    feature-flags-bulk-keys-create:
+        operation: feature_flags_bulk_keys_create
+        enabled: false
+    feature-flags-evaluation-reasons-retrieve:
+        operation: feature_flags_evaluation_reasons_retrieve
+        enabled: false
+    feature-flags-local-evaluation-retrieve:
+        operation: feature_flags_local_evaluation_retrieve
+        enabled: false
+    feature-flags-matching-ids-retrieve:
+        operation: feature_flags_matching_ids_retrieve
+        enabled: false
+    feature-flags-my-flags-retrieve:
+        operation: feature_flags_my_flags_retrieve
+        enabled: false
+    feature-flags-user-blast-radius-create:
+        operation: feature_flags_user_blast_radius_create
+        enabled: false
+    feature-flags-copy-flags-create:
+        operation: feature_flags_copy_flags_create
+        enabled: false

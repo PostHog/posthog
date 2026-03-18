@@ -1,5 +1,6 @@
-import { initKeaTests } from '~/test/init'
 import '~/types'
+
+import { initKeaTests } from '~/test/init'
 
 import { GroupsNewLogicProps, flattenProperties, groupsNewLogic } from './groupsNewLogic'
 

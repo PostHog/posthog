@@ -1,5 +1,7 @@
 import csv
+import json
 import uuid
+import hashlib
 from collections import defaultdict
 from collections.abc import Iterator
 from datetime import datetime
@@ -10,7 +12,7 @@ from django.db import DatabaseError
 from django.db.models import OuterRef, Prefetch, QuerySet, Subquery, prefetch_related_objects
 
 import structlog
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
 from pydantic import (
@@ -28,25 +30,18 @@ from rest_framework_csv import renderers as csvrenderers
 
 from posthog.schema import ActorsQuery, HogQLQuery
 
+from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.property import property_to_expr
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.insight import capture_legacy_api_call
-from posthog.api.person import get_funnel_actor_class
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.utils import action, get_target_entity
+from posthog.api.utils import action
+from posthog.cdp.filters import build_behavioral_event_expr
 from posthog.clickhouse.client import sync_execute
-from posthog.constants import (
-    INSIGHT_FUNNELS,
-    INSIGHT_LIFECYCLE,
-    INSIGHT_STICKINESS,
-    INSIGHT_TRENDS,
-    LIMIT,
-    OFFSET,
-    PropertyOperatorType,
-)
+from posthog.constants import LIMIT, OFFSET, PropertyOperatorType
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import LABEL_TEAM_ID
@@ -62,7 +57,8 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, CohortOrEmpty
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
-from posthog.models.cohort.util import get_all_cohort_dependencies, print_cohort_hogql_query
+from posthog.models.cohort.cohort import REALTIME_COHORT_MAX_PERSON_COUNT, CohortType
+from posthog.models.cohort.util import get_all_cohort_dependencies, get_friendly_error_message, print_cohort_hogql_query
 from posthog.models.cohort.validation import CohortTypeValidationSerializer
 from posthog.models.feature_flag.flag_matching import (
     FeatureFlagMatcher,
@@ -70,22 +66,130 @@ from posthog.models.feature_flag.flag_matching import (
     get_feature_flag_hash_key_overrides,
 )
 from posthog.models.filters.filter import Filter
-from posthog.models.filters.lifecycle_filter import LifecycleFilter
-from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.insight import Insight
 from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.models.person.sql import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
-from posthog.queries.actor_base_query import ActorBaseQuery, get_serialized_people
-from posthog.queries.base import property_group_to_Q
+from posthog.queries.actor_base_query import get_serialized_people
+from posthog.queries.base import determine_parsed_date_for_property_matching, property_group_to_Q
 from posthog.queries.person_query import PersonQuery
-from posthog.queries.stickiness import StickinessActors
-from posthog.queries.trends.lifecycle_actors import LifecycleActors
-from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.util import get_earliest_timestamp
 from posthog.renderers import SafeJSONRenderer
 from posthog.utils import format_query_params_absolute_url
+
+
+def validate_filters_and_compute_realtime_support(
+    filters_dict: dict, team: Team, current_cohort_type: str | None = None, cohort_count: int | None = None
+) -> tuple[dict, str | None, list | None]:
+    try:
+        if not filters_dict:
+            return filters_dict, current_cohort_type, None
+
+        validated_filters = CohortFilters.model_validate(
+            {"properties": filters_dict["properties"]}, context={"team": team}
+        )
+
+        clean_filters = validated_filters.model_dump(exclude_none=True)
+
+        cohort_type = (
+            CohortType.REALTIME
+            if _calculate_realtime_support(cast(CohortFilterGroup, validated_filters.properties))
+            else None
+        )
+
+        # Check if cohort exceeds the maximum person count for real-time evaluation
+        if cohort_type == CohortType.REALTIME and cohort_count is not None:
+            if cohort_count > REALTIME_COHORT_MAX_PERSON_COUNT:
+                cohort_type = None
+
+        return clean_filters, cohort_type, None
+
+    except Exception as e:
+        logger.warning(f"Failed to validate cohort filters: {e}")
+        return filters_dict, current_cohort_type, None
+
+
+def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list[Any] | None, str | None, str | None]:
+    """
+    Generate HogQL bytecode for cohort filter data.
+    Similar to generate_template_bytecode in validation.py but for cohort-specific filters.
+    Returns tuple of (bytecode, error, conditionHash)
+    """
+    try:
+        # Only treat behavioral as event matcher + optional event properties; unsupported values return None
+        if filter_data.get("type") == "behavioral":
+            expr = build_behavioral_event_expr(filter_data, team)
+            # Unsupported behavioral filters return None → skip bytecode
+            if expr is None:
+                return None, "Unsupported behavioral filter for realtime bytecode", None
+            bytecode = create_bytecode(expr, cohort_membership_supported=True, null_safe_comparisons=True).bytecode
+            condition_hash = None
+            if bytecode:
+                bytecode_str = json.dumps(bytecode, sort_keys=True)
+                condition_hash = hashlib.sha256(bytecode_str.encode()).hexdigest()[:16]
+            return bytecode, None, condition_hash
+
+        # Check if it's a cohort filter referencing another cohort
+        if filter_data.get("type") == "cohort":
+            cohort_id = filter_data.get("value")
+            if cohort_id is None:
+                # If cohort_id is missing, don't generate bytecode
+                return None, None, None
+            # Type narrowing: cohort_id is not None at this point, and should be int
+            try:
+                cohort_id_int = int(cohort_id)
+            except (ValueError, TypeError):
+                return None, None, None
+            try:
+                referenced_cohort = Cohort.objects.get(team__project_id=team.project_id, id=cohort_id_int)
+                # Check if the referenced cohort is realtime
+                if referenced_cohort.cohort_type != CohortType.REALTIME:
+                    # Don't generate bytecode for non-realtime cohort references
+                    return None, None, None
+            except Cohort.DoesNotExist:
+                # If cohort doesn't exist, don't generate bytecode
+                return None, None, None
+
+        property_obj = Property(**filter_data)
+        expr = property_to_expr(property_obj, team)
+        bytecode = create_bytecode(expr, cohort_membership_supported=True, null_safe_comparisons=True).bytecode
+
+        # Generate conditionHash from bytecode
+        condition_hash = None
+        if bytecode:
+            # Create a stable hash of the bytecode by converting to JSON string
+            bytecode_str = json.dumps(bytecode, sort_keys=True)
+            condition_hash = hashlib.sha256(bytecode_str.encode()).hexdigest()[:16]
+
+        return bytecode, None, condition_hash
+    except Exception as e:
+        logger.warning(f"Failed to generate bytecode for cohort filter: {e}")
+        return None, str(e), None
+
+
+class FilterBytecodeMixin(BaseModel):
+    bytecode: list[Any] | None = None
+    bytecode_error: str | None = None
+    conditionHash: str | None = None
+
+    @model_validator(mode="after")
+    def _generate_bytecode(self, info):
+        """Generate bytecode for the filter if team context is available."""
+        if info and info.context:
+            team = info.context.get("team")
+            if team:
+                bytecode, error, condition_hash = generate_cohort_filter_bytecode(
+                    self.model_dump(exclude_none=True), team
+                )
+                if bytecode:
+                    self.bytecode = bytecode
+                if condition_hash:
+                    self.conditionHash = condition_hash
+                if error:
+                    self.bytecode_error = error
+        return self
 
 
 class EventPropFilter(BaseModel, extra="forbid"):
@@ -101,7 +205,7 @@ class HogQLFilter(BaseModel, extra="forbid"):
     value: Any | None = None
 
 
-class BehavioralFilter(BaseModel, extra="forbid"):
+class BehavioralFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
     type: Literal["behavioral"]
     key: Union[str, int]  # action IDs can be ints
     value: str
@@ -121,14 +225,20 @@ class BehavioralFilter(BaseModel, extra="forbid"):
     explicit_datetime: str | None = None
 
 
-class CohortFilter(BaseModel, extra="forbid"):
+class CohortFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
     type: Literal["cohort"]
     key: Literal["id"]
     value: int
     negation: bool = False
 
 
-class PersonFilter(BaseModel, extra="forbid"):
+# Date operators that require date value validation
+# Note: is_date_exact is not yet supported (see posthog/models/property/util.py)
+# Keep in sync with OperatorType in posthog/models/property/property.py
+DATE_OPERATORS = ("is_date_after", "is_date_before")
+
+
+class PersonFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
     type: Literal["person"]
     key: str
     operator: str | None = None  # accept any legacy operator
@@ -153,25 +263,56 @@ class PersonFilter(BaseModel, extra="forbid"):
 
         return self
 
+    @model_validator(mode="after")
+    def _validate_date_value(self):
+        if self.operator in DATE_OPERATORS and self.value is not None:
+            parsed_date = determine_parsed_date_for_property_matching(self.value)
+            if not parsed_date:
+                raise ValueError(
+                    f"Invalid date value '{self.value}' for operator '{self.operator}'. "
+                    f"Expected a relative date (e.g., '-7d', '30d') or an ISO 8601 date (e.g., '2024-01-15')."
+                )
+
+        return self
+
 
 PropertyFilter = Annotated[
     Union[BehavioralFilter, CohortFilter, PersonFilter],
     Field(discriminator="type"),
 ]
 
-FilterOrGroup = Annotated[Union[PropertyFilter, "Group"], Field(discriminator="type")]
+FilterOrGroup = Annotated[Union[PropertyFilter, "CohortFilterGroup"], Field(discriminator="type")]
 
 
-class Group(BaseModel, extra="forbid"):
+class CohortFilterGroup(BaseModel, extra="forbid"):
+    """AND/OR group containing cohort filters. Named to avoid collision with analytics Group model."""
+
     type: Literal["AND", "OR"]
     values: list[FilterOrGroup]
 
 
-Group.model_rebuild()
+CohortFilterGroup.model_rebuild()
+
+
+def _calculate_realtime_support(group: CohortFilterGroup) -> bool:
+    """Check if all filters in the group have valid bytecode to determine realtime support."""
+    for value in group.values:
+        if hasattr(value, "values"):  # It's another group
+            if not _calculate_realtime_support(cast(CohortFilterGroup, value)):
+                return False
+        else:  # It's a filter
+            # Check if filter has FilterBytecodeMixin and valid bytecode
+            if hasattr(value, "bytecode") and hasattr(value, "bytecode_error"):
+                if value.bytecode is None or value.bytecode_error is not None:
+                    return False
+            else:
+                # Filter doesn't support bytecode generation
+                return False
+    return True
 
 
 class CohortFilters(BaseModel, extra="forbid"):
-    properties: Group
+    properties: CohortFilterGroup
 
 
 API_COHORT_PERSON_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
@@ -202,6 +343,7 @@ class CohortCalculationHistorySerializer(serializers.ModelSerializer):
     total_read_rows = serializers.ReadOnlyField()
     total_written_rows = serializers.ReadOnlyField()
     main_query = serializers.ReadOnlyField()
+    main_query_id = serializers.ReadOnlyField()
 
     class Meta:
         model = CohortCalculationHistory
@@ -221,6 +363,7 @@ class CohortCalculationHistorySerializer(serializers.ModelSerializer):
             "total_read_rows",
             "total_written_rows",
             "main_query",
+            "main_query_id",
         ]
 
 
@@ -241,14 +384,35 @@ class CSVConfig:
         GENERIC_ERROR = "An error occurred while processing your CSV file. Please try again or contact support if the problem persists."
 
 
+class CohortMinimalSerializer(serializers.ModelSerializer):
+    """Minimal serializer for cohort references (e.g., person cohorts endpoint)."""
+
+    class Meta:
+        model = Cohort
+        fields = ["id", "name", "count"]
+
+
+@extend_schema_field(CohortFilters)  # type: ignore[arg-type]
+class CohortFiltersField(serializers.JSONField):
+    """Custom JSONField that exposes proper OpenAPI schema for cohort filters."""
+
+    pass
+
+
 class CohortSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     earliest_timestamp_func = get_earliest_timestamp
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
-    _create_static_person_ids = serializers.ListField(required=False, child=serializers.CharField(), write_only=True)
+    _create_static_person_ids = serializers.ListField(
+        required=False, child=serializers.CharField(), write_only=True, default=[]
+    )
+
+    # Explicit filters field with proper OpenAPI schema
+    filters = CohortFiltersField(required=False, allow_null=True)
 
     # If this cohort is an exposure cohort for an experiment
     experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    last_error_message = serializers.SerializerMethodField()
 
     class Meta:
         model = Cohort
@@ -260,11 +424,14 @@ class CohortSerializer(serializers.ModelSerializer):
             "deleted",
             "filters",
             "query",
+            "version",
+            "pending_version",
             "is_calculating",
             "created_by",
             "created_at",
             "last_calculation",
             "errors_calculating",
+            "last_error_message",
             "count",
             "is_static",
             "cohort_type",
@@ -274,14 +441,38 @@ class CohortSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "version",
+            "pending_version",
             "is_calculating",
             "created_by",
             "created_at",
             "last_calculation",
             "errors_calculating",
+            "last_error_message",
             "count",
             "experiment_set",
         ]
+
+    def get_last_error_message(self, cohort: Cohort) -> Optional[str]:
+        # Prefer the annotated last_error_code when available
+        if hasattr(cohort, "last_error_code"):
+            if cohort.last_error_code:
+                return get_friendly_error_message(cohort.last_error_code)
+            return None
+
+        # Fall back to querying calculation history.
+        # Old records may have error set but error_code=NULL; get_friendly_error_message
+        # returns None for those, so they won't surface user-facing messages.
+        last_failed_calculation = (
+            CohortCalculationHistory.objects.filter(cohort=cohort)
+            .exclude(error__isnull=True)
+            .exclude(error="")
+            .order_by("-started_at")
+            .first()
+        )
+        if last_failed_calculation:
+            return get_friendly_error_message(last_failed_calculation.error_code)
+        return None
 
     def validate_cohort_type(self, value):
         """Validate that the cohort type matches the filters"""
@@ -309,15 +500,11 @@ class CohortSerializer(serializers.ModelSerializer):
         return value
 
     def _handle_static(self, cohort: Cohort, context: dict, validated_data: dict, person_ids: list[str] | None) -> None:
-        from posthog.tasks.calculate_cohort import (
-            insert_cohort_from_feature_flag,
-            insert_cohort_from_insight_filter,
-            insert_cohort_from_query,
-        )
+        from posthog.tasks.calculate_cohort import insert_cohort_from_feature_flag, insert_cohort_from_query
 
         request = self.context["request"]
-        if request.FILES.get("csv") or person_ids is not None:
-            if person_ids is not None:
+        if request.FILES.get("csv") or person_ids:
+            if person_ids:
                 uuids = [
                     str(uuid)
                     for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
@@ -331,14 +518,13 @@ class CohortSerializer(serializers.ModelSerializer):
             insert_cohort_from_feature_flag.delay(cohort.pk, context["from_feature_flag_key"], self.context["team_id"])
         elif validated_data.get("query"):
             insert_cohort_from_query.delay(cohort.pk, self.context["team_id"])
+        elif person_ids is not None:
+            # Empty list explicitly provided (e.g. MCP creating an empty static cohort to add persons later)
+            cohort.insert_users_list_by_uuid([], team_id=self.context["team_id"])
         else:
-            filter_data = request.GET.dict()
-            existing_cohort_id = context.get("from_cohort_id")
-            if existing_cohort_id:
-                filter_data = {**filter_data, "from_cohort_id": existing_cohort_id}
-            if filter_data:
-                capture_legacy_api_call(request, self.context["get_team"]())
-                insert_cohort_from_insight_filter.delay(cohort.pk, filter_data, self.context["team_id"])
+            raise ValidationError(
+                "Invalid source for static cohort. Requires a csv, feature flag, existing cohort or query."
+            )
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:
         request = self.context["request"]
@@ -348,17 +534,39 @@ class CohortSerializer(serializers.ModelSerializer):
             validated_data["is_calculating"] = True
         if validated_data.get("query") and validated_data.get("filters"):
             raise ValidationError("Cannot set both query and filters at the same time.")
+
+        # Process bytecode for filters if present
+        if validated_data.get("filters"):
+            team = Team.objects.get(id=self.context["team_id"])
+            clean_filters, computed_cohort_type, _ = validate_filters_and_compute_realtime_support(
+                validated_data["filters"], team, current_cohort_type=validated_data.get("cohort_type")
+            )
+            validated_data["filters"] = clean_filters
+            validated_data["cohort_type"] = computed_cohort_type
+
         person_ids = validated_data.pop("_create_static_person_ids", None)
         cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
 
         if cohort.is_static:
+            if (
+                self.context.get("from_cohort_id")
+                or self.context.get("from_feature_flag_key")
+                or validated_data.get("query")
+            ):
+                cohort.is_calculating = True
+                cohort.save(update_fields=["is_calculating"])
+
             self._handle_static(cohort, self.context, validated_data, person_ids)
+            # Refresh from DB to get updated count field set by _insert_users_list_with_batching
+            cohort.refresh_from_db()
         elif cohort.query is not None:
             raise ValidationError("Cannot create a dynamic cohort with a query. Set is_static to true.")
         else:
             cohort.enqueue_calculation(initiating_user=request.user)
 
-        report_user_action(request.user, "cohort created", cohort.get_analytics_metadata())
+        report_user_action(
+            request.user, "cohort created", cohort.get_analytics_metadata(), team=cohort.team, request=request
+        )
         return cohort
 
     def _parse_csv_file(self, file) -> tuple[list[str], Iterator[list[str]]]:
@@ -544,6 +752,7 @@ class CohortSerializer(serializers.ModelSerializer):
         """
         1. structural/schema check → pydantic
         2. domain rules (feature-flag gotchas) → bespoke fn
+        3. bytecode generation → add bytecode fields to filters
         """
         # Skip validation for static cohorts
         if self.initial_data.get("is_static") or getattr(self.instance, "is_static", False):
@@ -553,7 +762,11 @@ class CohortSerializer(serializers.ModelSerializer):
                 {"detail": "Must contain a 'properties' key with type and values", "type": "validation_error"}
             )
         try:
-            CohortFilters.model_validate(raw)  # raises if malformed
+            # Validate structure
+            team = self.context.get("get_team", lambda: None)()
+            validated = CohortFilters.model_validate(raw, context={"team": team})
+            raw = validated.model_dump(exclude_none=True)
+
         except PydanticValidationError as exc:
             # pydantic → drf error shape
             raise ValidationError(detail=self._cohort_error_message(exc))
@@ -593,7 +806,7 @@ class CohortSerializer(serializers.ModelSerializer):
         instance = cast(Cohort, self.instance)
         cohort_id = instance.pk
 
-        flags = FeatureFlag.objects.filter(team__project_id=self.context["project_id"], active=True, deleted=False)
+        flags = FeatureFlag.objects.filter(team__project_id=self.context["project_id"], active=True)
         cohort_used_in_flags = len([flag for flag in flags if cohort_id in flag.get_cohort_ids()]) > 0
 
         if not cohort_used_in_flags:
@@ -623,28 +836,117 @@ class CohortSerializer(serializers.ModelSerializer):
     def update(self, cohort: Cohort, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
 
+        create_in_folder = validated_data.pop("_create_in_folder", None)
+        if create_in_folder is not None:
+            cohort._create_in_folder = create_in_folder or None
+
         cohort.name = validated_data.get("name", cohort.name)
         cohort.description = validated_data.get("description", cohort.description)
         cohort.groups = validated_data.get("groups", cohort.groups)
         cohort.is_static = validated_data.get("is_static", cohort.is_static)
-        cohort.filters = validated_data.get("filters", cohort.filters)
         cohort.cohort_type = validated_data.get("cohort_type", cohort.cohort_type)
         cohort.query = validated_data.get("query", cohort.query)
+
+        # Process bytecode for filters if they're being updated
+        if "filters" in validated_data:
+            filters = validated_data["filters"]
+            if filters:
+                clean_filters, computed_cohort_type, _ = validate_filters_and_compute_realtime_support(
+                    filters, cohort.team, current_cohort_type=cohort.cohort_type, cohort_count=cohort.count
+                )
+                cohort.filters = clean_filters
+                # Always compute cohort_type from filters; ignore any client-provided value
+                cohort.cohort_type = computed_cohort_type
+            else:
+                cohort.filters = filters
 
         deleted_state = validated_data.get("deleted", None)
 
         is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state
         if is_deletion_change:
             if deleted_state:
-                flags_using_cohort = FeatureFlag.objects.filter(
-                    team__project_id=cohort.team.project_id, active=True, deleted=False
-                )
+                flags_using_cohort = FeatureFlag.objects.filter(team__project_id=cohort.team.project_id, active=True)
                 flags_with_cohort = [flag for flag in flags_using_cohort if cohort.id in flag.get_cohort_ids()]
                 if flags_with_cohort:
                     flag_names = [flag.name or flag.key for flag in flags_with_cohort]
                     raise ValidationError(
                         f"This cohort is used in {len(flags_with_cohort)} active feature flag(s): {', '.join(flag_names)}. "
                         "Please remove the cohort from these feature flags before deleting it."
+                    )
+
+                # Check if cohort is used in test_account_filters
+                teams_with_cohort = Team.objects.filter(
+                    project_id=cohort.team.project_id, test_account_filters__contains=[{"type": "cohort"}]
+                )
+                teams_using_cohort = []
+                for team in teams_with_cohort:
+                    for filter_item in team.test_account_filters:
+                        if filter_item.get("type") == "cohort" and filter_item.get("value") == cohort.id:
+                            teams_using_cohort.append(team)
+                            break
+
+                if teams_using_cohort:
+                    team_names = [team.name for team in teams_using_cohort]
+                    raise ValidationError(
+                        f"This cohort is used in 'Filter out internal and test users' for {len(teams_using_cohort)} environment(s): {', '.join(team_names)}. "
+                        "Please remove the cohort from these test account filters before deleting it."
+                    )
+
+                # Check if cohort is used in insights
+
+                # Use PostgreSQL's jsonb_path_exists for recursive JSONB searching
+                # This finds cohort references at any depth in the JSON structure
+                # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+                insights_using_cohort = Insight.objects.filter(
+                    team_id=cohort.team_id,
+                    deleted=False,
+                ).extra(
+                    where=[
+                        """jsonb_path_exists(query, '$.** ? (@.type == "cohort" && @.value == %s)', '{"cohort_id": %s}'::jsonb)
+                        OR (query->'source'->'breakdownFilter'->>'breakdown_type' = 'cohort'
+                            AND query->'source'->'breakdownFilter'->'breakdown' @> '[%s]'::jsonb)"""
+                    ],
+                    params=[cohort.id, cohort.id, cohort.id],
+                )
+
+                if insights_using_cohort.exists():
+                    count = insights_using_cohort.count()
+                    insight_names = [
+                        insight.name or insight.derived_name or "Unnamed" for insight in insights_using_cohort[:5]
+                    ]
+                    names_str = ", ".join(insight_names)
+                    if count > 5:
+                        names_str = f"{names_str}, and {count - 5} more"
+                    raise ValidationError(
+                        f"This cohort is used in {count} insight(s): {names_str}. "
+                        "Please remove the cohort from these insights before deleting it."
+                    )
+
+                # Check if cohort is used as criteria in other cohorts
+                # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+                dependent_cohorts = (
+                    Cohort.objects.filter(
+                        team__project_id=cohort.team.project_id,
+                        deleted=False,
+                    )
+                    .exclude(id=cohort.id)
+                    .extra(
+                        where=[
+                            """jsonb_path_exists(filters, '$.** ? (@.type == "cohort" && @.value == %s)', '{"cohort_id": %s}'::jsonb)"""
+                        ],
+                        params=[cohort.id, cohort.id],
+                    )
+                )
+
+                if dependent_cohorts.exists():
+                    count = dependent_cohorts.count()
+                    cohort_names = [c.name for c in dependent_cohorts[:5]]
+                    names_str = ", ".join(cohort_names)
+                    if count > 5:
+                        names_str = f"{names_str}, and {count - 5} more"
+                    raise ValidationError(
+                        f"This cohort is used as criteria in {count} other cohort(s): {names_str}. "
+                        "Please remove this cohort from those cohort definitions before deleting it."
                     )
 
             relevant_team_ids = Team.objects.filter(project_id=cohort.team.project_id).values_list("id", flat=True)
@@ -697,6 +999,8 @@ class CohortSerializer(serializers.ModelSerializer):
                 **cohort.get_analytics_metadata(),
                 "updated_by_creator": request.user == cohort.created_by,
             },
+            team=cohort.team,
+            request=request,
         )
 
         return cohort
@@ -709,6 +1013,7 @@ class CohortSerializer(serializers.ModelSerializer):
         return representation
 
 
+@extend_schema(tags=["core"])
 class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Cohort.objects.all()
     serializer_class = CohortSerializer
@@ -745,7 +1050,21 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             # add additional filters provided by the client
             queryset = self._filter_request(self.request, queryset)
 
-        return queryset.prefetch_related("experiment_set", "created_by", "team").order_by("-created_at")
+        last_error_code_subquery = Subquery(
+            CohortCalculationHistory.objects.filter(
+                cohort=OuterRef("pk"),
+                error__isnull=False,
+            )
+            .exclude(error="")
+            .order_by("-started_at")
+            .values("error_code")[:1]
+        )
+
+        return (
+            queryset.annotate(last_error_code=last_error_code_subquery)
+            .prefetch_related("experiment_set", "created_by", "team")
+            .order_by("-created_at")
+        )
 
     def _find_behavioral_cohorts(self, all_cohorts: dict[int, Cohort]) -> set[int]:
         """
@@ -805,33 +1124,6 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                     check_property_values(properties.get("values", []), cohort_id)
 
         return graph, behavioral_cohorts
-
-    @extend_schema(summary="Duplicate as static cohort", description="Create a static copy of a dynamic cohort")
-    @action(methods=["GET"], detail=True, required_scopes=["cohort:write"])
-    def duplicate_as_static_cohort(self, request: Request, **kwargs) -> Response:
-        cohort: Cohort = self.get_object()
-        team = self.team
-
-        if cohort.is_static:
-            raise ValidationError("Cannot duplicate a static cohort as a static cohort.")
-
-        cohort_serializer = CohortSerializer(
-            data={
-                "name": f"{cohort.name} (static copy)",
-                "is_static": True,
-            },
-            context={
-                "request": request,
-                "from_cohort_id": cohort.pk,
-                "team_id": team.pk,
-                "get_team": lambda: team,
-            },
-        )
-
-        cohort_serializer.is_valid(raise_exception=True)
-        cohort_serializer.save()
-
-        return Response(cohort_serializer.data)
 
     @action(
         methods=["GET"],
@@ -968,10 +1260,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         except Person.DoesNotExist:
             raise NotFound("Person with this UUID does not exist in the cohort's team")
 
-        success = cohort.remove_user_by_uuid(str(person_uuid), team_id=self.team_id)
-
-        if not success:
-            raise NotFound("Person is not part of the cohort")
+        # Remove is idempotent - succeeds even if person wasn't in cohort (handles CH/PG sync issues)
+        cohort.remove_user_by_uuid(str(person_uuid), team_id=self.team_id)
 
         log_activity(
             organization_id=cast(UUIDT, self.organization_id),
@@ -1040,13 +1330,6 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         serializer.save()
         instance = cast(Cohort, serializer.instance)
 
-        # Although there are no changes when creating a Cohort, we synthesize one here because
-        # it is helpful to show the list of people in the cohort when looking at the activity log.
-        people = instance.to_dict()["people"]
-        changes = dict_changes_between(
-            "Cohort", previous={"people": []}, new={"people": people}, use_field_exclusions=True
-        )
-
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team_id,
@@ -1055,7 +1338,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             item_id=instance.id,
             scope="Cohort",
             activity="created",
-            detail=Detail(changes=changes, name=instance.name),
+            detail=Detail(name=instance.name),
         )
 
     def perform_update(self, serializer):
@@ -1066,6 +1349,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             # Using to_dict() here serializer.save() was changing the instance in memory,
             # so we need to get the before state in a "detached" manner that won't be
             # affected by the serializer.save() call.
+            # nosemgrep: idor-lookup-without-team (ID from already team-scoped instance)
             before_update = Cohort.objects.get(pk=instance_id).to_dict()
         except Cohort.DoesNotExist:
             before_update = {}
@@ -1073,6 +1357,13 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         serializer.save()
 
         changes = dict_changes_between("Cohort", previous=before_update, new=instance.to_dict())
+        activity = "updated"
+        deleted_change = next((change for change in changes if change.field == "deleted"), None)
+        if deleted_change:
+            if bool(deleted_change.after):
+                activity = "deleted"
+            elif bool(deleted_change.before):
+                activity = "restored"
 
         log_activity(
             organization_id=self.organization.id,
@@ -1081,7 +1372,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             was_impersonated=is_impersonated_session(serializer.context["request"]),
             item_id=instance_id,
             scope="Cohort",
-            activity="updated",
+            activity=activity,
             detail=Detail(changes=changes, name=instance.name),
         )
 
@@ -1127,6 +1418,7 @@ def will_create_loops(cohort: Cohort) -> bool:
 
 
 def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
+    # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
     ids = sync_execute(
         f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} where team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
         {"cohort_id": cohort.pk, "team_id": team_id},
@@ -1138,65 +1430,6 @@ def insert_cohort_query_actors_into_ch(cohort: Cohort, *, team: Team):
     context = HogQLContext(enable_select_queries=True, team_id=team.id)
     query = print_cohort_hogql_query(cohort, context, team=team)
     insert_actors_into_cohort_by_query(cohort, query, {}, context, team_id=team.id)
-
-
-def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: dict, *, team_id: int):
-    from_existing_cohort_id = filter_data.get("from_cohort_id")
-    context: HogQLContext
-
-    if from_existing_cohort_id:
-        existing_cohort = Cohort.objects.get(pk=from_existing_cohort_id)
-        query = """
-            SELECT DISTINCT person_id as actor_id
-            FROM cohortpeople
-            WHERE team_id = %(team_id)s AND cohort_id = %(from_cohort_id)s AND version = %(version)s
-            ORDER BY person_id
-        """
-        params = {
-            "team_id": team_id,
-            "from_cohort_id": existing_cohort.pk,
-            "version": existing_cohort.version,
-        }
-        context = Filter(data=filter_data, team=cohort.team).hogql_context
-    else:
-        insight_type = filter_data.get("insight")
-        query_builder: ActorBaseQuery
-
-        if insight_type == INSIGHT_TRENDS:
-            filter = Filter(data=filter_data, team=cohort.team)
-            entity = get_target_entity(filter)
-            query_builder = TrendsActors(cohort.team, entity, filter)
-            context = filter.hogql_context
-        elif insight_type == INSIGHT_STICKINESS:
-            stickiness_filter = StickinessFilter(data=filter_data, team=cohort.team)
-            entity = get_target_entity(stickiness_filter)
-            query_builder = StickinessActors(cohort.team, entity, stickiness_filter)
-            context = stickiness_filter.hogql_context
-        elif insight_type == INSIGHT_FUNNELS:
-            funnel_filter = Filter(data=filter_data, team=cohort.team)
-            funnel_actor_class = get_funnel_actor_class(funnel_filter)
-            query_builder = funnel_actor_class(filter=funnel_filter, team=cohort.team)
-            context = funnel_filter.hogql_context
-        elif insight_type == INSIGHT_LIFECYCLE:
-            lifecycle_filter = LifecycleFilter(data=filter_data, team=cohort.team)
-            query_builder = LifecycleActors(team=cohort.team, filter=lifecycle_filter)
-            context = lifecycle_filter.hogql_context
-
-        else:
-            if settings.DEBUG:
-                raise ValueError(f"Insight type: {insight_type} not supported for cohort creation")
-            else:
-                capture_exception(Exception(f"Insight type: {insight_type} not supported for cohort creation"))
-
-        if query_builder.is_aggregating_by_groups:
-            if settings.DEBUG:
-                raise ValueError(f"Query type: Group based queries are not supported for cohort creation")
-            else:
-                capture_exception(Exception(f"Query type: Group based queries are not supported for cohort creation"))
-        else:
-            query, params = query_builder.actor_query(limit_actors=False)
-
-    insert_actors_into_cohort_by_query(cohort, query, params, context, team_id=team_id)
 
 
 def insert_actors_into_cohort_by_query(
@@ -1222,7 +1455,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
     except FeatureFlag.DoesNotExist:
         return []
 
-    if not feature_flag.active or feature_flag.deleted or feature_flag.aggregation_group_type_index is not None:
+    if not feature_flag.active or feature_flag.aggregation_group_type_index is not None:
         return []
 
     cohort = Cohort.objects.get(pk=cohort_id, team__project_id=project_id)
@@ -1270,7 +1503,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
             # )[0]
             distinct_id_subquery = Subquery(
                 PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
-                .filter(person_id=OuterRef("person_id"))
+                .filter(team_id=team_id, person_id=OuterRef("person_id"))
                 .values_list("id", flat=True)[:3]
             )
             prefetch_related_objects(

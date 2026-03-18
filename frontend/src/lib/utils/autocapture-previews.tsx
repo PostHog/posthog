@@ -10,6 +10,10 @@ interface AutocapturedImage {
     height: string | undefined
 }
 
+function isBlobImage(img: AutocapturedImage): boolean {
+    return img.src?.startsWith('blob:') || false
+}
+
 function ensureNoTrailingSlash(origin: string): string {
     if (origin.endsWith('/')) {
         return origin.slice(0, -1)
@@ -54,7 +58,7 @@ export function autocaptureToImage(elements: ElementType[] | undefined): null | 
 }
 
 function AutocaptureImage({ img }: { img: AutocapturedImage }): JSX.Element | null {
-    if (img) {
+    if (img && !isBlobImage(img)) {
         return (
             <div className="flex bg-primary items-center justify-center relative border-2">
                 {/* Transparent grid background */}

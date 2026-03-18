@@ -6,8 +6,6 @@
 
         .monaco-editor,
         .monaco-diff-editor {
-            border-radius: inherit;
-
             .overflow-guard {
                 border-radius: inherit;
             }
@@ -27,8 +25,10 @@
             display: flex;
             align-items: center;
             height: 100%;
-            padding-left: 18px;
-            color: gray;
+            padding-left: 0.5rem;
+            font-family: Menlo, Monaco, 'Courier New', monospace;
+            font-size: 12px;
+            color: var(--muted);
             pointer-events: none;
         }
     }

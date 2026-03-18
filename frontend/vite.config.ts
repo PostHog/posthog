@@ -5,6 +5,7 @@ import { defineConfig } from 'vite'
 
 // import { toolbarDenylistPlugin } from './vite-toolbar-plugin'
 import { htmlGenerationPlugin } from './vite-html-plugin'
+import { posthogJsPlugin } from './vite-posthog-js-plugin'
 import { publicAssetsPlugin } from './vite-public-assets-plugin'
 
 // https://vitejs.dev/config/
@@ -18,6 +19,8 @@ export default defineConfig(({ mode }) => {
             htmlGenerationPlugin(),
             // Copy public assets to src/assets for development
             publicAssetsPlugin(),
+            // Copy posthog-js files from node_modules to dist for development
+            posthogJsPlugin(),
             {
                 name: 'startup-message',
                 configureServer(server) {
@@ -57,10 +60,11 @@ export default defineConfig(({ mode }) => {
                 '@posthog/lemon-ui/': resolve(__dirname, '@posthog/lemon-ui/src/'),
                 // Other aliases from tsconfig.json
                 storybook: resolve(__dirname, '../.storybook'),
-                '@posthog/ee/exports': resolve(__dirname, '../ee/frontend/exports.ts'),
                 // Just for Vite: we copy public assets to src/assets, we need to alias it to the correct path
                 public: resolve(__dirname, 'src/assets'),
                 products: resolve(__dirname, '../products'),
+                '@posthog/shared-onboarding': resolve(__dirname, '../docs/onboarding'),
+                '@posthog/shared-onboarding/*': resolve(__dirname, '../docs/onboarding/*'),
                 // Node.js polyfills for browser compatibility
                 buffer: 'buffer',
             },
@@ -96,12 +100,17 @@ export default defineConfig(({ mode }) => {
         server: {
             port: 8234,
             host: process.argv.includes('--host') ? '0.0.0.0' : 'localhost',
-            cors: {
-                // Allow Django backend to access Vite dev server
-                origin: ['http://localhost:8000', 'http://localhost:8010'],
-            },
+            // this is just used in dev
+            // nosemgrep: trailofbits.javascript.apollo-graphql.v3-cors-audit.v3-potentially-bad-cors
+            cors: true, // This disables CORS in dev, key for using ngrok (e.g. for testing Slack integration)
             // Configure origin for proper asset URL generation
             origin: 'http://localhost:8234',
+            proxy: {
+                '/static': {
+                    target: 'http://localhost:8000',
+                    changeOrigin: true,
+                },
+            },
         },
         define: {
             global: 'globalThis',

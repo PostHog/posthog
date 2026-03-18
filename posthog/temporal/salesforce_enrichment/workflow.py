@@ -16,7 +16,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE, SALESFORCE_ACCOUNTS_QUERY
-from ee.billing.salesforce_enrichment.enrichment import enrich_accounts_chunked_async
+from ee.billing.salesforce_enrichment.enrichment import enrich_accounts_async
 from ee.billing.salesforce_enrichment.redis_cache import get_cached_accounts_count, store_accounts_in_redis
 from ee.billing.salesforce_enrichment.salesforce_client import get_salesforce_client
 
@@ -29,6 +29,7 @@ class SalesforceEnrichmentInputs:
 
     chunk_size: int = DEFAULT_CHUNK_SIZE
     max_chunks: int | None = None  # Optional limit for testing
+    specific_domain: str | None = None  # Debug mode: enrich single domain, skip Salesforce
 
 
 @dataclasses.dataclass
@@ -38,6 +39,7 @@ class EnrichChunkInputs:
     chunk_number: int
     chunk_size: int
     estimated_total_chunks: int | None = None  # For progress display
+    specific_domain: str | None = None  # Debug mode: enrich single domain
 
 
 @activity.defn
@@ -52,13 +54,15 @@ async def enrich_chunk_activity(inputs: EnrichChunkInputs) -> dict[str, typing.A
             "Starting Salesforce enrichment chunk",
             chunk_number=inputs.chunk_number,
             chunk_size=inputs.chunk_size,
+            specific_domain=inputs.specific_domain,
         )
 
         try:
-            result = await enrich_accounts_chunked_async(
+            result = await enrich_accounts_async(
                 chunk_number=inputs.chunk_number,
                 chunk_size=inputs.chunk_size,
                 estimated_total_chunks=inputs.estimated_total_chunks,
+                specific_domain=inputs.specific_domain,
             )
 
             return result
@@ -135,10 +139,45 @@ class SalesforceEnrichmentAsyncWorkflow(PostHogWorkflow):
 
         logger = LOGGER.bind()
         logger.info(
-            "Starting Salesforce enrichment workflow", chunk_size=inputs.chunk_size, max_chunks=inputs.max_chunks
+            "Starting Salesforce enrichment workflow",
+            chunk_size=inputs.chunk_size,
+            max_chunks=inputs.max_chunks,
+            specific_domain=inputs.specific_domain,
         )
 
-        # Cache all accounts in Redis (if not already cached)
+        # Debug mode: enrich single domain directly, skip caching and chunking
+        if inputs.specific_domain:
+            chunk_inputs = EnrichChunkInputs(
+                chunk_number=0,
+                chunk_size=1,
+                specific_domain=inputs.specific_domain,
+            )
+
+            result = await workflow.execute_activity(
+                enrich_chunk_activity,
+                chunk_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=1),  # No retries for debug
+            )
+
+            return {
+                "mode": "specific_domain",
+                "summary": result.get("summary", {}),
+                "domain": inputs.specific_domain,
+                "records_processed": result.get("records_processed", 0),
+                "records_enriched": result.get("records_enriched", 0),
+                "records_updated": result.get("records_updated", 0),
+                "enriched_data": result.get("enriched_data"),
+                "raw_harmonic_response": result.get("raw_harmonic_response"),
+                "updated_salesforce_accounts": result.get("updated_salesforce_accounts", []),
+                "field_comparison": result.get("field_comparison"),
+                "salesforce_account_id": result.get("salesforce_account_id"),
+                "salesforce_account_name": result.get("salesforce_account_name"),
+                "salesforce_updated": result.get("salesforce_updated", False),
+                "error": result.get("error"),
+            }
+
+        # Normal mode: cache all accounts in Redis (if not already cached)
         cache_result = await workflow.execute_activity(
             cache_all_accounts_activity,
             start_to_close_timeout=dt.timedelta(minutes=10),  # should take 10-30s if querying Salesforce

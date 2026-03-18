@@ -1,35 +1,20 @@
-export const UNUSED_ICONS = [
-    'IconAdvanced',
-    'IconAsterisk',
-    'IconGridMasonry',
-    'IconApps',
-    'IconRibbon',
-    'IconPulse',
-    'IconPineapple',
-    'IconPizza',
-    'IconTarget',
-    'IconThumbsUp',
-    'IconThumbsUpFilled',
-    'IconThumbsDown',
-    'IconThumbsDownFilled',
-    'IconShieldLock',
-    'IconHandwave',
-    'IconMapPin',
-    'IconWrench',
-]
-
 export const OBJECTS = {
     Misc: [
         'IconPalette',
         'IconMegaphone',
         'IconRocket',
         'IconMap',
+        'IconMapPin',
         'IconTie',
         'IconCoffee',
+        'IconBurger',
+        'IconPizza',
+        'IconPineapple',
         'IconCake',
         'IconFlag',
         'IconCreditCard',
         'IconCrown',
+        'IconRibbon',
         'IconBolt',
         'IconBook',
         'IconBookmark',
@@ -46,6 +31,7 @@ export const OBJECTS = {
         'IconBell',
         'IconBox',
         'IconBuilding',
+        'IconBed',
         'IconEye',
         'IconFeatures',
         'IconHome',
@@ -60,13 +46,11 @@ export const OBJECTS = {
         'IconRabbit',
         'IconTortoise',
         'IconStethoscope',
-        'IconCake',
         'IconClockRewind',
         'IconCollapse45Chevrons',
         'IconDatabaseBolt',
         'IconExpand45Chevrons',
         'IconFolderOpenFilled',
-        'IconFolderMove',
         'IconSquare',
         'IconTableOfContents',
         'IconTabletLandscape',
@@ -81,6 +65,7 @@ export const OBJECTS = {
         'IconPerson',
         'IconProfile',
         'IconUser',
+        'IconHandwave',
         'IconGroups',
         'IconShieldPeople',
     ],
@@ -98,7 +83,7 @@ export const OBJECTS = {
         'IconNewspaper',
         'IconAIText',
     ],
-}
+} as const
 
 export const TECHNOLOGY = {
     Workflows: [
@@ -126,6 +111,8 @@ export const TECHNOLOGY = {
         'IconMicrophone',
         'IconMouse',
         'IconKeyboard',
+        'IconHeadphones',
+        'IconTelescope',
         'IconPhone',
         'IconServer',
         'IconHardDrive',
@@ -140,6 +127,7 @@ export const TECHNOLOGY = {
         'IconCodeInsert',
         'IconPullRequest',
         'IconTerminal',
+        'IconApps',
         'IconApp',
         'IconFolder',
         'IconFolderOpen',
@@ -152,7 +140,9 @@ export const TECHNOLOGY = {
     ],
     UI: [
         'IconPassword',
+        'IconAdvanced',
         'IconToggle',
+        'IconToggleOff',
         'IconLoading',
         'IconSpinner',
         'IconBrightness',
@@ -168,6 +158,7 @@ export const TECHNOLOGY = {
         'IconListTreeConnected',
         'IconListTreeFilled',
         'IconColumns',
+        'IconGridMasonry',
         'IconBottomPanel',
         'IconSidePanel',
         'IconSidebarClose',
@@ -198,7 +189,7 @@ export const TECHNOLOGY = {
         'IconSwift',
         'IconElixir',
     ],
-}
+} as const
 
 export const ELEMENTS = {
     Actions: [
@@ -208,6 +199,7 @@ export const ELEMENTS = {
         'IconRedo',
         'IconRevert',
         'IconSearch',
+        'IconTarget',
         'IconUpload',
         'IconShare',
         'IconDownload',
@@ -222,17 +214,20 @@ export const ELEMENTS = {
         'IconSortAlpha',
         'IconExternal',
         'IconEmojiAdd',
+        'IconWrench',
     ],
     Symbols: [
         'IconLock',
         'IconUnlock',
         'IconPrivacy',
         'IconShield',
+        'IconShieldLock',
         'IconWarning',
         'IconQuestion',
         'IconInfo',
         'IconCheckCircle',
         'IconCheck',
+        'IconAsterisk',
         'IconCircleDashed',
         'IconX',
         'IconAtSign',
@@ -241,6 +236,10 @@ export const ELEMENTS = {
         'IconStopFilled',
         'IconListCheck',
         'IconEmoji',
+        'IconThumbsUp',
+        'IconThumbsUpFilled',
+        'IconThumbsDown',
+        'IconThumbsDownFilled',
     ],
     'Arrows & Shapes': [
         'IconArrowLeft',
@@ -270,6 +269,7 @@ export const ELEMENTS = {
         'IconStarHalfFilled',
         'IconHeart',
         'IconHeartFilled',
+        'IconHeartPlus',
     ],
     Mathematics: [
         'IconCalculator',
@@ -284,7 +284,7 @@ export const ELEMENTS = {
         'IconPercentage',
         'IconSquareRoot',
     ],
-}
+} as const
 
 export const TEAMS_AND_COMPANIES = {
     Analytics: [
@@ -303,8 +303,10 @@ export const TEAMS_AND_COMPANIES = {
         'IconPageChart',
         'IconSampling',
         'IconLive',
+        'IconPulse',
         'IconRefresh',
         'IconBadge',
+        'IconGroupIntersect',
     ],
     Replay: [
         'IconPlay',
@@ -319,10 +321,12 @@ export const TEAMS_AND_COMPANIES = {
         'IconRewindPlay',
         'IconVideoCamera',
     ],
-    'Feature Success': ['IconFlask', 'IconTestTube', 'IconMultivariateTesting', 'IconSplitTesting', 'IconBalance'],
-    Pipeline: ['IconWebhooks', 'IconDecisionTree'],
+    'Feature Success': ['IconFlask', 'IconTestTube', 'IconSplitTesting', 'IconBalance'],
+    Modeling: ['IconDirectedGraph'],
+    Pipeline: ['IconWebhooks', 'IconDecisionTree', 'IconEndpoints'],
     'Product OS': ['IconNotebook', 'IconHogQL', 'IconDashboard', 'IconSupport'],
-    Logos: ['IconLogomark', 'IconGithub', 'IconLinear', 'IconRedux'],
+    Logos: ['IconLogomark', 'IconGithub', 'IconGitLab', 'IconLinear', 'IconRedux'],
     ErrorTracking: ['IconIssue'],
-    LLMAnalytics: ['IconLlmAnalytics', 'IconLlmPromptEvaluation', 'IconLlmPromptManagement'],
-}
+    LLMAnalytics: ['IconLlmAnalytics', 'IconLlmPromptEvaluation', 'IconLlmPromptManagement', 'IconScatter'],
+    PostHogAI: ['IconBrain'],
+} as const

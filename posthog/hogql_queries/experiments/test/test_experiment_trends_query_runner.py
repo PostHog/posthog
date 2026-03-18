@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
@@ -16,7 +17,6 @@ from posthog.test.base import (
 from django.test import override_settings
 from django.utils import timezone
 
-from flaky import flaky
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
@@ -46,8 +46,9 @@ from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.group.util import create_group
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
-from posthog.warehouse.models.join import DataWarehouseJoin
-from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
+
+from products.data_warehouse.backend.models.join import DataWarehouseJoin
+from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 
 from ee.clickhouse.materialized_columns.columns import get_enabled_materialized_columns, materialize
 
@@ -2491,7 +2492,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [0.0, 50.0, 125.0, 125.0, 125.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0],
         )
 
-    @flaky(max_runs=10, min_passes=1)
+    @pytest.mark.flaky(reruns=9)
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_standard_flow_v2_stats(self):
         feature_flag = self.create_feature_flag()

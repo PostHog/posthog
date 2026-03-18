@@ -1,6 +1,7 @@
 import clsx from 'clsx'
+import React from 'react'
 
-import { LemonBadge, Tooltip } from '@posthog/lemon-ui'
+import { LemonBadge, Tooltip, TooltipProps } from '@posthog/lemon-ui'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
@@ -20,19 +21,23 @@ interface LabelIndicatorProps {
     label: string
     size: 'xsmall' | 'small' | 'medium' | 'large'
     tooltip?: string
+    tooltipPlacement?: TooltipProps['placement']
     className?: string
 }
 
-export function LabelIndicator({ intent, label, size, tooltip, className }: LabelIndicatorProps): JSX.Element {
+export const LabelIndicator = React.forwardRef<HTMLDivElement, LabelIndicatorProps>(function LabelIndicator(
+    { intent, label, size, tooltip, tooltipPlacement, className },
+    ref
+): JSX.Element {
     return (
-        <Tooltip title={tooltip} placement="right">
-            <div className={clsx('flex items-center', className, sizeVariants[size])}>
+        <Tooltip title={tooltip} placement={tooltipPlacement}>
+            <div ref={ref} className={clsx('flex items-center cursor-help', className, sizeVariants[size])}>
                 <LemonBadge status={intent} size="small" />
                 <div>{label}</div>
             </div>
         </Tooltip>
     )
-}
+})
 
 const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
     active: 'Active',
@@ -50,16 +55,16 @@ const STATUS_INTENT: Record<ErrorTrackingIssue['status'], Intent> = {
     suppressed: 'danger',
 }
 
-const STATUS_INTENT_LABEL: Record<ErrorTrackingIssue['status'], string> = {
-    active: 'Reopen issue',
-    suppressed: 'Suppress issue',
+export const STATUS_INTENT_LABEL: Record<ErrorTrackingIssue['status'], string> = {
+    active: 'Mark issue as active again',
+    suppressed: 'Suppress issue (new occurrences will be ignored)',
     archived: 'Archive issue',
-    pending_release: 'Resolve in next version',
-    resolved: 'Resolve issue',
+    pending_release: 'Mark issue as resolved in next version (new occurrences will re-activate it)',
+    resolved: 'Mark issue as resolved (new occurrences will re-activate it)',
 }
 
 const STATUS_TOOLTIP: Record<ErrorTrackingIssue['status'], string | undefined> = {
-    suppressed: 'Stop capturing this issue',
+    suppressed: 'New occurrences of this issue are ignored',
     active: 'Ongoing issue',
     archived: undefined,
     resolved: 'Will become active again on next occurrence',
@@ -70,24 +75,24 @@ interface StatusIndicatorProps {
     status: IssueStatus
     intent?: boolean
     size?: 'xsmall' | 'small' | 'medium' | 'large'
-    withTooltip?: boolean
+    /** Whether to show a tooltip explaining each status. If just `true`, tooltip placement defaults to `top`. */
+    withTooltip?: boolean | TooltipProps['placement']
     className?: string
 }
 
-export function StatusIndicator({
-    status,
-    size = 'small',
-    intent = false,
-    className,
-    withTooltip,
-}: StatusIndicatorProps): JSX.Element {
+export const StatusIndicator = React.forwardRef<HTMLDivElement, StatusIndicatorProps>(function StatusIndicator(
+    { status, size = 'small', intent = false, className, withTooltip },
+    ref
+): JSX.Element {
     return (
         <LabelIndicator
             intent={STATUS_INTENT[status]}
             size={size}
             label={intent ? STATUS_INTENT_LABEL[status] : STATUS_LABEL[status]}
             tooltip={withTooltip ? STATUS_TOOLTIP[status] : undefined}
+            tooltipPlacement={withTooltip ? (typeof withTooltip === 'string' ? withTooltip : 'top') : undefined}
             className={className}
+            ref={ref}
         />
     )
-}
+})

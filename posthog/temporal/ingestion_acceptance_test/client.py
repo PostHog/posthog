@@ -1,0 +1,470 @@
+"""PostHog client for acceptance tests using the official SDK."""
+
+import json
+import time
+import uuid
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any, TypeVar
+
+import requests
+import structlog
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+from .config import Config
+
+if TYPE_CHECKING:
+    from posthoganalytics import Posthog
+
+logger = structlog.get_logger(__name__)
+
+T = TypeVar("T")
+
+
+def _person_has_min_version(person: "Person | None", min_version: int | None) -> "Person | None":
+    """Return the person only if it exists and meets the minimum version requirement."""
+    if person is None:
+        return None
+    if min_version is not None:
+        person_version = person.properties.get("$test_version")
+        if person_version is None or person_version < min_version:
+            return None
+    return person
+
+
+@dataclass
+class CapturedEvent:
+    """An event retrieved from the PostHog API."""
+
+    uuid: str
+    event: str
+    distinct_id: str
+    properties: dict[str, Any]
+    timestamp: str
+
+
+@dataclass
+class Person:
+    """A person retrieved from the PostHog API."""
+
+    id: str
+    properties: dict[str, Any]
+    created_at: str
+
+
+class PostHogClient:
+    """Client for acceptance tests using the official PostHog SDK.
+
+    Uses the official SDK for event capture and custom code for HogQL queries
+    (since the SDK doesn't support querying).
+    """
+
+    # HogQL HTTP client configuration
+    HTTP_CONNECT_TIMEOUT_SECONDS = 5
+    HTTP_READ_TIMEOUT_SECONDS = 30
+    HTTP_RETRY_TOTAL = 3
+    HTTP_RETRY_BACKOFF_FACTOR = 0.5
+    HTTP_RETRY_STATUS_FORCELIST = (500, 502, 503, 504)
+
+    # SDK capture retry configuration (the SDK's own urllib3 retries don't cover
+    # POST read errors because POST is not in urllib3's default allowed_methods)
+    CAPTURE_RETRY_MAX_ATTEMPTS = 5
+    CAPTURE_RETRY_INITIAL_BACKOFF_SECONDS = 1.0
+    CAPTURE_RETRY_BACKOFF_FACTOR = 1.3
+
+    def __init__(self, config: Config, posthog_sdk: "Posthog"):
+        self.config = config
+        self._posthog = posthog_sdk
+        self._session = self._create_http_session()
+        # Store test start date for efficient event queries.
+        # ClickHouse ORDER BY uses toDate(timestamp) (day granularity), so filtering by date
+        # is sufficient. We subtract 1 day to handle clock skew between test machine and server.
+        self._test_start_date = (datetime.now(UTC) - timedelta(days=1)).date()
+
+    def _create_http_session(self) -> requests.Session:
+        """Create an HTTP session with urllib3 retry logic for transient failures."""
+        session = requests.Session()
+        retry_strategy = Retry(
+            total=self.HTTP_RETRY_TOTAL,
+            backoff_factor=self.HTTP_RETRY_BACKOFF_FACTOR,
+            status_forcelist=self.HTTP_RETRY_STATUS_FORCELIST,
+            allowed_methods=["GET", "POST"],
+            raise_on_status=False,  # We handle status codes ourselves
+            connect=self.HTTP_RETRY_TOTAL,
+            read=self.HTTP_RETRY_TOTAL,
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        return session
+
+    def _retry_on_error(self, fn: Callable[[], T], description: str) -> T:
+        """Retry a function on transient errors with exponential backoff.
+
+        Used for SDK capture calls where urllib3's built-in retries don't cover
+        POST read errors. Retries on connection errors and timeouts only.
+        No initial delay — the first attempt runs immediately. On failure, waits
+        1s, 1.3s, 1.69s, 2.2s, 2.86s (~9s total) before giving up.
+        """
+        backoff = self.CAPTURE_RETRY_INITIAL_BACKOFF_SECONDS
+        for attempt in range(self.CAPTURE_RETRY_MAX_ATTEMPTS + 1):
+            try:
+                return fn()
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+                if attempt == self.CAPTURE_RETRY_MAX_ATTEMPTS:
+                    raise
+                logger.warning(
+                    "Transient error, retrying",
+                    description=description,
+                    attempt=attempt + 1,
+                    max_attempts=self.CAPTURE_RETRY_MAX_ATTEMPTS + 1,
+                    next_backoff_seconds=backoff,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+                time.sleep(backoff)
+                backoff *= self.CAPTURE_RETRY_BACKOFF_FACTOR
+        raise RuntimeError("unreachable")
+
+    def capture_event(
+        self,
+        event_name: str,
+        distinct_id: str,
+        properties: dict[str, Any] | None = None,
+    ) -> str:
+        """Send an event using the official PostHog SDK."""
+        event_uuid = str(uuid.uuid4())
+
+        logger.info(
+            "Capturing event",
+            event_name=event_name,
+            event_uuid=event_uuid,
+            distinct_id=distinct_id,
+            sdk_host=self.config.api_host,
+        )
+
+        all_properties = {**(properties or {}), "$ignore_sent_at": True}
+
+        self._retry_on_error(
+            lambda: self._posthog.capture(
+                distinct_id=distinct_id,
+                event=event_name,
+                properties=all_properties,
+                uuid=event_uuid,
+            ),
+            description=f"capture event {event_uuid}",
+        )
+
+        logger.info("Event captured", event_uuid=event_uuid)
+
+        return event_uuid
+
+    def alias(self, alias: str, distinct_id: str) -> str:
+        """Create an alias linking alias to distinct_id.
+
+        After this call, events sent to `alias` will be associated with the same
+        person as `distinct_id`.
+
+        Returns:
+            The event UUID of the alias event.
+        """
+        event_uuid = str(uuid.uuid4())
+        logger.info("Creating alias", alias=alias, distinct_id=distinct_id, event_uuid=event_uuid)
+        self._retry_on_error(
+            lambda: self._posthog.alias(alias, distinct_id, uuid=event_uuid),
+            description=f"alias {alias} -> {distinct_id}",
+        )
+        logger.info("Alias created", alias=alias, distinct_id=distinct_id, event_uuid=event_uuid)
+        return event_uuid
+
+    def merge_dangerously(self, merge_into_distinct_id: str, merge_from_distinct_id: str) -> str:
+        """Merge two persons using $merge_dangerously.
+
+        This merges the person with `merge_from_distinct_id` INTO the person with
+        `merge_into_distinct_id`. The merge_from person will cease to exist and all
+        their events will be associated with merge_into.
+
+        WARNING: This is irreversible and has no safeguards!
+
+        Args:
+            merge_into_distinct_id: The distinct_id of the person to merge INTO (survives).
+            merge_from_distinct_id: The distinct_id of the person to BE merged (disappears).
+
+        Returns:
+            The event UUID of the merge event.
+        """
+        event_uuid = str(uuid.uuid4())
+
+        logger.info(
+            "Merging persons dangerously",
+            merge_into=merge_into_distinct_id,
+            merge_from=merge_from_distinct_id,
+            event_uuid=event_uuid,
+        )
+
+        self._retry_on_error(
+            lambda: self._posthog.capture(
+                distinct_id=merge_into_distinct_id,
+                event="$merge_dangerously",
+                properties={"alias": merge_from_distinct_id, "$ignore_sent_at": True},
+                uuid=event_uuid,
+            ),
+            description=f"merge dangerously {merge_from_distinct_id} -> {merge_into_distinct_id}",
+        )
+
+        logger.info("Merge event captured", event_uuid=event_uuid)
+
+        return event_uuid
+
+    def query_event_by_uuid(self, event_uuid: str) -> CapturedEvent | None:
+        """Query for an event by UUID, polling until found or timeout."""
+        logger.info("Querying for event", event_uuid=event_uuid)
+        return self._poll_until_found(
+            fetch_fn=lambda: self._fetch_event_by_uuid(event_uuid),
+            description=f"event UUID '{event_uuid}'",
+        )
+
+    def query_person_by_distinct_id(self, distinct_id: str, min_version: int | None = None) -> Person | None:
+        """Query for a person by distinct_id, polling until found or timeout.
+
+        Args:
+            distinct_id: The distinct_id to search for.
+            min_version: If provided, only return the person if their $test_version
+                property is >= this value. This helps ensure eventual consistency by
+                waiting for person updates to propagate.
+        """
+        logger.info("Querying for person", distinct_id=distinct_id, min_version=min_version)
+        return self._poll_until_found(
+            fetch_fn=lambda: _person_has_min_version(self._fetch_person_by_distinct_id(distinct_id), min_version),
+            description=f"person with distinct_id '{distinct_id}'",
+        )
+
+    def query_events_by_person_id(self, person_id: str, expected_event_uuids: set[str]) -> list[CapturedEvent] | None:
+        """Query for events by person_id, polling until all expected UUIDs are found or timeout.
+
+        Args:
+            person_id: The person ID to search events for.
+            expected_event_uuids: Set of event UUIDs that must all be present.
+
+        Returns:
+            List of events if all expected UUIDs are found, None if timeout.
+        """
+        logger.info(
+            "Querying for events by person",
+            person_id=person_id,
+            expected_event_uuids=expected_event_uuids,
+        )
+        return self._poll_until_found(
+            fetch_fn=lambda: self._fetch_events_by_person_id(person_id, expected_event_uuids),
+            description=f"events for person '{person_id}'",
+        )
+
+    def shutdown(self) -> None:
+        """Shutdown the client and flush any pending events."""
+        self._posthog.shutdown()
+        self._session.close()
+
+    # Polling configuration
+    POLL_BACKOFF_FACTOR = 1.5
+    POLL_MAX_INTERVAL_SECONDS = 60.0
+
+    def _poll_until_found(
+        self,
+        fetch_fn: Callable[[], T | None],
+        description: str,
+    ) -> T | None:
+        """Poll until fetch_fn returns a non-None result or timeout.
+
+        Sleeps before each request with exponential backoff to reduce query pressure
+        and increase likelihood of success on first call. Transient connection errors
+        are caught and logged, allowing polling to continue.
+        """
+        start_time = time.time()
+        current_interval = self.config.poll_interval_seconds
+        attempt = 0
+
+        while time.time() - start_time < self.config.event_timeout_seconds:
+            attempt += 1
+            time.sleep(current_interval)
+            if attempt > 1:
+                elapsed = time.time() - start_time
+                logger.info(
+                    "Polling attempt",
+                    attempt=attempt,
+                    description=description,
+                    elapsed_seconds=round(elapsed, 1),
+                    next_interval_seconds=round(current_interval, 1),
+                )
+            try:
+                result = fetch_fn()
+                if result is not None:
+                    elapsed = time.time() - start_time
+                    logger.info(
+                        "Polling succeeded",
+                        description=description,
+                        attempt=attempt,
+                        elapsed_seconds=round(elapsed, 1),
+                    )
+                    return result
+            except requests.exceptions.RequestException as e:
+                logger.warning(
+                    "Transient error during polling, will retry",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    description=description,
+                    attempt=attempt,
+                )
+            current_interval = min(
+                current_interval * self.POLL_BACKOFF_FACTOR,
+                self.POLL_MAX_INTERVAL_SECONDS,
+                self.config.event_timeout_seconds - (time.time() - start_time),
+            )
+
+        logger.warning(
+            "Polling timed out",
+            description=description,
+            timeout_seconds=self.config.event_timeout_seconds,
+            attempts=attempt,
+        )
+        return None
+
+    def _execute_hogql_query(self, query: str, values: dict[str, Any]) -> dict[str, Any] | None:
+        """Execute a HogQL query and return the first row as a dict, or None if no results."""
+        rows = self._execute_hogql_query_all(query, values)
+        if not rows:
+            return None
+        return rows[0]
+
+    def _execute_hogql_query_all(self, query: str, values: dict[str, Any]) -> list[dict[str, Any]]:
+        """Execute a HogQL query and return all rows as a list of dicts.
+
+        Uses a session with urllib3 retry on transient HTTP errors (5xx, connection, read).
+        """
+        url = f"{self.config.api_host}/api/projects/{self.config.project_id}/query/"
+
+        response = self._session.post(
+            url,
+            json={
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": query,
+                    "values": values,
+                },
+                "refresh": "force_blocking",
+            },
+            headers={"Authorization": f"Bearer {self.config.personal_api_key}"},
+            timeout=(self.HTTP_CONNECT_TIMEOUT_SECONDS, self.HTTP_READ_TIMEOUT_SECONDS),
+        )
+
+        if response.status_code == 404:
+            return []
+
+        response.raise_for_status()
+        data = response.json()
+
+        results = data.get("results", [])
+        columns = data.get("columns", [])
+        return [dict(zip(columns, row, strict=True)) for row in results]
+
+    def _fetch_event_by_uuid(self, event_uuid: str) -> CapturedEvent | None:
+        """Fetch an event by UUID.
+
+        Includes a timestamp filter to benefit from ClickHouse's table partitioning
+        (PARTITION BY toYYYYMM(timestamp)) and ordering (ORDER BY includes toDate(timestamp)).
+        """
+        query = """
+            SELECT uuid, event, distinct_id, properties, timestamp
+            FROM events
+            WHERE uuid = {event_uuid}
+              AND timestamp >= {min_timestamp}
+            LIMIT 1
+        """
+
+        row = self._execute_hogql_query(
+            query,
+            {
+                "event_uuid": event_uuid,
+                "min_timestamp": self._test_start_date.isoformat(),
+            },
+        )
+        if not row:
+            return None
+
+        properties = row.get("properties", {})
+        if isinstance(properties, str):
+            properties = json.loads(properties)
+
+        return CapturedEvent(
+            uuid=row.get("uuid", ""),
+            event=row.get("event", ""),
+            distinct_id=row.get("distinct_id", ""),
+            properties=properties,
+            timestamp=row.get("timestamp", ""),
+        )
+
+    def _fetch_person_by_distinct_id(self, distinct_id: str) -> Person | None:
+        """Fetch a person by distinct_id."""
+        query = """
+            SELECT p.id, p.properties, p.created_at
+            FROM persons p
+            JOIN person_distinct_ids pdi ON p.id = pdi.person_id
+            WHERE pdi.distinct_id = {distinct_id}
+            LIMIT 1
+        """
+
+        row = self._execute_hogql_query(query, {"distinct_id": distinct_id})
+        if not row:
+            return None
+
+        properties = row.get("properties", {})
+        if isinstance(properties, str):
+            properties = json.loads(properties)
+
+        return Person(
+            id=row.get("id", ""),
+            properties=properties,
+            created_at=row.get("created_at", ""),
+        )
+
+    def _fetch_events_by_person_id(self, person_id: str, expected_event_uuids: set[str]) -> list[CapturedEvent] | None:
+        """Fetch events by person_id. Returns None if not all expected UUIDs are found.
+
+        Includes a timestamp filter to benefit from ClickHouse's table partitioning
+        (PARTITION BY toYYYYMM(timestamp)) and ordering (ORDER BY includes toDate(timestamp)).
+        """
+        query = """
+            SELECT uuid, event, distinct_id, properties, timestamp
+            FROM events
+            WHERE person_id = {person_id}
+              AND timestamp >= {min_timestamp}
+            ORDER BY timestamp ASC
+        """
+
+        rows = self._execute_hogql_query_all(
+            query,
+            {
+                "person_id": person_id,
+                "min_timestamp": self._test_start_date.isoformat(),
+            },
+        )
+        found_uuids = {row.get("uuid", "") for row in rows}
+        if not expected_event_uuids.issubset(found_uuids):
+            return None
+
+        events = []
+        for row in rows:
+            properties = row.get("properties", {})
+            if isinstance(properties, str):
+                properties = json.loads(properties)
+            events.append(
+                CapturedEvent(
+                    uuid=row.get("uuid", ""),
+                    event=row.get("event", ""),
+                    distinct_id=row.get("distinct_id", ""),
+                    properties=properties,
+                    timestamp=row.get("timestamp", ""),
+                )
+            )
+        return events

@@ -5,8 +5,13 @@ import structlog
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.cohort.cohort import Cohort
+from posthog.models.person import Person
+from posthog.person_db_router import PERSONS_DB_FOR_READ
 
 logger = structlog.get_logger(__name__)
+
+# Use centralized database routing constant
+READ_DB_FOR_PERSONS = PERSONS_DB_FOR_READ
 
 BATCH_SIZE = 10000
 PROD_US_CUTOFF = "2025-10-01 00:00:00"
@@ -39,13 +44,8 @@ class Command(BaseCommand):
 
         self.stdout.write(f"Configuration: batch_size={batch_size}, start_date={start_date}")
 
-        # Determine the correct database connection for persons
-        if "persons_db_reader" in connections:
-            persons_db = "persons_db_reader"
-        elif "replica" in connections:
-            persons_db = "replica"
-        else:
-            persons_db = "default"
+        # Use persons database for reading person data
+        persons_db = READ_DB_FOR_PERSONS
 
         self.stdout.write(f"Using database connection: {persons_db}")
         self.stdout.write(f"Starting cohort people sync for records after {start_date}")
@@ -118,8 +118,9 @@ class Command(BaseCommand):
 
                 # Get person ID mappings from persons database for this batch
                 person_uuid_to_id = {}
+                person_table = Person._meta.db_table
                 with person_connection.cursor() as cursor:
-                    cursor.execute("SELECT uuid, id FROM posthog_person WHERE uuid = ANY(%s)", [ch_person_uuids])
+                    cursor.execute(f"SELECT uuid, id FROM {person_table} WHERE uuid = ANY(%s)", [ch_person_uuids])
                     for uuid, person_id in cursor.fetchall():
                         person_uuid_to_id[str(uuid)] = person_id
 

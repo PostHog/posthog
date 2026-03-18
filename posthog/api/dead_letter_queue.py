@@ -196,6 +196,7 @@ def get_dead_letter_queue_size(
 ) -> int:
     where_clause, args = _build_where_clause_and_args(after_datetime, before_datetime)
 
+    # nosemgrep: clickhouse-fstring-param-audit - where_clause from internal builder, values parameterized
     return sync_execute(
         f"SELECT count(*) FROM events_dead_letter_queue {where_clause}",
         args,
@@ -207,6 +208,7 @@ def get_dlq_last_error_timestamp(
 ) -> int:
     where_clause, args = _build_where_clause_and_args(after_datetime, before_datetime)
 
+    # nosemgrep: clickhouse-fstring-param-audit - where_clause from internal builder, values parameterized
     ts = sync_execute(
         f"SELECT max(error_timestamp) FROM events_dead_letter_queue {where_clause}",
         args,
@@ -221,6 +223,7 @@ def get_dead_letter_queue_events(
 ) -> list[dict[str, Any]]:
     where_clause, args = _build_where_clause_and_args(after_datetime, before_datetime, limit=ROWS_LIMIT, offset=offset)
 
+    # nosemgrep: clickhouse-fstring-param-audit - where_clause from internal builder, values parameterized
     return sync_execute(
         f"""
         SELECT
@@ -257,6 +260,7 @@ def get_dead_letter_queue_events_per_error(
 ) -> list[Union[str, int]]:
     where_clause, args = _build_where_clause_and_args(after_datetime, before_datetime, limit=ROWS_LIMIT, offset=offset)
 
+    # nosemgrep: clickhouse-fstring-param-audit - where_clause from internal builder, values parameterized
     return sync_execute(
         f"""
         SELECT error, count(*) AS c
@@ -276,6 +280,7 @@ def get_dead_letter_queue_events_per_location(
 ) -> list[Union[str, int]]:
     where_clause, args = _build_where_clause_and_args(after_datetime, before_datetime, limit=ROWS_LIMIT, offset=offset)
 
+    # nosemgrep: clickhouse-fstring-param-audit - where_clause from internal builder, values parameterized
     return sync_execute(
         f"""
         SELECT error_location, count(*) AS c
@@ -295,6 +300,7 @@ def get_dead_letter_queue_events_per_day(
 ) -> list[Union[str, int]]:
     where_clause, args = _build_where_clause_and_args(after_datetime, before_datetime, limit=ROWS_LIMIT, offset=offset)
 
+    # nosemgrep: clickhouse-fstring-param-audit - where_clause from internal builder, values parameterized
     return sync_execute(
         f"""
         SELECT toDate(error_timestamp) as day, count(*) AS c
@@ -314,6 +320,7 @@ def get_dead_letter_queue_events_per_tag(
 ) -> list[Union[str, int]]:
     where_clause, args = _build_where_clause_and_args(after_datetime, before_datetime, limit=ROWS_LIMIT, offset=offset)
 
+    # nosemgrep: clickhouse-fstring-param-audit - where_clause from internal builder, values parameterized
     return sync_execute(
         f"""
         SELECT arrayJoin(tags) as tag, count(*) as c from events_dead_letter_queue

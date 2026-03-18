@@ -1,67 +1,33 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconArrowLeft, IconArrowRight, IconChatHelp, IconCopy } from '@posthog/icons'
+import { IconArrowLeft, IconArrowRight, IconCopy } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonInput, LemonModal, LemonTabs, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { InviteMembersButton } from 'lib/components/Account/InviteMembersButton'
-import { supportLogic } from 'lib/components/Support/supportLogic'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { OnboardingStepKey, ProductKey, type SDK, SDKInstructionsMap, SDKTag, SidePanelTab } from '~/types'
+import { OnboardingStepKey, type SDK, SDKInstructionsMap, SDKTag, SDKTagOverrides } from '~/types'
 
+import { OnboardingStepComponentType, onboardingLogic } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
-import { onboardingLogic } from '../onboardingLogic'
-import { RealtimeCheckIndicator } from './RealtimeCheckIndicator'
-import { SDKSnippet } from './SDKSnippet'
+import { type AdblockDetectionResult, useAdblockDetection } from './hooks/useAdblockDetection'
 import { useInstallationComplete } from './hooks/useInstallationComplete'
+import { AdblockWarning, RealtimeCheckIndicator } from './RealtimeCheckIndicator'
 import { sdksLogic } from './sdksLogic'
+import { SDKSnippet } from './SDKSnippet'
 
-export type SDKsProps = {
+interface SDKInstructionsModalProps {
+    isOpen: boolean
+    onClose: () => void
+    sdk?: SDK
     sdkInstructionMap: SDKInstructionsMap
-    productKey: ProductKey
-    stepKey?: OnboardingStepKey
-    listeningForName?: string
-    teamPropertyToVerify?: string
-}
-
-const NextButton = ({
-    installationComplete,
-    size = 'medium',
-}: {
-    installationComplete: boolean
-    size?: 'small' | 'medium'
-}): JSX.Element => {
-    const { hasNextStep } = useValues(onboardingLogic)
-    const { completeOnboarding, goToNextStep } = useActions(onboardingLogic)
-
-    if (!installationComplete) {
-        return (
-            <LemonButton
-                type="secondary"
-                size={size}
-                onClick={() => (!hasNextStep ? completeOnboarding() : goToNextStep())}
-            >
-                Skip installation
-            </LemonButton>
-        )
-    }
-
-    return (
-        <LemonButton
-            data-attr="sdk-continue"
-            sideIcon={hasNextStep ? <IconArrowRight /> : null}
-            type="primary"
-            status="alt"
-            onClick={() => (!hasNextStep ? completeOnboarding() : goToNextStep())}
-        >
-            Continue
-        </LemonButton>
-    )
+    adblockResult: AdblockDetectionResult
+    verifyingProperty?: string
+    verifyingName?: string
 }
 
 export function SDKInstructionsModal({
@@ -69,18 +35,10 @@ export function SDKInstructionsModal({
     onClose,
     sdk,
     sdkInstructionMap,
-    productKey,
+    adblockResult,
     verifyingProperty = 'ingested_event',
     verifyingName = 'event',
-}: {
-    isOpen: boolean
-    onClose: () => void
-    sdk?: SDK
-    sdkInstructionMap: SDKInstructionsMap
-    productKey: ProductKey
-    verifyingProperty?: string
-    verifyingName?: string
-}): JSX.Element {
+}: SDKInstructionsModalProps): JSX.Element {
     const installationComplete = useInstallationComplete(verifyingProperty)
 
     const sdkInstructions = sdkInstructionMap[sdk?.key as keyof typeof sdkInstructionMap] as
@@ -99,8 +57,13 @@ export function SDKInstructionsModal({
                         </LemonButton>
                     </header>
                     <div className="flex-grow overflow-y-auto px-4 py-2">
-                        <SDKSnippet sdk={sdk} sdkInstructions={sdkInstructions} productKey={productKey} />
+                        <SDKSnippet sdk={sdk} sdkInstructions={sdkInstructions} />
                     </div>
+                    {!installationComplete && (
+                        <div className="px-4 py-2">
+                            <AdblockWarning adblockResult={adblockResult} />
+                        </div>
+                    )}
                     <footer className="sticky bottom-0 w-full bg-bg-light dark:bg-bg-depth rounded-b-sm p-2 flex justify-between items-center gap-2 px-4">
                         <RealtimeCheckIndicator
                             teamPropertyToVerify={verifyingProperty}
@@ -113,34 +76,48 @@ export function SDKInstructionsModal({
         </LemonModal>
     )
 }
-export function OnboardingInstallStep({
+
+interface OnboardingInstallStepProps {
+    sdkInstructionMap: SDKInstructionsMap
+    sdkTagOverrides?: SDKTagOverrides
+    listeningForName?: string
+    teamPropertyToVerify?: string
+    header?: React.ReactNode
+}
+
+export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstallStepProps> = ({
     sdkInstructionMap,
-    productKey,
-    stepKey = OnboardingStepKey.INSTALL,
+    sdkTagOverrides,
     listeningForName = 'event',
     teamPropertyToVerify = 'ingested_event',
-}: SDKsProps): JSX.Element {
-    const { setAvailableSDKInstructionsMap, selectSDK, setSearchTerm, setSelectedTag } = useActions(sdksLogic)
+    header,
+}) => {
+    const { setAvailableSDKInstructionsMap, setSDKTagOverrides, selectSDK, setSearchTerm, setSelectedTag } =
+        useActions(sdksLogic)
     const { filteredSDKs, selectedSDK, tags, searchTerm, selectedTag } = useValues(sdksLogic)
     const [instructionsModalOpen, setInstructionsModalOpen] = useState(false)
-    const { closeSidePanel } = useActions(sidePanelStateLogic)
-    const { selectedTab, sidePanelOpen } = useValues(sidePanelStateLogic)
-    const { openSupportForm } = useActions(supportLogic)
-    const { isCloudOrDev } = useValues(preflightLogic)
     const { currentTeam } = useValues(teamLogic)
-    const supportFormInOnboarding = useFeatureFlag('SUPPORT_FORM_IN_ONBOARDING')
 
     const installationComplete = useInstallationComplete(teamPropertyToVerify)
+    const adblockResult = useAdblockDetection()
+    const isSkipButtonExperiment = useFeatureFlag('ONBOARDING_SKIP_INSTALL_STEP', 'test')
 
     useEffect(() => {
+        setSDKTagOverrides(sdkTagOverrides ?? {})
         setAvailableSDKInstructionsMap(sdkInstructionMap)
-    }, [sdkInstructionMap, setAvailableSDKInstructionsMap])
+    }, [sdkInstructionMap, sdkTagOverrides, setAvailableSDKInstructionsMap, setSDKTagOverrides])
+
+    // In the experiment, show skip at bottom only when installation is NOT complete
+    const showSkipAtBottom = isSkipButtonExperiment && !installationComplete
+    // In the experiment, hide the top skip button (but still show Continue when installation is complete)
+    const showTopSkipButton = !isSkipButtonExperiment || installationComplete
 
     return (
         <OnboardingStep
             title="Install"
-            stepKey={stepKey}
-            continueOverride={<NextButton installationComplete={installationComplete} />}
+            stepKey={OnboardingStepKey.INSTALL}
+            continueDisabledReason={!installationComplete ? 'Installation is not complete' : undefined}
+            showSkip={showSkipAtBottom}
             actions={
                 <div className="pr-2">
                     <RealtimeCheckIndicator
@@ -150,6 +127,8 @@ export function OnboardingInstallStep({
                 </div>
             }
         >
+            {header}
+            {!installationComplete && <AdblockWarning adblockResult={adblockResult} />}
             <div className="flex flex-col gap-y-4 mt-6">
                 <div className="flex flex-col gap-y-2">
                     <div className="flex flex-col-reverse md:flex-row justify-between gap-4">
@@ -163,11 +142,11 @@ export function OnboardingInstallStep({
                             <LemonButton
                                 size="small"
                                 type="primary"
-                                onClick={() => void copyToClipboard(currentTeam?.api_token || '', 'Project API key')}
+                                onClick={() => void copyToClipboard(currentTeam?.api_token || '', 'Project token')}
                                 icon={<IconCopy />}
-                                data-attr="copy-api-key"
+                                data-attr="copy-project-token"
                             >
-                                Copy API key
+                                Copy project token
                             </LemonButton>
                             <InviteMembersButton
                                 type="primary"
@@ -175,26 +154,9 @@ export function OnboardingInstallStep({
                                 fullWidth={false}
                                 text="Invite developer"
                             />
-                            {isCloudOrDev && supportFormInOnboarding && (
-                                <LemonButton
-                                    size="small"
-                                    type="primary"
-                                    icon={<IconChatHelp />}
-                                    onClick={() =>
-                                        selectedTab === SidePanelTab.Support && sidePanelOpen
-                                            ? closeSidePanel()
-                                            : openSupportForm({
-                                                  kind: 'support',
-                                                  target_area: 'onboarding',
-                                                  isEmailFormOpen: true,
-                                                  severity_level: 'low',
-                                              })
-                                    }
-                                >
-                                    Get help
-                                </LemonButton>
+                            {showTopSkipButton && (
+                                <NextButton size="small" installationComplete={installationComplete} />
                             )}
-                            <NextButton size="small" installationComplete={installationComplete} />
                         </div>
                     </div>
                     <LemonTabs
@@ -215,16 +177,40 @@ export function OnboardingInstallStep({
                                     setInstructionsModalOpen(true)
                                 }}
                             >
-                                {typeof sdk.image === 'string' ? (
-                                    <img src={sdk.image} className="w-8 h-8 mb-2" alt={`${sdk.name} logo`} />
-                                ) : typeof sdk.image === 'object' && 'default' in sdk.image ? (
-                                    <img src={sdk.image.default} className="w-8 h-8 mb-2" alt={`${sdk.name} logo`} />
-                                ) : (
-                                    sdk.image
-                                )}
+                                <div className="w-8 h-8 mb-2">
+                                    {typeof sdk.image === 'string' ? (
+                                        <img src={sdk.image} className="w-8 h-8" alt={`${sdk.name} logo`} />
+                                    ) : typeof sdk.image === 'object' && 'default' in sdk.image ? (
+                                        <img src={sdk.image.default} className="w-8 h-8" alt={`${sdk.name} logo`} />
+                                    ) : (
+                                        sdk.image
+                                    )}
+                                </div>
+
                                 <strong>{sdk.name}</strong>
                             </LemonCard>
                         ))}
+
+                        {/* This will open a survey to collect feedback on the SDKs we don't support yet */}
+                        {/* https://us.posthog.com/project/2/surveys/019b47ab-5f19-0000-7f31-4f9681cde589 */}
+                        {searchTerm && (
+                            <LemonCard className="p-4 cursor-pointer flex flex-col items-start justify-center col-span-1 sm:col-span-2">
+                                <div className="flex flex-col items-start gap-2">
+                                    <span className="mb-2 text-muted">
+                                        Don&apos;t see your SDK listed? We are always looking to expand our list of
+                                        supported SDKs.
+                                    </span>
+                                    <LemonButton
+                                        data-attr="onboarding-reach-out-to-us-button"
+                                        type="secondary"
+                                        size="small"
+                                        targetBlank
+                                    >
+                                        Reach out to us
+                                    </LemonButton>
+                                </div>
+                            </LemonCard>
+                        )}
                     </div>
                 </div>
             </div>
@@ -235,11 +221,55 @@ export function OnboardingInstallStep({
                     onClose={() => setInstructionsModalOpen(false)}
                     sdk={selectedSDK}
                     sdkInstructionMap={sdkInstructionMap}
-                    productKey={productKey}
+                    adblockResult={adblockResult}
                     verifyingProperty={teamPropertyToVerify}
                     verifyingName={listeningForName}
                 />
             )}
         </OnboardingStep>
+    )
+}
+
+OnboardingInstallStep.stepKey = OnboardingStepKey.INSTALL
+
+interface NextButtonProps {
+    installationComplete: boolean
+    size?: 'small' | 'medium'
+}
+
+const NextButton = ({ installationComplete, size = 'medium' }: NextButtonProps): JSX.Element => {
+    const { hasNextStep } = useValues(onboardingLogic)
+    const { completeOnboarding, goToNextStep } = useActions(onboardingLogic)
+    const { reportOnboardingStepCompleted, reportOnboardingStepSkipped } = useActions(eventUsageLogic)
+
+    const advance = !hasNextStep ? completeOnboarding : goToNextStep
+    const skipInstallation = (): void => {
+        reportOnboardingStepSkipped(OnboardingStepKey.INSTALL)
+        advance()
+    }
+
+    const continueInstallation = (): void => {
+        reportOnboardingStepCompleted(OnboardingStepKey.INSTALL)
+        advance()
+    }
+
+    if (!installationComplete) {
+        return (
+            <LemonButton type="secondary" size={size} onClick={skipInstallation}>
+                Skip installation
+            </LemonButton>
+        )
+    }
+
+    return (
+        <LemonButton
+            data-attr="sdk-continue"
+            sideIcon={hasNextStep ? <IconArrowRight /> : null}
+            type="primary"
+            status="alt"
+            onClick={continueInstallation}
+        >
+            Next
+        </LemonButton>
     )
 }

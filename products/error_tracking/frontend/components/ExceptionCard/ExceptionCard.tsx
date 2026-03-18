@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { IconLogomark } from '@posthog/icons'
 import { LemonCard } from '@posthog/lemon-ui'
@@ -9,60 +9,69 @@ import { ErrorEventType } from 'lib/components/Errors/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 
-import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
-
 import { releasePreviewLogic } from '../ExceptionAttributesPreview/ReleasesPreview/releasePreviewLogic'
+import { exceptionCardLogic } from './exceptionCardLogic'
 import { PropertiesTab } from './Tabs/PropertiesTab'
 import { SessionTab } from './Tabs/SessionTab'
-import { StacktraceTab } from './Tabs/StacktraceTab'
-import { exceptionCardLogic } from './exceptionCardLogic'
+import { StackTraceTab } from './Tabs/StackTraceTab'
 
 interface ExceptionCardContentProps {
-    issue?: ErrorTrackingRelationalIssue
-    issueLoading: boolean
     timestamp?: string
     label?: JSX.Element
+
+    renderStackTraceActions?: () => JSX.Element | null
 }
 
-export interface ExceptionCardProps extends Omit<ExceptionCardContentProps, 'timestamp'> {
+export interface ExceptionCardProps extends ExceptionCardContentProps {
+    issueId: string
+    issueName: string | null
     event?: ErrorEventType
-    eventLoading: boolean
+    loading: boolean
 }
 
-export function ExceptionCard({ issue, issueLoading, event, eventLoading, label }: ExceptionCardProps): JSX.Element {
-    const { setLoading } = useActions(exceptionCardLogic)
+export function ExceptionCard({
+    issueId,
+    issueName,
+    event,
+    loading,
+    ...contentProps
+}: ExceptionCardProps): JSX.Element {
+    const cardLogicProps = useMemo(() => ({ issueId }), [issueId])
+    const { setLoading } = useActions(exceptionCardLogic(cardLogicProps))
 
     useEffect(() => {
-        setLoading(eventLoading)
-    }, [setLoading, eventLoading])
+        setLoading(loading)
+    }, [setLoading, loading])
 
-    const props = {
-        properties: event?.properties,
-        id: event?.uuid ?? issue?.id ?? 'error',
-    } as ErrorPropertiesLogicProps
+    const eventProps = useMemo(
+        () =>
+            ({
+                properties: event?.properties,
+                id: event?.uuid ?? issueId ?? 'error',
+            }) as ErrorPropertiesLogicProps,
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [event?.uuid ?? issueId]
+    )
 
     return (
-        <BindLogic logic={errorPropertiesLogic} props={props}>
-            <BindLogic logic={releasePreviewLogic} props={props}>
-                <ExceptionCardContent
-                    issue={issue}
-                    timestamp={event?.timestamp}
-                    issueLoading={issueLoading}
-                    label={label}
-                />
+        <BindLogic logic={exceptionCardLogic} props={cardLogicProps}>
+            <BindLogic logic={errorPropertiesLogic} props={eventProps}>
+                <BindLogic logic={releasePreviewLogic} props={eventProps}>
+                    <ExceptionCardContent timestamp={event?.timestamp} {...contentProps} />
+                </BindLogic>
             </BindLogic>
         </BindLogic>
     )
 }
 
-function ExceptionCardContent({ issue, issueLoading, timestamp, label }: ExceptionCardContentProps): JSX.Element {
+function ExceptionCardContent({ timestamp, renderStackTraceActions, label }: ExceptionCardContentProps): JSX.Element {
     const { currentTab } = useValues(exceptionCardLogic)
     const { setCurrentTab } = useActions(exceptionCardLogic)
 
     return (
-        <LemonCard hoverEffect={false} className="p-0 relative overflow-hidden">
-            <TabsPrimitive value={currentTab} onValueChange={setCurrentTab}>
-                <div className="flex justify-between h-[2rem] items-center w-full px-2 border-b">
+        <LemonCard hoverEffect={false} className="p-0 relative w-full h-full border-0 rounded-none flex flex-col">
+            <TabsPrimitive value={currentTab} onValueChange={setCurrentTab} className="flex flex-col flex-1 min-h-0">
+                <div className="flex justify-between h-[2rem] items-center w-full px-2 border-b shrink-0">
                     <TabsPrimitiveList className="flex justify-between w-full h-full items-center">
                         <div className="w-full h-full">
                             <div className="flex items-center gap-1 text-lg h-full">
@@ -71,13 +80,13 @@ function ExceptionCardContent({ issue, issueLoading, timestamp, label }: Excepti
                             </div>
                         </div>
                         <div className="flex gap-2 w-full justify-center h-full">
-                            <TabsPrimitiveTrigger className="px-2" value="stacktrace">
-                                Stacktrace
+                            <TabsPrimitiveTrigger className="px-2 whitespace-nowrap" value="stack_trace">
+                                Stack Trace
                             </TabsPrimitiveTrigger>
-                            <TabsPrimitiveTrigger className="px-2" value="properties">
+                            <TabsPrimitiveTrigger className="px-2 whitespace-nowrap" value="properties">
                                 Properties
                             </TabsPrimitiveTrigger>
-                            <TabsPrimitiveTrigger className="px-2" value="session">
+                            <TabsPrimitiveTrigger className="px-2 whitespace-nowrap" value="session">
                                 Session
                             </TabsPrimitiveTrigger>
                         </div>
@@ -87,9 +96,9 @@ function ExceptionCardContent({ issue, issueLoading, timestamp, label }: Excepti
                         </div>
                     </TabsPrimitiveList>
                 </div>
-                <StacktraceTab value="stacktrace" issue={issue} issueLoading={issueLoading} timestamp={timestamp} />
-                <PropertiesTab value="properties" />
-                <SessionTab value="session" timestamp={timestamp} />
+                <StackTraceTab value="stack_trace" renderActions={renderStackTraceActions} className="flex-1 min-h-0" />
+                <PropertiesTab value="properties" className="flex-1 min-h-0" />
+                <SessionTab value="session" timestamp={timestamp} className="flex-1 min-h-0" />
             </TabsPrimitive>
         </LemonCard>
     )

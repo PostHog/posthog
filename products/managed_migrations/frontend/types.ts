@@ -1,9 +1,12 @@
+export type ManagedMigrationStatus = 'paused' | 'completed' | 'running' | 'failed' | 'waiting_to_start'
+
 export interface BaseManagedMigration {
     id: string
     access_key: string
     secret_key: string
     content_type: 'captured' | 'mixpanel' | 'amplitude'
-    status: 'paused' | 'completed' | 'running' | 'failed'
+    status: ManagedMigrationStatus
+    display_status: ManagedMigrationStatus
     created_by: {
         id: number
         uuid: string
@@ -29,10 +32,17 @@ export interface S3ManagedMigration extends BaseManagedMigration {
     s3_prefix: string
 }
 
+export interface S3GzipManagedMigration extends BaseManagedMigration {
+    source_type: 's3_gzip'
+    s3_region: string
+    s3_bucket: string
+    s3_prefix: string
+}
+
 export interface DateRangeManagedMigration extends BaseManagedMigration {
     source_type: 'mixpanel' | 'amplitude' | 'date_range_export'
     start_date: string
     end_date: string
 }
 
-export type ManagedMigration = S3ManagedMigration | DateRangeManagedMigration
+export type ManagedMigration = S3ManagedMigration | S3GzipManagedMigration | DateRangeManagedMigration

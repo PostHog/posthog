@@ -274,6 +274,7 @@ describe('seriesBreakdownLogic', () => {
         })
 
         builtDataVizLogic.actions.updateXSeries('event')
+        builtDataVizLogic.actions.addYSeries('total_count')
 
         logic.actions.addSeriesBreakdown('browser')
 

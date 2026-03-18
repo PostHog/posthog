@@ -17,61 +17,48 @@ import snowflake.connector
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from snowflake.connector.connection import SnowflakeConnection
+from snowflake.connector.constants import FIELD_ID_TO_NAME, QueryStatus
 from snowflake.connector.cursor import ResultMetadata
 from snowflake.connector.errors import InterfaceError, OperationalError
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.models import BatchExportRun
-from posthog.batch_exports.service import (
+from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
+
+from products.batch_exports.backend.service import (
     BatchExportField,
     BatchExportInsertInputs,
     BatchExportModel,
     BatchExportSchema,
     SnowflakeBatchExportInputs,
 )
-from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_logger, get_write_only_logger
-
 from products.batch_exports.backend.temporal.batch_exports import (
-    FinishBatchExportRunInputs,
     OverBillingLimitError,
     StartBatchExportRunInputs,
     default_fields,
-    execute_batch_export_insert_activity,
     get_data_interval,
     start_batch_export_run,
 )
-from products.batch_exports.backend.temporal.heartbeat import (
-    BatchExportRangeHeartbeatDetails,
-    DateRange,
-    should_resume_from_activity_heartbeat,
-)
-from products.batch_exports.backend.temporal.pipeline.consumer import (
-    Consumer as ConsumerFromStage,
-    run_consumer_from_stage,
-)
+from products.batch_exports.backend.temporal.destinations.utils import get_query_timeout
+from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
-from products.batch_exports.backend.temporal.pipeline.producer import Producer as ProducerFromInternalStage
-from products.batch_exports.backend.temporal.pipeline.transformer import ParquetStreamTransformer
-from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
-from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
-from products.batch_exports.backend.temporal.spmc import (
-    Consumer,
-    Producer,
-    RecordBatchQueue,
-    run_consumer,
-    wait_for_schema_or_producer,
+from products.batch_exports.backend.temporal.pipeline.producer import Producer
+from products.batch_exports.backend.temporal.pipeline.table import Field, Table
+from products.batch_exports.backend.temporal.pipeline.transformer import (
+    ParquetStreamTransformer,
+    PipelineTransformer,
+    SchemaTransformer,
 )
-from products.batch_exports.backend.temporal.temporary_file import BatchExportTemporaryFile, WriterFormat
+from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
+from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
+from products.batch_exports.backend.temporal.temporary_file import BatchExportTemporaryFile
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
-    cast_record_batch_schema_json_columns,
     handle_non_retryable_errors,
     make_retryable_with_exponential_backoff,
-    set_status_to_running_task,
 )
 
 LOGGER = get_write_only_logger(__name__)
@@ -109,6 +96,15 @@ NON_RETRYABLE_ERROR_TYPES = (
     "SnowflakeWarehouseSuspendedError",
     # Raised when the destination table schema is incompatible with the schema of the file we are trying to load.
     "SnowflakeIncompatibleSchemaError",
+    # Raised when we hit our self-imposed query timeout.
+    # We don't want to continually retry as it could consume a lot of compute resources in the user's account and can
+    # lead to a lot of queries queuing up for a given warehouse.
+    "SnowflakeQueryClientTimeoutError",
+    # Raised when a Snowflake query exceeds the timeout set in the user's account. This is typically set by
+    # STATEMENT_TIMEOUT_IN_SECONDS, which can be set at various levels (account, warehouse, user).
+    "SnowflakeQueryServerTimeoutError",
+    # Raised when either the warehouse does not exist or we are missing 'USAGE' permissions on it
+    "SnowflakeWarehouseUsageError",
 )
 
 
@@ -148,6 +144,13 @@ class SnowflakeWarehouseSuspendedError(Exception):
     pass
 
 
+class SnowflakeWarehouseUsageError(Exception):
+    """Raised when either the warehouse does not exist or we are missing 'USAGE' permissions on it"""
+
+    def __init__(self, warehouse: str):
+        super().__init__(f"Warehouse '{warehouse}' does not exist or we are missing 'USAGE' permissions on it")
+
+
 class SnowflakeTableNotFoundError(Exception):
     """Raised when a table is not found in Snowflake."""
 
@@ -178,11 +181,256 @@ class SnowflakeIncompatibleSchemaError(Exception):
         )
 
 
-@dataclasses.dataclass
-class SnowflakeHeartbeatDetails(BatchExportRangeHeartbeatDetails):
-    """The Snowflake batch export details included in every heartbeat."""
+class SnowflakeQueryClientTimeoutError(TimeoutError):
+    """Raised when a Snowflake query times out."""
+
+    def __init__(self, timeout: float, query_id: str, query_status: str):
+        """Initialize the exception with context about the timeout.
+
+        Args:
+            timeout: The timeout duration in seconds
+            query_id: The Snowflake query ID for debugging
+            query_status: The status of the query when timeout occurred
+        """
+        self.timeout = timeout
+        self.query_id = query_id
+        self.query_status = query_status
+
+        # Provide context-specific guidance based on query status
+        status_guidance = {
+            "QUEUED": "Warehouse is overloaded with queued queries. Consider scaling up warehouse or reducing concurrent queries.",
+            "RESUMING_WAREHOUSE": "Warehouse is resuming from suspended state. Consider keeping warehouse running or using larger warehouse.",
+            "QUEUED_REPARING_WAREHOUSE": "Warehouse is repairing. Retry later or contact Snowflake support.",
+            "BLOCKED": "Query is blocked. Check for locks or resource contention.",
+            "RUNNING": "Query is still running but exceeded timeout. Consider using a larger warehouse or reducing the number of concurrent queries.",
+        }
+
+        guidance = status_guidance.get(query_status, f"Query status: {query_status}")
+
+        super().__init__(f"Query timed out after {timeout:.0f} seconds (query_id: {query_id}). {guidance}")
+
+
+class SnowflakeQueryServerTimeoutError(TimeoutError):
+    """Raised when a Snowflake query exceeds the timeout set in the user's account.
+
+    This is typically set by STATEMENT_TIMEOUT_IN_SECONDS, which can be set at various
+    levels (account, warehouse, user).
+    """
 
     pass
+
+
+SnowflakeTypeName = typing.Literal[
+    "STRING",
+    "TEXT",
+    "BINARY",
+    # Semi-structured type
+    "VARIANT",
+    # The following are all aliases representing the same integer type
+    "INT",
+    "INTEGER",
+    "BIGINT",
+    "SMALLINT",
+    "TINYINT",
+    "BYTEINT",
+    "FIXED",
+    # All aliases of the same 64 bit float type
+    "FLOAT",
+    "FLOAT4",
+    "FLOAT8",
+    "REAL",
+    "DOUBLE",
+    "DOUBLE PRECISION",
+    "BOOLEAN",
+    "TIMESTAMP",
+    "TIMESTAMP_NTZ",
+    "TIMESTAMP_LTZ",
+    "ARRAY",
+]
+
+
+class SnowflakeType(typing.NamedTuple):
+    name: SnowflakeTypeName
+    repeated: bool
+
+
+class SnowflakeDestinationField(typing.NamedTuple):
+    name: str
+    type: SnowflakeTypeName
+    is_nullable: bool
+
+
+def data_type_to_snowflake_type(data_type: pa.DataType) -> SnowflakeType:
+    """Mapping of `pa.DataType` to corresponding `SnowflakeType`."""
+    repeated = False
+
+    if pa.types.is_string(data_type):
+        snowflake_type_name: SnowflakeTypeName = "STRING"
+
+    elif isinstance(data_type, JsonType):
+        snowflake_type_name = "VARIANT"
+
+    elif pa.types.is_binary(data_type):
+        snowflake_type_name = "BINARY"
+
+    elif pa.types.is_signed_integer(data_type) or pa.types.is_unsigned_integer(data_type):
+        # Snowflake's integer is weird: It supports all signed numbers with 38 digits:
+        # So the range is -10^38 + 1 to 10^38 - 1.
+        # That's a lot of numbers, more than arrow can hold in 64 bits.
+        # So, we don't really need to concern ourselves with overflows (or underflows).
+        snowflake_type_name = "INTEGER"
+
+    elif pa.types.is_floating(data_type):
+        snowflake_type_name = "FLOAT"
+
+    elif pa.types.is_boolean(data_type):
+        snowflake_type_name = "BOOLEAN"
+
+    elif pa.types.is_timestamp(data_type):
+        snowflake_type_name = "TIMESTAMP"
+
+    elif pa.types.is_list(data_type):
+        repeated = True
+        snowflake_type_name = data_type_to_snowflake_type(data_type.value_type).name  # type: ignore[attr-defined]
+
+    else:
+        raise TypeError(f"Unsupported type: '{data_type}'")
+
+    return SnowflakeType(snowflake_type_name, repeated=repeated)
+
+
+def snowflake_type_to_data_type(type: SnowflakeType) -> pa.DataType:
+    """Mapping of `SnowflakeType` to corresponding `pa.DataType`."""
+    match type.name:
+        case "STRING" | "TEXT":
+            base_type: pa.DataType = pa.string()
+        case "BINARY":
+            base_type = pa.binary()
+        case "INT" | "INTEGER" | "BIGINT" | "SMALLINT" | "TINYINT" | "BYTEINT" | "FIXED":
+            base_type = pa.int64()
+        case "BOOLEAN":
+            base_type = pa.bool_()
+        case "VARIANT":
+            base_type = JsonType()
+        case "TIMESTAMP" | "TIMESTAMP_NTZ" | "TIMESTAMP_LTZ":
+            base_type = pa.timestamp("ms", tz="UTC")
+        case "FLOAT" | "FLOAT4" | "FLOAT8" | "DOUBLE PRECISION" | "REAL":
+            base_type = pa.float64()
+        case _:
+            raise ValueError(f"Unsupported type: '{type.name}'")
+
+    if type.repeated is True:
+        return pa.list_(base_type)
+    else:
+        return base_type
+
+
+class SnowflakeField(Field):
+    """A field for a SnowflakeTable."""
+
+    def __init__(self, name: str, type: SnowflakeType, data_type: pa.DataType, nullable: bool):
+        self.name = name
+        self.alias = name.lower()
+        self.snowflake_type = type
+        self.data_type = data_type
+        self.nullable = nullable
+
+    @classmethod
+    def from_arrow_field(cls, field: pa.Field) -> typing.Self:
+        snowflake_type = data_type_to_snowflake_type(field.type)
+        return cls(field.name, snowflake_type, field.type, field.nullable)
+
+    @classmethod
+    def from_destination_field(cls, field: SnowflakeDestinationField) -> typing.Self:
+        if field.type == "ARRAY":
+            # Snowflake's 'ARRAY' can contain anything, so they don't tell us what's in
+            # it. For now, only support arrays of string.
+            # TODO: Maybe support more arrays?
+            snowflake_type = SnowflakeType(name="STRING", repeated=True)
+        elif field.type == "FIXED":
+            # This isn't documented as a type. I know it is 'INTEGER', not sure why the
+            # snowflake library invented 'FIXED'.
+            snowflake_type = SnowflakeType(name="INTEGER", repeated=False)
+        else:
+            snowflake_type = SnowflakeType(name=field.type, repeated=False)
+
+        return cls(
+            field.name,
+            snowflake_type,
+            snowflake_type_to_data_type(snowflake_type),
+            field.is_nullable,
+        )
+
+    @property
+    def snowflake_type_name(self) -> SnowflakeTypeName:
+        if self.snowflake_type.repeated is True:
+            return "ARRAY"
+        else:
+            return self.snowflake_type.name
+
+    def to_destination_field(self) -> SnowflakeDestinationField:
+        return SnowflakeDestinationField(name=self.name, type=self.snowflake_type_name, is_nullable=self.nullable)
+
+    def with_new_arrow_type(self, new_type: pa.DataType) -> "SnowflakeField":
+        return SnowflakeField(self.name, data_type_to_snowflake_type(new_type), new_type, self.nullable)
+
+
+class SnowflakeTable(Table):
+    def __init__(
+        self,
+        name: str,
+        fields: collections.abc.Iterable[SnowflakeField],
+        parents: collections.abc.Iterable[str] = (),
+        primary_key: collections.abc.Iterable[str] = (),
+        version_key: collections.abc.Iterable[str] = (),
+        stage_prefix: str = "",
+    ):
+        super().__init__(name, fields, parents, primary_key, version_key)
+        self.stage_prefix = stage_prefix
+
+    @classmethod
+    def from_snowflake_table(
+        cls,
+        name: str,
+        fields: collections.abc.Iterable[SnowflakeDestinationField],
+        parents: collections.abc.Iterable[str] = (),
+        primary_key: collections.abc.Iterable[str] = (),
+        version_key: collections.abc.Iterable[str] = (),
+        stage_prefix: str = "",
+    ) -> typing.Self:
+        snow_fields = [SnowflakeField.from_destination_field(field) for field in fields]
+
+        return cls(
+            name,
+            snow_fields,
+            parents=parents,
+            primary_key=primary_key,
+            version_key=version_key,
+            stage_prefix=stage_prefix,
+        )
+
+    @classmethod
+    def from_arrow_schema(
+        cls,
+        schema: pa.Schema,
+        name: str,
+        table_schema: str,
+        database: str,
+        primary_key: collections.abc.Iterable[str],
+        version_key: collections.abc.Iterable[str],
+        stage_prefix: str = "",
+    ) -> typing.Self:
+        self = cls.from_arrow_schema_with_field_type(
+            schema,
+            SnowflakeField,
+            name,
+            (database, table_schema),
+            primary_key,
+            version_key,
+        )
+        self.stage_prefix = stage_prefix
+
+        return self
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -206,9 +454,6 @@ class SnowflakeInsertInputs(BatchExportInsertInputs):
     role: str | None = None
 
 
-SnowflakeField = tuple[str, str]
-
-
 def load_private_key(private_key: str, passphrase: str | None) -> bytes:
     try:
         p_key = serialization.load_pem_private_key(
@@ -219,7 +464,7 @@ def load_private_key(private_key: str, passphrase: str | None) -> bytes:
     except (ValueError, TypeError) as e:
         msg = "Invalid private key"
 
-        if passphrase is not None and "Incorrect password?" in str(e):
+        if passphrase is not None and "Incorrect password" in str(e):
             msg = "Could not load private key: incorrect passphrase?"
         elif "Password was not given but private key is encrypted" in str(e):
             msg = "Could not load private key: passphrase was not given but private key is encrypted"
@@ -318,7 +563,7 @@ class SnowflakeClient:
         return self._connection
 
     @contextlib.asynccontextmanager
-    async def connect(self):
+    async def connect(self, use_namespace: bool = True):
         """Manage a `SnowflakeConnection`.
 
         Methods that require a connection should be ran within this block.
@@ -336,7 +581,8 @@ class SnowflakeClient:
                     warehouse=self.warehouse,
                     database=self.database,
                     schema=self.schema,
-                    role=self.role,
+                    # wrap role in quotes in case it contains lowercase or special characters
+                    role=f'"{self.role}"' if self.role is not None else None,
                     private_key=self.private_key,
                     login_timeout=5,
                 )
@@ -361,7 +607,13 @@ class SnowflakeClient:
         # Call this again in case level was reset.
         self.ensure_snowflake_logger_level("INFO")
 
-        await self.use_namespace()
+        await self.execute_async_query(
+            "ALTER SESSION SET QUOTED_IDENTIFIERS_IGNORE_CASE = FALSE",
+            fetch_results=False,
+        )
+
+        if use_namespace:
+            await self.use_namespace()
         await self.execute_async_query("SET ABORT_DETACHED_QUERY = FALSE", fetch_results=False)
 
         try:
@@ -377,12 +629,44 @@ class SnowflakeClient:
         logger.setLevel(level)
 
     async def use_namespace(self) -> None:
-        """Switch to a namespace given by database and schema.
+        """Switch to a namespace given by database, schema, and warehouse.
 
         This allows all queries that follow to ignore database and schema.
+        It also ensures that we have permissions to use the warehouse.
         """
         await self.execute_async_query(f'USE DATABASE "{self.database}"', fetch_results=False)
         await self.execute_async_query(f'USE SCHEMA "{self.schema}"', fetch_results=False)
+        try:
+            await self.execute_async_query(f'USE WAREHOUSE "{self.warehouse}"', fetch_results=False)
+        except snowflake.connector.errors.ProgrammingError as exc:
+            if exc.msg is not None and "Object does not exist" in exc.msg:
+                raise SnowflakeWarehouseUsageError(self.warehouse)
+            raise
+
+    async def get_query_status(self, query_id: str, throw_if_error: bool = True) -> QueryStatus:
+        """Get the status of a query.
+
+        Snowflake does a blocking HTTP request, so we send it to a thread to avoid blocking the event loop.
+        """
+        if throw_if_error:
+            return await asyncio.to_thread(self.connection.get_query_status_throw_if_error, query_id)
+        else:
+            return await asyncio.to_thread(self.connection.get_query_status, query_id)
+
+    async def abort_query(self, query_id: str, timeout: float = 30.0) -> None:
+        """Abort a query with a timeout to prevent hanging."""
+        try:
+            with self.connection.cursor() as cursor:
+                abort_success = await asyncio.wait_for(
+                    asyncio.to_thread(cursor.abort_query, query_id),
+                    timeout=timeout,
+                )
+                if not abort_success:
+                    self.logger.warning("Failed to abort query", query_id=query_id)
+        except TimeoutError:
+            self.logger.warning("Timed out while aborting query after %.2fs", timeout, query_id=query_id)
+        except Exception as e:
+            self.logger.warning("Error while aborting query '%s'", e, query_id=query_id)
 
     async def execute_async_query(
         self,
@@ -391,6 +675,7 @@ class SnowflakeClient:
         file_stream=None,
         poll_interval: float | None = None,
         fetch_results: bool = True,
+        timeout: float | None = None,
     ) -> tuple[list[tuple] | list[dict], list[ResultMetadata]] | None:
         """Wrap Snowflake connector's polling API in a coroutine.
 
@@ -406,14 +691,18 @@ class SnowflakeClient:
             parameters: An optional dictionary of parameters to bind to the query.
             poll_interval: Specify how long to wait in between polls.
             fetch_results: Whether any result should be fetched from the query.
+            timeout: The timeout (in seconds) to wait for the query to complete. If None, no timeout is applied.
 
         Returns:
             If `fetch_results` is `True`, a tuple containing:
             - The query results as a list of tuples or dicts
             - The cursor description (containing list of fields in result)
             Else when `fetch_results` is `False` we return `None`.
+
+        Raises:
+            SnowflakeQueryClientTimeoutError: If the query exceeds the specified timeout set by us.
         """
-        query_start_time = time.time()
+        query_start_time = time.monotonic()
         self.logger.debug("Executing async query: %s", query)
 
         poll_interval = poll_interval or self.DEFAULT_POLL_INTERVAL
@@ -425,53 +714,159 @@ class SnowflakeClient:
 
         self.logger.debug("Waiting for results of query with ID '%s'", query_id)
 
-        # Snowflake does a blocking HTTP request, so we send it to a thread.
-        query_status = await asyncio.to_thread(self.connection.get_query_status_throw_if_error, query_id)
+        query_status: QueryStatus = await self.get_query_status(query_id, throw_if_error=True)
 
         while self.connection.is_still_running(query_status):
-            query_status = await asyncio.to_thread(self.connection.get_query_status_throw_if_error, query_id)
+            # Check if we've exceeded the timeout
+            if timeout is not None and (time.monotonic() - query_start_time) > timeout:
+                # Get the final query status to provide context in the error message
+                final_status = await self.get_query_status(query_id, throw_if_error=False)
+                self.logger.warning(
+                    "Query timed out after %.2fs with status '%s'",
+                    timeout,
+                    final_status.name if final_status else "UNKNOWN",
+                    query_id=query_id,
+                )
+
+                # Cancel the query in Snowflake to prevent it from continuing to run
+                await self.abort_query(query_id)
+
+                raise SnowflakeQueryClientTimeoutError(
+                    timeout=timeout,
+                    query_id=query_id,
+                    query_status=final_status.name if final_status else "UNKNOWN",
+                )
+
+            query_status = await self.get_query_status(query_id, throw_if_error=True)
             await asyncio.sleep(poll_interval)
 
-        query_execution_time = time.time() - query_start_time
+        query_execution_time = time.monotonic() - query_start_time
         self.logger.debug(
-            "Async query '%s' finished with status '%s' in %.2fs", query_id, query_status, query_execution_time
+            "Async query finished with status '%s' in %.2fs",
+            query_status,
+            query_execution_time,
+            query_id=query_id,
         )
 
         if fetch_results is False:
             return None
 
-        self.logger.debug("Fetching query results for query '%s'", query_id)
+        self.logger.debug("Fetching query results", query_id=query_id)
 
         with self.connection.cursor() as cursor:
             await asyncio.to_thread(cursor.get_results_from_sfqid, query_id)
             results = await asyncio.to_thread(cursor.fetchall)
             description = cursor.description
 
-        self.logger.debug("Finished fetching query results for %s", query)
+        self.logger.debug("Finished fetching query results", query_id=query_id)
 
         return results, description
 
-    async def aremove_internal_stage_files(self, table_name: str, table_stage_prefix: str) -> None:
-        """Asynchronously remove files from internal table stage.
+    async def get_or_create_table(self, table: SnowflakeTable) -> SnowflakeTable:
+        """Get a table if it exists, else create it.
 
         Arguments:
-            table_name: The name of the table whose internal stage to clear.
-            table_stage_prefix: Prefix to path of internal stage files.
-        """
-        await self.execute_async_query(f"""REMOVE '@%"{table_name}"/{table_stage_prefix}'""", fetch_results=False)
+            table: The table to get or create.
 
-    async def acreate_table(self, table_name: str, fields: list[SnowflakeField]) -> None:
+        Returns:
+            A SnowflakeTable.
+        """
+        try:
+            table = await self.get_table(table)
+        except SnowflakeTableNotFoundError:
+            await self.create_table(table)
+            return await self.get_table(table)
+        else:
+            await self.remove_internal_stage_files(table)
+            return table
+
+    async def get_table(self, table: SnowflakeTable) -> SnowflakeTable:
+        """Get a table in Snowflake.
+
+        Arguments:
+            table: The table to get. Can be a reference.
+
+        Returns:
+            A SnowflakeTable.
+
+        Raises:
+            SnowflakeTableNotFoundError: If the table we are trying to get doesn't exist.
+            SnowflakeIncompatibleSchemaError: If the table does exist, but it is a
+                mutable table and one or more fields from the primary key are missing
+                from the table.
+        """
+        try:
+            result = await self.execute_async_query(f"""
+                SELECT * FROM "{table.name}" LIMIT 0
+            """)
+            assert result is not None
+            _, metadata = result
+        except snowflake.connector.errors.ProgrammingError as e:
+            if "does not exist" in str(e):
+                raise SnowflakeTableNotFoundError(table.name)
+            else:
+                raise
+
+        if table.is_mutable():
+            existing = {field_metadata.name.lower() for field_metadata in metadata}
+            missing_primary_key_fields = set(table.primary_key) - existing
+            if missing_primary_key_fields:
+                raise SnowflakeIncompatibleSchemaError(
+                    "Missing one or more fields from the table's primary key, "
+                    f"which are required for mutable models: {', '.join(f"'{name}'" for name in missing_primary_key_fields)}. "
+                    "Please review your batch export configuration: "
+                    "\n\t- Has the model been updated without updating the target table?"
+                    "\n\t- Have you configured the correct table for this model?"
+                )
+
+            missing_version_key_fields = set(table.version_key) - existing
+            if missing_version_key_fields:
+                raise SnowflakeIncompatibleSchemaError(
+                    "Missing one or more fields from the table's version key, "
+                    f"which are required for mutable models: {', '.join(f"'{name}'" for name in missing_version_key_fields)}. "
+                    "Please review your batch export configuration: "
+                    "\n\t- Has the model been updated without updating the target table?"
+                    "\n\t- Have you configured the correct table for this model?"
+                )
+
+        record_batch_field_names = {field.name.lower() for field in table.fields}
+        fields = (
+            SnowflakeDestinationField(
+                field_metadata.name,
+                FIELD_ID_TO_NAME[field_metadata.type_code],  # type: ignore[arg-type]
+                field_metadata.is_nullable,
+            )
+            for field_metadata in metadata
+            if field_metadata.name.lower() in record_batch_field_names
+        )
+
+        return SnowflakeTable.from_snowflake_table(
+            table.name,
+            fields=fields,
+            parents=table.parents,
+            primary_key=table.primary_key,
+            version_key=table.version_key,
+            stage_prefix=table.stage_prefix,
+        )
+
+    async def create_table(self, table: SnowflakeTable, exists_ok: bool = True) -> None:
         """Asynchronously create the table if it doesn't exist.
 
         Arguments:
-            table_name: The name of the table to create.
-            fields: An iterable of (name, type) tuples representing the fields of the table.
+            table: The table to create.
+            exists_ok:
+                Whether to include an 'IF NOT EXISTS' clause in the query such that it
+                won't fail if the table already exists.
         """
-        field_ddl = ", ".join(f'"{field[0]}" {field[1]}' for field in fields)
+        field_ddl = ", ".join(f'"{field.name}" {field.snowflake_type_name}' for field in table)
+
+        if_not_exists = ""
+        if exists_ok:
+            if_not_exists = "IF NOT EXISTS"
 
         await self.execute_async_query(
             f"""
-            CREATE TABLE IF NOT EXISTS "{table_name}" (
+            CREATE TABLE {if_not_exists} "{table.name}" (
                 {field_ddl}
             )
             COMMENT = 'PostHog generated table'
@@ -479,71 +874,55 @@ class SnowflakeClient:
             fetch_results=False,
         )
 
-    async def adelete_table(
+    async def delete_table(
         self,
-        table_name: str,
+        table: SnowflakeTable,
         not_found_ok: bool = False,
     ) -> None:
         """Delete a table in BigQuery."""
         if not_found_ok is True:
-            query = f'DROP TABLE IF EXISTS "{table_name}"'
+            query = f'DROP TABLE IF EXISTS "{table.name}"'
         else:
-            query = f'DROP TABLE "{table_name}"'
+            query = f'DROP TABLE "{table.name}"'
 
         await self.execute_async_query(query, fetch_results=False)
-
-    async def aget_table_columns(self, table_name: str) -> list[str]:
-        """Get the column names for a given table.
-
-        Arguments:
-            table_name: The name of the table to get columns for.
-
-        Returns:
-            A list of column names.
-        """
-        try:
-            result = await self.execute_async_query(f"""
-                SELECT * FROM "{table_name}" LIMIT 0
-            """)
-            assert result is not None
-            _, metadata = result
-        except snowflake.connector.errors.ProgrammingError as e:
-            if "does not exist" in str(e):
-                raise SnowflakeTableNotFoundError(table_name)
-            else:
-                raise
-
-        return [row.name for row in metadata]
 
     @contextlib.asynccontextmanager
     async def managed_table(
         self,
-        table_name: str,
-        table_stage_prefix: str,
-        fields: list[SnowflakeField],
-        not_found_ok: bool = True,
-        delete: bool = True,
+        table: SnowflakeTable,
         create: bool = True,
-    ) -> collections.abc.AsyncGenerator[str, None]:
+        exists_ok: bool = True,
+        delete: bool = True,
+        not_found_ok: bool = True,
+    ) -> collections.abc.AsyncGenerator[SnowflakeTable, None]:
         """Manage a table in Snowflake by ensure it exists while in context."""
         if create is True:
-            await self.acreate_table(table_name, fields)
+            await self.create_table(table)
+            table = await self.get_table(table)
         else:
-            await self.aremove_internal_stage_files(table_name, table_stage_prefix)
+            await self.remove_internal_stage_files(table)
 
         try:
-            yield table_name
+            yield table
         finally:
             if delete is True:
-                await self.adelete_table(table_name, not_found_ok)
+                await self.delete_table(table, not_found_ok)
             else:
-                await self.aremove_internal_stage_files(table_name, table_stage_prefix)
+                await self.remove_internal_stage_files(table)
+
+    async def remove_internal_stage_files(self, table: SnowflakeTable) -> None:
+        """Remove files from internal table stage.
+
+        Arguments:
+            table: The table whose internal stage to clear.
+        """
+        await self.execute_async_query(f"""REMOVE '@%"{table.name}"/{table.stage_prefix}'""", fetch_results=False)
 
     async def put_file_to_snowflake_table_stage(
         self,
         file: BatchExportTemporaryFile | NamedBytesIO,
-        table_stage_prefix: str,
-        table_name: str,
+        table: SnowflakeTable,
     ):
         """Executes a PUT query using the provided cursor to the provided table_name.
 
@@ -568,7 +947,7 @@ class SnowflakeClient:
             file_stream = file
 
         query = f"""
-        PUT file://{file.name} '@%"{table_name}"/{table_stage_prefix}'
+        PUT file://{file.name} '@%"{table.name}"/{table.stage_prefix}'
         """
 
         with self.connection.cursor() as cursor:
@@ -590,50 +969,42 @@ class SnowflakeClient:
 
         status, message = result[6:8]
         if status != "UPLOADED" and status != "SKIPPED":
-            raise SnowflakeFileNotUploadedError(table_name, status, message)
+            raise SnowflakeFileNotUploadedError(table.name, status, message)
 
     async def copy_loaded_files_to_snowflake_table(
         self,
-        table_name: str,
-        table_stage_prefix: str,
-        table_fields: list[SnowflakeField],
-        # TODO: remove this once we've migrated to the new pipeline
-        file_format: typing.Literal["Parquet", "JSONLines"],
-        known_json_columns: list[str],
+        table: SnowflakeTable,
+        timeout: float,
     ) -> None:
         """Execute a COPY query in Snowflake to load any files PUT into the table stage.
 
         The query is executed asynchronously using Snowflake's polling API.
 
         Args:
-            table_name: The table we are COPY-ing files into.
-            table_stage_prefix: The prefix of the table stage.
-            table_fields: The fields of the table.
-            file_format: The format of the files to load.
-            known_json_columns: The columns that are JSON (NOTE: we can't just inspect the schema of the table fields to
-                check for VARIANT columns since not all VARIANT columns will be JSON, eg `elements`).
+            table: The table we are COPY-ing files into.
+            timeout: The timeout (in seconds) to wait for the COPY INTO query to complete.
+
+        Raises:
+            SnowflakeQueryClientTimeoutError: If the COPY INTO query exceeds the specified timeout set by us.
+            SnowflakeQueryServerTimeoutError: If the COPY INTO query exceeds the timeout set in the user's account.
         """
-        if file_format == "Parquet":
-            col_names = [field[0] for field in table_fields]
-            select_fields = ", ".join(
-                f'PARSE_JSON($1:"{field}")' if field in known_json_columns else f'$1:"{field}"' for field in col_names
-            )
-            query = f"""
-            COPY INTO "{table_name}" ({', '.join(f'"{col_name}"' for col_name in col_names)})
-            FROM (
-                SELECT {select_fields} FROM '@%"{table_name}"/{table_stage_prefix}'
-            )
-            FILE_FORMAT = (TYPE = 'PARQUET')
-            PURGE = TRUE
-            """
-        else:
-            query = f"""
-            COPY INTO "{table_name}"
-            FROM '@%"{table_name}"/{table_stage_prefix}'
-            FILE_FORMAT = (TYPE = 'JSON')
-            MATCH_BY_COLUMN_NAME = CASE_SENSITIVE
-            PURGE = TRUE
-            """
+        select_fields = ", ".join(
+            f"PARSE_JSON($1:\"{field.name}\", 'd')"
+            if field.data_type == JsonType() and field.name.lower() != "elements"
+            else f'$1:"{field.name}"'
+            for field in table
+        )
+        query = f"""
+        COPY INTO "{table.name}" ({", ".join(f'"{field.name}"' for field in table)})
+
+        FROM (
+            SELECT {select_fields} FROM '@%"{table.name}"/{table.stage_prefix}'
+        )
+        FILE_FORMAT = (TYPE = 'PARQUET')
+        PURGE = TRUE
+        """
+
+        self.logger.info("Copying files from table stage into table %s", table.name)
 
         # Handle cases where the Warehouse is suspended (sometimes we can recover from this)
         max_attempts = 3
@@ -643,27 +1014,32 @@ class SnowflakeClient:
             retryable_exceptions=(snowflake.connector.errors.ProgrammingError,),
             # 608 = Warehouse suspended error
             is_exception_retryable=lambda e: isinstance(e, snowflake.connector.errors.ProgrammingError)
-            and e.errno == 608,
+            and (e.errno == 608 or e.errno == 90073),
         )
 
         # We need to explicitly catch exceptions here because otherwise they seem to be swallowed
         try:
-            result = await execute_copy_into(query, poll_interval=1.0)
+            result = await execute_copy_into(query, poll_interval=1.0, timeout=timeout)
+        except SnowflakeQueryClientTimeoutError:
+            # Re-raise as-is since it already has good context
+            raise
         except snowflake.connector.errors.ProgrammingError as e:
             self.logger.exception(f"Error executing COPY INTO query: {e}")
 
-            if e.errno == 608:
+            if e.errno == 608 or e.errno == 90073:
                 err_msg = (
                     f"Failed to execute COPY INTO query after {max_attempts} attempts due to warehouse being suspended"
                 )
                 if e.msg is not None:
                     err_msg += f": {e.msg}"
                 raise SnowflakeWarehouseSuspendedError(err_msg)
+            elif e.errno in (630, 604) and e.msg is not None:
+                raise SnowflakeQueryServerTimeoutError(e.msg)
             elif e.errno == 904 and e.msg is not None and "invalid identifier" in e.msg:
                 raise SnowflakeIncompatibleSchemaError(e.msg)
 
             raise SnowflakeFileNotLoadedError(
-                table_name,
+                table.name,
                 "NO STATUS",
                 0,
                 e.msg or "NO ERROR MESSAGE",
@@ -679,7 +1055,7 @@ class SnowflakeClient:
 
             if len(query_result) < 2:
                 raise SnowflakeFileNotLoadedError(
-                    table_name,
+                    table.name,
                     "NO STATUS",
                     0,
                     query_result[0] if len(query_result) == 1 else "NO ERROR MESSAGE",
@@ -690,58 +1066,66 @@ class SnowflakeClient:
             if status != "LOADED":
                 errors_seen, first_error = query_result[5:7]
                 raise SnowflakeFileNotLoadedError(
-                    table_name,
+                    table.name,
                     status or "NO STATUS",
                     errors_seen or 0,
                     first_error or "NO ERROR MESSAGE",
                 )
 
-    async def amerge_mutable_tables(
+        self.logger.info("Finished copying files into destination table")
+
+    async def merge_into_final_from_stage(
         self,
-        final_table: str,
-        stage_table: str,
-        merge_key: collections.abc.Iterable[SnowflakeField],
-        update_key: collections.abc.Iterable[str],
-        update_when_matched: collections.abc.Iterable[SnowflakeField],
+        final: SnowflakeTable,
+        stage: SnowflakeTable,
+        timeout: float,
     ):
-        """Merge two identical model tables in Snowflake."""
+        """Merge two identical model tables in Snowflake.
 
-        # handle the case where the final table doesn't contain all the fields present in the stage table
-        # (for example, if we've added new fields to the person model)
-        final_table_column_names = await self.aget_table_columns(final_table)
-        update_when_matched = [field for field in update_when_matched if field[0] in final_table_column_names]
+        Args:
+            final_table: The name of the final table to merge into.
+            stage_table: The name of the stage table to merge from.
+            merge_key: The fields to use as merge keys.
+            update_key: The fields to check for updates.
+            update_when_matched: The fields to update when matched.
+            timeout: The timeout (in seconds) to wait for the MERGE query to complete.
 
+        Raises:
+            SnowflakeQueryClientTimeoutError: If the MERGE query exceeds the specified timeout set by us.
+        """
         merge_condition = "ON "
 
-        for n, field in enumerate(merge_key):
+        for n, primary_key_field_name in enumerate(final.primary_key):
+            field = final[primary_key_field_name]
             if n > 0:
                 merge_condition += " AND "
-            merge_condition += f'final."{field[0]}" = stage."{field[0]}"'
+            merge_condition += f'final."{field.name}" = stage."{field.name}"'
 
         update_condition = "AND ("
 
-        for index, field_name in enumerate(update_key):
+        for index, version_key_field_name in enumerate(final.version_key):
+            field = final[version_key_field_name]
             if index > 0:
                 update_condition += " OR "
-            update_condition += f'final."{field_name}" < stage."{field_name}"'
+            update_condition += f'final."{field.name}" < stage."{field.name}"'
         update_condition += ")"
 
         update_clause = ""
         values = ""
         field_names = ""
-        for n, field in enumerate(update_when_matched):
+        for n, field in enumerate(final):
             if n > 0:
                 update_clause += ", "
                 values += ", "
                 field_names += ", "
 
-            update_clause += f'final."{field[0]}" = stage."{field[0]}"'
-            field_names += f'"{field[0]}"'
-            values += f'stage."{field[0]}"'
+            update_clause += f'final."{field.name}" = stage."{field.name}"'
+            field_names += f'"{field.name}"'
+            values += f'stage."{field.name}"'
 
         merge_query = f"""
-        MERGE INTO "{final_table}" AS final
-        USING "{stage_table}" AS stage
+        MERGE INTO "{final.name}" AS final
+        USING "{stage.name}" AS stage
         {merge_condition}
 
         WHEN MATCHED {update_condition} THEN
@@ -752,7 +1136,9 @@ class SnowflakeClient:
             VALUES ({values});
         """
 
-        await self.execute_async_query(merge_query, fetch_results=False, poll_interval=1.0)
+        self.logger.info("Starting merge", stage_table=stage.name, final_table=final.name)
+        await self.execute_async_query(merge_query, fetch_results=False, poll_interval=1.0, timeout=timeout)
+        self.logger.info("Finished merge")
 
 
 def snowflake_default_fields() -> list[BatchExportField]:
@@ -788,129 +1174,35 @@ def snowflake_default_fields() -> list[BatchExportField]:
     return batch_export_fields
 
 
-class SnowflakeConsumer(Consumer):
-    def __init__(
-        self,
-        heartbeater: Heartbeater,
-        heartbeat_details: SnowflakeHeartbeatDetails,
-        data_interval_start: dt.datetime | str | None,
-        data_interval_end: dt.datetime | str,
-        writer_format: WriterFormat,
-        snowflake_client: SnowflakeClient,
-        snowflake_table: str,
-        snowflake_table_stage_prefix: str,
-    ):
-        super().__init__(
-            heartbeater=heartbeater,
-            heartbeat_details=heartbeat_details,
-            data_interval_start=data_interval_start,
-            data_interval_end=data_interval_end,
-            writer_format=writer_format,
-        )
-        self.heartbeat_details: SnowflakeHeartbeatDetails = heartbeat_details
-        self.snowflake_table = snowflake_table
-        self.snowflake_client = snowflake_client
-        self.snowflake_table_stage_prefix = snowflake_table_stage_prefix
-
-    async def flush(
-        self,
-        batch_export_file: BatchExportTemporaryFile,
-        records_since_last_flush: int,
-        bytes_since_last_flush: int,
-        flush_counter: int,
-        last_date_range: DateRange,
-        is_last: bool,
-        error: Exception | None,
-    ):
-        self.external_logger.info(
-            "Putting file %d containing %d records with size %d bytes to Snowflake table '%s' stage",
-            flush_counter,
-            records_since_last_flush,
-            bytes_since_last_flush,
-            self.snowflake_table,
-        )
-
-        await self.snowflake_client.put_file_to_snowflake_table_stage(
-            batch_export_file,
-            self.snowflake_table_stage_prefix,
-            self.snowflake_table,
-        )
-
-        self.external_logger.info(
-            "File with %d records loaded to Snowflake table '%s' stage", records_since_last_flush, self.snowflake_table
-        )
-        self.rows_exported_counter.add(records_since_last_flush)
-        self.bytes_exported_counter.add(bytes_since_last_flush)
-
-        self.heartbeat_details.records_completed += records_since_last_flush
-        self.heartbeat_details.track_done_range(last_date_range, self.data_interval_start)
+class MergeSettings(typing.NamedTuple):
+    primary_key: collections.abc.Sequence[str]
+    version_key: collections.abc.Sequence[str]
 
 
-def _get_snowflake_table_settings(
-    model: BatchExportModel | BatchExportSchema | None, record_batch_schema: pa.Schema
-) -> tuple[list[SnowflakeField], pa.Schema, list[str]]:
-    record_batch_schema = pa.schema(
-        [field.with_nullable(True) for field in record_batch_schema if field.name != "_inserted_at"]
-    )
-
-    # although `elements` is JSON, it is extremely expensive to parse it as JSON, so we'll just keep it as a string.
-    known_variant_columns = ["properties", "people_set", "people_set_once", "person_properties"]
-
-    if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
-        table_fields = [
-            ("uuid", "STRING"),
-            ("event", "STRING"),
-            ("properties", "VARIANT"),
-            ("elements", "VARIANT"),
-            ("people_set", "VARIANT"),
-            ("people_set_once", "VARIANT"),
-            ("distinct_id", "STRING"),
-            ("team_id", "INTEGER"),
-            ("ip", "STRING"),
-            ("site_url", "STRING"),
-            ("timestamp", "TIMESTAMP"),
-        ]
-
-    else:
-        table_fields = get_snowflake_fields_from_record_schema(
-            record_batch_schema,
-            known_variant_columns=known_variant_columns,
-        )
-
-    return table_fields, record_batch_schema, known_variant_columns
-
-
-def _get_snowflake_merge_config(
+def _get_merge_settings(
     model: BatchExportModel | BatchExportSchema | None,
-) -> tuple[bool, list[SnowflakeField], list[str]]:
-    requires_merge = False
-    merge_key = []
-    update_key = []
+) -> MergeSettings | None:
     if isinstance(model, BatchExportModel):
         if model.name == "persons":
-            requires_merge = True
-            merge_key = [
-                ("team_id", "INT64"),
-                ("distinct_id", "STRING"),
-            ]
-            update_key = ["person_version", "person_distinct_id_version"]
+            primary_key: collections.abc.Sequence[str] = ("team_id", "distinct_id")
+            version_key: collections.abc.Sequence[str] = (
+                "person_version",
+                "person_distinct_id_version",
+            )
 
         elif model.name == "sessions":
-            requires_merge = True
-            merge_key = [("team_id", "INT64"), ("session_id", "STRING")]
-            update_key = [
-                "end_timestamp",
-            ]
+            primary_key = ("team_id", "session_id")
+            version_key = ("end_timestamp",)
+        else:
+            return None
+    else:
+        return None
 
-    return requires_merge, merge_key, update_key
+    return MergeSettings(primary_key, version_key)
 
 
-class SnowflakeConsumerFromStage(ConsumerFromStage):
+class SnowflakeConsumer(Consumer):
     """A consumer that uploads data to Snowflake from the internal stage.
-
-    This works in a similar way to the existing SnowflakeConsumer, but uses the new pipeline interface.
-
-    It also removes the need for a temporary file, and instead uses an in-memory buffer.
 
     At the moment, it doesn't support concurrent uploads, but we can add that later to improve performance.
     """
@@ -918,19 +1210,19 @@ class SnowflakeConsumerFromStage(ConsumerFromStage):
     def __init__(
         self,
         snowflake_client: SnowflakeClient,
-        snowflake_table: str,
-        snowflake_table_stage_prefix: str,
+        snowflake_table: SnowflakeTable,
+        model: str = "events",
     ):
-        super().__init__()
+        super().__init__(model=model)
 
         self.snowflake_client = snowflake_client
         self.snowflake_table = snowflake_table
-        self.snowflake_table_stage_prefix = snowflake_table_stage_prefix
 
         # Simple file management - no concurrent uploads for now
         self.current_file_index = 0
         self.current_buffer = NamedBytesIO(
-            b"", name=f"{self.snowflake_table_stage_prefix}/{self.current_file_index}.parquet.zst"
+            b"",
+            name=f"{self.snowflake_table.stage_prefix}/{self.current_file_index}.parquet.zst",
         )
 
     async def consume_chunk(self, data: bytes):
@@ -945,7 +1237,8 @@ class SnowflakeConsumerFromStage(ConsumerFromStage):
         """Start a new file (reset state for file splitting)."""
         self.current_file_index += 1
         self.current_buffer = NamedBytesIO(
-            b"", name=f"{self.snowflake_table_stage_prefix}/{self.current_file_index}.parquet.zst"
+            b"",
+            name=f"{self.snowflake_table.stage_prefix}/{self.current_file_index}.parquet.zst",
         )
 
     async def _upload_current_buffer(self):
@@ -965,8 +1258,7 @@ class SnowflakeConsumerFromStage(ConsumerFromStage):
 
         await self.snowflake_client.put_file_to_snowflake_table_stage(
             file=self.current_buffer,
-            table_stage_prefix=self.snowflake_table_stage_prefix,
-            table_name=self.snowflake_table,
+            table=self.snowflake_table,
         )
 
         self.external_logger.info(
@@ -983,250 +1275,15 @@ class SnowflakeConsumerFromStage(ConsumerFromStage):
         await self._upload_current_buffer()
 
 
-def get_snowflake_fields_from_record_schema(
-    record_schema: pa.Schema, known_variant_columns: list[str]
-) -> list[SnowflakeField]:
-    """Generate a list of supported Snowflake fields from PyArrow schema.
-    This function is used to map custom schemas to Snowflake-supported types. Some loss
-    of precision is expected.
-
-    Arguments:
-        record_schema: The schema of a PyArrow RecordBatch from which we'll attempt to
-            derive Snowflake-supported types.
-        known_variant_columns: If a string type field is a known VARIANT column then use VARIANT
-            as its Snowflake type.
-    """
-    snowflake_schema: list[SnowflakeField] = []
-
-    for name in record_schema.names:
-        pa_field = record_schema.field(name)
-
-        if pa.types.is_string(pa_field.type) or isinstance(pa_field.type, JsonType):
-            if pa_field.name in known_variant_columns:
-                snowflake_type = "VARIANT"
-            else:
-                snowflake_type = "STRING"
-
-        elif pa.types.is_binary(pa_field.type):
-            snowflake_type = "BINARY"
-
-        elif pa.types.is_signed_integer(pa_field.type) or pa.types.is_unsigned_integer(pa_field.type):
-            snowflake_type = "INTEGER"
-
-        elif pa.types.is_floating(pa_field.type):
-            snowflake_type = "FLOAT"
-
-        elif pa.types.is_boolean(pa_field.type):
-            snowflake_type = "BOOLEAN"
-
-        elif pa.types.is_timestamp(pa_field.type):
-            snowflake_type = "TIMESTAMP"
-
-        elif pa.types.is_list(pa_field.type):
-            snowflake_type = "ARRAY"
-
-        else:
-            raise TypeError(f"Unsupported type in field '{name}': '{pa_field.type}'")
-
-        snowflake_schema.append((name, snowflake_type))
-
-    return snowflake_schema
-
-
 @activity.defn
 @handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
-async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> BatchExportResult:
-    """Activity streams data from ClickHouse to Snowflake.
-
-    TODO: We're using JSON here, it's not the most efficient way to do this.
-    """
-    bind_contextvars(
-        team_id=inputs.team_id,
-        destination="Snowflake",
-        data_interval_start=inputs.data_interval_start,
-        data_interval_end=inputs.data_interval_end,
-    )
-    external_logger = EXTERNAL_LOGGER.bind()
-
-    external_logger.info(
-        "Batch exporting range %s - %s to Snowflake: %s.%s.%s",
-        inputs.data_interval_start or "START",
-        inputs.data_interval_end or "END",
-        inputs.database,
-        inputs.schema,
-        inputs.table_name,
-    )
-
-    async with (
-        Heartbeater() as heartbeater,
-        set_status_to_running_task(run_id=inputs.run_id),
-    ):
-        _, details = await should_resume_from_activity_heartbeat(activity, SnowflakeHeartbeatDetails)
-        if details is None or str(inputs.team_id) in settings.BATCH_EXPORT_ORDERLESS_TEAM_IDS:
-            details = SnowflakeHeartbeatDetails()
-
-        done_ranges: list[DateRange] = details.done_ranges
-
-        model, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
-            inputs.team_id, inputs.batch_export_model, inputs.batch_export_schema
-        )
-
-        data_interval_start = (
-            dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
-        )
-        data_interval_end = dt.datetime.fromisoformat(inputs.data_interval_end)
-        full_range = (data_interval_start, data_interval_end)
-
-        queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_SNOWFLAKE_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
-        producer = Producer(record_batch_model)
-        producer_task = await producer.start(
-            queue=queue,
-            model_name=model_name,
-            is_backfill=inputs.get_is_backfill(),
-            backfill_details=inputs.backfill_details,
-            team_id=inputs.team_id,
-            full_range=full_range,
-            done_ranges=done_ranges,
-            fields=fields,
-            filters=filters,
-            destination_default_fields=snowflake_default_fields(),
-            exclude_events=inputs.exclude_events,
-            include_events=inputs.include_events,
-            extra_query_parameters=extra_query_parameters,
-        )
-
-        record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
-        if record_batch_schema is None:
-            external_logger.info(
-                "Batch export will finish early as there is no data matching specified filters in range %s - %s",
-                inputs.data_interval_start or "START",
-                inputs.data_interval_end or "END",
-            )
-
-            return BatchExportResult(records_completed=details.records_completed)
-
-        record_batch_schema = pa.schema(
-            # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
-            # record batches have them as nullable.
-            # Until we figure it out, we set all fields to nullable. There are some fields we know
-            # are not nullable, but I'm opting for the more flexible option until we out why schemas differ
-            # between batches.
-            [field.with_nullable(True) for field in record_batch_schema if field.name != "_inserted_at"]
-        )
-
-        known_variant_columns = ["properties", "people_set", "people_set_once", "person_properties"]
-
-        if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
-            table_fields = [
-                ("uuid", "STRING"),
-                ("event", "STRING"),
-                ("properties", "VARIANT"),
-                ("elements", "VARIANT"),
-                ("people_set", "VARIANT"),
-                ("people_set_once", "VARIANT"),
-                ("distinct_id", "STRING"),
-                ("team_id", "INTEGER"),
-                ("ip", "STRING"),
-                ("site_url", "STRING"),
-                ("timestamp", "TIMESTAMP"),
-            ]
-
-        else:
-            table_fields = get_snowflake_fields_from_record_schema(
-                record_batch_schema,
-                known_variant_columns=known_variant_columns,
-            )
-
-        requires_merge = False
-        merge_key = []
-        update_key = []
-        if isinstance(inputs.batch_export_model, BatchExportModel):
-            if inputs.batch_export_model.name == "persons":
-                requires_merge = True
-                merge_key = [
-                    ("team_id", "INT64"),
-                    ("distinct_id", "STRING"),
-                ]
-                update_key = ["person_version", "person_distinct_id_version"]
-
-            elif inputs.batch_export_model.name == "sessions":
-                requires_merge = True
-                merge_key = [("team_id", "INT64"), ("session_id", "STRING")]
-                update_key = [
-                    "end_timestamp",
-                ]
-
-        data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
-        stage_table_name = (
-            f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
-            if requires_merge
-            else inputs.table_name
-        )
-
-        async with SnowflakeClient.from_inputs(inputs).connect() as snow_client:
-            async with (
-                snow_client.managed_table(
-                    inputs.table_name, data_interval_end_str, table_fields, delete=False
-                ) as snow_table,
-                snow_client.managed_table(
-                    stage_table_name,
-                    data_interval_end_str,
-                    table_fields,
-                    create=requires_merge,
-                    delete=requires_merge,
-                ) as snow_stage_table,
-            ):
-                consumer = SnowflakeConsumer(
-                    heartbeater=heartbeater,
-                    heartbeat_details=details,
-                    data_interval_end=data_interval_end,
-                    data_interval_start=data_interval_start,
-                    writer_format=WriterFormat.JSONL,
-                    snowflake_client=snow_client,
-                    snowflake_table=snow_stage_table if requires_merge else snow_table,
-                    snowflake_table_stage_prefix=data_interval_end_str,
-                )
-                try:
-                    await run_consumer(
-                        consumer=consumer,
-                        queue=queue,
-                        producer_task=producer_task,
-                        schema=record_batch_schema,
-                        max_bytes=settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES,
-                        json_columns=known_variant_columns,
-                        multiple_files=True,
-                    )
-
-                # ensure we always write data to final table, even if we fail halfway through, as if we resume from
-                # a heartbeat, we can continue without losing data
-                finally:
-                    await snow_client.copy_loaded_files_to_snowflake_table(
-                        snow_stage_table if requires_merge else snow_table,
-                        data_interval_end_str,
-                        table_fields,
-                        file_format="JSONLines",
-                        known_json_columns=known_variant_columns,
-                    )
-
-                    if requires_merge:
-                        await snow_client.amerge_mutable_tables(
-                            final_table=snow_table,
-                            stage_table=snow_stage_table,
-                            update_when_matched=table_fields,
-                            merge_key=merge_key,
-                            update_key=update_key,
-                        )
-
-        return BatchExportResult(records_completed=details.records_completed)
-
-
-@activity.defn
-@handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
-async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInputs) -> BatchExportResult:
+async def insert_into_snowflake_activity_from_stage(
+    inputs: SnowflakeInsertInputs,
+) -> BatchExportResult:
     """Activity to batch export data from internal S3 stage to Snowflake.
 
-    This is a new version of the `insert_into_snowflake_activity` activity that reads data from our internal S3 stage
-    instead of ClickHouse directly, and uses concurrent uploads to improve performance.
+    This activity reads data from our internal S3 stage instead of ClickHouse directly, and uses concurrent uploads to
+    improve performance.
     """
     bind_contextvars(
         team_id=inputs.team_id,
@@ -1257,7 +1314,7 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
             model = inputs.batch_export_schema
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_SNOWFLAKE_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
-        producer = ProducerFromInternalStage()
+        producer = Producer()
         assert inputs.batch_export_id is not None
         producer_task = await producer.start(
             queue=queue,
@@ -1265,6 +1322,7 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
             data_interval_start=inputs.data_interval_start,
             data_interval_end=inputs.data_interval_end,
             max_record_batch_size_bytes=1024 * 1024 * 10,  # 10MB
+            stage_folder=inputs.stage_folder,
         )
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
@@ -1277,72 +1335,110 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
 
             return BatchExportResult(records_completed=0, bytes_exported=0)
 
-        table_fields, record_batch_schema, known_variant_columns = _get_snowflake_table_settings(
-            model=model, record_batch_schema=record_batch_schema
+        record_batch_schema = pa.schema(
+            [field.with_nullable(True) for field in record_batch_schema if field.name != "_inserted_at"]
         )
 
-        requires_merge, merge_key, update_key = _get_snowflake_merge_config(model=model)
+        # TODO: Figure out which fields are JSON without hard-coding them here.
+        json_fields = {
+            "properties",
+            "people_set",
+            "people_set_once",
+            "person_properties",
+        }
+        record_batch_schema = pa.schema(
+            field.with_type(JsonType()) if field.name in json_fields else field for field in record_batch_schema
+        )
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
         attempt = activity.info().attempt
-        stage_table_name = (
-            f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}_{attempt}"
-            if requires_merge
-            else inputs.table_name
+        stage_table_name = f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}_{attempt}"
+
+        merge_settings = _get_merge_settings(model)
+        target_table = SnowflakeTable.from_arrow_schema(
+            record_batch_schema,
+            name=inputs.table_name,
+            table_schema=inputs.schema,
+            database=inputs.database,
+            primary_key=merge_settings.primary_key if merge_settings else (),
+            version_key=merge_settings.version_key if merge_settings else (),
+            stage_prefix=data_interval_end_str,
+        )
+        if "elements" in target_table:
+            # `elements` is exported into a 'VARIANT' column, despite it being a
+            # pa.string.
+            # TODO: Export the JSON representation of elements, or drop it completely.
+            field = target_table["elements"]
+            field.snowflake_type = SnowflakeType("VARIANT", repeated=False)
+
+        # Calculate timeout for long-running queries (COPY INTO and MERGE)
+        long_running_query_timeout = get_query_timeout(
+            dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None,
+            dt.datetime.fromisoformat(inputs.data_interval_end),
         )
 
         async with SnowflakeClient.from_inputs(inputs).connect() as snow_client:
+            consumer_table = snow_target_table = await snow_client.get_or_create_table(target_table)
+            # Exporting directly to target table
+            should_delete = False
+            should_exist = True
+
+            if snow_target_table.is_mutable():
+                consumer_table = SnowflakeTable(
+                    stage_table_name,
+                    snow_target_table.fields,
+                    snow_target_table.parents,
+                    primary_key=snow_target_table.primary_key,
+                    version_key=snow_target_table.version_key,
+                )
+                # Using a stage table to later merge
+                should_delete = True
+                should_exist = False
+
             async with (
                 snow_client.managed_table(
-                    inputs.table_name, data_interval_end_str, table_fields, delete=False
-                ) as snow_table,
-                snow_client.managed_table(
-                    stage_table_name,
-                    data_interval_end_str,
-                    table_fields,
-                    create=requires_merge,
-                    delete=requires_merge,
-                ) as snow_stage_table,
+                    consumer_table,
+                    create=True,
+                    exists_ok=should_exist,
+                    delete=should_delete,
+                ) as snow_consumer_table,
             ):
-                consumer = SnowflakeConsumerFromStage(
+                consumer = SnowflakeConsumer(
                     snowflake_client=snow_client,
-                    snowflake_table=snow_stage_table if requires_merge else snow_table,
-                    snowflake_table_stage_prefix=data_interval_end_str,
+                    snowflake_table=snow_consumer_table,
+                    model=model.name if isinstance(model, BatchExportModel) else "events",
                 )
 
-                transformer = ParquetStreamTransformer(
-                    schema=cast_record_batch_schema_json_columns(
-                        record_batch_schema, json_columns=known_variant_columns
-                    ),
-                    compression="zstd",
+                transformer = PipelineTransformer(
+                    transformers=(
+                        SchemaTransformer(table=snow_consumer_table),
+                        ParquetStreamTransformer(
+                            compression="zstd",
+                            max_file_size_bytes=settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES,
+                        ),
+                    )
                 )
                 result = await run_consumer_from_stage(
                     queue=queue,
                     consumer=consumer,
                     producer_task=producer_task,
                     transformer=transformer,
-                    schema=record_batch_schema,
-                    max_file_size_bytes=settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES,
-                    json_columns=known_variant_columns,
+                    # TODO: Deprecate this argument once all other destinations are also migrated.
+                    json_columns=(),
                 )
 
                 # TODO - maybe move this into the consumer finalize method?
                 # Copy all staged files to the table
                 await snow_client.copy_loaded_files_to_snowflake_table(
-                    snow_stage_table if requires_merge else snow_table,
-                    data_interval_end_str,
-                    table_fields,
-                    file_format="Parquet",
-                    known_json_columns=known_variant_columns,
+                    snow_consumer_table,
+                    timeout=long_running_query_timeout,
                 )
 
-                if requires_merge:
-                    await snow_client.amerge_mutable_tables(
-                        final_table=snow_table,
-                        stage_table=snow_stage_table,
-                        update_when_matched=table_fields,
-                        merge_key=merge_key,
-                        update_key=update_key,
+                if snow_target_table.is_mutable():
+                    await snow_client.merge_into_final_from_stage(
+                        final=snow_target_table,
+                        stage=snow_consumer_table,
+                        timeout=long_running_query_timeout,
                     )
 
                 return result
@@ -1369,7 +1465,9 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to Snowflake table."""
         is_backfill = inputs.get_is_backfill()
         is_earliest_backfill = inputs.get_is_earliest_backfill()
-        data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
+        data_interval_start, data_interval_end = get_data_interval(
+            inputs.interval, inputs.data_interval_end, inputs.timezone
+        )
         should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
@@ -1390,18 +1488,15 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(seconds=60),
                     maximum_attempts=0,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
+                    non_retryable_error_types=[
+                        "NotNullViolation",
+                        "IntegrityError",
+                        "OverBillingLimitError",
+                    ],
                 ),
             )
         except OverBillingLimitError:
             return
-
-        finish_inputs = FinishBatchExportRunInputs(
-            id=run_id,
-            batch_export_id=inputs.batch_export_id,
-            status=BatchExportRun.Status.COMPLETED,
-            team_id=inputs.team_id,
-        )
 
         insert_inputs = SnowflakeInsertInputs(
             team_id=inputs.team_id,
@@ -1429,19 +1524,8 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             destination_default_fields=snowflake_default_fields(),
         )
 
-        if (
-            str(inputs.team_id) in settings.BATCH_EXPORT_SNOWFLAKE_USE_STAGE_TEAM_IDS
-            or inputs.team_id % 100 < settings.BATCH_EXPORT_SNOWFLAKE_USE_INTERNAL_STAGE_ROLLOUT_PERCENTAGE
-        ):
-            await execute_batch_export_using_internal_stage(
-                insert_into_snowflake_activity_from_stage,
-                insert_inputs,
-                interval=inputs.interval,
-            )
-        else:
-            await execute_batch_export_insert_activity(
-                insert_into_snowflake_activity,
-                insert_inputs,
-                interval=inputs.interval,
-                finish_inputs=finish_inputs,
-            )
+        await execute_batch_export_using_internal_stage(
+            insert_into_snowflake_activity_from_stage,
+            insert_inputs,
+            interval=inputs.interval,
+        )

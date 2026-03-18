@@ -1,21 +1,24 @@
+from decimal import Decimal
 from uuid import UUID
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 
+import structlog
 from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
 
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT
 from posthog.models.integration import Integration
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import UUIDModel, UUIDTModel
 from posthog.storage import object_storage
 
 from products.error_tracking.backend.sql import INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES
 
-# === From error_tracking/error_tracking.py ===
+logger = structlog.get_logger(__name__)
 
 
 class ErrorTrackingIssueManager(models.Manager):
@@ -52,20 +55,34 @@ class ErrorTrackingIssue(UUIDTModel):
             ErrorTrackingIssue.objects.filter(team=self.team, id__in=issue_ids).delete()
             update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
 
-    def split(self, fingerprints: list[str], exclusive: bool) -> None:
+    def split(self, fingerprints: list[dict]) -> list["ErrorTrackingIssue"]:
+        own_fingerprints = set(
+            ErrorTrackingIssueFingerprintV2.objects.filter(team_id=self.team.pk, issue_id=self.id).values_list(
+                "fingerprint", flat=True
+            )
+        )
+
         overrides: list[ErrorTrackingIssueFingerprintV2] = []
+        new_issues: list[ErrorTrackingIssue] = []
 
         with transaction.atomic():
-            common_issue = ErrorTrackingIssue.objects.create(team=self.team) if not exclusive else None
-            for fingerprint in fingerprints:
-                new_issue = common_issue if common_issue else ErrorTrackingIssue.objects.create(team=self.team)
+            for entry in fingerprints:
+                fp = entry["fingerprint"]
+                if fp not in own_fingerprints:
+                    continue
+                new_issue = ErrorTrackingIssue.objects.create(
+                    team=self.team,
+                    name=entry.get("name") or "Untitled issue",
+                    description=entry.get("description"),
+                )
+                new_issues.append(new_issue)
                 overrides.extend(
                     update_error_tracking_issue_fingerprints(
-                        team_id=self.team.pk, issue_id=new_issue.id, fingerprints=[fingerprint]
+                        team_id=self.team.pk, issue_id=new_issue.id, fingerprints=[fp]
                     )
                 )
-
-        update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
+            update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
+        return new_issues
 
 
 class ErrorTrackingExternalReference(UUIDTModel):
@@ -90,8 +107,27 @@ class ErrorTrackingExternalReference(UUIDTModel):
         db_table = "posthog_errortrackingexternalreference"
 
 
+class ErrorTrackingIssueCohort(UUIDTModel):
+    issue = models.ForeignKey(
+        ErrorTrackingIssue,
+        on_delete=models.CASCADE,
+        related_name="cohorts",
+    )
+    cohort = models.ForeignKey(
+        "posthog.Cohort",
+        on_delete=models.CASCADE,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # Create a virtual one-to-one relationship constraint we can release later if needed
+        constraints = [models.UniqueConstraint(fields=["issue"], name="unique_cohort_for_issue")]
+        db_table = "posthog_errortrackingissuecohort"
+
+
 class ErrorTrackingIssueAssignment(UUIDTModel):
     issue = models.OneToOneField(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="assignment")
+    team = models.ForeignKey("posthog.Team", null=True, on_delete=models.CASCADE, db_index=False)
     user = models.ForeignKey("posthog.User", null=True, on_delete=models.CASCADE)
     # DEPRECATED: issues can only be assigned to users or roles
     user_group = deprecate_field(models.ForeignKey("posthog.UserGroup", null=True, on_delete=models.CASCADE))
@@ -100,6 +136,9 @@ class ErrorTrackingIssueAssignment(UUIDTModel):
 
     class Meta:
         db_table = "posthog_errortrackingissueassignment"
+        indexes = [
+            models.Index(fields=["team_id"], name="posthog_et_assignment_team_idx"),
+        ]
 
 
 class ErrorTrackingIssueFingerprintV2(UUIDTModel):
@@ -268,10 +307,14 @@ class ErrorTrackingGroupingRule(UUIDTModel):
 class ErrorTrackingSuppressionRule(UUIDTModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     filters = models.JSONField(null=False, blank=False)  # The json object describing the filter rule
+    bytecode = models.JSONField(null=True, blank=True)
+    disabled_data = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    # Grouping rules are ordered, and greedily evaluated
+    # Suppression rules are ordered, and greedily evaluated
     order_key = models.IntegerField(null=False, blank=False)
+    # Fraction of matching events to suppress (1.0 = all, 0.5 = half, etc.)
+    sampling_rate = models.FloatField(null=False, default=1.0)
 
     class Meta:
         indexes = [
@@ -285,9 +328,56 @@ class ErrorTrackingSuppressionRule(UUIDTModel):
         # ]
 
 
+class ErrorTrackingAutoCaptureControls(UUIDTModel):
+    """
+    Controls for error tracking autocapture behavior.
+    Defines sample rates, feature flag linkage, and URL/event-based triggers.
+    Each team can have one set of controls per library (SDK).
+    """
+
+    class MatchType(models.TextChoices):
+        ALL = "all"
+        ANY = "any"
+
+    class Library(models.TextChoices):
+        WEB = "web"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    library = models.CharField(max_length=24, choices=Library.choices, null=False, blank=False, default=Library.WEB)
+
+    match_type = models.CharField(
+        max_length=24, choices=MatchType.choices, null=False, blank=False, default=MatchType.ALL
+    )
+
+    sample_rate = models.DecimalField(
+        max_digits=3,
+        decimal_places=2,
+        null=False,
+        blank=False,
+        default=Decimal(1),
+        validators=[MinValueValidator(Decimal(0)), MaxValueValidator(Decimal(1))],
+    )
+
+    linked_feature_flag = models.JSONField(null=True, blank=True)
+    event_triggers = ArrayField(models.TextField(null=True, blank=True), default=list, blank=True, null=True)
+    url_triggers = ArrayField(models.JSONField(null=True, blank=True), default=list, blank=True, null=True)
+    url_blocklist = ArrayField(models.JSONField(null=True, blank=True), default=list, blank=True, null=True)
+
+    class Meta:
+        db_table = "posthog_errortrackingautocapturecontrols"
+        indexes = [
+            models.Index(fields=["team_id"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["team", "library"], name="unique_controls_per_team_library"),
+        ]
+
+
 class ErrorTrackingStackFrame(UUIDTModel):
     # Produced by a raw frame
     raw_id = models.TextField(null=False, blank=False)
+    # Raw frames could be resolved into multiple frames after demangling because of compilation process
+    part = models.IntegerField(null=False, default=0)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     symbol_set = models.ForeignKey("ErrorTrackingSymbolSet", on_delete=models.SET_NULL, null=True)
@@ -297,13 +387,12 @@ class ErrorTrackingStackFrame(UUIDTModel):
     context = models.JSONField(null=True, blank=True)
 
     class Meta:
-        indexes = [
-            models.Index(fields=["team_id", "raw_id"]),
-        ]
+        indexes = []
 
         constraints = [
-            models.UniqueConstraint(fields=["team_id", "raw_id"], name="unique_raw_id_per_team"),
+            models.UniqueConstraint(fields=["team_id", "raw_id", "part"], name="unique_team_id_raw_id_part"),
         ]
+
         db_table = "posthog_errortrackingstackframe"
 
 
@@ -361,6 +450,7 @@ def update_error_tracking_issue_fingerprints(
     team_id: int, issue_id: str, fingerprints: list[str]
 ) -> list[ErrorTrackingIssueFingerprintV2]:
     return list(
+        # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via params list)
         ErrorTrackingIssueFingerprintV2.objects.raw(
             """
                 UPDATE posthog_errortrackingissuefingerprintv2
@@ -413,3 +503,34 @@ def delete_symbol_set_contents(upload_path: str) -> None:
             code="object_storage_required",
             detail="Object storage must be available to delete source maps.",
         )
+
+
+class ErrorTrackingSpikeDetectionConfig(models.Model):
+    team = models.OneToOneField(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name="error_tracking_spike_detection_config",
+    )
+    snooze_duration_minutes = models.IntegerField(default=10)
+    multiplier = models.IntegerField(default=10)
+    threshold = models.IntegerField(default=500)
+
+    class Meta:
+        db_table = "posthog_errortrackingspikedetectionconfig"
+
+
+class ErrorTrackingSpikeEvent(UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="spike_events")
+    detected_at = models.DateTimeField()
+    computed_baseline = models.FloatField()
+    current_bucket_value = models.IntegerField()
+
+    class Meta:
+        db_table = "posthog_errortrackingspikeevent"
+        indexes = [
+            models.Index(fields=["team", "-detected_at"]),
+            models.Index(fields=["issue", "-detected_at"]),
+            models.Index(fields=["-detected_at"]),
+        ]

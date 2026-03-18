@@ -7,5 +7,5 @@ operations = [
     # :TRICKY: This is only run on new installations, we use this to know to skip
     # posthog/async_migrations/migrations/0003_fill_person_distinct_id2.py
     # We would use table comments but can't due to clickhouse version limitations
-    run_sql_with_exceptions(COMMENT_DISTINCT_ID_COLUMN_SQL()),
+    run_sql_with_exceptions(COMMENT_DISTINCT_ID_COLUMN_SQL(), sharded=False, is_alter_on_replicated_table=True),
 ]

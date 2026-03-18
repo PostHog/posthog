@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
-import api, { ApiConfig } from 'lib/api'
+import api, { ApiConfig, ApiError } from 'lib/api'
 import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -11,7 +11,7 @@ import { isUserLoggedIn } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { AvailableFeature, OrganizationType } from '~/types'
+import { OrganizationType } from '~/types'
 
 import type { organizationLogicType } from './organizationLogicType'
 import { urls } from './urls'
@@ -30,6 +30,7 @@ export type OrganizationUpdatePayload = Partial<
         | 'default_experiment_stats_method'
         | 'allow_publicly_shared_resources'
         | 'default_role_id'
+        | 'default_anonymize_ips'
     >
 >
 
@@ -41,9 +42,12 @@ export const organizationLogic = kea<organizationLogicType>([
             redirectPath,
         }),
         deleteOrganizationSuccess: ({ redirectPath }: { redirectPath?: string }) => ({ redirectPath }),
-        deleteOrganizationFailure: true,
+        deleteOrganizationFailure: (error: string) => ({ error }),
     }),
-    connect([userLogic]),
+    connect(() => ({
+        values: [userLogic, ['hasAvailableFeature']],
+        actions: [userLogic, ['loadUser'], router, ['locationChanged']],
+    })),
     reducers({
         organizationBeingDeleted: [
             null as string | null,
@@ -77,7 +81,10 @@ export const organizationLogic = kea<organizationLogicType>([
                         return null
                     }
                 },
-                createOrganization: async (name: string) => await api.create('api/organizations/', { name }),
+                createOrganization: async (name: string) => {
+                    await timeSensitiveAuthenticationLogic.findMounted()?.asyncActions.checkReauthentication()
+                    return await api.create('api/organizations/', { name })
+                },
                 updateOrganization: async (payload: OrganizationUpdatePayload) => {
                     if (!values.currentOrganization) {
                         throw new Error('Current organization has not been loaded yet.')
@@ -101,10 +108,6 @@ export const organizationLogic = kea<organizationLogicType>([
         ],
     })),
     selectors({
-        hasTagging: [
-            () => [userLogic.selectors.hasAvailableFeature],
-            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.TAGGING),
-        ],
         isCurrentOrganizationUnavailable: [
             (s) => [s.currentOrganization, s.currentOrganizationLoading],
             (currentOrganization, currentOrganizationLoading): boolean =>
@@ -135,16 +138,26 @@ export const organizationLogic = kea<organizationLogicType>([
                 return orgCreatedAt ? dayjs().diff(dayjs(orgCreatedAt), 'month') < 3 : false
             },
         ],
+        isNotActiveReason: [
+            (s) => [s.currentOrganization],
+            (currentOrganization): string | null => currentOrganization?.is_not_active_reason ?? null,
+        ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         loadCurrentOrganizationSuccess: ({ currentOrganization }) => {
             if (currentOrganization) {
                 ApiConfig.setCurrentOrganizationId(currentOrganization.id)
             }
         },
+        locationChanged: ({ pathname }) => {
+            // Redirect to deactivated page if organization is inactive (client-side navigation)
+            if (values.currentOrganization?.is_active === false && pathname !== urls.organizationDeactivated()) {
+                router.actions.replace(urls.organizationDeactivated())
+            }
+        },
         createOrganizationSuccess: () => {
             sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
-            window.location.href = urls.products()
+            window.location.href = urls.onboarding()
         },
         updateOrganizationSuccess: () => {
             lemonToast.success('Organization updated successfully!')
@@ -153,23 +166,31 @@ export const organizationLogic = kea<organizationLogicType>([
             try {
                 await api.delete(`api/organizations/${organizationId}`)
                 actions.deleteOrganizationSuccess({ redirectPath })
-            } catch {
-                actions.deleteOrganizationFailure()
+            } catch (e) {
+                const apiError = e as ApiError
+                actions.deleteOrganizationFailure(apiError.detail || 'Error deleting organization')
             }
         },
         deleteOrganizationSuccess: ({ redirectPath }) => {
+            lemonToast.success('Organization has been deleted', {
+                toastId: 'deleteOrganization',
+            })
+
+            // When deleting an org as part of the delete-account flow, skip the
+            // page reload so the user stays in the modal. The org deletion is
+            // async, so a reload would still show the org in the list.
+            if (redirectPath === urls.settings('user-danger-zone')) {
+                return
+            }
+
             router.actions.replace(redirectPath ?? router.values.currentLocation.pathname, {
                 ...router.values.searchParams,
                 organizationDeleted: true,
             })
-
-            lemonToast.success('Organization has been deleted', {
-                toastId: 'deleteOrganization',
-            })
             location.reload()
         },
-        deleteOrganizationFailure: () => {
-            lemonToast.error('Error deleting organization', {
+        deleteOrganizationFailure: ({ error }) => {
+            lemonToast.error(error, {
                 toastId: 'deleteOrganization',
             })
         },

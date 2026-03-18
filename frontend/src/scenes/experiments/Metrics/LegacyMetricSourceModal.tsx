@@ -2,8 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { LemonModal } from '@posthog/lemon-ui'
 
-import { Experiment } from '~/types'
-
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import { getDefaultFunnelMetric, getDefaultFunnelsMetric } from '../utils'
@@ -14,15 +12,9 @@ import { getDefaultFunnelMetric, getDefaultFunnelsMetric } from '../utils'
  * This component is deprecated and only supports the legacy query runner.
  * Use the MetricSourceModal component instead.
  */
-export function LegacyMetricSourceModal({
-    experimentId,
-    isSecondary,
-}: {
-    experimentId: Experiment['id']
-    isSecondary?: boolean
-}): JSX.Element {
-    const { experiment, usesNewQueryRunner } = useValues(experimentLogic({ experimentId }))
-    const { setExperiment } = useActions(experimentLogic({ experimentId }))
+export function LegacyMetricSourceModal({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
+    const { experiment, usesNewQueryRunner } = useValues(experimentLogic)
+    const { setExperiment } = useActions(experimentLogic)
     const {
         closePrimaryMetricSourceModal,
         closeSecondaryMetricSourceModal,

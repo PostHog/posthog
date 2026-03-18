@@ -33,6 +33,10 @@ export interface LemonTableColumn<T extends Record<string, any>, D extends keyof
     sorter?: ((a: T, b: T) => number) | true
     /** Menu containing extra column options, accessible via a "More" button in the title of the column. */
     more?: JSX.Element
+    /** Optional icon to use for the more button. If not provided, defaults to ellipsis icon. */
+    moreIcon?: JSX.Element
+    /** Number of active filters for this column. Shows a badge on the more icon. */
+    moreFilterCount?: number
     className?: string | ((dataValue: D extends keyof T ? T[D] : undefined, record: T, recordIndex: number) => string)
     style?:
         | CSSProperties
@@ -42,6 +46,8 @@ export interface LemonTableColumn<T extends Record<string, any>, D extends keyof
               record: T,
               recordIndex: number
           ) => CSSProperties | undefined)
+    /** Initial sort direction when clicking an unsorted column. Defaults to ascending (1). Use -1 for columns like dates where descending is more natural. */
+    defaultSortOrder?: 1 | -1
     /** Column content alignment. Left by default. Set to right for numerical values (amounts, days ago etc.) */
     align?: 'left' | 'right' | 'center'
     /** TODO: Whether the column should be sticky when scrolling */
@@ -50,6 +56,12 @@ export interface LemonTableColumn<T extends Record<string, any>, D extends keyof
     width?: string | number
     /** Whether the column's contents should expand to the size of the column. */
     fullWidth?: boolean
+    /** Cell actions to display in a "More" menu for each cell. Return null to hide actions for specific cells. */
+    cellActions?: (
+        value: D extends keyof T ? T[D] : undefined,
+        record: T,
+        recordIndex: number
+    ) => React.ReactNode | null
 }
 export interface LemonTableColumnGroup<T extends Record<string, any>> {
     title?: string | React.ReactNode

@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::{
+    api::client::ClientError,
     invocation_context::context,
     utils::{files::content_hash, git::GitInfo},
 };
@@ -21,7 +22,7 @@ pub struct Release {
 
 #[derive(Debug, Clone, Default)]
 pub struct ReleaseBuilder {
-    project: Option<String>,
+    name: Option<String>,
     version: Option<String>,
     metadata: HashMap<String, Value>,
 }
@@ -33,39 +34,28 @@ struct CreateReleaseRequest {
     pub metadata: HashMap<String, Value>,
     pub hash_id: String,
     pub version: String,
+    // TODO: update API to use name instead
     pub project: String,
 }
 
 impl Release {
-    pub fn lookup(project: &str, version: &str) -> Result<Option<Self>> {
-        let hash_id = content_hash([project, version]);
-        let context = context();
-        let token = &context.token;
+    pub fn lookup(name: &str, version: &str) -> Result<Option<Self>, ClientError> {
+        let hash_id = content_hash([name, version]);
+        let client = &context().client;
 
-        let url = format!(
-            "{}/api/environments/{}/error_tracking/releases/hash/{hash_id}",
-            token.get_host(),
-            token.env_id,
-        );
+        let path = format!("error_tracking/releases/hash/{hash_id}");
+        let response = client.send_get(client.project_url(&path)?, |req| req);
 
-        let response = context
-            .client
-            .get(&url)
-            .header("Authorization", format!("Bearer {}", token.token))
-            .header("Content-Type", "application/json")
-            .send()?;
-
-        if response.status().as_u16() == 404 {
-            warn!("Release {} of project {} not found", version, project);
-            return Ok(None);
-        }
-
-        if response.status().is_success() {
-            info!("Found release {} of project {}", version, project);
-            Ok(Some(response.json()?))
+        if let Err(err) = response {
+            if let ClientError::ApiError(404, _, _) = err {
+                warn!("release {}@{} not found", name, version);
+                return Ok(None);
+            }
+            warn!("failed to get release from hash: {}", err);
+            Err(err)
         } else {
-            response.error_for_status()?;
-            Ok(None) // unreachable
+            info!("found release {}@{}", name, version);
+            Ok(Some(response.unwrap().json()?))
         }
     }
 }
@@ -81,11 +71,19 @@ impl ReleaseBuilder {
         Self {
             metadata,
             version: Some(info.commit_id), // TODO - We should pull this commits tags and use them if we can
-            project: info.repo_name,
+            name: info.repo_name,
         }
     }
 
     pub fn with_git(&mut self, info: GitInfo) -> &mut Self {
+        if !self.has_name() {
+            if let Some(name) = &info.repo_name {
+                self.with_name(name);
+            }
+        }
+        if !self.has_version() {
+            self.with_version(&info.commit_id);
+        }
         self.with_metadata("git", info)
             .expect("We can serialise git info")
     }
@@ -99,9 +97,17 @@ impl ReleaseBuilder {
         Ok(self)
     }
 
-    pub fn with_project(&mut self, project: &str) -> &mut Self {
-        self.project = Some(project.to_string());
+    pub fn has_name(&self) -> bool {
+        self.name.is_some()
+    }
+
+    pub fn with_name(&mut self, name: &str) -> &mut Self {
+        self.name = Some(name.to_string());
         self
+    }
+
+    pub fn has_version(&self) -> bool {
+        self.version.is_some()
     }
 
     pub fn with_version(&mut self, version: &str) -> &mut Self {
@@ -110,17 +116,17 @@ impl ReleaseBuilder {
     }
 
     pub fn can_create(&self) -> bool {
-        self.version.is_some() && self.project.is_some()
+        self.version.is_some() && self.name.is_some()
     }
 
     pub fn missing(&self) -> Vec<&str> {
         let mut missing = Vec::new();
 
         if self.version.is_none() {
-            missing.push("version");
+            missing.push("release-version");
         }
-        if self.project.is_none() {
-            missing.push("project");
+        if self.name.is_none() {
+            missing.push("release-name");
         }
         missing
     }
@@ -133,7 +139,7 @@ impl ReleaseBuilder {
             )
         }
         let version = self.version.as_ref().unwrap();
-        let project = self.project.as_ref().unwrap();
+        let project = self.name.as_ref().unwrap();
         if let Some(release) = Release::lookup(project, version)? {
             Ok(release)
         } else {
@@ -152,44 +158,31 @@ impl ReleaseBuilder {
             )
         }
         let version = self.version.unwrap();
-        let project = self.project.unwrap();
+        let name = self.name.unwrap();
         let metadata = self.metadata;
 
-        let hash_id = content_hash([project.as_bytes(), version.as_bytes()]);
+        let hash_id = content_hash([name.as_bytes(), version.as_bytes()]);
 
-        let token = &context().token;
         let request = CreateReleaseRequest {
             metadata,
             hash_id,
             version,
-            project,
+            project: name,
         };
-
-        let url = format!(
-            "{}/api/environments/{}/error_tracking/releases",
-            token.get_host(),
-            token.env_id
-        );
 
         let client = &context().client;
 
         let response = client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", token.token))
-            .header("Content-Type", "application/json")
-            .json(&request)
-            .send()?;
+            .send_post(client.project_url("error_tracking/releases")?, |req| {
+                req.json(&request)
+            })
+            .context("Failed to create release")?;
 
-        if response.status().is_success() {
-            let response = response.json::<Release>()?;
-            info!(
-                "Release {} of {} created successfully! {}",
-                request.version, request.project, response.id
-            );
-            Ok(response)
-        } else {
-            let e = response.text()?;
-            Err(anyhow::anyhow!("Failed to create release: {e}"))
-        }
+        let response = response.json::<Release>()?;
+        info!(
+            "Release {}@{} created successfully! {}",
+            request.project, request.version, response.id
+        );
+        Ok(response)
     }
 }

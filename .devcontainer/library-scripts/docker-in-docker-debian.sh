@@ -511,6 +511,7 @@ dockerd_start="AZURE_DNS_AUTO_DETECTION=${AZURE_DNS_AUTO_DETECTION} DOCKER_DEFAU
     # -- Start: dind wrapper script --
     # Maintained: https://github.com/moby/moby/blob/master/hack/dind
 
+    # nosemgrep: trailofbits.generic.container-privileged.container-privileged
     export container=docker
 
     if [ -d /sys/kernel/security ] && ! mountpoint -q /sys/kernel/security; then

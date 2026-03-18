@@ -1,19 +1,20 @@
 import { useActions, useValues } from 'kea'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { ProductIntentContext, addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 
-import { ProductKey } from '~/types'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
-import { WebPropertyFilters } from './WebPropertyFilters'
 import { ProductTab } from './common'
+import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
+import { WebPropertyFilters } from './WebPropertyFilters'
 
 export const WebAnalyticsModal = (): JSX.Element | null => {
     const {
@@ -43,6 +44,9 @@ export const WebAnalyticsModal = (): JSX.Element | null => {
                 <div className="flex flex-row flex-wrap gap-2">
                     {productTab !== ProductTab.MARKETING && <WebPropertyFilters />}
                     <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+                    <div className="ml-auto">
+                        <WebAnalyticsExport query={modal.query} insightProps={modal.insightProps} />
+                    </div>
                 </div>
                 <LemonModal.Content embedded>
                     <WebQuery
@@ -70,7 +74,7 @@ export const WebAnalyticsModal = (): JSX.Element | null => {
                                 })
                             }}
                         >
-                            Open as new Insight
+                            Open as new insight
                         </LemonButton>
                     ) : null}
                 </div>

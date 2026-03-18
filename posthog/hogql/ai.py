@@ -6,6 +6,7 @@ from django.conf import settings
 import openai
 import posthoganalytics
 from posthoganalytics.ai.openai import OpenAI
+from rest_framework.request import Request
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError
@@ -15,7 +16,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.event_usage import report_user_action
 from posthog.utils import get_instance_region
 
-from .database.database import create_hogql_database, serialize_database
+from .database.database import Database
 from .query import create_default_modifiers_for_team
 
 if TYPE_CHECKING:
@@ -73,29 +74,50 @@ Standardized events/properties such as pageview or screen start with `$`. Custom
 `virtual_table` and `lazy_table` fields are connections to linked tables, e.g. the virtual table field `person` allows accessing person properties like so: `person.properties.foo`.
 
 <person_id_join_limitation>
-There is a known issue with queries that join multiple events tables where join constraints
-reference person_id fields. The person_id fields are ExpressionFields that expand to
-expressions referencing override tables (e.g., e_all__override). However, these expressions
-are resolved during type resolution (in printer.py) BEFORE lazy table processing begins.
-This creates forward references to override tables that don't exist yet.
+CRITICAL: There is a known issue with queries where JOIN constraints reference events.person_id fields.
 
-Example problematic HogQL:
-    SELECT MAX(e_all.timestamp) AS last_seen
-    FROM events e_dl
-    JOIN persons p ON e_dl.person_id = p.id
-    JOIN events e_all ON e_dl.person_id = e_all.person_id
+TECHNICAL CAUSE:
+The person_id fields are ExpressionFields that expand to expressions referencing override tables
+(e.g., e_all__override). However, these expressions are resolved during type resolution (in printer.py)
+BEFORE lazy table processing begins. This creates forward references to override tables that don't
+exist yet, causing ClickHouse errors like:
+"Missing columns: '_--e__override.person_id' '_--e__override.distinct_id'"
 
-The join constraint "e_dl.person_id = e_all.person_id" expands to:
-    if(NOT empty(e_dl__override.distinct_id), e_dl__override.person_id, e_dl.person_id) =
-    if(NOT empty(e_all__override.distinct_id), e_all__override.person_id, e_all.person_id)
+PROBLEMATIC PATTERNS:
+1. Joining persons to events using events.person_id:
+   ❌ FROM persons p ALL INNER JOIN events e ON p.id = e.person_id
 
-But e_all__override is defined later in the SQL, causing a ClickHouse error.
+2. Joining multiple events tables using person_id:
+   ❌ FROM events e_dl
+      JOIN persons p ON e_dl.person_id = p.id
+      JOIN events e_all ON e_dl.person_id = e_all.person_id
 
-WORKAROUND: Use subqueries or rewrite queries to avoid direct joins between multiple events tables:
-    SELECT MAX(e.timestamp) AS last_seen
-    FROM events e
-    JOIN persons p ON e.person_id = p.id
-    WHERE e.event IN (SELECT event FROM events WHERE ...)
+   The join constraint "e_dl.person_id = e_all.person_id" expands to:
+   if(NOT empty(e_dl__override.distinct_id), e_dl__override.person_id, e_dl.person_id) =
+   if(NOT empty(e_all__override.distinct_id), e_all__override.person_id, e_all.person_id)
+
+   But e_all__override is defined later in the SQL, causing the error.
+
+REQUIRED WORKAROUNDS:
+1. For accessing person data, use the person virtual table from events:
+   ✅ SELECT e.person.id, e.person.properties.email, e.event
+      FROM events e
+      WHERE e.timestamp > now() - INTERVAL 7 DAY
+
+2. For filtering persons by event data, use subqueries with WHERE IN:
+   ✅ SELECT p.id, p.properties.email
+      FROM persons p
+      WHERE p.id IN (
+          SELECT DISTINCT person_id FROM events
+          WHERE event = 'purchase' AND timestamp > now() - INTERVAL 7 DAY
+      )
+
+3. For multiple events tables, use subqueries to avoid direct joins:
+   ✅ SELECT MAX(e.timestamp) AS last_seen
+      FROM events e
+      WHERE e.person_id IN (SELECT DISTINCT person_id FROM events WHERE ...)
+
+NEVER use events.person_id directly in JOIN ON constraints - always use one of the workarounds above.
 </person_id_join_limitation>
 """.strip()
 
@@ -114,15 +136,18 @@ class PromptUnclear(Exception):
     pass
 
 
-def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, team: "Team", user: "User") -> str:
-    database = create_hogql_database(team=team)
+def write_sql_from_prompt(
+    prompt: str, *, current_query: Optional[str] = None, team: "Team", user: "User", request: Optional["Request"] = None
+) -> str:
+    database = Database.create_for(team=team, user=user)
     context = HogQLContext(
         team_id=team.pk,
+        user=user,
         enable_select_queries=True,
         database=database,
         modifiers=create_default_modifiers_for_team(team),
     )
-    serialized_database = serialize_database(context)
+    serialized_database = database.serialize(context)
     schema_description = "\n\n".join(
         (
             f"Table {table_name} with fields:\n"
@@ -190,15 +215,17 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
         {
             "prompt": prompt,
             "response": candidate_sql or error,
-            "result": ("valid_hogql" if generated_valid_hogql else "invalid_hogql")
-            if candidate_sql
-            else "prompt_unclear",
+            "result": (
+                ("valid_hogql" if generated_valid_hogql else "invalid_hogql") if candidate_sql else "prompt_unclear"
+            ),
             "attempt_count": attempt_count,
             "prompt_tokens_last": prompt_tokens_last,
             "completion_tokens_last": completion_tokens_last,
             "prompt_tokens_total": prompt_tokens_total,
             "completion_tokens_total": completion_tokens_total,
         },
+        team=team,
+        request=request,
     )
 
     if candidate_sql:
@@ -207,15 +234,16 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
         raise PromptUnclear(error)
 
 
-def hit_openai(messages, user) -> tuple[str, int, int]:
+def hit_openai(messages, user, posthog_properties=None) -> tuple[str, int, int]:
     if not openai_client:
         raise ValueError("OPENAI_API_KEY environment variable not set")
 
-    result = openai_client.chat.completions.create(
+    result = openai_client.chat.completions.create(  # type: ignore
         model="gpt-4.1-mini",
         temperature=0,
         messages=messages,
         user=user,  # The user ID is for tracking within OpenAI in case of overuse/abuse
+        posthog_properties=posthog_properties,
     )
 
     content: str = ""
@@ -271,6 +299,7 @@ replaceAll(arg: string, needle: string, replacement: string): string
 generateUUIDv4(): string
 position(haystack: string, needle: string): integer
 positionCaseInsensitive(haystack: string, needle: string): integer
+substring(arg: string, offset: integer, length?: integer): string
 Objects and arrays
 length(arg: any[] | object): integer
 empty(arg: any[] | object): boolean
@@ -375,6 +404,11 @@ let str := 'string'
 print(str || ' world') // prints 'string world', SQL concat
 print(f'hello {str}') // prints 'hello string'
 print(f'hello {f'{str} world'}') // prints 'hello string world'
+String truncation
+// Truncate a string to a maximum length
+if (length(s) > 2000) {
+    s := substring(s, 1, 2000)
+}
 Functions and lambdas
 Functions are first class variables, just like in JavaScript. You can define them with fun, or inline as lambdas:
 
@@ -434,6 +468,7 @@ Here are a few key differences compared to other programming languages:
 - All arrays in Hog start from index 1. Yes, for real. Trust us, we know. However that's how SQL has always worked, so we adopted it.
 - The easiest way to debug your code is to print() the variables in question, and then check the logs.
 - Strings must always be written with 'single quotes'. You may use f-string templates like f'Hello {name}'.
+- Never use arr[a:b]; Hog does not support slice syntax. Use substring(str, offset, length) for strings.
 - delete does not work in Hog.
 
 """
@@ -769,7 +804,7 @@ kvPairList: kvPair (COMMA kvPair)* COMMA?;
 // SELECT statement
 select: (selectSetStmt | selectStmt | hogqlxTagElement) EOF;
 selectStmtWithParens: selectStmt | LPAREN selectSetStmt RPAREN | placeholder;
-subsequentSelectSetClause: (EXCEPT | UNION ALL | UNION DISTINCT | INTERSECT | INTERSECT DISTINCT) selectStmtWithParens;
+subsequentSelectSetClause: (EXCEPT ALL | EXCEPT | UNION ALL (BY NAME)? | UNION DISTINCT (BY NAME)? | UNION (BY NAME)? | INTERSECT ALL | INTERSECT DISTINCT | INTERSECT) selectStmtWithParens;
 selectSetStmt: selectStmtWithParens (subsequentSelectSetClause)*;
 selectStmt:
     with=withClause?
@@ -1509,10 +1544,6 @@ Here is the taxonomy for event properties:
             "label": "Exception is synthetic",
             "description": "Whether this was detected as a synthetic exception.",
         },
-        "$exception_stack_trace_raw": {
-            "label": "Exception raw stack trace",
-            "description": "The exceptions stack trace, as a string.",
-        },
         "$exception_handled": {
             "label": "Exception was handled",
             "description": "Whether this was a handled or unhandled exception.",
@@ -2095,6 +2126,11 @@ Here is the taxonomy for event properties:
             "description": "The unique identifier for the request that retrieved this feature flag result.\n\nNote: Primarily used by PostHog support for debugging issues with feature flags.",
             "examples": ["01234567-89ab-cdef-0123-456789abcdef"],
         },
+        "$feature_flag_evaluated_at": {
+            "label": "Feature flag evaluated at",
+            "description": "The timestamp (in milliseconds since Unix epoch) when the feature flag was evaluated.",
+            "examples": ["1732051200000"],
+        },
         "$feature_flag_version": {
             "label": "Feature flag version",
             "description": "The version of the feature flag that was called.",
@@ -2522,13 +2558,6 @@ Here is the taxonomy for event properties:
             "description": "The number of tokens in the input prompt that was sent to the LLM API.",
             "examples": [23],
         },
-        "$ai_output": {
-            "label": "AI output (LLM)",
-            "description": "The output JSON that was received from the LLM API.",
-            "examples": [
-                '{"choices": [{"text": "Quantum computing is a type of computing that harnesses the power of quantum mechanics to perform operations on data."}]}',
-            ],
-        },
         "$ai_output_choices": {
             "label": "AI output (LLM)",
             "description": "The output message choices JSON that was received from the LLM API.",
@@ -2575,6 +2604,11 @@ Here is the taxonomy for event properties:
             "label": "AI latency (LLM)",
             "description": "The latency of the request made to the LLM API, in seconds.",
             "examples": [0.361],
+        },
+        "$ai_time_to_first_token": {
+            "label": "AI time to first token (LLM)",
+            "description": "The time in seconds from request start until the first token was received. Only applicable for streaming responses.",
+            "examples": [0.125, 0.5],
         },
         "$ai_model": {
             "label": "AI model (LLM)",

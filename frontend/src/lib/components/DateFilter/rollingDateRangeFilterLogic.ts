@@ -15,6 +15,7 @@ const dateOptionsMap = {
     d: 'days',
     h: 'hours',
     M: 'minutes',
+    s: 'seconds',
 } as const
 
 export type DateOption = (typeof dateOptionsMap)[keyof typeof dateOptionsMap]
@@ -39,7 +40,7 @@ const counterDefault = (dateFrom: Dayjs | string | null | undefined): number => 
 
 const dateOptionDefault = (dateFrom: Dayjs | string | null | undefined): DateOption => {
     if (dateFrom && typeof dateFrom === 'string') {
-        const dateOption = dateOptionsMap[dateFrom.slice(-1)]
+        const dateOption = dateOptionsMap[dateFrom.slice(-1) as keyof typeof dateOptionsMap]
         if (dateOption) {
             return dateOption
         }
@@ -115,6 +116,8 @@ export const rollingDateRangeFilterLogic = kea<rollingDateRangeFilterLogicType>(
                         return `-${counter}h`
                     case 'minutes':
                         return `-${counter}M`
+                    case 'seconds':
+                        return `-${counter}s`
                     default:
                         return `-${counter}d`
                 }
@@ -147,7 +150,7 @@ export const rollingDateRangeFilterLogic = kea<rollingDateRangeFilterLogicType>(
             props.onChange?.(values.value)
         },
         setDateOption: () => {
-            actions.select()
+            props.onChange?.(values.value)
         },
         setCounter: () => {
             actions.select()

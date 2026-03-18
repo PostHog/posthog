@@ -1,18 +1,25 @@
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { definitionLogic } from '../definition/definitionLogic'
 import { schemaManagementLogic } from '../schema/schemaManagementLogic'
 import { eventDefinitionSchemaLogic } from './eventDefinitionSchemaLogic'
 
 describe('eventDefinitionSchemaLogic', () => {
     let logic: ReturnType<typeof eventDefinitionSchemaLogic.build>
     let schemaLogic: ReturnType<typeof schemaManagementLogic.build>
+    let defLogic: ReturnType<typeof definitionLogic.build>
 
     beforeEach(() => {
         initKeaTests()
 
         useMocks({
             get: {
+                '/api/projects/:teamId/event_definitions/:id': {
+                    id: 'event-def-1',
+                    name: 'test_event',
+                    enforcement_mode: 'allow',
+                },
                 '/api/projects/:teamId/event_schemas': {
                     results: [
                         {
@@ -59,12 +66,16 @@ describe('eventDefinitionSchemaLogic', () => {
             },
         })
 
-        // Build the logic instances with the same key
+        // definitionLogic must be mounted first since eventDefinitionSchemaLogic connects to it
+        defLogic = definitionLogic({ id: 'event-def-1' })
         schemaLogic = schemaManagementLogic({ key: 'event-event-def-1' })
-        logic = eventDefinitionSchemaLogic({ eventDefinitionId: 'event-def-1' })
+        logic = eventDefinitionSchemaLogic({
+            eventDefinitionId: 'event-def-1',
+        })
     })
 
     it('should reload event schemas when property group is updated', () => {
+        defLogic.mount()
         schemaLogic.mount()
         logic.mount()
 
@@ -93,6 +104,7 @@ describe('eventDefinitionSchemaLogic', () => {
     })
 
     it('should reload event schemas when a new property group is created', () => {
+        defLogic.mount()
         schemaLogic.mount()
         logic.mount()
 

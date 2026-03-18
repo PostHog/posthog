@@ -1,70 +1,74 @@
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import React, { useMemo } from 'react'
 
-import { IconArchive, IconCopy, IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonInput,
-    LemonSwitch,
-    LemonTab,
-    LemonTable,
-    LemonTabs,
-    LemonTag,
-    Link,
-    Spinner,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTab, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
 
-import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
+import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { NotFound } from 'lib/components/NotFound'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { humanFriendlyDuration } from 'lib/utils'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { objectsEqual } from 'lib/utils'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { Dashboard } from 'scenes/dashboard/Dashboard'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { sceneConfigurations } from 'scenes/scenes'
-import { teamLogic } from 'scenes/teamLogic'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { EditCustomProductsModal } from '~/layout/panel-layout/PinnedFolder/EditCustomProductsModal'
+import { editCustomProductsModalLogic } from '~/layout/panel-layout/PinnedFolder/editCustomProductsModalLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
-import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
-import { EventType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, EventType } from '~/types'
 
-import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
-import { LLMAnalyticsPlaygroundScene } from './LLMAnalyticsPlaygroundScene'
+import { useSortableColumns } from './hooks/useSortableColumns'
+import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
+import { LLMAnalyticsErrors } from './LLMAnalyticsErrors'
 import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
+import { LLMAnalyticsSessionsScene } from './LLMAnalyticsSessionsScene'
+import { LLMAnalyticsSetupPrompt } from './LLMAnalyticsSetupPrompt'
+import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import { LLMAnalyticsTools } from './LLMAnalyticsTools'
 import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
-import { LLMAnalyticsDatasetsScene } from './datasets/LLMAnalyticsDatasetsScene'
-import { llmEvaluationsLogic } from './evaluations/llmEvaluationsLogic'
-import { EvaluationConfig } from './evaluations/types'
-import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsLogic } from './llmAnalyticsLogic'
-import { CompatMessage } from './types'
-import { normalizeMessages, truncateValue } from './utils'
+import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
+import { llmAnalyticsDashboardLogic } from './tabs/llmAnalyticsDashboardLogic'
+import { llmAnalyticsErrorsLogic } from './tabs/llmAnalyticsErrorsLogic'
+import { getDefaultGenerationsColumns, llmAnalyticsGenerationsLogic } from './tabs/llmAnalyticsGenerationsLogic'
+import { llmAnalyticsSessionsViewLogic } from './tabs/llmAnalyticsSessionsViewLogic'
+import { llmAnalyticsToolsLogic } from './tabs/llmAnalyticsToolsLogic'
+import { llmAnalyticsTracesTabLogic } from './tabs/llmAnalyticsTracesTabLogic'
+import { llmAnalyticsUsersLogic } from './tabs/llmAnalyticsUsersLogic'
+import { LLMAnalyticsHumanReviews } from './traceReviews/LLMAnalyticsHumanReviews'
+import { getTraceTimestamp, sanitizeTraceUrlSearchParams, truncateValue } from './utils'
 
 export const scene: SceneExport = {
     component: LLMAnalyticsScene,
-    logic: llmAnalyticsLogic,
+    logic: llmAnalyticsSharedLogic,
+    productKey: ProductKey.LLM_ANALYTICS,
 }
 
-const Filters = (): JSX.Element => {
-    const { dashboardDateFilter, dateFilter, shouldFilterTestAccounts, generationsQuery, propertyFilters, activeTab } =
-        useValues(llmAnalyticsLogic)
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsLogic)
+const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolean }): JSX.Element => {
+    const { dashboardDateFilter, dateFilter, shouldFilterTestAccounts, propertyFilters, activeTab } =
+        useValues(llmAnalyticsSharedLogic)
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
+    const { generationsQuery } = useValues(llmAnalyticsGenerationsLogic)
+    const { selectedDashboardId } = useValues(llmAnalyticsDashboardLogic)
 
     const dateFrom = activeTab === 'dashboard' ? dashboardDateFilter.dateFrom : dateFilter.dateFrom
     const dateTo = activeTab === 'dashboard' ? dashboardDateFilter.dateTo : dateFilter.dateTo
@@ -72,86 +76,161 @@ const Filters = (): JSX.Element => {
     return (
         <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 -mt-4 mb-4 border-b">
             <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
-            <PropertyFilters
-                propertyFilters={propertyFilters}
-                taxonomicGroupTypes={generationsQuery.showPropertyFilter as TaxonomicFilterGroupType[]}
-                onChange={setPropertyFilters}
-                pageKey="llm-analytics"
-            />
-            <div className="flex-1" />
-            <TestAccountFilterSwitch checked={shouldFilterTestAccounts} onChange={setShouldFilterTestAccounts} />
+            {!hidePropertyFilters && (
+                <>
+                    <PropertyFilters
+                        propertyFilters={propertyFilters}
+                        taxonomicGroupTypes={generationsQuery.showPropertyFilter as TaxonomicFilterGroupType[]}
+                        onChange={setPropertyFilters}
+                        pageKey="llm-analytics"
+                    />
+                    <div className="flex-1" />
+                    <TestAccountFilterSwitch
+                        checked={shouldFilterTestAccounts}
+                        onChange={setShouldFilterTestAccounts}
+                    />
+                </>
+            )}
+            {hidePropertyFilters && <div className="flex-1" />}
+            {activeTab === 'dashboard' && selectedDashboardId && (
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.LlmAnalytics}
+                    minAccessLevel={AccessControlLevel.Editor}
+                >
+                    <LemonButton type="secondary" size="small" to={urls.dashboard(selectedDashboardId)}>
+                        Edit dashboard
+                    </LemonButton>
+                </AccessControlAction>
+            )}
             <LLMAnalyticsReloadAction />
         </div>
     )
 }
 
-const Tiles = (): JSX.Element => {
-    const { tiles } = useValues(llmAnalyticsLogic)
-
-    return (
-        <div className="mt-2 grid grid-cols-1 @xl/dashboard:grid-cols-2 @4xl/dashboard:grid-cols-6 gap-4">
-            {tiles.map(({ title, description, query, context }, i) => (
-                <QueryCard
-                    key={i}
-                    attachTo={llmAnalyticsLogic}
-                    title={title}
-                    description={description}
-                    query={{ kind: NodeKind.InsightVizNode, source: query } as InsightVizNode}
-                    context={context}
-                    sceneSource="llm-analytics"
-                    className={clsx(
-                        'h-96',
-                        /* Second row is the only one to have 2 tiles in the xl layout */
-                        i < 3 || i >= 5 ? '@4xl/dashboard:col-span-2' : '@4xl/dashboard:col-span-3'
-                    )}
-                />
-            ))}
-        </div>
-    )
-}
-
-const IngestionStatusCheck = (): JSX.Element | null => {
-    return (
-        <LemonBanner type="warning">
-            <p>
-                <strong>No LLM generation events have been detected!</strong>
-            </p>
-            <p>
-                To use the LLM Analytics product, please{' '}
-                <Link to="https://posthog.com/docs/llm-analytics/installation">
-                    instrument your LLM calls with the PostHog SDK
-                </Link>{' '}
-                (otherwise it'll be a little empty!)
-            </p>
-        </LemonBanner>
-    )
-}
-
 function LLMAnalyticsDashboard(): JSX.Element {
+    const { dashboardDateFilter, propertyFilters } = useValues(llmAnalyticsSharedLogic)
+    const { selectedDashboardId, availableDashboardsLoading } = useValues(llmAnalyticsDashboardLogic)
+
+    const dashboardLogicInstance = React.useMemo(
+        () =>
+            selectedDashboardId
+                ? dashboardLogic({ id: selectedDashboardId, placement: DashboardPlacement.Builtin })
+                : null,
+        [selectedDashboardId]
+    )
+
+    const fallbackLogicInstance = React.useMemo(
+        () => dashboardLogic({ id: 0, placement: DashboardPlacement.Builtin }),
+        []
+    )
+    const { externalFilters } = useValues(dashboardLogicInstance || fallbackLogicInstance)
+    const dashboardActions = useActions(dashboardLogicInstance || fallbackLogicInstance)
+    const setExternalFilters =
+        dashboardLogicInstance && dashboardActions?.setExternalFilters ? dashboardActions.setExternalFilters : undefined
+    useAttachedLogic(dashboardLogicInstance || fallbackLogicInstance, llmAnalyticsSharedLogic)
+
+    const nextExternalFilters = React.useMemo(
+        () => ({
+            date_from: dashboardDateFilter.dateFrom,
+            date_to: dashboardDateFilter.dateTo,
+            properties: propertyFilters.length > 0 ? propertyFilters : null,
+        }),
+        [dashboardDateFilter.dateFrom, dashboardDateFilter.dateTo, propertyFilters]
+    )
+
+    const currentExternalFilters = React.useMemo(
+        () => ({
+            date_from: externalFilters?.date_from ?? null,
+            date_to: externalFilters?.date_to ?? null,
+            properties: externalFilters?.properties ?? null,
+        }),
+        [externalFilters?.date_from, externalFilters?.date_to, externalFilters?.properties]
+    )
+
+    // Set filters using useLayoutEffect to ensure they're set before Dashboard's afterMount event fires
+    React.useLayoutEffect(() => {
+        if (selectedDashboardId && setExternalFilters && !objectsEqual(currentExternalFilters, nextExternalFilters)) {
+            setExternalFilters(nextExternalFilters)
+        }
+    }, [currentExternalFilters, nextExternalFilters, selectedDashboardId, setExternalFilters])
+
     return (
-        <div className="@container/dashboard">
-            <Filters />
-            <Tiles />
-        </div>
+        <LLMAnalyticsSetupPrompt>
+            <div className="@container/dashboard" data-attr="llm-analytics-costs">
+                <Filters />
+
+                {availableDashboardsLoading || !selectedDashboardId ? (
+                    <div className="text-center p-8">
+                        <Spinner />
+                    </div>
+                ) : (
+                    <Dashboard id={selectedDashboardId.toString()} placement={DashboardPlacement.Builtin} />
+                )}
+            </div>
+        </LLMAnalyticsSetupPrompt>
     )
 }
 
 function LLMAnalyticsGenerations(): JSX.Element {
-    const {
-        setDates,
-        setShouldFilterTestAccounts,
-        setPropertyFilters,
-        setGenerationsQuery,
-        setGenerationsColumns,
-        toggleGenerationExpanded,
-    } = useActions(llmAnalyticsLogic)
-    const { generationsQuery, expandedGenerationIds, loadedTraces } = useValues(llmAnalyticsLogic)
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
+    const { propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
+    const { searchParams } = useValues(router)
+    const { setGenerationsColumns, toggleGenerationExpanded, setGenerationsSort } =
+        useActions(llmAnalyticsGenerationsLogic)
+    const { generationsQuery, expandedGenerationIds, loadedTraces, generationsSort } =
+        useValues(llmAnalyticsGenerationsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const { renderSortableColumnTitle } = useSortableColumns(generationsSort, setGenerationsSort)
+
+    // Helper to safely extract uuid and traceId from a result row based on current column configuration
+    const getRowIds = (result: unknown): { uuid: string; traceId: string; traceTimestamp?: string } | null => {
+        if (!Array.isArray(result) || !isEventsQuery(generationsQuery.source)) {
+            return null
+        }
+
+        const columns =
+            generationsQuery.source.select ||
+            getDefaultGenerationsColumns(
+                !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT],
+                !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT],
+                !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]
+            )
+
+        const uuidIndex = columns.findIndex((col) => col === 'uuid')
+        const traceIdIndex = columns.findIndex((col) => col === 'properties.$ai_trace_id')
+        const timestampIndex = columns.findIndex((col) => col === 'timestamp')
+
+        if (uuidIndex < 0 || traceIdIndex < 0) {
+            return null
+        }
+
+        const uuid = result[uuidIndex]
+        const traceId = result[traceIdIndex]
+        const timestampValue = timestampIndex >= 0 ? result[timestampIndex] : null
+
+        if (typeof uuid === 'string' && typeof traceId === 'string') {
+            const parsedTimestamp =
+                timestampValue != null && dayjs(String(timestampValue)).isValid()
+                    ? getTraceTimestamp(String(timestampValue))
+                    : undefined
+            return { uuid, traceId, traceTimestamp: parsedTimestamp }
+        }
+
+        return null
+    }
 
     return (
         <DataTable
+            attachTo={llmAnalyticsSharedLogic}
             query={{
                 ...generationsQuery,
                 showSavedFilters: true,
+                defaultColumns: getDefaultGenerationsColumns(
+                    !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT],
+                    !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT],
+                    !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]
+                ),
             }}
             setQuery={(query) => {
                 if (!isEventsQuery(query.source)) {
@@ -159,27 +238,91 @@ function LLMAnalyticsGenerations(): JSX.Element {
                 }
                 setDates(query.source.after || null, query.source.before || null)
                 setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
-                setPropertyFilters(query.source.properties || [])
+
+                const newPropertyFilters = query.source.properties || []
+                if (!objectsEqual(newPropertyFilters, currentPropertyFilters)) {
+                    setPropertyFilters(newPropertyFilters)
+                }
 
                 if (query.source.select) {
                     setGenerationsColumns(query.source.select)
                 }
-
-                setGenerationsQuery(query)
             }}
             context={{
                 emptyStateHeading: 'There were no generations in this period',
                 emptyStateDetail: 'Try changing the date range or filters.',
+                columns: {
+                    uuid: {
+                        title: 'ID',
+                        render: ({ record, value }) => {
+                            if (!value || typeof value !== 'string') {
+                                return null
+                            }
+
+                            const ids = getRowIds(record)
+                            const visualValue = truncateValue(value)
+                            const nonTraceSearchParams = sanitizeTraceUrlSearchParams(searchParams, {
+                                removeSearch: true,
+                            })
+
+                            return !ids ? (
+                                <strong>{visualValue}</strong>
+                            ) : (
+                                <strong>
+                                    <Tooltip title={value}>
+                                        <Link
+                                            to={
+                                                combineUrl(urls.llmAnalyticsTrace(ids.traceId), {
+                                                    ...nonTraceSearchParams,
+                                                    event: value,
+                                                    timestamp: ids.traceTimestamp,
+                                                    back_to: 'generations',
+                                                }).url
+                                            }
+                                            data-attr="generation-id-link"
+                                        >
+                                            {visualValue}
+                                        </Link>
+                                    </Tooltip>
+                                </strong>
+                            )
+                        },
+                    },
+                    person: llmAnalyticsColumnRenderers.person,
+                    "'' -- Sentiment": llmAnalyticsColumnRenderers["'' -- Sentiment"],
+                    'properties.$ai_tools_called': llmAnalyticsColumnRenderers['properties.$ai_tools_called'],
+                    "f'{properties.$ai_model}' -- Model": {
+                        renderTitle: () => renderSortableColumnTitle('properties.$ai_model', 'Model'),
+                    },
+                    "f'{round(toFloat(properties.$ai_latency), 2)} s' -- Latency": {
+                        renderTitle: () => renderSortableColumnTitle('properties.$ai_latency', 'Latency'),
+                    },
+                    "f'${round(toFloat(properties.$ai_total_cost_usd), 6)}' -- Cost": {
+                        renderTitle: () => (
+                            <Tooltip title="Cost of this generation">
+                                {renderSortableColumnTitle('properties.$ai_total_cost_usd', 'Cost')}
+                            </Tooltip>
+                        ),
+                    },
+                    timestamp: {
+                        renderTitle: () => renderSortableColumnTitle('timestamp', 'Time'),
+                    },
+                },
                 expandable: {
                     expandedRowRender: function renderExpandedGeneration({ result }: DataTableRow) {
-                        if (!Array.isArray(result)) {
-                            return null
+                        const ids = getRowIds(result)
+
+                        if (!ids) {
+                            return (
+                                <div className="p-4 text-danger">
+                                    Cannot expand: required columns (uuid, properties.$ai_trace_id) are missing. Please
+                                    reset your column configuration.
+                                </div>
+                            )
                         }
 
-                        const uuid = result[0] as string
-                        const traceId = result[1] as string
-                        const trace = loadedTraces[traceId]
-                        const event = trace?.events.find((e) => e.id === uuid)
+                        const trace = loadedTraces[ids.traceId]
+                        const event = trace?.events.find((e) => e.id === ids.uuid)
 
                         if (!trace) {
                             return (
@@ -196,6 +339,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
                         // Convert LLMTraceEvent to EventType format for EventDetails
                         const eventForDetails: EventType = {
                             id: event.id,
+                            uuid: event.id,
                             distinct_id: '',
                             properties: event.properties,
                             event: event.event,
@@ -209,108 +353,24 @@ function LLMAnalyticsGenerations(): JSX.Element {
                             </div>
                         )
                     },
-                    rowExpandable: ({ result }: DataTableRow) =>
-                        !!result && Array.isArray(result) && !!result[0] && !!result[1],
-                    isRowExpanded: ({ result }: DataTableRow) =>
-                        Array.isArray(result) && !!result[0] && expandedGenerationIds.has(result[0] as string),
+                    rowExpandable: ({ result }: DataTableRow) => !!getRowIds(result),
+                    isRowExpanded: ({ result }: DataTableRow) => {
+                        const ids = getRowIds(result)
+                        return !!ids && expandedGenerationIds.has(ids.uuid)
+                    },
                     onRowExpand: ({ result }: DataTableRow) => {
-                        if (Array.isArray(result) && result[0] && result[1]) {
-                            toggleGenerationExpanded(result[0] as string, result[1] as string)
+                        const ids = getRowIds(result)
+                        if (ids) {
+                            toggleGenerationExpanded(ids.uuid, ids.traceId)
                         }
                     },
                     onRowCollapse: ({ result }: DataTableRow) => {
-                        if (Array.isArray(result) && result[0] && result[1]) {
-                            toggleGenerationExpanded(result[0] as string, result[1] as string)
+                        const ids = getRowIds(result)
+                        if (ids) {
+                            toggleGenerationExpanded(ids.uuid, ids.traceId)
                         }
                     },
                     noIndent: true,
-                },
-                columns: {
-                    uuid: {
-                        title: 'ID',
-                        render: ({ record, value }) => {
-                            const traceId = (record as unknown[])[1]
-
-                            if (!value) {
-                                return null
-                            }
-
-                            const visualValue = truncateValue(value)
-
-                            return !traceId ? (
-                                <strong>{visualValue}</strong>
-                            ) : (
-                                <strong>
-                                    <Tooltip title={value as string}>
-                                        <Link to={`/llm-analytics/traces/${traceId}?event=${value as string}`}>
-                                            {visualValue}
-                                        </Link>
-                                    </Tooltip>
-                                </strong>
-                            )
-                        },
-                    },
-                    'properties.$ai_input[-1]': {
-                        title: 'Input',
-                        render: ({ value }) => {
-                            let inputNormalized: CompatMessage[] | undefined
-                            if (typeof value === 'string') {
-                                try {
-                                    inputNormalized = normalizeMessages(JSON.parse(value), 'user')
-                                } catch (e) {
-                                    console.warn('Error parsing properties.$ai_input[-1] as JSON', e)
-                                }
-                            }
-                            if (!inputNormalized?.length) {
-                                return <>–</>
-                            }
-                            return <LLMMessageDisplay message={inputNormalized.at(-1)!} isOutput={false} minimal />
-                        },
-                    },
-                    'properties.$ai_output_choices': {
-                        title: 'Output',
-                        render: ({ value }) => {
-                            let outputNormalized: CompatMessage[] | undefined
-                            if (typeof value === 'string') {
-                                try {
-                                    outputNormalized = normalizeMessages(JSON.parse(value), 'assistant')
-                                } catch (e) {
-                                    console.warn('Error parsing properties.$ai_output_choices as JSON', e)
-                                }
-                            }
-                            if (!outputNormalized?.length) {
-                                return <>–</>
-                            }
-                            return (
-                                <div>
-                                    {outputNormalized.map(
-                                        (
-                                            message,
-                                            index // All output choices, if multiple
-                                        ) => (
-                                            <LLMMessageDisplay key={index} message={message} isOutput={true} minimal />
-                                        )
-                                    )}
-                                </div>
-                            )
-                        },
-                    },
-                    'properties.$ai_trace_id': {
-                        title: 'Trace ID',
-                        render: ({ value }) => {
-                            if (!value) {
-                                return null
-                            }
-
-                            const visualValue = truncateValue(value)
-
-                            return (
-                                <Tooltip title={value as string}>
-                                    <Link to={`/llm-analytics/traces/${value as string}`}>{visualValue}</Link>
-                                </Tooltip>
-                            )
-                        },
-                    },
                 },
             }}
             uniqueKey="llm-analytics-generations"
@@ -318,199 +378,120 @@ function LLMAnalyticsGenerations(): JSX.Element {
     )
 }
 
-function LLMAnalyticsEvaluations(): JSX.Element {
+const DEFAULT_DOCS_URL = 'https://posthog.com/docs/llm-analytics/installation'
+const DOCS_URLS_BY_TAB: Record<string, string> = {
+    traces: 'https://posthog.com/docs/llm-analytics/traces',
+    reviews: 'https://posthog.com/docs/llm-analytics',
+    generations: 'https://posthog.com/docs/llm-analytics/generations',
+    sessions: 'https://posthog.com/docs/llm-analytics/sessions',
+    errors: 'https://posthog.com/docs/llm-analytics/errors',
+    tools: 'https://posthog.com/docs/llm-analytics',
+}
+
+const TAB_DESCRIPTIONS: Record<string, string> = {
+    dashboard: 'Overview of your LLM usage, costs, and performance metrics.',
+    traces: 'Explore end-to-end traces of your LLM interactions.',
+    reviews: 'Manage reusable scorers for upcoming human reviews.',
+    generations: 'View individual LLM generations and their details.',
+    users: 'Understand how users are interacting with your LLM features.',
+    errors: 'Monitor and debug errors in your LLM pipeline.',
+    tools: 'See which tools your LLMs are calling and how often.',
+    sessions: 'Analyze user sessions containing LLM interactions.',
+}
+
+export function LLMAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
+    const sharedLogic = llmAnalyticsSharedLogic({ tabId })
+    const dataCollectionLogic = dataNodeCollectionLogic({ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID })
+    useAttachedLogic(dataCollectionLogic, sharedLogic)
+
     return (
-        <BindLogic logic={llmEvaluationsLogic} props={{}}>
-            <LLMAnalyticsEvaluationsContent />
+        <BindLogic logic={llmAnalyticsSharedLogic} props={{ tabId }}>
+            <BindLogic logic={llmPersonsLazyLoaderLogic} props={{}}>
+                <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
+                    <BindLogic logic={llmAnalyticsDashboardLogic} props={{ tabId }}>
+                        <BindLogic logic={llmAnalyticsGenerationsLogic} props={{ tabId }}>
+                            <BindLogic logic={llmAnalyticsTracesTabLogic} props={{ tabId }}>
+                                <BindLogic logic={llmAnalyticsErrorsLogic} props={{ tabId }}>
+                                    <BindLogic logic={llmAnalyticsUsersLogic} props={{ tabId }}>
+                                        <BindLogic logic={llmAnalyticsSessionsViewLogic} props={{ tabId }}>
+                                            <BindLogic logic={llmAnalyticsToolsLogic} props={{ tabId }}>
+                                                <LLMAnalyticsSceneContent />
+                                            </BindLogic>
+                                        </BindLogic>
+                                    </BindLogic>
+                                </BindLogic>
+                            </BindLogic>
+                        </BindLogic>
+                    </BindLogic>
+                </BindLogic>
+            </BindLogic>
         </BindLogic>
     )
 }
 
-function LLMAnalyticsEvaluationsContent(): JSX.Element {
-    const { filteredEvaluations, evaluationsLoading, evaluationsFilter } = useValues(llmEvaluationsLogic)
-    const { setEvaluationsFilter, toggleEvaluationEnabled, duplicateEvaluation, loadEvaluations } =
-        useActions(llmEvaluationsLogic)
-    const { currentTeamId } = useValues(teamLogic)
-    const { push } = useActions(router)
-
-    const columns: LemonTableColumns<EvaluationConfig> = [
-        {
-            title: 'Name',
-            key: 'name',
-            render: (_, evaluation) => (
-                <div className="flex flex-col">
-                    <Link to={urls.llmAnalyticsEvaluation(evaluation.id)} className="font-semibold text-primary">
-                        {evaluation.name}
-                    </Link>
-                    {evaluation.description && <div className="text-muted text-sm">{evaluation.description}</div>}
-                </div>
-            ),
-            sorter: (a, b) => a.name.localeCompare(b.name),
-        },
-        {
-            title: 'Status',
-            key: 'enabled',
-            render: (_, evaluation) => (
-                <div className="flex items-center gap-2">
-                    <LemonSwitch
-                        checked={evaluation.enabled}
-                        onChange={() => toggleEvaluationEnabled(evaluation.id)}
-                        size="small"
-                        disabled={true}
-                        disabledReason="The evaluations backend is still WIP"
-                    />
-                    <span className={evaluation.enabled ? 'text-success' : 'text-muted'}>
-                        {evaluation.enabled ? 'Enabled' : 'Disabled'}
-                    </span>
-                </div>
-            ),
-            sorter: (a, b) => Number(b.enabled) - Number(a.enabled),
-        },
-        {
-            title: 'Prompt',
-            key: 'prompt',
-            render: (_, evaluation) => (
-                <div className="max-w-md">
-                    <div className="text-sm font-mono bg-bg-light border rounded px-2 py-1 truncate">
-                        {evaluation.prompt || '(No prompt)'}
-                    </div>
-                </div>
-            ),
-        },
-        {
-            title: 'Triggers',
-            key: 'conditions',
-            render: (_, evaluation) => (
-                <div className="flex flex-wrap gap-1">
-                    {evaluation.conditions.map((condition) => (
-                        <LemonTag key={condition.id} type="option">
-                            {condition.rollout_percentage}%
-                            {condition.properties.length > 0 &&
-                                ` when ${condition.properties.length} condition${condition.properties.length !== 1 ? 's' : ''}`}
-                        </LemonTag>
-                    ))}
-                    {evaluation.conditions.length === 0 && <span className="text-muted text-sm">No triggers</span>}
-                </div>
-            ),
-        },
-        {
-            title: 'Runs',
-            key: 'total_runs',
-            render: (_, evaluation) => (
-                <div className="flex flex-col items-center">
-                    <div className="font-semibold">{evaluation.total_runs}</div>
-                    {evaluation.last_run_at && (
-                        <div className="text-muted text-xs">Last: {humanFriendlyDuration(evaluation.last_run_at)}</div>
-                    )}
-                </div>
-            ),
-            sorter: (a, b) => b.total_runs - a.total_runs,
-        },
-        {
-            title: 'Actions',
-            key: 'actions',
-            render: (_, evaluation) => (
-                <More
-                    overlay={
-                        <>
-                            <LemonButton
-                                icon={<IconPencil />}
-                                onClick={() => push(urls.llmAnalyticsEvaluation(evaluation.id))}
-                                fullWidth
-                            >
-                                Edit
-                            </LemonButton>
-                            <LemonButton
-                                icon={<IconCopy />}
-                                onClick={() => duplicateEvaluation(evaluation.id)}
-                                fullWidth
-                            >
-                                Duplicate
-                            </LemonButton>
-                            <LemonButton
-                                icon={<IconTrash />}
-                                status="danger"
-                                onClick={() => {
-                                    deleteWithUndo({
-                                        endpoint: `environments/${currentTeamId}/evaluations`,
-                                        object: evaluation,
-                                        callback: () => loadEvaluations(),
-                                    })
-                                }}
-                                fullWidth
-                            >
-                                Delete
-                            </LemonButton>
-                        </>
-                    }
-                />
-            ),
-        },
-    ]
-
-    return (
-        <div className="space-y-4">
-            {/* Header */}
-            <div className="flex justify-between items-center">
-                <div>
-                    <h2 className="text-xl font-semibold">Evaluations</h2>
-                    <p className="text-muted">
-                        Configure evaluation prompts and triggers to automatically assess your LLM generations.
-                    </p>
-                </div>
-                <LemonButton type="primary" icon={<IconPlus />} to={urls.llmAnalyticsEvaluation('new')}>
-                    Create Evaluation
-                </LemonButton>
-            </div>
-
-            {/* Search */}
-            <div className="flex items-center gap-2">
-                <LemonInput
-                    type="search"
-                    placeholder="Search evaluations..."
-                    value={evaluationsFilter}
-                    onChange={setEvaluationsFilter}
-                    prefix={<IconSearch />}
-                    className="max-w-sm"
-                />
-            </div>
-
-            {/* Table */}
-            <LemonTable
-                columns={columns}
-                dataSource={filteredEvaluations}
-                loading={evaluationsLoading}
-                rowKey="id"
-                pagination={{
-                    pageSize: 50,
-                }}
-                nouns={['evaluation', 'evaluations']}
-            />
-        </div>
-    )
-}
-
-function LLMAnalyticsNoEvents(): JSX.Element {
-    return (
-        <div className="w-full flex flex-col items-center justify-center">
-            <div className="flex flex-col items-center justify-center max-w-md w-full">
-                <IconArchive className="text-5xl mb-2 text-muted-alt" />
-                <h2 className="text-xl leading-tight">We haven't detected any LLM generations yet</h2>
-                <p className="text-sm text-center text-balance">
-                    To use the LLM Analytics product, please{' '}
-                    <Link to="https://posthog.com/docs/llm-analytics/installation">
-                        instrument your LLM calls with the PostHog SDK
-                    </Link>{' '}
-                </p>
-            </div>
-        </div>
-    )
-}
-
-export function LLMAnalyticsScene(): JSX.Element {
-    const { activeTab, hasSentAiGenerationEvent, hasSentAiGenerationEventLoading } = useValues(llmAnalyticsLogic)
+function LLMAnalyticsSceneContent(): JSX.Element {
+    const { activeTab } = useValues(llmAnalyticsSharedLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
+    const isTraceReviewEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_REVIEW]
+
+    const { push } = useActions(router)
+    const { toggleProduct, openModal: openEditCustomProductsModal } = useActions(editCustomProductsModalLogic)
+
+    // Tab switching shortcuts
+    useAppShortcut({
+        name: 'LLMAnalyticsTab1',
+        keybind: [keyBinds.tab1],
+        intent: 'Go to Dashboard',
+        interaction: 'function',
+        callback: () => push(combineUrl(urls.llmAnalyticsDashboard(), searchParams).url),
+        scope: Scene.LLMAnalytics,
+    })
+    useAppShortcut({
+        name: 'LLMAnalyticsTab2',
+        keybind: [keyBinds.tab2],
+        intent: 'Go to Traces',
+        interaction: 'function',
+        callback: () => push(combineUrl(urls.llmAnalyticsTraces(), searchParams).url),
+        scope: Scene.LLMAnalytics,
+    })
+    useAppShortcut({
+        name: 'LLMAnalyticsTab3',
+        keybind: [keyBinds.tab3],
+        intent: isTraceReviewEnabled ? 'Go to Human reviews' : 'Go to Generations',
+        interaction: 'function',
+        callback: () =>
+            push(
+                combineUrl(
+                    isTraceReviewEnabled ? urls.llmAnalyticsReviews() : urls.llmAnalyticsGenerations(),
+                    searchParams
+                ).url
+            ),
+        scope: Scene.LLMAnalytics,
+    })
+    useAppShortcut({
+        name: 'LLMAnalyticsTab4',
+        keybind: [keyBinds.tab4],
+        intent: isTraceReviewEnabled ? 'Go to Generations' : 'Go to Users',
+        interaction: 'function',
+        callback: () =>
+            push(
+                combineUrl(
+                    isTraceReviewEnabled ? urls.llmAnalyticsGenerations() : urls.llmAnalyticsUsers(),
+                    searchParams
+                ).url
+            ),
+        scope: Scene.LLMAnalytics,
+    })
+    useAppShortcut({
+        name: 'LLMAnalyticsTab5',
+        keybind: [keyBinds.tab5],
+        intent: 'Go to Users',
+        interaction: 'function',
+        callback: () => push(combineUrl(urls.llmAnalyticsUsers(), searchParams).url),
+        disabled: !isTraceReviewEnabled,
+        scope: Scene.LLMAnalytics,
+    })
 
     const tabs: LemonTab<string>[] = [
         {
@@ -518,104 +499,193 @@ export function LLMAnalyticsScene(): JSX.Element {
             label: 'Dashboard',
             content: <LLMAnalyticsDashboard />,
             link: combineUrl(urls.llmAnalyticsDashboard(), searchParams).url,
+            'data-attr': 'dashboard-tab',
         },
         {
             key: 'traces',
             label: 'Traces',
-            content: hasSentAiGenerationEvent ? <LLMAnalyticsTraces /> : <LLMAnalyticsNoEvents />,
+            content: (
+                <LLMAnalyticsSetupPrompt thing="trace">
+                    <LLMAnalyticsTraces />
+                </LLMAnalyticsSetupPrompt>
+            ),
             link: combineUrl(urls.llmAnalyticsTraces(), searchParams).url,
+            'data-attr': 'traces-tab',
         },
+        ...(isTraceReviewEnabled
+            ? [
+                  {
+                      key: 'reviews',
+                      label: 'Human reviews',
+                      content: (
+                          <LLMAnalyticsSetupPrompt thing="trace">
+                              <LLMAnalyticsHumanReviews />
+                          </LLMAnalyticsSetupPrompt>
+                      ),
+                      link: combineUrl(urls.llmAnalyticsReviews(), searchParams).url,
+                      'data-attr': 'reviews-tab',
+                  } as LemonTab<string>,
+              ]
+            : []),
         {
             key: 'generations',
             label: 'Generations',
-            content: hasSentAiGenerationEvent ? <LLMAnalyticsGenerations /> : <LLMAnalyticsNoEvents />,
+            content: (
+                <LLMAnalyticsSetupPrompt>
+                    <LLMAnalyticsGenerations />
+                </LLMAnalyticsSetupPrompt>
+            ),
             link: combineUrl(urls.llmAnalyticsGenerations(), searchParams).url,
+            'data-attr': 'generations-tab',
         },
         {
             key: 'users',
             label: 'Users',
-            content: hasSentAiGenerationEvent ? <LLMAnalyticsUsers /> : <LLMAnalyticsNoEvents />,
+            content: (
+                <LLMAnalyticsSetupPrompt>
+                    <LLMAnalyticsUsers />
+                </LLMAnalyticsSetupPrompt>
+            ),
             link: combineUrl(urls.llmAnalyticsUsers(), searchParams).url,
+            'data-attr': 'users-tab',
         },
     ]
 
-    if (featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_PLAYGROUND]) {
+    tabs.push({
+        key: 'errors',
+        label: 'Errors',
+        content: (
+            <LLMAnalyticsSetupPrompt>
+                <LLMAnalyticsErrors />
+            </LLMAnalyticsSetupPrompt>
+        ),
+        link: combineUrl(urls.llmAnalyticsErrors(), searchParams).url,
+        'data-attr': 'errors-tab',
+    })
+
+    const isEarlyAdopter = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
+    const isPromptManagementEnabled = !!featureFlags[FEATURE_FLAGS.PROMPT_MANAGEMENT] || isEarlyAdopter
+
+    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]) {
         tabs.push({
-            key: 'playground',
-            label: (
-                <>
-                    Playground{' '}
-                    <LemonTag className="ml-1" type="warning">
-                        Beta
-                    </LemonTag>
-                </>
+            key: 'tools',
+            label: 'Tools',
+            content: (
+                <LLMAnalyticsSetupPrompt>
+                    <LLMAnalyticsTools />
+                </LLMAnalyticsSetupPrompt>
             ),
-            content: <LLMAnalyticsPlaygroundScene />,
-            link: combineUrl(urls.llmAnalyticsPlayground(), searchParams).url,
+            link: combineUrl(urls.llmAnalyticsTools(), searchParams).url,
+            'data-attr': 'tools-tab',
         })
     }
 
-    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]) {
+    // TODO: Once we remove FF, should add to the shortcuts list at the top of the component
+    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW] || isEarlyAdopter) {
         tabs.push({
-            key: 'evaluations',
-            label: (
-                <>
-                    Evaluations{' '}
-                    <LemonTag className="ml-1" type="completion">
-                        Alpha
-                    </LemonTag>
-                </>
+            key: 'sessions',
+            label: 'Sessions',
+            content: (
+                <LLMAnalyticsSetupPrompt>
+                    <LLMAnalyticsSessionsScene />
+                </LLMAnalyticsSetupPrompt>
             ),
-            content: <LLMAnalyticsEvaluations />,
-            link: combineUrl('/llm-analytics/evaluations', searchParams).url,
-            'data-attr': 'evaluations-tab',
+            link: combineUrl(urls.llmAnalyticsSessions(), searchParams).url,
+            'data-attr': 'sessions-tab',
         })
     }
 
-    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]) {
-        tabs.push({
-            key: 'datasets',
-            label: (
-                <>
-                    Datasets{' '}
-                    <LemonTag className="ml-1" type="warning">
-                        Beta
-                    </LemonTag>
-                </>
-            ),
-            content: <LLMAnalyticsDatasetsScene />,
-            link: combineUrl(urls.llmAnalyticsDatasets(), searchParams).url,
-            'data-attr': 'datasets-tab',
-        })
+    const availableItemsInSidebar = useMemo(() => {
+        return [
+            <Link
+                key="playground"
+                to={combineUrl(urls.llmAnalyticsPlayground(), searchParams).url}
+                onClick={() => toggleProduct('Playground', true)}
+            >
+                Playground
+            </Link>,
+            <Link
+                key="clusters"
+                to={combineUrl(urls.llmAnalyticsClusters(), searchParams).url}
+                onClick={() => toggleProduct('Clusters', true)}
+            >
+                clusters
+            </Link>,
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS] ? (
+                <Link
+                    key="datasets"
+                    to={combineUrl(urls.llmAnalyticsDatasets(), searchParams).url}
+                    onClick={() => toggleProduct('Datasets', true)}
+                >
+                    datasets
+                </Link>
+            ) : null,
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS] ? (
+                <Link
+                    key="evaluations"
+                    to={combineUrl(urls.llmAnalyticsEvaluations(), searchParams).url}
+                    onClick={() => toggleProduct('Evaluations', true)}
+                >
+                    evaluations
+                </Link>
+            ) : null,
+            isPromptManagementEnabled ? (
+                <Link
+                    key="prompts"
+                    to={combineUrl(urls.llmAnalyticsPrompts(), searchParams).url}
+                    onClick={() => toggleProduct('Prompts', true)}
+                >
+                    prompts
+                </Link>
+            ) : null,
+        ].filter(Boolean) as JSX.Element[]
+    }, [featureFlags, isPromptManagementEnabled, searchParams, toggleProduct])
+
+    if (activeTab === 'reviews' && !isTraceReviewEnabled) {
+        return <NotFound object="page" />
     }
 
     return (
-        <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
-            <SceneContent>
-                {!hasSentAiGenerationEventLoading && !hasSentAiGenerationEvent && <IngestionStatusCheck />}
-                <SceneTitleSection
-                    name={sceneConfigurations[Scene.LLMAnalytics].name}
-                    description={sceneConfigurations[Scene.LLMAnalytics].description}
-                    resourceType={{
-                        type: sceneConfigurations[Scene.LLMAnalytics].iconType || 'default_icon_type',
-                    }}
-                    actions={
-                        <>
-                            <LemonButton
-                                to="https://posthog.com/docs/llm-analytics/installation"
-                                type="secondary"
-                                targetBlank
-                                size="small"
-                            >
-                                Documentation
-                            </LemonButton>
-                        </>
-                    }
-                />
-                <SceneDivider />
+        <SceneContent>
+            <SceneTitleSection
+                name={sceneConfigurations[Scene.LLMAnalytics].name}
+                description={TAB_DESCRIPTIONS[activeTab] || sceneConfigurations[Scene.LLMAnalytics].description}
+                resourceType={{
+                    type: sceneConfigurations[Scene.LLMAnalytics].iconType || 'default_icon_type',
+                }}
+                actions={
+                    <>
+                        <LemonButton
+                            to={DOCS_URLS_BY_TAB[activeTab] || DEFAULT_DOCS_URL}
+                            type="secondary"
+                            targetBlank
+                            size="small"
+                        >
+                            Documentation
+                        </LemonButton>
+                    </>
+                }
+            />
 
-                <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} sceneInset />
-            </SceneContent>
-        </BindLogic>
+            {availableItemsInSidebar.length > 0 ? (
+                <>
+                    <LemonBanner type="info" className="mb-2" dismissKey="llm-analytics-sidebar-moved-banner">
+                        We've moved{' '}
+                        {availableItemsInSidebar.map((el, i) => (
+                            <React.Fragment key={i}>
+                                {i > 0 && ', '}
+                                {el}
+                            </React.Fragment>
+                        ))}{' '}
+                        out of LLM Analytics and into their own apps. You can access them by clicking in the links
+                        above, or by clicking "All apps" in the sidebar. You can also customize your sidebar{' '}
+                        <Link onClick={openEditCustomProductsModal}>here</Link>.
+                    </LemonBanner>
+                    <EditCustomProductsModal />
+                </>
+            ) : null}
+
+            <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} sceneInset />
+        </SceneContent>
     )
 }

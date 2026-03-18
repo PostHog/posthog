@@ -60,6 +60,7 @@ RETURNING
     last_transition,
     scheduled,
     transition_count,
+    parent_run_id,
     NULL::bytea as vm_state,
     metadata,
     parameters,
@@ -125,6 +126,7 @@ RETURNING
     last_transition,
     scheduled,
     transition_count,
+    parent_run_id,
     vm_state,
     metadata,
     parameters,
@@ -207,6 +209,11 @@ where
 
     if let Some(scheduled) = &updates.scheduled {
         set_helper(&mut query, "scheduled", scheduled, needs_comma);
+        needs_comma = true;
+    }
+
+    if let Some(parent_run_id) = &updates.parent_run_id {
+        set_helper(&mut query, "parent_run_id", parent_run_id, needs_comma);
         needs_comma = true;
     }
 

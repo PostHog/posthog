@@ -2,10 +2,12 @@ use clap::{Parser, Subcommand};
 use tracing::error;
 
 use crate::{
+    dsym::DsymSubcommand,
     error::CapturedError,
-    experimental::{query::command::QueryCommand, tasks::TaskCommand},
+    experimental::{endpoints::EndpointCommand, query::command::QueryCommand, tasks::TaskCommand},
     invocation_context::{context, init_context},
-    sourcemaps::SourcemapCommand,
+    proguard::ProguardSubcommand,
+    sourcemaps::{hermes::HermesSubcommand, plain::SourcemapCommand},
 };
 
 #[derive(Parser)]
@@ -19,6 +21,13 @@ pub struct Cli {
     #[arg(long, default_value = "false")]
     no_fail: bool,
 
+    #[arg(long, default_value = "false")]
+    skip_ssl_verification: bool,
+
+    /// Set the number of requests per minute for the Posthog API Client.
+    #[arg(long, env = "POSTHOG_CLIENT_RATE_LIMIT")]
+    rate_limit: Option<usize>,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -26,7 +35,7 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     /// Interactively authenticate with PostHog, storing a personal API token locally. You can also use the
-    /// environment variables `POSTHOG_CLI_TOKEN` and `POSTHOG_CLI_ENV_ID`
+    /// environment variables `POSTHOG_CLI_API_KEY` and `POSTHOG_CLI_PROJECT_ID`
     Login,
 
     /// Experimental commands, not quite ready for prime time
@@ -39,6 +48,24 @@ pub enum Commands {
     Sourcemap {
         #[command(subcommand)]
         cmd: SourcemapCommand,
+    },
+
+    #[command(about = "Upload Apple dSYM debug symbol files to PostHog")]
+    Dsym {
+        #[command(subcommand)]
+        cmd: DsymSubcommand,
+    },
+
+    #[command(about = "Upload hermes sourcemaps to PostHog")]
+    Hermes {
+        #[command(subcommand)]
+        cmd: HermesSubcommand,
+    },
+
+    #[command(about = "Upload proguard mapping files to PostHog")]
+    Proguard {
+        #[command(subcommand)]
+        cmd: ProguardSubcommand,
     },
 }
 
@@ -60,6 +87,49 @@ pub enum ExpCommand {
         #[command(subcommand)]
         cmd: QueryCommand,
     },
+
+    /// Manage PostHog endpoints as YAML files. Pull endpoints from PostHog, or push changes from your YAML files.
+    Endpoints {
+        #[command(subcommand)]
+        cmd: EndpointCommand,
+    },
+
+    // TODO(sept 2026): remove these backward-compat aliases, they moved to top-level commands
+    #[command(about = "Upload hermes sourcemaps to PostHog", hide = true)]
+    Hermes {
+        #[command(subcommand)]
+        cmd: HermesSubcommand,
+    },
+
+    #[command(about = "Upload proguard mapping files to PostHog", hide = true)]
+    Proguard {
+        #[command(subcommand)]
+        cmd: ProguardSubcommand,
+    },
+
+    #[command(about = "Upload iOS/macOS dSYM files to PostHog", hide = true)]
+    Dsym {
+        #[command(subcommand)]
+        cmd: DsymSubcommand,
+    },
+
+    /// Download event definitions and generate typed SDK
+    Schema {
+        #[command(subcommand)]
+        cmd: SchemaCommand,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SchemaCommand {
+    /// Download event definitions and generate typed SDK
+    Pull {
+        /// Output path for generated definitions (stored in posthog.json for future runs)
+        #[arg(short, long)]
+        output: Option<String>,
+    },
+    /// Show current schema sync status
+    Status,
 }
 
 impl Cli {
@@ -85,39 +155,96 @@ impl Cli {
     }
 
     fn run_impl(self) -> Result<(), CapturedError> {
+        if !matches!(self.command, Commands::Login) {
+            init_context(
+                self.host.clone(),
+                self.skip_ssl_verification,
+                self.rate_limit,
+            )?;
+        }
+
         match self.command {
             Commands::Login => {
                 // Notably login doesn't have a context set up going it - it sets one up
-                crate::login::login()?;
+                crate::login::login(self.host)?;
             }
             Commands::Sourcemap { cmd } => match cmd {
                 SourcemapCommand::Inject(input_args) => {
-                    init_context(self.host.clone(), false)?;
-                    crate::sourcemaps::inject::inject(&input_args)?;
+                    crate::sourcemaps::plain::inject::inject(&input_args)?;
                 }
                 SourcemapCommand::Upload(upload_args) => {
-                    init_context(self.host.clone(), upload_args.skip_ssl_verification)?;
-                    crate::sourcemaps::upload::upload_cmd(upload_args.clone())?;
+                    crate::sourcemaps::plain::upload::upload(&upload_args)?;
                 }
                 SourcemapCommand::Process(args) => {
-                    init_context(self.host.clone(), args.skip_ssl_verification)?;
                     let (inject, upload) = args.into();
-                    crate::sourcemaps::inject::inject(&inject)?;
-                    crate::sourcemaps::upload::upload_cmd(upload)?;
+                    crate::sourcemaps::plain::inject::inject(&inject)?;
+                    crate::sourcemaps::plain::upload::upload(&upload)?;
+                }
+            },
+            Commands::Dsym { cmd } => match cmd {
+                DsymSubcommand::Upload(args) => {
+                    crate::dsym::upload::upload(&args)?;
+                }
+            },
+            Commands::Hermes { cmd } => match cmd {
+                HermesSubcommand::Inject(args) => {
+                    crate::sourcemaps::hermes::inject::inject(&args)?;
+                }
+                HermesSubcommand::Upload(args) => {
+                    crate::sourcemaps::hermes::upload::upload(&args)?;
+                }
+                HermesSubcommand::Clone(args) => {
+                    crate::sourcemaps::hermes::clone::clone(&args)?;
+                }
+            },
+            Commands::Proguard { cmd } => match cmd {
+                ProguardSubcommand::Upload(args) => {
+                    crate::proguard::upload::upload(&args)?;
                 }
             },
             Commands::Exp { cmd } => match cmd {
                 ExpCommand::Task {
                     cmd,
-                    skip_ssl_verification,
+                    skip_ssl_verification: _,
                 } => {
-                    init_context(self.host.clone(), skip_ssl_verification)?;
                     cmd.run()?;
                 }
                 ExpCommand::Query { cmd } => {
-                    init_context(self.host.clone(), false)?;
                     crate::experimental::query::command::query_command(&cmd)?
                 }
+                ExpCommand::Endpoints { cmd } => {
+                    cmd.run()?;
+                }
+                // TODO(sept 2026): remove these backward-compat aliases
+                ExpCommand::Hermes { cmd } => match cmd {
+                    HermesSubcommand::Inject(args) => {
+                        crate::sourcemaps::hermes::inject::inject(&args)?;
+                    }
+                    HermesSubcommand::Upload(args) => {
+                        crate::sourcemaps::hermes::upload::upload(&args)?;
+                    }
+                    HermesSubcommand::Clone(args) => {
+                        crate::sourcemaps::hermes::clone::clone(&args)?;
+                    }
+                },
+                ExpCommand::Proguard { cmd } => match cmd {
+                    ProguardSubcommand::Upload(args) => {
+                        crate::proguard::upload::upload(&args)?;
+                    }
+                },
+                ExpCommand::Dsym { cmd } => match cmd {
+                    DsymSubcommand::Upload(args) => {
+                        crate::dsym::upload::upload(&args)?;
+                    }
+                },
+                ExpCommand::Schema { cmd } => match cmd {
+                    SchemaCommand::Pull { output } => {
+                        crate::experimental::schema::pull(self.host, output)?;
+                    }
+                    SchemaCommand::Status => {
+                        crate::experimental::schema::status()?;
+                    }
+                },
             },
         }
 

@@ -42,35 +42,35 @@
 # ---
 # name: TestCustomerStripeBuilder.test_build_with_customer_schema_but_no_table
   '''
-  SELECT NULL AS id,
-         NULL AS source_label,
-         NULL AS timestamp,
-         NULL AS name,
-         NULL AS email,
-         NULL AS phone,
-         NULL AS address,
-         NULL AS metadata,
-         NULL AS country,
-         NULL AS cohort,
-         NULL AS initial_coupon,
-         NULL AS initial_coupon_id
+  SELECT '' AS id,
+         '' AS source_label,
+         toDateTime('1970-01-01 00:00:00.000000') AS timestamp,
+         '' AS name,
+         '' AS email,
+         '' AS phone,
+         '' AS address,
+         '' AS metadata,
+         '' AS country,
+         '' AS cohort,
+         '' AS initial_coupon,
+         '' AS initial_coupon_id
   WHERE false
   '''
 # ---
 # name: TestCustomerStripeBuilder.test_build_with_no_customer_schema
   '''
-  SELECT NULL AS id,
-         NULL AS source_label,
-         NULL AS timestamp,
-         NULL AS name,
-         NULL AS email,
-         NULL AS phone,
-         NULL AS address,
-         NULL AS metadata,
-         NULL AS country,
-         NULL AS cohort,
-         NULL AS initial_coupon,
-         NULL AS initial_coupon_id
+  SELECT '' AS id,
+         '' AS source_label,
+         toDateTime('1970-01-01 00:00:00.000000') AS timestamp,
+         '' AS name,
+         '' AS email,
+         '' AS phone,
+         '' AS address,
+         '' AS metadata,
+         '' AS country,
+         '' AS cohort,
+         '' AS initial_coupon,
+         '' AS initial_coupon_id
   WHERE false
   '''
 # ---

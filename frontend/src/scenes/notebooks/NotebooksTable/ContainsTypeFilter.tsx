@@ -9,7 +9,8 @@ export const fromNodeTypeToLabel: Omit<
     Record<NotebookNodeType, string>,
     | NotebookNodeType.Backlink
     | NotebookNodeType.PersonFeed
-    | NotebookNodeType.Properties
+    | NotebookNodeType.PersonProperties
+    | NotebookNodeType.GroupProperties
     | NotebookNodeType.Map
     | NotebookNodeType.Mention
     | NotebookNodeType.Embed
@@ -23,6 +24,9 @@ export const fromNodeTypeToLabel: Omit<
     [NotebookNodeType.Image]: 'Images',
     [NotebookNodeType.Person]: 'Persons',
     [NotebookNodeType.Query]: 'Queries',
+    [NotebookNodeType.Python]: 'Python',
+    [NotebookNodeType.DuckSQL]: 'SQL (DuckDB)',
+    [NotebookNodeType.HogQLSQL]: 'SQL (HogQL)',
     [NotebookNodeType.Recording]: 'Session recordings',
     [NotebookNodeType.RecordingPlaylist]: 'Session replay playlists',
     [NotebookNodeType.ReplayTimestamp]: 'Session recording comments',
@@ -32,6 +36,9 @@ export const fromNodeTypeToLabel: Omit<
     [NotebookNodeType.LLMTrace]: 'LLM traces',
     [NotebookNodeType.Issues]: 'Issues',
     [NotebookNodeType.UsageMetrics]: 'Usage metrics',
+    [NotebookNodeType.ZendeskTickets]: 'Zendesk tickets',
+    [NotebookNodeType.RelatedGroups]: 'Related groups',
+    [NotebookNodeType.CustomerJourney]: 'Customer journey',
 }
 
 export function ContainsTypeFilters({

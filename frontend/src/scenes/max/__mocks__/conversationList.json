@@ -9,6 +9,11 @@
             "title": "Loading the thread in progress",
             "created_at": "2025-04-29T17:44:21.654307Z",
             "updated_at": "2025-04-29T17:44:29.184791Z",
+            "user": {
+                "id": 178,
+                "uuid": "USER_UUID",
+                "email": "mock@test.com"
+            },
             "messages": [
                 {
                     "type": "human",
@@ -23,6 +28,11 @@
             "title": "Counting users chatting from USA",
             "created_at": "2025-04-29T17:44:21.654307Z",
             "updated_at": "2025-04-29T17:44:29.184791Z",
+            "user": {
+                "id": 178,
+                "uuid": "USER_UUID",
+                "email": "mock@test.com"
+            },
             "messages": []
         },
         {
@@ -31,6 +41,11 @@
             "title": "Writing poems",
             "created_at": "2025-04-29T17:44:21.654307Z",
             "updated_at": "2025-04-29T17:44:29.184791Z",
+            "user": {
+                "id": 178,
+                "uuid": "USER_UUID",
+                "email": "mock@test.com"
+            },
             "messages": [
                 {
                     "content": "write a poem",

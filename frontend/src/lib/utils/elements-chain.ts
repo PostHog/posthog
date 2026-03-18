@@ -1,6 +1,6 @@
 import { ElementType } from '~/types'
 
-// NOTE: This function should not be edited directly but rather copied from plugin-server/src/utils/db/elements-chain.ts
+// NOTE: This function should not be edited directly but rather copied from nodejs/src/utils/db/elements-chain.ts
 export function chainToElements(chain: string, options: { throwOnError?: boolean } = {}): ElementType[] {
     const elements: ElementType[] = []
 
@@ -10,7 +10,7 @@ export function chainToElements(chain: string, options: { throwOnError?: boolean
     // Below splits the tag/classes from attributes
     // Needs a regex because classes can have : too
     const splitClassAttributes = /(.*?)($|:([a-zA-Z\-_0-9]*=.*))/g
-    const parseAttributesRegex = /((.*?)="(.*?[^\\])")/gm
+    const parseAttributesRegex = /((.*?)="((?:\\"|[^"])*)")/gm
 
     chain = chain.replace(/\n/g, '')
 

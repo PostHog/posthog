@@ -105,9 +105,7 @@ export const webVitalsToolbarLogic = kea<webVitalsToolbarLogicType>([
         },
     })),
 
-    afterMount(({ values, actions }) => {
-        // Listen to posthog events and capture them
-        // Guarantee that we won't even attempt to show web vitals data if the feature is disabled
+    afterMount(({ values, actions, cache }) => {
         if (!values.posthog?.webVitalsAutocapture?.isEnabled && !inStorybook() && !inStorybookTestRunner()) {
             actions.nullifyLocalWebVitals()
         } else {
@@ -118,19 +116,20 @@ export const webVitalsToolbarLogic = kea<webVitalsToolbarLogicType>([
                 INP: '$web_vitals_INP_value',
             }
 
-            values.posthog?.on('eventCaptured', (event) => {
-                if (event.event === '$web_vitals') {
-                    for (const [metric, property] of Object.entries(METRICS_AND_PROPERTIES)) {
-                        const value = event.properties[property]
-                        if (value !== undefined) {
-                            actions.setLocalWebVital(metric as WebVitalsMetric, value)
+            cache.disposables.add(() => {
+                return values.posthog?.on('eventCaptured', (event) => {
+                    if (event.event === '$web_vitals') {
+                        for (const [metric, property] of Object.entries(METRICS_AND_PROPERTIES)) {
+                            const value = event.properties[property]
+                            if (value !== undefined) {
+                                actions.setLocalWebVital(metric as WebVitalsMetric, value)
+                            }
                         }
                     }
-                }
-            })
+                })
+            }, 'posthogEventListener')
         }
 
-        // Collect the web vitals metrics from the server when the page is loaded
         actions.getWebVitals()
     }),
     permanentlyMount(),

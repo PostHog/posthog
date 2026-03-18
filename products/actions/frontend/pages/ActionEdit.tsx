@@ -3,46 +3,40 @@ import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { IconInfo, IconPlus, IconRewindPlay, IconTrash } from '@posthog/icons'
+import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
+import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
+import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
-import { ProductIntentContext } from 'lib/utils/product-intents'
+import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
     ScenePanelActionsSection,
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
-import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
-import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { NodeKind } from '~/queries/schema/schema-general'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    ActionStepType,
-    FilterLogicalOperator,
-    ProductKey,
-    ReplayTabs,
-} from '~/types'
+import { Query } from '~/queries/Query/Query'
+import { NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType, ActionStepType, FilterLogicalOperator } from '~/types'
 
 import { ActionHogFunctions } from '../components/ActionHogFunctions'
 import { ActionStep } from '../components/ActionStep'
@@ -73,6 +67,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
     }, [loadedAction, action, setAction])
     const { tags } = useValues(tagsModel)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
+    const { canCopyToProject } = useValues(interProjectCopyLogic)
 
     // Check if user can edit this action
     const canEdit = userHasAccess(AccessControlResourceType.Action, AccessControlLevel.Editor, action.user_access_level)
@@ -82,6 +77,14 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
         action.user_access_level
     )
 
+    const actionId = typeof action?.id === 'number' ? action.id : null
+
+    useFileSystemLogView({
+        type: 'action',
+        ref: actionId,
+        enabled: Boolean(actionId && !actionLoading),
+    })
+
     // Handle 404 when loading is done and action is missing
     if (id && !actionLoading && !loadedAction) {
         return <NotFound object="action" />
@@ -90,8 +93,8 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
     const cancelButton = (): JSX.Element => (
         <LemonButton
             data-attr="cancel-action-bottom"
+            type="tertiary"
             status="danger"
-            type="secondary"
             onClick={() => {
                 router.actions.push(urls.actions())
             }}
@@ -131,42 +134,45 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
 
                     <ScenePanelActionsSection>
                         {id && (
-                            <>
-                                <Link
-                                    to={urls.replay(ReplayTabs.Home, {
-                                        filter_group: {
-                                            type: FilterLogicalOperator.And,
-                                            values: [
-                                                {
-                                                    type: FilterLogicalOperator.And,
-                                                    values: [
-                                                        {
-                                                            id: id,
-                                                            type: 'actions',
-                                                            order: 0,
-                                                            name: action.name,
-                                                        },
-                                                    ],
-                                                },
-                                            ],
-                                        },
-                                    })}
-                                    onClick={() => {
-                                        addProductIntentForCrossSell({
-                                            from: ProductKey.ACTIONS,
-                                            to: ProductKey.SESSION_REPLAY,
-                                            intent_context: ProductIntentContext.ACTION_VIEW_RECORDINGS,
-                                        })
-                                    }}
-                                    data-attr={`${RESOURCE_TYPE}-view-recordings`}
-                                    buttonProps={{
-                                        menuItem: true,
-                                    }}
-                                >
-                                    <IconRewindPlay />
-                                    View recordings
-                                </Link>
-                            </>
+                            <ViewRecordingsPlaylistButton
+                                filters={{
+                                    filter_group: {
+                                        type: FilterLogicalOperator.And,
+                                        values: [
+                                            {
+                                                type: FilterLogicalOperator.And,
+                                                values: [
+                                                    {
+                                                        id: id,
+                                                        type: 'actions',
+                                                        order: 0,
+                                                        name: action.name,
+                                                    },
+                                                ],
+                                            },
+                                        ],
+                                    },
+                                }}
+                                onClick={() => {
+                                    addProductIntentForCrossSell({
+                                        from: ProductKey.ACTIONS,
+                                        to: ProductKey.SESSION_REPLAY,
+                                        intent_context: ProductIntentContext.ACTION_VIEW_RECORDINGS,
+                                    })
+                                }}
+                                data-attr={`${RESOURCE_TYPE}-view-recordings`}
+                            />
+                        )}
+                        {actionId && canCopyToProject && (
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={() => router.actions.push(urls.resourceTransfer('Action', actionId))}
+                                data-attr="action-copy-to-project"
+                                tooltip="Copy this action to another project"
+                            >
+                                <IconCopy />
+                                Copy to another project
+                            </ButtonPrimitive>
                         )}
                     </ScenePanelActionsSection>
                     <ScenePanelDivider />
@@ -237,17 +243,12 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                     }
                 />
 
-                <SceneDivider />
-
                 <SceneSection
                     title="Match groups"
                     className="@container"
                     description={
                         <>
                             Your action will be triggered whenever <b>any of your match groups</b> are received.
-                            <Link to="https://posthog.com/docs/data/actions" target="_blank">
-                                <IconInfo className="ml-1 text-secondary text-xl" />
-                            </Link>
                         </>
                     }
                 >

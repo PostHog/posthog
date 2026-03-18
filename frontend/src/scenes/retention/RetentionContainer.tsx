@@ -9,16 +9,18 @@ import { QueryContext } from '~/queries/types'
 import { InsightType, RetentionDashboardDisplayType } from '~/types'
 
 import { RetentionGraph } from './RetentionGraph'
+import { retentionLogic } from './retentionLogic'
 import { RetentionModal } from './RetentionModal'
 import { RetentionTable } from './RetentionTable'
-import { retentionLogic } from './retentionLogic'
 
 export function RetentionContainer({
     inCardView,
+    embedded,
     inSharedMode,
     vizSpecificOptions,
 }: {
     inCardView?: boolean
+    embedded?: boolean
     inSharedMode?: boolean
     context?: QueryContext<InsightVizNode>
     vizSpecificOptions?: VizSpecificOptions[InsightType.RETENTION]
@@ -44,7 +46,7 @@ export function RetentionContainer({
             {showLineGraph && showTable ? <LemonDivider /> : null}
             {showTable && (
                 <div className="RetentionContainer__table overflow-x-auto">
-                    <RetentionTable inSharedMode={inSharedMode} />
+                    <RetentionTable inSharedMode={inSharedMode} embedded={embedded} />
                 </div>
             )}
             {!inSharedMode ? <RetentionModal /> : null}

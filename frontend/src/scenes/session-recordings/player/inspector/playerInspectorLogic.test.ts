@@ -183,7 +183,7 @@ describe('playerInspectorLogic', () => {
     describe('setTrackedWindow', () => {
         it('starts with no tracked window', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setTrackedWindow(null as unknown as string)
+                logic.actions.setTrackedWindow(null)
             })
                 .toDispatchActions(['setTrackedWindow'])
                 .toMatchValues({
@@ -196,11 +196,11 @@ describe('playerInspectorLogic', () => {
                 trackedWindow: null,
             })
             await expectLogic(logic, () => {
-                logic.actions.setTrackedWindow('nightly')
+                logic.actions.setTrackedWindow(1)
             })
                 .toDispatchActions(['setTrackedWindow'])
                 .toMatchValues({
-                    trackedWindow: 'nightly',
+                    trackedWindow: 1,
                 })
         })
     })

@@ -5,6 +5,7 @@ from .explain_csp_report import explain_csp_report
 from .mapping import find_hogql_aggregation, find_hogql_function, find_hogql_posthog_function
 from .recording_button import recording_button
 from .sparkline import sparkline
+from .survey import get_survey_response, unique_survey_submissions_filter
 
 __all__ = [
     "find_hogql_function",
@@ -18,4 +19,6 @@ __all__ = [
     "sparkline",
     "recording_button",
     "explain_csp_report",
+    "get_survey_response",
+    "unique_survey_submissions_filter",
 ]

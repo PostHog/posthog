@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from ee.vercel.client import ExperimentationResult, VercelAPIClient
+from ee.vercel.client import OperationResult, VercelAPIClient
 
 
 class TestVercelAPIClient:
@@ -97,7 +97,7 @@ class TestVercelAPIClient:
             f"{client.base_url}/installations/{test_ids['integration_config_id']}/resources/{test_ids['resource_id']}/experimentation/items",
             client.create_experimentation_items,
             (test_ids["integration_config_id"], test_ids["resource_id"], items),
-            ExperimentationResult(success=True, item_count=1),
+            OperationResult(success=True, item_count=1),
             json={"items": items},
         )
 
@@ -110,7 +110,7 @@ class TestVercelAPIClient:
             f"{client.base_url}/installations/{test_ids['integration_config_id']}/resources/{test_ids['resource_id']}/experimentation/items/{test_ids['item_id']}",
             client.update_experimentation_item,
             (test_ids["integration_config_id"], test_ids["resource_id"], test_ids["item_id"], data),
-            ExperimentationResult(success=True, item_id=test_ids["item_id"]),
+            OperationResult(success=True, item_id=test_ids["item_id"]),
             json=data,
         )
 
@@ -122,8 +122,32 @@ class TestVercelAPIClient:
             f"{client.base_url}/installations/{test_ids['integration_config_id']}/resources/{test_ids['resource_id']}/experimentation/items/{test_ids['item_id']}",
             client.delete_experimentation_item,
             (test_ids["integration_config_id"], test_ids["resource_id"], test_ids["item_id"]),
-            ExperimentationResult(success=True, item_id=test_ids["item_id"]),
+            OperationResult(success=True, item_id=test_ids["item_id"]),
         )
+
+    @patch("ee.vercel.client.requests.Session.request")
+    def test_update_resource_secrets(self, mock_request, client, test_ids):
+        secrets = [{"name": "NEXT_PUBLIC_POSTHOG_KEY", "value": "test_key"}]
+        self.assert_successful_request(
+            mock_request,
+            "PUT",
+            f"{client.base_url}/installations/{test_ids['integration_config_id']}/resources/{test_ids['resource_id']}/secrets",
+            client.update_resource_secrets,
+            (test_ids["integration_config_id"], test_ids["resource_id"], secrets),
+            OperationResult(success=True),
+            json={"secrets": secrets},
+        )
+
+    @patch("ee.vercel.client.requests.Session.request")
+    def test_update_resource_secrets_handles_errors(self, mock_request, client, test_ids):
+        mock_request.return_value = self.ErrorFactory.http(400, "Bad Request")
+
+        secrets = [{"name": "NEXT_PUBLIC_POSTHOG_KEY", "value": "test_key"}]
+        result = client.update_resource_secrets(test_ids["integration_config_id"], test_ids["resource_id"], secrets)
+
+        assert not result.success
+        assert result.error == "HTTP error"
+        assert result.status_code == 400
 
     @pytest.mark.parametrize(
         "method_name,args_func,error_setup,expected_error,expected_status",

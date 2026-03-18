@@ -11,6 +11,7 @@ import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from loginas.utils import is_impersonated_session
+from opentelemetry import trace
 from requests import HTTPError
 from rest_framework import mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
@@ -23,15 +24,23 @@ from posthog.api.utils import action
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
-from posthog.models import GroupUsageMetric
+from posthog.models import GroupUsageMetric, PropertyDefinition
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group import Group
 from posthog.models.group.util import create_group, raw_create_group_ch
-from posthog.models.group_type_mapping import GROUP_TYPE_MAPPING_SERIALIZER_FIELDS, GroupTypeMapping
+from posthog.models.group_type_mapping import (
+    GROUP_TYPE_MAPPING_SERIALIZER_FIELDS,
+    GroupTypeMapping,
+    invalidate_group_types_cache,
+)
 from posthog.models.user import User
+from posthog.personhog_client.converters import GroupTypeMappingResult
+from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from products.event_definitions.backend.models.property_definition import PropertyType
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.notebooks.backend.util import (
     create_bullet_list,
@@ -44,9 +53,41 @@ from ee.clickhouse.queries.related_actors_query import RelatedActorsQuery
 from ee.clickhouse.views.exceptions import TriggerGroupIdentifyException
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
-class GroupTypeSerializer(serializers.ModelSerializer):
+def detect_group_property_type(value):
+    if value is None:
+        return PropertyType.String
+    elif isinstance(value, bool):
+        return PropertyType.Boolean
+    elif isinstance(value, int | float):
+        return PropertyType.Numeric
+    elif isinstance(value, str):
+        if value.lower() in ("true", "false"):
+            return PropertyType.Boolean
+        return PropertyType.String
+    return PropertyType.String
+
+
+def create_property_definition(team_id: int, group_type_index: int, property_name: str, property_value):
+    """Create or update PostgreSQL PropertyDefinition for group property"""
+    property_type = detect_group_property_type(property_value)
+    is_numerical = property_type == PropertyType.Numeric
+
+    PropertyDefinition.objects.update_or_create(
+        team_id=team_id,
+        name=property_name,
+        type=PropertyDefinition.Type.GROUP,
+        group_type_index=group_type_index,
+        defaults={
+            "property_type": property_type.value,
+            "is_numerical": is_numerical,
+        },
+    )
+
+
+class GroupTypeSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     class Meta:
         model = GroupTypeMapping
         fields = GROUP_TYPE_MAPPING_SERIALIZER_FIELDS
@@ -73,10 +114,13 @@ class GroupsTypesViewSet(
             instance = GroupTypeMapping.objects.get(
                 project_id=self.team.project_id, group_type_index=row["group_type_index"]
             )
+            # Pre-populate the team FK cache so serializer access control checks
+            instance.team = self.team
             serializer = self.get_serializer(instance, data=row)
             serializer.is_valid(raise_exception=True)
             serializer.save()
 
+        invalidate_group_types_cache(self.team.project_id)
         return self.list(request, *args, **kwargs)
 
     @action(methods=["PUT"], detail=False)
@@ -88,7 +132,7 @@ class GroupsTypesViewSet(
         except GroupTypeMapping.DoesNotExist:
             raise NotFound(detail="Group type not found")
 
-        if group_type_mapping.detail_dashboard:
+        if group_type_mapping.detail_dashboard_id:
             return response.Response(
                 {"detail": "Dashboard already exists for this group type."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -97,7 +141,12 @@ class GroupsTypesViewSet(
         dashboard = create_group_type_mapping_detail_dashboard(group_type_mapping, request.user)
         group_type_mapping.detail_dashboard_id = dashboard.id
         group_type_mapping.save()
+        invalidate_group_types_cache(self.team.project_id)
         return response.Response(self.get_serializer(group_type_mapping).data)
+
+    def perform_destroy(self, instance):
+        super().perform_destroy(instance)
+        invalidate_group_types_cache(self.team.project_id)
 
     @action(methods=["PUT"], detail=False)
     def set_default_columns(self, request: request.Request, **kw):
@@ -110,6 +159,7 @@ class GroupsTypesViewSet(
 
         group_type_mapping.default_columns = request.data["default_columns"]
         group_type_mapping.save()
+        invalidate_group_types_cache(self.team.project_id)
         return response.Response(self.get_serializer(group_type_mapping).data)
 
 
@@ -144,6 +194,7 @@ class CreateGroupSerializer(serializers.ModelSerializer):
         fields = ["group_type_index", "group_key", "group_properties"]
 
 
+@extend_schema(tags=["core"])
 class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
     scope_object = "group"
     queryset = Group.objects.all()
@@ -170,9 +221,41 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
 
         return get_object_or_404(queryset)
 
-    def get_group_type_mapping_or_404(self, group_type_index: GroupTypeIndex) -> GroupTypeMapping:
+    def get_group_type_mapping_or_404(self, group_type_index: GroupTypeIndex) -> GroupTypeMappingResult:
+        from posthog.personhog_client.converters import fetch_group_type_mapping_result
+        from posthog.personhog_client.gate import use_personhog
+
+        if use_personhog():
+            try:
+                result = fetch_group_type_mapping_result(self.team.project_id, group_type_index)
+                if result is not None:
+                    PERSONHOG_ROUTING_TOTAL.labels(
+                        operation="get_group_type_mapping_or_404", source="personhog", client_name=get_client_name()
+                    ).inc()
+                    return result
+                raise NotFound()
+            except NotFound:
+                raise
+            except Exception:
+                PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                    operation="get_group_type_mapping_or_404",
+                    source="personhog",
+                    error_type="grpc_error",
+                    client_name=get_client_name(),
+                ).inc()
+                logger.warning(
+                    "personhog_group_type_mapping_failure",
+                    project_id=self.team.project_id,
+                    group_type_index=group_type_index,
+                    exc_info=True,
+                )
+
         try:
-            return GroupTypeMapping.objects.get(project_id=self.team.project_id, group_type_index=group_type_index)
+            obj = GroupTypeMapping.objects.get(project_id=self.team.project_id, group_type_index=group_type_index)
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="get_group_type_mapping_or_404", source="django_orm", client_name=get_client_name()
+            ).inc()
+            return GroupTypeMappingResult(group_type=obj.group_type, group_type_index=obj.group_type_index)
         except GroupTypeMapping.DoesNotExist:
             raise NotFound()
 
@@ -268,7 +351,10 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 timestamp=timezone.now(),
             )
         except IntegrityError as exc:
-            if "unique team_id/group_key/group_type_index combo" in str(exc):
+            # Check for both constraint names: Django model name and actual database constraint name
+            if "unique team_id/group_key/group_type_index combo" in str(
+                exc
+            ) or "unique_team_group_key_group_type" in str(exc):
                 raise ValidationError({"detail": "A group with this key already exists"})
             raise
 
@@ -276,6 +362,14 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             self.trigger_group_identify(group=group, operation="group create")
         except TriggerGroupIdentifyException as exc:
             return response.Response(data=exc.exception_data, status=exc.status_code)
+
+        for prop_name, prop_value in group.group_properties.items():
+            create_property_definition(
+                team_id=self.team.pk,
+                group_type_index=group.group_type_index,
+                property_name=prop_name,
+                property_value=prop_value,
+            )
 
         details = [
             Detail(
@@ -376,9 +470,17 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                         },
                         status=400,
                     )
+            create_or_update = "update" if request.data["key"] in group.group_properties.keys() else "create"
             original_value = group.group_properties.get(request.data["key"], None)
             group.group_properties[request.data["key"]] = request.data["value"]
             group.save()
+
+            create_property_definition(
+                team_id=self.team.pk,
+                group_type_index=group.group_type_index,
+                property_name=request.data["key"],
+                property_value=request.data["value"],
+            )
 
             # Need to update ClickHouse too
             timestamp = timezone.now()
@@ -391,11 +493,10 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 timestamp=timestamp,
             )
 
-            # another internal event submission where we best-effort and don't handle failures...
             try:
                 self.trigger_group_identify(
                     group=group,
-                    operation="group property update",
+                    operation=f"group property {create_or_update}",
                     group_properties={request.data["key"]: request.data["value"]},
                 )
             except TriggerGroupIdentifyException as exc:
@@ -408,13 +509,13 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 was_impersonated=is_impersonated_session(request),
                 item_id=group.pk,
                 scope="Group",
-                activity="update_property",
+                activity=f"{create_or_update}_property",
                 detail=Detail(
                     name=str(request.data["key"]),
                     changes=[
                         Change(
                             type="Group",
-                            action="created" if original_value is None else "changed",
+                            action=f"created" if create_or_update == "create" else "changed",
                             before=original_value,
                             after=request.data["value"],
                         )
@@ -456,12 +557,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                         },
                         status=400,
                     )
-            try:
-                group_type_mapping = GroupTypeMapping.objects.get(
-                    project_id=self.team.project_id, group_type_index=group.group_type_index
-                )
-            except GroupTypeMapping.DoesNotExist:
-                raise NotFound()
+            group_type_mapping = self.get_group_type_mapping_or_404(cast(GroupTypeIndex, group.group_type_index))
             original_value = group.group_properties[request.data["$unset"]]
             del group.group_properties[request.data["$unset"]]
             group.save()
@@ -617,33 +713,44 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
 
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def property_values(self, request: request.Request, **kw):
-        value_filter = request.GET.get("value")
+        with tracer.start_as_current_span("groups_api_property_values") as span:
+            value_filter = request.GET.get("value")
+            group_type_index = request.GET["group_type_index"]
+            key = request.GET["key"]
 
-        query = f"""
-            SELECT {trim_quotes_expr("tupleElement(keysAndValues, 2)")} as value, count(*) as count
-            FROM groups
-            ARRAY JOIN JSONExtractKeysAndValuesRaw(group_properties) as keysAndValues
-            WHERE team_id = %(team_id)s
-              AND group_type_index = %(group_type_index)s
-              AND tupleElement(keysAndValues, 1) = %(key)s
-              {f"AND {trim_quotes_expr('tupleElement(keysAndValues, 2)')} ILIKE %(value_filter)s" if value_filter else ""}
-            GROUP BY value
-            ORDER BY count DESC, value ASC
-            LIMIT 20
-        """
+            span.set_attribute("team_id", self.team.pk)
+            span.set_attribute("group_type_index", group_type_index)
+            span.set_attribute("property_key", key)
+            span.set_attribute("has_value_filter", value_filter is not None)
 
-        params = {
-            "team_id": self.team.pk,
-            "group_type_index": request.GET["group_type_index"],
-            "key": request.GET["key"],
-        }
+            query = f"""
+                SELECT {trim_quotes_expr("tupleElement(keysAndValues, 2)")} as value, count(*) as count
+                FROM groups
+                ARRAY JOIN JSONExtractKeysAndValuesRaw(group_properties) as keysAndValues
+                WHERE team_id = %(team_id)s
+                  AND group_type_index = %(group_type_index)s
+                  AND tupleElement(keysAndValues, 1) = %(key)s
+                  {f"AND {trim_quotes_expr('tupleElement(keysAndValues, 2)')} ILIKE %(value_filter)s" if value_filter else ""}
+                GROUP BY value
+                ORDER BY count DESC, value ASC
+                LIMIT 20
+            """
 
-        if value_filter:
-            params["value_filter"] = f"%{value_filter}%"
+            params = {
+                "team_id": self.team.pk,
+                "group_type_index": group_type_index,
+                "key": key,
+            }
 
-        rows = sync_execute(query, params)
+            if value_filter:
+                params["value_filter"] = f"%{value_filter}%"
 
-        return response.Response([{"name": name, "count": count} for name, count in rows])
+            rows = sync_execute(query, params)
+
+            span.set_attribute("result_count", len(rows))
+            return response.Response(
+                {"results": [{"name": name, "count": count} for name, count in rows], "refreshing": False}
+            )
 
     def _is_crm_enabled(self, user: User) -> bool:
         return posthoganalytics.feature_enabled(
@@ -681,7 +788,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         ResourceNotebook.objects.create(notebook=notebook, group=group.id)
 
 
-class GroupUsageMetricSerializer(serializers.ModelSerializer):
+class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     class Meta:
         model = GroupUsageMetric
         fields = ("id", "name", "format", "interval", "display", "filters")

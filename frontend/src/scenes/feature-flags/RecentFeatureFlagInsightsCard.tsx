@@ -1,13 +1,12 @@
 import { useActions, useValues } from 'kea'
 
 import { CompactList } from 'lib/components/CompactList/CompactList'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { InsightRow } from 'scenes/project-homepage/RecentInsights'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { BaseMathType, ProductKey, QueryBasedInsightModel } from '~/types'
+import { InsightVizNode, NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { BaseMathType, QueryBasedInsightModel } from '~/types'
 
 import { featureFlagLogic } from './featureFlagLogic'
 
@@ -28,7 +27,7 @@ export function RecentFeatureFlagInsights(): JSX.Element {
         },
     }
     return (
-        <div className="max-w-prose">
+        <div className="w-full">
             <CompactList
                 loading={relatedInsightsLoading}
                 emptyMessage={{
@@ -45,7 +44,9 @@ export function RecentFeatureFlagInsights(): JSX.Element {
                     },
                 }}
                 items={relatedInsights.slice(0, 5)}
-                renderRow={(insight: QueryBasedInsightModel, index) => <InsightRow key={index} insight={insight} />}
+                renderRow={(insight: QueryBasedInsightModel, index) => (
+                    <InsightRow key={index} insight={insight} dataAttr="recent-feature-flag-insight-item" />
+                )}
                 contentHeightBehavior="shrink"
             />
         </div>

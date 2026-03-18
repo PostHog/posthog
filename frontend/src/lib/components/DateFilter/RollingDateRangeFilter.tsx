@@ -10,6 +10,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { DateOption, rollingDateRangeFilterLogic } from './rollingDateRangeFilterLogic'
 
 const dateOptions: LemonSelectOptionLeaf<DateOption>[] = [
+    { value: 'seconds', label: 'seconds' },
     { value: 'minutes', label: 'minutes' },
     { value: 'hours', label: 'hours' },
     { value: 'days', label: 'days' },
@@ -62,7 +63,7 @@ export function RollingDateRangeFilter({
     let contents = (
         <div className="flex items-center">
             <p className="RollingDateRangeFilter__label">{dateRangeFilterLabel}</p>
-            <div className="RollingDateRangeFilter__counter" onClick={(e): void => e.stopPropagation()}>
+            <div className="RollingDateRangeFilter__counter input-like" onClick={(e): void => e.stopPropagation()}>
                 <span
                     className="RollingDateRangeFilter__counter__step cursor-pointer bg-transparent"
                     onClick={decreaseCounter}
@@ -72,7 +73,7 @@ export function RollingDateRangeFilter({
                 </span>
                 <LemonInput
                     data-attr="rolling-date-range-input"
-                    className="[&>input::-webkit-inner-spin-button]:appearance-none"
+                    className="[&>input::-webkit-inner-spin-button]:appearance-none shadow-none"
                     type="number"
                     value={counter ?? 0}
                     min={0}

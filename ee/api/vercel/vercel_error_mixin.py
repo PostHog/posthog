@@ -2,26 +2,32 @@ from typing import Any
 
 from rest_framework.exceptions import APIException
 from rest_framework.response import Response
-from rest_framework.views import exception_handler
 
 
 class VercelErrorResponseMixin:
-    """Mixin to format DRF exceptions into Vercel's error schema"""
+    """Mixin to format DRF exceptions into Vercel's required error schema.
 
-    def handle_exception(self, exc):
-        context: dict[str, Any] = getattr(self, "get_exception_handler_context", lambda: {})()
-        response = exception_handler(exc, context)
+    Delegates to the global exception handler (drf-exceptions-hog) for reporting
+    and capture_exception, then reformats the response for Vercel's API contract.
+    """
 
-        if response is not None:
-            response.data = self._format_vercel_error(exc, response)
-
+    def handle_exception(self, exc: Exception) -> Response:
+        response = super().handle_exception(exc)  # type: ignore[misc]
+        response.data = self._format_vercel_error(exc)
         return response
 
-    def _format_vercel_error(self, exc: Exception, response: Response) -> dict[str, Any]:
+    @staticmethod
+    def _format_vercel_error(exc: Exception) -> dict[str, Any]:
         if isinstance(exc, APIException):
-            message = str(exc.detail)
+            detail = exc.detail
+            if isinstance(detail, list):
+                message = " ".join(str(item) for item in detail)
+            elif isinstance(detail, dict):
+                message = " ".join(f"{k}: {v}" for k, v in detail.items())
+            else:
+                message = str(detail)
         else:
-            message = str(exc)
+            message = "An internal error occurred. Please try again."
 
         return {
             "error": {

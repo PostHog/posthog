@@ -1,5 +1,7 @@
 import { inStorybookTestRunner } from 'lib/utils'
 
+import { AssistantMessage } from '~/queries/schema/schema-assistant-messages'
+
 export const THINKING_MESSAGES = [
     'Booping', // playful interaction
     'Crunching', // data in progress
@@ -89,8 +91,64 @@ export const THINKING_MESSAGES = [
 
 export const getRandomThinkingMessage = (): string => {
     if (inStorybookTestRunner()) {
-        return 'Thinking'
+        return 'Thinking...'
     }
     const randomIndex = Math.floor(Math.random() * THINKING_MESSAGES.length)
-    return THINKING_MESSAGES[randomIndex]
+    return THINKING_MESSAGES[randomIndex] + '...'
+}
+
+interface ServerToolUseBlock {
+    type: 'server_tool_use'
+    name: string
+    input: Record<string, unknown>
+    id: string
+    results?: { title: string; url: string }[]
+}
+
+interface ThinkingBlock {
+    type: 'thinking'
+    thinking: string
+}
+
+export const getThinkingMessageFromResponse = (message: AssistantMessage): (ServerToolUseBlock | ThinkingBlock)[] => {
+    const thinkingMeta = message.meta?.thinking
+    if (!thinkingMeta) {
+        return []
+    }
+    const blocks: (ServerToolUseBlock | ThinkingBlock)[] = []
+    const toolUseIdToBlock: Record<string, ServerToolUseBlock> = {}
+    for (const block of thinkingMeta) {
+        if (block.type === 'thinking') {
+            blocks.push({ type: 'thinking', thinking: block.thinking as string })
+        } else if (block.type === 'server_tool_use') {
+            toolUseIdToBlock[block.id as string] = {
+                id: block.id as string,
+                type: 'server_tool_use',
+                name: block.name as string,
+                input: block.input as Record<string, unknown>,
+            }
+            blocks.push(toolUseIdToBlock[block.id as string])
+        } else if (block.type === 'web_search_tool_result') {
+            if (!Array.isArray(block.content)) {
+                console.error('web_search_tool_result is not an array', block)
+                continue // Making TypeScript happy
+            }
+            if (!toolUseIdToBlock[block.tool_use_id as string]) {
+                console.error(
+                    'tool_use_id not found - likely web_search was called in parallel with another tool',
+                    block,
+                    toolUseIdToBlock
+                )
+                continue
+            }
+            toolUseIdToBlock[block.tool_use_id as string].results = block.content.map((content) => ({
+                title: content.title as string,
+                url: content.url as string,
+            }))
+        } else if (block.type === 'reasoning') {
+            // OpenAI
+            blocks.push({ type: 'thinking', thinking: (block.summary as any[])[0].text as string })
+        }
+    }
+    return blocks
 }

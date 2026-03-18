@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 
 import { iframedToolbarBrowserLogic } from 'lib/components/IframedToolbarBrowser/iframedToolbarBrowserLogic'
 import { PostHogAppToolbarEvent } from 'lib/components/IframedToolbarBrowser/utils'
@@ -11,7 +11,6 @@ import {
     EntityType,
     EntityTypes,
     FilterType,
-    Optional,
     TemplateVariableStep,
 } from '~/types'
 
@@ -35,7 +34,7 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
     })),
     actions({
         setVariables: (variables: DashboardTemplateVariableType[]) => ({ variables }),
-        setVariable: (variableName: string, filterGroup: Optional<FilterType, 'type'>) => ({
+        setVariable: (variableName: string, filterGroup: FilterType) => ({
             variable_name: variableName,
             filterGroup,
         }),
@@ -228,6 +227,11 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (props.variables !== oldProps.variables) {
+            actions.setVariables(props.variables)
+        }
+    }),
+    afterMount(({ actions, props }) => {
+        if (props.variables) {
             actions.setVariables(props.variables)
         }
     }),

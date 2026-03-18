@@ -1,7 +1,7 @@
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
-from posthog.models.property_definition import PropertyDefinition
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 class EnterprisePropertyDefinition(PropertyDefinition):

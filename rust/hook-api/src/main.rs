@@ -25,6 +25,15 @@ async fn main() {
 
     let config = Config::init_from_env().expect("failed to load configuration from env");
 
+    // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
+    let _profiling_agent = match config.continuous_profiling.start_agent() {
+        Ok(agent) => agent,
+        Err(e) => {
+            tracing::error!("Failed to start continuous profiling agent: {e}");
+            None
+        }
+    };
+
     let pg_queue = PgQueue::new(
         // TODO: Coupling the queue name to the PgQueue object doesn't seem ideal from the api
         // side, but we don't need more than one queue for now.

@@ -1,19 +1,34 @@
 from posthog.temporal.delete_recordings.activities import (
-    delete_recording_blocks,
-    group_recording_blocks,
-    load_recording_blocks,
+    cleanup_session_id_chunks,
+    delete_recordings,
     load_recordings_with_person,
+    load_recordings_with_query,
+    load_recordings_with_team_id,
+    load_session_id_chunk,
+    purge_deleted_metadata,
 )
-from posthog.temporal.delete_recordings.workflows import DeleteRecordingsWithPersonWorkflow, DeleteRecordingWorkflow
+from posthog.temporal.delete_recordings.workflows import (
+    DeleteRecordingsWithPersonWorkflow,
+    DeleteRecordingsWithQueryWorkflow,
+    DeleteRecordingsWithSessionIdsWorkflow,
+    DeleteRecordingsWithTeamWorkflow,
+    PurgeDeletedRecordingMetadataWorkflow,
+)
 
 WORKFLOWS = [
-    DeleteRecordingWorkflow,
     DeleteRecordingsWithPersonWorkflow,
+    DeleteRecordingsWithTeamWorkflow,
+    DeleteRecordingsWithQueryWorkflow,
+    DeleteRecordingsWithSessionIdsWorkflow,
+    PurgeDeletedRecordingMetadataWorkflow,
 ]
 
 ACTIVITIES = [
-    load_recording_blocks,
-    delete_recording_blocks,
     load_recordings_with_person,
-    group_recording_blocks,
+    load_recordings_with_query,
+    load_recordings_with_team_id,
+    load_session_id_chunk,
+    cleanup_session_id_chunks,
+    delete_recordings,
+    purge_deleted_metadata,
 ]

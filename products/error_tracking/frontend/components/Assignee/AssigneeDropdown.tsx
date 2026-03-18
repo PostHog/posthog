@@ -20,7 +20,7 @@ export function AssigneeDropdown({ assignee, onChange }: AssigneeDropdownProps):
     const { setSearch } = useActions(assigneeSelectLogic)
 
     return (
-        <div className="max-w-100 deprecated-space-y-2 overflow-hidden">
+        <div className="max-w-100 deprecated-space-y-2">
             <LemonInput type="search" placeholder="Search" autoFocus value={search} onChange={setSearch} fullWidth />
             <ul className="deprecated-space-y-2">
                 {assignee && (

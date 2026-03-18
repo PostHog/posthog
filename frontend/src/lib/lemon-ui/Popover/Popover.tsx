@@ -14,7 +14,16 @@ import {
     useMergeRefs,
 } from '@floating-ui/react'
 import clsx from 'clsx'
-import React, { MouseEventHandler, ReactElement, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import React, {
+    MouseEventHandler,
+    ReactElement,
+    useCallback,
+    useContext,
+    useEffect,
+    useLayoutEffect,
+    useRef,
+    useState,
+} from 'react'
 import { CSSTransition } from 'react-transition-group'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -140,13 +149,9 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
             ...(fallbackPlacements
                 ? [
                       flip({
-                          fallbackPlacements: [
-                              // Prioritize top placements when there might be space issues
-                              ...fallbackPlacements.filter((p) => p.startsWith('top')),
-                              ...fallbackPlacements.filter((p) => !p.startsWith('top')),
-                          ],
+                          fallbackPlacements,
                           fallbackStrategy: 'bestFit',
-                          padding: { bottom: 150 }, // Require at least 150px of space below to avoid flipping
+                          padding: 20,
                       }),
                   ]
                 : []),
@@ -176,6 +181,14 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     })
 
     const [floatingElement, setFloatingElement] = useState<HTMLElement | null>(null)
+    // Track whether the portal should be rendered (visible or animating out)
+    const [shouldRenderPortal, setShouldRenderPortal] = useState(false)
+
+    useLayoutEffect(() => {
+        if (visible) {
+            setShouldRenderPortal(true)
+        }
+    }, [visible])
     const mergedReferenceRef = useMergeRefs([
         referenceRef,
         extraReferenceRef || null,
@@ -206,7 +219,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     )
 
     useOutsideClickHandler(
-        [floatingRef, referenceRef, ...additionalRefs],
+        visible ? [floatingRef, referenceRef, ...additionalRefs] : [],
         (event) => {
             // Delay by a tick to allow other Popovers to detect inside clicks.
             // If a nested popover has handled the click, don't do anything
@@ -219,13 +232,25 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         [visible]
     )
 
+    const additionalRefsRef = useRef(additionalRefs)
+    additionalRefsRef.current = additionalRefs
+
     useEffect(() => {
         if (visible && referenceRef?.current && floatingElement) {
             return autoUpdate(referenceRef.current, floatingElement, update)
         }
-    }, [visible, placement, referenceRef?.current, floatingElement, ...additionalRefs]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [visible, placement, referenceRef?.current, floatingElement]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const floatingContainer = useFloatingContainer()
+
+    const handleExited = (): void => {
+        setFloatingElement(null)
+        floatingRef.current = null
+        if (extraFloatingRef) {
+            extraFloatingRef.current = null
+        }
+        setShouldRenderPortal(false)
+    }
 
     const _onClickInside: MouseEventHandler<HTMLDivElement> = (e): void => {
         if (e.target instanceof HTMLElement && e.target.closest(`.${CLICK_OUTSIDE_BLOCK_CLASS}`)) {
@@ -243,6 +268,17 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
 
     const clonedChildren = children ? React.cloneElement(children as ReactElement, { ref: mergedReferenceRef }) : null
 
+    const floatingCallbackRef = useCallback(
+        (el: HTMLDivElement | null) => {
+            setFloatingElement(el)
+            floatingRef.current = el
+            if (extraFloatingRef) {
+                extraFloatingRef.current = el
+            }
+        },
+        [setFloatingElement, floatingRef, extraFloatingRef]
+    )
+
     const isAttached = clonedChildren || referenceElement
     const top = isAttached ? (y ?? 0) : undefined
     const left = isAttached ? (x ?? 0) : undefined
@@ -254,15 +290,18 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                     {clonedChildren}
                 </PopoverReferenceContext.Provider>
             )}
-            {visible ? (
-                <FloatingPortal root={floatingContainer}>
+            {shouldRenderPortal && (
+                // floating-ui@0.27 changed null to suppress the portal entirely
+                <FloatingPortal root={floatingContainer ?? undefined}>
                     <CSSTransition
+                        nodeRef={floatingRef as React.RefObject<HTMLDivElement>}
                         in={visible}
                         timeout={delayMs}
                         classNames="Popover-"
                         appear
                         mountOnEnter
                         unmountOnExit
+                        onExited={handleExited}
                     >
                         <PopoverReferenceContext.Provider
                             value={null /* Resetting the reference, since there's none */}
@@ -278,13 +317,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                                         className
                                     )}
                                     data-placement={effectivePlacement}
-                                    ref={(el) => {
-                                        setFloatingElement(el)
-                                        floatingRef.current = el
-                                        if (extraFloatingRef) {
-                                            extraFloatingRef.current = el
-                                        }
-                                    }}
+                                    ref={floatingCallbackRef}
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{
                                         display: middlewareData.hide?.referenceHidden ? 'none' : undefined,
@@ -335,7 +368,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                         </PopoverReferenceContext.Provider>
                     </CSSTransition>
                 </FloatingPortal>
-            ) : null}
+            )}
         </>
     )
 })

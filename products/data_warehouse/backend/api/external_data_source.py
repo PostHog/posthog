@@ -1,0 +1,991 @@
+import uuid
+import dataclasses
+from typing import Any
+
+from django.db import transaction
+from django.db.models import Prefetch, Q
+
+import structlog
+import temporalio
+from dateutil import parser
+from drf_spectacular.utils import extend_schema
+from rest_framework import filters, serializers, status, viewsets
+from rest_framework.exceptions import ValidationError
+from rest_framework.request import Request
+from rest_framework.response import Response
+
+from posthog.schema import ProductKey, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSwitchGroupConfig
+
+from posthog.hogql.database.database import Database
+
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import action
+from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
+from posthog.models.activity_logging.external_data_utils import (
+    get_external_data_source_created_by_info,
+    get_external_data_source_detail_name,
+)
+from posthog.models.signals import model_activity_signal, mutable_receiver
+from posthog.models.user import User
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.temporal.data_imports.sources import SourceRegistry
+from posthog.temporal.data_imports.sources.common.base import FieldType
+from posthog.temporal.data_imports.sources.common.config import Config
+
+from products.data_warehouse.backend.api.external_data_schema import (
+    ExternalDataSchemaSerializer,
+    SimpleExternalDataSchemaSerializer,
+)
+from products.data_warehouse.backend.data_load.service import (
+    cancel_external_data_workflow,
+    delete_external_data_schedule,
+    is_any_external_data_schema_paused,
+    sync_external_data_job_workflow,
+    trigger_external_data_source_workflow,
+)
+from products.data_warehouse.backend.direct_postgres import (
+    postgres_schema_metadata,
+    reconcile_direct_postgres_schemas,
+    upsert_direct_postgres_table,
+)
+from products.data_warehouse.backend.models import (
+    DataWarehouseManagedViewSet,
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
+from products.data_warehouse.backend.models.external_data_schema import sync_old_schemas_with_new_schemas
+from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
+from products.data_warehouse.backend.models.util import postgres_columns_to_dwh_columns, validate_source_prefix
+from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+
+logger = structlog.get_logger(__name__)
+
+
+def get_password_field_names(fields: list[FieldType]) -> set[str]:
+    """Extract field names that have PASSWORD type from a source config's fields."""
+    password_fields: set[str] = set()
+    for field in fields:
+        if isinstance(field, SourceFieldInputConfig) and field.type == SourceFieldInputConfigType.PASSWORD:
+            password_fields.add(field.name)
+        elif isinstance(field, SourceFieldSwitchGroupConfig):
+            password_fields.update(get_password_field_names(field.fields))
+    return password_fields
+
+
+class ExternalDataSourceRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExternalDataSourceRevenueAnalyticsConfig
+        fields = ["enabled", "include_invoiceless_charges"]
+
+
+class ExternalDataJobSerializers(serializers.ModelSerializer):
+    schema = serializers.SerializerMethodField(read_only=True)
+    status = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = ExternalDataJob
+        fields = [
+            "id",
+            "created_at",
+            "created_by",
+            "finished_at",
+            "status",
+            "schema",
+            "rows_synced",
+            "latest_error",
+            "workflow_run_id",
+        ]
+        read_only_fields = [
+            "id",
+            "created_at",
+            "created_by",
+            "finished_at",
+            "status",
+            "schema",
+            "rows_synced",
+            "latest_error",
+            "workflow_run_id",
+        ]
+
+    def get_status(self, instance: ExternalDataJob):
+        if instance.status == ExternalDataJob.Status.BILLING_LIMIT_REACHED:
+            return "Billing limits"
+
+        if instance.status == ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW:
+            return "Billing limit too low"
+
+        return instance.status
+
+    def get_schema(self, instance: ExternalDataJob):
+        return SimpleExternalDataSchemaSerializer(
+            instance.schema, many=False, read_only=True, context=self.context
+        ).data
+
+
+class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+    account_id = serializers.CharField(write_only=True)
+    client_secret = serializers.CharField(write_only=True)
+    last_run_at = serializers.SerializerMethodField(read_only=True)
+    created_by = serializers.SerializerMethodField(read_only=True)
+    latest_error = serializers.SerializerMethodField(read_only=True)
+    status = serializers.SerializerMethodField(read_only=True)
+    schemas = serializers.SerializerMethodField(read_only=True)
+    revenue_analytics_config = ExternalDataSourceRevenueAnalyticsConfigSerializer(
+        source="revenue_analytics_config_safe", read_only=True
+    )
+    access_method = serializers.ChoiceField(choices=ExternalDataSource.AccessMethod.choices, read_only=True)
+
+    class Meta:
+        model = ExternalDataSource
+        fields = [
+            "id",
+            "created_at",
+            "created_by",
+            "status",
+            "client_secret",
+            "account_id",
+            "source_type",
+            "latest_error",
+            "prefix",
+            "description",
+            "access_method",
+            "last_run_at",
+            "schemas",
+            "job_inputs",
+            "revenue_analytics_config",
+            "user_access_level",
+        ]
+        read_only_fields = [
+            "id",
+            "created_by",
+            "created_at",
+            "status",
+            "source_type",
+            "latest_error",
+            "last_run_at",
+            "schemas",
+            "revenue_analytics_config",
+            "user_access_level",
+            "access_method",
+        ]
+
+    """
+    This method is used to remove sensitive fields from the response.
+    IMPORTANT: This method should be updated when a new source type is added to allow for editing of the new source.
+    """
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+
+        # non-sensitive fields
+        job_inputs_allowed_keys = {
+            # stripe
+            "stripe_account_id",
+            # sql
+            "database",
+            "host",
+            "port",
+            "user",
+            "schema",
+            "ssh_tunnel",
+            "using_ssl",
+            # vitally
+            "region"
+            # chargebee
+            "site_name",
+            # zendesk
+            "subdomain",
+            "email_address",
+            # hubspot
+            "hubspot_integration_id",
+            # snowflake
+            "account_id",
+            "warehouse",
+            "role",
+            # bigquery
+            "dataset_id",
+            "temporary_dataset",
+            "dataset_project"
+            # google ads
+            "customer_id",
+            "google_ads_integration_id",
+            "is_mcc_account",
+            # google sheets
+            "spreadsheet_url",
+            # linkedin ads
+            "linkedin_ads_integration_id",
+            # meta ads
+            "meta_ads_integration_id",
+            "sync_lookback_days",
+            # reddit ads
+            "reddit_integration_id",
+            # salesforce
+            "salesforce_integration_id",
+            # github
+            "repository",
+            # shopify
+            "shopify_store_id",
+            # temporal
+            "namespace",
+        }
+        job_inputs = representation.get("job_inputs", {})
+        if isinstance(job_inputs, dict):
+            # Reconstruct ssh_tunnel (if needed) structure for UI handling
+            if "ssh_tunnel" in job_inputs and isinstance(job_inputs["ssh_tunnel"], dict):
+                existing_ssh_tunnel: dict = job_inputs["ssh_tunnel"]
+                # Check both 'auth' (new format) and 'auth_type' (legacy format from migration 0807)
+                existing_auth: dict = existing_ssh_tunnel.get("auth") or existing_ssh_tunnel.get("auth_type") or {}
+                ssh_tunnel = {
+                    "enabled": existing_ssh_tunnel.get("enabled", False),
+                    "host": existing_ssh_tunnel.get("host", None),
+                    "port": existing_ssh_tunnel.get("port", None),
+                    "auth": {
+                        # Check both 'type' (new format) and 'selection' (legacy format)
+                        "selection": existing_auth.get("type") or existing_auth.get("selection"),
+                        "username": existing_auth.get("username", None),
+                        # Note: password, passphrase, private_key intentionally omitted
+                        # to prevent them being sent back as null and overwriting stored values
+                    },
+                }
+                job_inputs["ssh_tunnel"] = ssh_tunnel
+
+            # Remove sensitive fields
+            for key in list(job_inputs.keys()):  # Use list() to avoid modifying dict during iteration
+                if key not in job_inputs_allowed_keys:
+                    job_inputs.pop(key, None)
+
+        return representation
+
+    def get_last_run_at(self, instance: ExternalDataSource) -> str:
+        latest_completed_run = instance.ordered_jobs[0] if instance.ordered_jobs else None  # type: ignore
+
+        return latest_completed_run.created_at if latest_completed_run else None
+
+    def get_created_by(self, instance: ExternalDataSource) -> str | None:
+        return instance.created_by.email if instance.created_by else None
+
+    def get_status(self, instance: ExternalDataSource) -> str:
+        active_schemas: list[ExternalDataSchema] = list(instance.active_schemas)  # type: ignore
+        any_failures = any(schema.status == ExternalDataSchema.Status.FAILED for schema in active_schemas)
+        any_billing_limits_reached = any(
+            schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED for schema in active_schemas
+        )
+        any_billing_limits_too_low = any(
+            schema.status == ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW for schema in active_schemas
+        )
+        any_paused = any(schema.status == ExternalDataSchema.Status.PAUSED for schema in active_schemas)
+        any_running = any(schema.status == ExternalDataSchema.Status.RUNNING for schema in active_schemas)
+        any_completed = any(schema.status == ExternalDataSchema.Status.COMPLETED for schema in active_schemas)
+
+        if any_failures:
+            return ExternalDataSchema.Status.FAILED
+        elif any_billing_limits_reached:
+            return "Billing limits"
+        elif any_billing_limits_too_low:
+            return "Billing limits too low"
+        elif any_paused:
+            return ExternalDataSchema.Status.PAUSED
+        elif any_running:
+            return ExternalDataSchema.Status.RUNNING
+        elif any_completed:
+            return ExternalDataSchema.Status.COMPLETED
+        else:
+            # Fallback during migration phase of going from source -> schema as the source of truth for syncs
+            return instance.status
+
+    def get_latest_error(self, instance: ExternalDataSource):
+        schema_with_error = instance.schemas.filter(latest_error__isnull=False).first()
+        return schema_with_error.latest_error if schema_with_error else None
+
+    def get_schemas(self, instance: ExternalDataSource):
+        return ExternalDataSchemaSerializer(instance.schemas, many=True, read_only=True, context=self.context).data
+
+    def update(self, instance: ExternalDataSource, validated_data: Any) -> Any:
+        request = self.context.get("request")
+        requested_access_method = request.data.get("access_method") if request is not None else None
+        if requested_access_method is not None and requested_access_method != instance.access_method:
+            raise ValidationError("Access method cannot be changed. Create a new source instead.")
+
+        validated_data.pop("access_method", None)
+        incoming_prefix = validated_data.get("prefix", instance.prefix)
+
+        if instance.is_direct_postgres:
+            # For direct Postgres sources the prefix acts as the user-facing source name.
+            normalized_prefix = incoming_prefix.strip() if isinstance(incoming_prefix, str) else ""
+            if not normalized_prefix:
+                raise ValidationError("Name is required for direct query sources")
+            validated_data["prefix"] = normalized_prefix
+        else:
+            validated_data["prefix"] = instance.prefix
+
+        existing_job_inputs = instance.job_inputs or {}
+        job_inputs_were_submitted = "job_inputs" in validated_data
+        incoming_job_inputs = validated_data.get("job_inputs", {})
+
+        source_type_model = ExternalDataSourceType(instance.source_type)
+        source = SourceRegistry.get_source(source_type_model)
+        password_fields = get_password_field_names(source.get_source_config.fields)
+
+        new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
+
+        # Preserve sensitive credentials not explicitly provided (API response omits them for security)
+        for key in password_fields:
+            if existing_job_inputs.get(key) and not incoming_job_inputs.get(key):
+                new_job_inputs[key] = existing_job_inputs[key]
+
+        # SSH tunnel is a nested config - deep-merge it so partial updates preserve existing fields
+        existing_ssh_tunnel = existing_job_inputs.get("ssh_tunnel")
+        incoming_ssh_tunnel = incoming_job_inputs.get("ssh_tunnel")
+        if existing_ssh_tunnel and incoming_ssh_tunnel is not None:
+            # Deep-merge: start with existing, overlay incoming top-level keys
+            merged_ssh_tunnel = {**existing_ssh_tunnel, **incoming_ssh_tunnel}
+
+            # Check both 'auth' (new format) and 'auth_type' (legacy format from migration 0807)
+            existing_auth = (
+                (existing_ssh_tunnel or {}).get("auth") or (existing_ssh_tunnel or {}).get("auth_type") or {}
+            )
+            incoming_auth = (
+                (incoming_ssh_tunnel or {}).get("auth") or (incoming_ssh_tunnel or {}).get("auth_type") or {}
+            )
+
+            if not incoming_auth:
+                # No auth in incoming request - preserve entire existing auth
+                merged_ssh_tunnel["auth"] = {**existing_auth}
+            else:
+                # Merge auth, preserving sensitive fields not explicitly provided
+                merged_auth = {**incoming_auth}
+                for key in ("password", "passphrase", "private_key"):
+                    if existing_auth.get(key) and not incoming_auth.get(key):
+                        merged_auth[key] = existing_auth[key]
+                merged_ssh_tunnel["auth"] = merged_auth
+
+            new_job_inputs["ssh_tunnel"] = merged_ssh_tunnel
+
+        is_valid, errors = source.validate_config(new_job_inputs)
+        if not is_valid:
+            raise ValidationError(f"Invalid source config: {', '.join(errors)}")
+
+        source_config: Config = source.parse_config(new_job_inputs)
+        validated_data["job_inputs"] = source_config.to_dict()
+
+        if job_inputs_were_submitted:
+            credentials_valid, credentials_error = source.validate_credentials(source_config, instance.team_id)
+            if not credentials_valid:
+                raise ValidationError(credentials_error or "Invalid credentials")
+
+        updated_source: ExternalDataSource = super().update(instance, validated_data)
+
+        return updated_source
+
+
+class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
+    class Meta:
+        model = ExternalDataSource
+        fields = [
+            "id",
+            "created_at",
+            "created_by",
+            "status",
+            "source_type",
+        ]
+        read_only_fields = ["id", "created_by", "created_at", "status", "source_type"]
+
+
+@extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
+class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
+    """
+    Create, Read, Update and Delete External data Sources.
+    """
+
+    scope_object = "external_data_source"
+    queryset = ExternalDataSource.objects.all()
+    serializer_class = ExternalDataSourceSerializers
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["source_id"]
+    ordering = "-created_at"
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        context["database"] = Database.create_for(team_id=self.team_id)
+
+        return context
+
+    def safely_get_queryset(self, queryset):
+        return (
+            queryset.exclude(deleted=True)
+            .prefetch_related(
+                "created_by",
+                Prefetch(
+                    "jobs",
+                    queryset=ExternalDataJob.objects.filter(status="Completed", team_id=self.team_id).order_by(
+                        "-created_at"
+                    )[:1],
+                    to_attr="ordered_jobs",
+                ),
+                Prefetch(
+                    "schemas",
+                    queryset=ExternalDataSchema.objects.filter(team_id=self.team_id)
+                    .exclude(deleted=True)
+                    .select_related("table__credential", "table__external_data_source")
+                    .order_by("name"),
+                ),
+                Prefetch(
+                    "schemas",
+                    queryset=ExternalDataSchema.objects.filter(team_id=self.team_id)
+                    .exclude(deleted=True)
+                    .filter(
+                        Q(should_sync=True) | Q(latest_error__isnull=False)
+                    )  # OR to include schemas with errors or marked for sync
+                    .select_related("source", "table__credential", "table__external_data_source"),
+                    to_attr="active_schemas",
+                ),
+            )
+            .order_by(self.ordering)
+        )
+
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        prefix = request.data.get("prefix", None)
+        description = request.data.get("description", None)
+        source_type = request.data["source_type"]
+        access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
+        is_direct_postgres = (
+            access_method == ExternalDataSource.AccessMethod.DIRECT and source_type == ExternalDataSourceType.POSTGRES
+        )
+
+        if access_method == ExternalDataSource.AccessMethod.DIRECT and source_type != ExternalDataSourceType.POSTGRES:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Direct query mode is currently supported only for Postgres sources."},
+            )
+
+        if is_direct_postgres:
+            prefix = prefix.strip() if isinstance(prefix, str) else ""
+            if not prefix:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Name is required for direct query sources"},
+                )
+        else:
+            is_valid, error_message = validate_source_prefix(prefix)
+            if not is_valid:
+                raise ValidationError(error_message)
+
+            if self.prefix_required(source_type):
+                if not prefix:
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={"message": "Source type already exists. Prefix is required"},
+                    )
+                if self.prefix_exists(source_type, prefix):
+                    return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
+
+        if access_method == ExternalDataSource.AccessMethod.WAREHOUSE and is_any_external_data_schema_paused(
+            self.team_id
+        ):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
+            )
+
+        # Strip leading and trailing whitespace
+        payload = request.data["payload"]
+        if payload is not None:
+            for key, value in payload.items():
+                if isinstance(value, str):
+                    payload[key] = value.strip()
+        source_type_model = ExternalDataSourceType(source_type)
+        source = SourceRegistry.get_source(source_type_model)
+        is_valid, errors = source.validate_config(payload)
+        if not is_valid:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Invalid source config: {', '.join(errors)}"},
+            )
+        source_config: Config = source.parse_config(payload)
+
+        credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+        if not credentials_valid:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": credentials_error or "Invalid credentials"},
+            )
+
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            created_by=request.user if isinstance(request.user, User) else None,
+            team=self.team,
+            status="Running",
+            source_type=source_type_model,
+            job_inputs=source_config.to_dict(),
+            prefix=prefix,
+            description=description,
+            access_method=access_method,
+        )
+
+        source_schemas = source.get_schemas(source_config, self.team_id)
+        schema_names = [schema.name for schema in source_schemas]
+
+        payload_schemas = payload.get("schemas", None)
+        if not payload_schemas or not isinstance(payload_schemas, list):
+            new_source_model.delete()
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Schemas not given"},
+            )
+
+        # Return 400 if we get any schema names that don't exist in our source
+        if any(schema.get("name") not in schema_names for schema in payload_schemas):
+            new_source_model.delete()
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Schemas given do not exist in source"},
+            )
+
+        active_schemas: list[ExternalDataSchema] = []
+
+        # Create all ExternalDataSchema objects and enable syncing for active schemas
+        for schema in payload_schemas:
+            sync_type = schema.get("sync_type")
+            requires_incremental_fields = sync_type == "incremental" or sync_type == "append"
+            incremental_field = schema.get("incremental_field")
+            incremental_field_type = schema.get("incremental_field_type")
+            sync_time_of_day = schema.get("sync_time_of_day")
+            should_sync = schema.get("should_sync", False)
+
+            if should_sync and requires_incremental_fields and incremental_field is None:
+                new_source_model.delete()
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Incremental schemas given do not have an incremental field set"},
+                )
+
+            if should_sync and requires_incremental_fields and incremental_field_type is None:
+                new_source_model.delete()
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Incremental schemas given do not have an incremental field type set"},
+                )
+
+            schema_name = schema.get("name")
+            source_schema = next(
+                (source_schema for source_schema in source_schemas if source_schema.name == schema_name), None
+            )
+            schema_metadata = (
+                postgres_schema_metadata(
+                    source_schema.columns if source_schema else [],
+                    source_schema.foreign_keys if source_schema else [],
+                )
+                if source_type_model == ExternalDataSourceType.POSTGRES
+                else {}
+            )
+
+            schema_model = ExternalDataSchema.objects.create(
+                name=schema_name,
+                team=self.team,
+                source=new_source_model,
+                should_sync=should_sync,
+                sync_type=sync_type if new_source_model.supports_scheduled_sync else None,
+                sync_time_of_day=sync_time_of_day if new_source_model.supports_scheduled_sync else None,
+                sync_type_config=(
+                    {
+                        "incremental_field": incremental_field,
+                        "incremental_field_type": incremental_field_type,
+                        "schema_metadata": schema_metadata,
+                    }
+                    if requires_incremental_fields and new_source_model.supports_scheduled_sync
+                    else {"schema_metadata": schema_metadata}
+                ),
+            )
+
+            if new_source_model.is_direct_postgres and should_sync:
+                schema_model.table = upsert_direct_postgres_table(
+                    None,
+                    schema_name=schema_name,
+                    source=new_source_model,
+                    columns=postgres_columns_to_dwh_columns(source_schema.columns if source_schema else []),
+                )
+                schema_model.save(update_fields=["table"])
+
+            if should_sync and new_source_model.supports_scheduled_sync:
+                active_schemas.append(schema_model)
+
+        try:
+            for active_schema in active_schemas:
+                sync_external_data_job_workflow(active_schema, create=True, should_sync=active_schema.should_sync)
+        except Exception as e:
+            # Log error but don't fail because the source model was already created
+            logger.exception("Could not trigger external data job", exc_info=e)
+
+        if new_source_model.revenue_analytics_config_safe.enabled:
+            managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
+                team=self.team,
+                kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
+            )
+            managed_viewset.sync_views()
+
+        return Response(status=status.HTTP_201_CREATED, data={"id": new_source_model.pk})
+
+    def prefix_required(self, source_type: str) -> bool:
+        source_type_exists = (
+            ExternalDataSource.objects.exclude(deleted=True)
+            .filter(team_id=self.team.pk, source_type=source_type)
+            .exists()
+        )
+        return source_type_exists
+
+    def prefix_exists(self, source_type: str, prefix: str) -> bool:
+        prefix_exists = (
+            ExternalDataSource.objects.exclude(deleted=True)
+            .filter(team_id=self.team.pk, source_type=source_type, prefix=prefix)
+            .exists()
+        )
+        return prefix_exists
+
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance: ExternalDataSource = self.get_object()
+
+        schemas = list(
+            ExternalDataSchema.objects.exclude(deleted=True)
+            .filter(team_id=self.team_id, source_id=instance.id)
+            .select_related("table")
+            .all()
+        )
+
+        # Soft-delete source, schemas, and tables atomically first so DB state
+        # is consistent even if the external cleanup below fails
+        with transaction.atomic():
+            for schema in schemas:
+                if schema.table:
+                    schema.table.soft_delete()
+                schema.soft_delete()
+            instance.soft_delete()
+
+        # Best-effort external cleanup — soft-deletes are already committed
+        latest_running_job = (
+            ExternalDataJob.objects.filter(pipeline_id=instance.pk, team_id=instance.team_id)
+            .order_by("-created_at")
+            .first()
+        )
+        if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
+            cancel_external_data_workflow(latest_running_job.workflow_id)
+
+        for schema in schemas:
+            try:
+                delete_external_data_schedule(str(schema.id))
+            except Exception as e:
+                capture_exception(e)
+
+            try:
+                schema.delete_table()
+            except Exception as e:
+                capture_exception(e)
+
+        try:
+            delete_external_data_schedule(str(instance.id))
+        except Exception as e:
+            capture_exception(e)
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(methods=["POST"], detail=True)
+    def reload(self, request: Request, *args: Any, **kwargs: Any):
+        instance: ExternalDataSource = self.get_object()
+
+        if instance.is_direct_query:
+            return self.refresh_schemas(request, *args, **kwargs)
+
+        if is_any_external_data_schema_paused(self.team_id):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
+            )
+
+        try:
+            trigger_external_data_source_workflow(instance)
+
+        except temporalio.service.RPCError:
+            # if the source schedule has been removed - trigger the schema schedules
+            instance.reload_schemas()
+
+        except Exception as e:
+            logger.exception("Could not trigger external data job", exc_info=e)
+            raise
+
+        instance.status = "Running"
+        instance.save()
+        return Response(status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=True)
+    @extend_schema(
+        responses={
+            200: {"type": "object", "properties": {"added": {"type": "integer"}, "deleted": {"type": "integer"}}}
+        }
+    )
+    def refresh_schemas(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Fetch current schema/table list from the source and create any new ExternalDataSchema rows (no data sync)."""
+        instance: ExternalDataSource = self.get_object()
+        logger.debug(
+            "refresh_schemas called",
+            source_id=str(instance.id),
+            team_id=self.team_id,
+            source_type=instance.source_type,
+        )
+        if not instance.job_inputs:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Source has no configuration."},
+            )
+        try:
+            source_type = ExternalDataSourceType(instance.source_type)
+            source = SourceRegistry.get_source(source_type)
+            config = source.parse_config(instance.job_inputs)
+            schemas = source.get_schemas(config, self.team_id)
+            schema_names = [s.name for s in schemas]
+            logger.info(
+                "refresh_schemas fetched from source",
+                source_id=str(instance.id),
+                schema_count=len(schema_names),
+                schema_names=schema_names,
+            )
+        except Exception as e:
+            logger.exception("Could not fetch schemas from source", exc_info=e)
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Could not fetch schemas from source."},
+            )
+        with transaction.atomic():
+            ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
+            schemas_created, schemas_deleted = sync_old_schemas_with_new_schemas(
+                schema_names,
+                source_id=str(instance.id),
+                team_id=self.team_id,
+            )
+
+            if instance.is_direct_postgres:
+                reconciled_deleted_schemas = reconcile_direct_postgres_schemas(
+                    source=instance,
+                    source_schemas=schemas,
+                    team_id=self.team_id,
+                )
+                if reconciled_deleted_schemas:
+                    schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
+        logger.debug(
+            "refresh_schemas completed",
+            source_id=str(instance.id),
+            team_id=self.team_id,
+            added=len(schemas_created),
+            deleted=len(schemas_deleted),
+        )
+        return Response(
+            status=status.HTTP_200_OK,
+            data={"added": len(schemas_created), "deleted": len(schemas_deleted)},
+        )
+
+    @action(methods=["POST"], detail=False)
+    def database_schema(self, request: Request, *arg: Any, **kwargs: Any):
+        source_type = request.data.get("source_type", None)
+
+        if source_type is None:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Missing required parameter: source_type"},
+            )
+
+        source_type_model = ExternalDataSourceType(source_type)
+        source = SourceRegistry.get_source(source_type_model)
+        is_valid, errors = source.validate_config(request.data)
+        if not is_valid:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Invalid source config: {', '.join(errors)}"},
+            )
+        source_config: Config = source.parse_config(request.data)
+
+        credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+        if not credentials_valid:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": credentials_error or "Invalid credentials"},
+            )
+
+        try:
+            schemas = source.get_schemas(source_config, self.team_id, True)
+        except Exception as e:
+            capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": str(e)},
+            )
+
+        data = [
+            {
+                "table": schema.name,
+                "should_sync": False,
+                "incremental_fields": schema.incremental_fields,
+                "incremental_available": schema.supports_incremental,
+                "append_available": schema.supports_append,
+                "incremental_field": schema.incremental_fields[0]["field"]
+                if len(schema.incremental_fields) > 0 and len(schema.incremental_fields[0]["field"]) > 0
+                else None,
+                "sync_type": None,
+                "rows": schema.row_count,
+            }
+            for schema in schemas
+        ]
+        return Response(status=status.HTTP_200_OK, data=data)
+
+    @action(methods=["POST"], detail=False)
+    def source_prefix(self, request: Request, *arg: Any, **kwargs: Any):
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+        access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
+
+        if access_method == ExternalDataSource.AccessMethod.DIRECT:
+            if source_type != ExternalDataSourceType.POSTGRES:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Direct query mode is currently supported only for Postgres sources."},
+                )
+
+            normalized_prefix = prefix.strip() if isinstance(prefix, str) else ""
+            if not normalized_prefix:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Name is required for direct query sources"},
+                )
+
+            return Response(status=status.HTTP_200_OK)
+
+        if self.prefix_required(source_type):
+            if not prefix:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Source type already exists. Prefix is required"},
+                )
+            elif self.prefix_exists(source_type, prefix):
+                return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
+
+        return Response(status=status.HTTP_200_OK)
+
+    @action(methods=["GET"], detail=True)
+    def jobs(self, request: Request, *arg: Any, **kwargs: Any):
+        instance: ExternalDataSource = self.get_object()
+        after = request.query_params.get("after", None)
+        before = request.query_params.get("before", None)
+        schemas = request.query_params.getlist("schemas")
+
+        jobs = instance.jobs.filter(billable=True).prefetch_related("schema").order_by("-created_at")
+
+        if schemas:
+            jobs = jobs.filter(schema__name__in=schemas)
+        if after:
+            after_date = parser.parse(after)
+            jobs = jobs.filter(created_at__gt=after_date)
+        if before:
+            before_date = parser.parse(before)
+            jobs = jobs.filter(created_at__lt=before_date)
+
+        jobs = jobs[:50]
+
+        return Response(
+            status=status.HTTP_200_OK,
+            data=ExternalDataJobSerializers(
+                jobs, many=True, read_only=True, context=self.get_serializer_context()
+            ).data,
+        )
+
+    @action(methods=["GET"], detail=False)
+    def wizard(self, request: Request, *arg: Any, **kwargs: Any):
+        sources = SourceRegistry.get_all_sources()
+        configs = {name: source.get_source_config for name, source in sources.items()}
+
+        return Response(
+            status=status.HTTP_200_OK,
+            data={str(key): value.model_dump() for key, value in configs.items()},
+        )
+
+    @action(methods=["PATCH"], detail=True)
+    def revenue_analytics_config(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Update the revenue analytics configuration and return the full external data source."""
+        external_data_source = self.get_object()
+        config = external_data_source.revenue_analytics_config_safe
+
+        config_serializer = ExternalDataSourceRevenueAnalyticsConfigSerializer(config, data=request.data, partial=True)
+        config_serializer.is_valid(raise_exception=True)
+        config_serializer.save()
+
+        if config.enabled:
+            managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
+                team=self.team,
+                kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
+            )
+            managed_viewset.sync_views()
+        else:
+            try:
+                managed_viewset = DataWarehouseManagedViewSet.objects.get(
+                    team=self.team,
+                    kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
+                )
+                managed_viewset.delete_with_views()
+
+            except DataWarehouseManagedViewSet.DoesNotExist:
+                pass
+
+        # Return the full external data source with updated config
+        source_serializer = self.get_serializer(external_data_source, context=self.get_serializer_context())
+        return Response(source_serializer.data)
+
+
+@dataclasses.dataclass(frozen=True)
+class ExternalDataSourceContext(ActivityContextBase):
+    source_type: str
+    prefix: str | None
+    description: str | None
+    created_by_user_id: str | None
+    created_by_user_email: str | None
+    created_by_user_name: str | None
+
+
+@mutable_receiver(model_activity_signal, sender=ExternalDataSource)
+def handle_external_data_source_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    # Use after_update for create/update, before_update for delete
+    external_data_source = after_update or before_update
+
+    if not external_data_source:
+        return
+
+    created_by_user_id, created_by_user_email, created_by_user_name = get_external_data_source_created_by_info(
+        external_data_source
+    )
+    detail_name = get_external_data_source_detail_name(external_data_source)
+
+    context = ExternalDataSourceContext(
+        source_type=external_data_source.source_type or "",
+        prefix=external_data_source.prefix,
+        description=external_data_source.description,
+        created_by_user_id=created_by_user_id,
+        created_by_user_email=created_by_user_email,
+        created_by_user_name=created_by_user_name,
+    )
+
+    log_activity(
+        organization_id=external_data_source.team.organization_id,
+        team_id=external_data_source.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=external_data_source.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=detail_name,
+            context=context,
+        ),
+    )

@@ -3,9 +3,10 @@ from django.db import transaction
 
 from posthog.demo.legacy import ORGANIZATION_NAME, TEAM_NAME, create_demo_data
 from posthog.models import EventProperty, PersonalAPIKey, Plugin, PluginConfig, PluginSourceFile, Team, User
-from posthog.models.event_definition import EventDefinition
 from posthog.models.personal_api_key import hash_key_value
-from posthog.models.property_definition import PropertyDefinition
+
+from products.event_definitions.backend.models.event_definition import EventDefinition
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 
 class Command(BaseCommand):
@@ -51,6 +52,7 @@ class Command(BaseCommand):
                 user=user,
                 label="e2e_demo_api_key key",
                 secure_value=hash_key_value("e2e_demo_api_key"),
+                scopes=["*"],
             )
             if not options["no_data"]:
                 create_demo_data(team)

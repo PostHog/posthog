@@ -26,20 +26,23 @@ def validate_migration_sql(sql) -> bool:
     operations = sql.split("\n")
     tables_created_so_far: list[str] = []
     for operation_sql in operations:
-        # Extract table name from queries of this format: ALTER TABLE TABLE "posthog_feature"
-        table_being_altered: Optional[str] = (
-            re.findall(r"ALTER TABLE \"([a-z_]+)\"", operation_sql)[0] if "ALTER TABLE" in operation_sql else None
-        )
-        # Extract table name from queries of this format: CREATE TABLE "posthog_feature"
+        # Extract table name from queries of this format: ALTER TABLE "posthog_feature" or ALTER TABLE posthog_feature
+        table_being_altered: Optional[str] = None
+        if "ALTER TABLE" in operation_sql:
+            matches = re.findall(r'ALTER TABLE "?([a-z_]+)"?', operation_sql)
+            table_being_altered = matches[0] if matches else None
+        # Extract table name from queries of this format: CREATE TABLE "posthog_feature" or CREATE TABLE posthog_feature
         if "CREATE TABLE" in operation_sql:
-            table_name = re.findall(r"CREATE TABLE \"([a-z_]+)\"", operation_sql)[0]
-            tables_created_so_far.append(table_name)
+            matches = re.findall(r'CREATE TABLE "?([a-z_]+)"?', operation_sql)
+            if matches:
+                table_name = matches[0]
+                tables_created_so_far.append(table_name)
 
-            if '"id" serial' in operation_sql or '"id" bigserial' in operation_sql:
-                print(
-                    f"\n\n\033[91mFound a new table with an integer id. Please use UUIDModel instead.\nSource: `{operation_sql}`"
-                )
-                return True
+                if '"id" serial' in operation_sql or '"id" bigserial' in operation_sql:
+                    print(
+                        f"\n\n\033[91mFound a new table with an integer id. Please use UUIDModel instead.\nSource: `{operation_sql}`"
+                    )
+                    return True
 
         if (
             "ALTER TABLE" in operation_sql  # Only check ALTER TABLE operations
@@ -90,7 +93,7 @@ def validate_migration_sql(sql) -> bool:
             )
             return True
 
-        if "DROP COLUMN" in operation_sql:
+        if "DROP COLUMN" in operation_sql and "-- drop-column-ignore" not in operation_sql:
             print(
                 f"\n\n\033[91mFound a DROP COLUMN command. This will lead to the app crashing while we roll out, and it will mean we can't roll back beyond this PR. Instead, please use the deprecate_field function: `from django_deprecate_fields import deprecate_field` and `your_field = deprecate_field(models.IntegerField(null=True, blank=True))`\nSource: `{operation_sql}`"
             )
@@ -103,6 +106,8 @@ def validate_migration_sql(sql) -> bool:
             return True
         if (
             " CONSTRAINT " in operation_sql
+            # Ignore constraints inside CREATE TABLE (new table is empty, nothing to validate)
+            and "CREATE TABLE" not in operation_sql
             # Ignore for new foreign key columns that are nullable, as their foreign key constraint does not lock
             and not re.search(r"ADD COLUMN .+ NULL CONSTRAINT", operation_sql)
             and "-- existing-table-constraint-ignore" not in operation_sql
@@ -117,7 +122,7 @@ def validate_migration_sql(sql) -> bool:
         ):
             print(
                 f"\n\n\033[91mFound a CONSTRAINT command without NOT VALID. This locks tables which causes downtime. "
-                "If adding a foreign key field, see `0415_pluginconfig_match_action` for an example of how to do this safely. "
+                "See https://github.com/PostHog/posthog/blob/master/docs/published/safe-django-migrations.md for guidance."
                 "If adding the constraint by itself, please use `AddConstraintNotValid()` of `django.contrib.postgres.operations` instead. "
                 "See https://docs.djangoproject.com/en/4.2/ref/contrib/postgres/operations/#adding-constraints-without-enforcing-validation.\n"
                 f"Source: `{operation_sql}`"
@@ -130,7 +135,7 @@ def validate_migration_sql(sql) -> bool:
         ):
             print(
                 f"\n\n\033[91mFound a CREATE INDEX command that isn't run CONCURRENTLY. This locks tables which causes downtime. "
-                "If adding a foreign key field, see `0415_pluginconfig_match_action` for an example of how to do this safely. "
+                "See https://github.com/PostHog/posthog/blob/master/docs/published/safe-django-migrations.md for guidance."
                 "If adding the index by itself, please use `AddIndexConcurrently()` of `django.contrib.postgres.operations` instead. "
                 "See https://docs.djangoproject.com/en/4.2/ref/contrib/postgres/operations/#concurrent-index-operations.\n"
                 f"Source: `{operation_sql}`"

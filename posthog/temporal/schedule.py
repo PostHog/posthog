@@ -18,23 +18,36 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
-from posthog.constants import (
-    ANALYTICS_PLATFORM_TASK_QUEUE,
-    BILLING_TASK_QUEUE,
-    GENERAL_PURPOSE_TASK_QUEUE,
-    MAX_AI_TASK_QUEUE,
-    SESSION_REPLAY_TASK_QUEUE,
-)
 from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_EMBEDDING_VERSION
 from posthog.temporal.ai import SyncVectorsInputs
 from posthog.temporal.ai.sync_vectors import EmbeddingVersion
+from posthog.temporal.ai.video_segment_clustering.schedule import create_video_segment_clustering_coordinator_schedule
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
+from posthog.temporal.delete_recordings.types import PurgeDeletedMetadataInput
+from posthog.temporal.ducklake.compaction_types import DucklakeCompactionInput
 from posthog.temporal.enforce_max_replay_retention.types import EnforceMaxReplayRetentionInput
+from posthog.temporal.experiments.schedule import (
+    create_experiment_regular_metrics_schedules,
+    create_experiment_saved_metrics_schedules,
+)
+from posthog.temporal.health_checks.schedule import create_health_check_schedules
+from posthog.temporal.ingestion_acceptance_test.schedule import create_ingestion_acceptance_test_schedule
+from posthog.temporal.llm_analytics.trace_clustering.schedule import (
+    create_generation_clustering_coordinator_schedule,
+    create_trace_clustering_coordinator_schedule,
+)
+from posthog.temporal.llm_analytics.trace_summarization.schedule import (
+    create_batch_generation_summarization_schedule,
+    create_batch_trace_summarization_schedule,
+)
+from posthog.temporal.messaging.schedule import create_all_realtime_cohort_calculation_schedules
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
+from posthog.temporal.salesforce_enrichment.usage_workflow import UsageEnrichmentInputs
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
 from posthog.temporal.subscriptions.subscription_scheduling_workflow import ScheduleAllSubscriptionsWorkflowInputs
+from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
 
@@ -47,7 +60,7 @@ async def create_sync_vectors_schedule(client: Client):
             "ai-sync-vectors",
             asdict(SyncVectorsInputs(embedding_versions=EmbeddingVersion(actions=LATEST_ACTIONS_EMBEDDING_VERSION))),
             id="ai-sync-vectors-schedule",
-            task_queue=MAX_AI_TASK_QUEUE,
+            task_queue=settings.MAX_AI_TASK_QUEUE,
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=30))]),
     )
@@ -67,7 +80,7 @@ async def create_run_quota_limiting_schedule(client: Client):
             "run-quota-limiting",
             asdict(RunQuotaLimitingInputs()),
             id="run-quota-limiting-schedule",
-            task_queue=BILLING_TASK_QUEUE,
+            task_queue=settings.BILLING_TASK_QUEUE,
         ),
         spec=ScheduleSpec(cron_expressions=["10,25,40,55 * * * *"]),  # Run at minutes 10, 25, 40, and 55 of every hour
     )
@@ -90,7 +103,7 @@ async def create_schedule_all_subscriptions_schedule(client: Client):
             "schedule-all-subscriptions",
             asdict(ScheduleAllSubscriptionsWorkflowInputs()),
             id="schedule-all-subscriptions-schedule",
-            task_queue=ANALYTICS_PLATFORM_TASK_QUEUE,
+            task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
         ),
         spec=ScheduleSpec(cron_expressions=["55 * * * *"]),  # Run at minute 55 of every hour
     )
@@ -116,7 +129,7 @@ async def create_upgrade_queries_schedule(client: Client):
             "upgrade-queries",
             asdict(UpgradeQueriesWorkflowInputs()),
             id="upgrade-queries-schedule",
-            task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=6))]),
     )
@@ -137,7 +150,7 @@ async def create_salesforce_enrichment_schedule(client: Client):
             "salesforce-enrichment-async",
             SalesforceEnrichmentInputs(chunk_size=DEFAULT_CHUNK_SIZE),
             id="salesforce-enrichment-schedule",
-            task_queue=BILLING_TASK_QUEUE,
+            task_queue=settings.BILLING_TASK_QUEUE,
         ),
         spec=ScheduleSpec(
             calendars=[
@@ -158,6 +171,41 @@ async def create_salesforce_enrichment_schedule(client: Client):
         )
 
 
+async def create_salesforce_usage_enrichment_schedule(client: Client):
+    """Create or update the schedule for the Salesforce usage enrichment workflow.
+
+    This schedule runs every Sunday at 6 AM UTC to enrich Salesforce accounts with
+    PostHog usage signals.
+    """
+    salesforce_usage_enrichment_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "salesforce-usage-enrichment",
+            asdict(UsageEnrichmentInputs()),
+            id="salesforce-usage-enrichment-schedule",
+            task_queue=settings.BILLING_TASK_QUEUE,
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Sunday at 6 AM UTC",
+                    hour=[ScheduleRange(start=6, end=6)],
+                    day_of_week=[ScheduleRange(start=0, end=0)],
+                )
+            ]
+        ),
+    )
+
+    if await a_schedule_exists(client, "salesforce-usage-enrichment-schedule"):
+        await a_update_schedule(client, "salesforce-usage-enrichment-schedule", salesforce_usage_enrichment_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "salesforce-usage-enrichment-schedule",
+            salesforce_usage_enrichment_schedule,
+            trigger_immediately=False,
+        )
+
+
 async def create_enforce_max_replay_retention_schedule(client: Client):
     """Create or update the schedule for the enforce max replay retention workflow.
 
@@ -168,7 +216,7 @@ async def create_enforce_max_replay_retention_schedule(client: Client):
             "enforce-max-replay-retention",
             EnforceMaxReplayRetentionInput(dry_run=False),
             id="enforce-max-replay-retention-schedule",
-            task_queue=SESSION_REPLAY_TASK_QUEUE,
+            task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
             retry_policy=common.RetryPolicy(
                 maximum_attempts=1,
             ),
@@ -194,17 +242,138 @@ async def create_enforce_max_replay_retention_schedule(client: Client):
         )
 
 
+async def create_weekly_digest_schedule(client: Client):
+    """Create or update the schedule for the weekly digest workflow.
+
+    This schedule runs weekly at Monday 5 AM UTC.
+    """
+    weekly_digest_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "weekly-digest",
+            WeeklyDigestInput(),
+            id="weekly-digest-schedule",
+            task_queue=settings.WEEKLY_DIGEST_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=1,
+            ),
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Weekly at Monday 5 AM UTC",
+                    hour=[ScheduleRange(start=5, end=5)],
+                    day_of_week=[ScheduleRange(start=1, end=1)],
+                )
+            ]
+        ),
+    )
+
+    if await a_schedule_exists(client, "weekly-digest-schedule"):
+        await a_update_schedule(client, "weekly-digest-schedule", weekly_digest_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "weekly-digest-schedule",
+            weekly_digest_schedule,
+            trigger_immediately=False,
+        )
+
+
+async def create_ducklake_compaction_schedule(client: Client):
+    """Create or update the schedule for the DuckLake compaction workflow.
+
+    This schedule runs every hour to compact small parquet files in DuckLake.
+    """
+    ducklake_compaction_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "ducklake-compaction",
+            DucklakeCompactionInput(target_file_size="512MB"),
+            id="ducklake-compaction-schedule",
+            task_queue=settings.DUCKLAKE_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=3,
+                initial_interval=timedelta(minutes=5),
+            ),
+        ),
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=1))]),
+    )
+
+    if await a_schedule_exists(client, "ducklake-compaction-schedule"):
+        await a_update_schedule(client, "ducklake-compaction-schedule", ducklake_compaction_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "ducklake-compaction-schedule",
+            ducklake_compaction_schedule,
+            trigger_immediately=False,
+        )
+
+
+async def create_purge_deleted_recording_metadata_schedule(client: Client):
+    """Create or update the schedule for the purge deleted recording metadata workflow.
+
+    This schedule runs daily at 3 AM UTC to permanently delete ClickHouse metadata
+    for recordings that have been deleted.
+    """
+    purge_deleted_recording_metadata_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "purge-deleted-recording-metadata",
+            PurgeDeletedMetadataInput(),
+            id="purge-deleted-recording-metadata-schedule",
+            task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=3,
+                initial_interval=timedelta(minutes=5),
+            ),
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Daily at 3 AM UTC",
+                    hour=[ScheduleRange(start=3, end=3)],
+                )
+            ]
+        ),
+    )
+
+    if await a_schedule_exists(client, "purge-deleted-recording-metadata-schedule"):
+        await a_update_schedule(
+            client, "purge-deleted-recording-metadata-schedule", purge_deleted_recording_metadata_schedule
+        )
+    else:
+        await a_create_schedule(
+            client,
+            "purge-deleted-recording-metadata-schedule",
+            purge_deleted_recording_metadata_schedule,
+            trigger_immediately=False,
+        )
+
+
 schedules = [
     create_sync_vectors_schedule,
     create_run_quota_limiting_schedule,
     create_upgrade_queries_schedule,
     create_enforce_max_replay_retention_schedule,
+    create_weekly_digest_schedule,
+    create_batch_trace_summarization_schedule,
+    create_batch_generation_summarization_schedule,
+    create_trace_clustering_coordinator_schedule,
+    create_generation_clustering_coordinator_schedule,
+    create_video_segment_clustering_coordinator_schedule,
+    create_ducklake_compaction_schedule,
+    create_purge_deleted_recording_metadata_schedule,
+    create_experiment_regular_metrics_schedules,
+    create_experiment_saved_metrics_schedules,
+    create_all_realtime_cohort_calculation_schedules,
+    create_ingestion_acceptance_test_schedule,
+    create_health_check_schedules,
 ]
 
 if settings.EE_AVAILABLE:
     schedules.append(create_schedule_all_subscriptions_schedule)
     if settings.CLOUD_DEPLOYMENT == "US":
         schedules.append(create_salesforce_enrichment_schedule)
+        schedules.append(create_salesforce_usage_enrichment_schedule)
 
 
 async def a_init_general_queue_schedules():

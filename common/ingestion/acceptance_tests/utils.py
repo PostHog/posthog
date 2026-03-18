@@ -10,7 +10,7 @@ def get_service_url(service: str = "proxy") -> str:
 
     service_urls = {
         "proxy": "http://localhost:8010",
-        "s3": "http://localhost:19000",
+        "s3": "http://localhost:8333",
         "clickhouse": "http://localhost:8123",
     }
 

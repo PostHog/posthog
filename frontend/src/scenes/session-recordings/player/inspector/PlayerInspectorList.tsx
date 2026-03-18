@@ -2,138 +2,137 @@ import './PlayerInspectorList.scss'
 
 import { range } from 'd3'
 import { useActions, useValues } from 'kea'
-import { useCallback, useEffect, useMemo, useRef } from 'react'
-import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
-import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
-import { List, ListRowRenderer } from 'react-virtualized/dist/es/List'
+import { CSSProperties, useCallback, useEffect, useRef } from 'react'
+import { List, useDynamicRowHeight, useListRef } from 'react-window'
 
+import { AutoSizer } from 'lib/components/AutoSizer'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { PlayerInspectorListItem } from './components/PlayerInspectorListItem'
-import { playerInspectorLogic } from './playerInspectorLogic'
+import { DisplayGroup, InspectorListItem, playerInspectorLogic } from './playerInspectorLogic'
 
 export const DEFAULT_INSPECTOR_ROW_HEIGHT = 40
+
+interface InspectorRowProps {
+    items: InspectorListItem[]
+    displayGroups: DisplayGroup[]
+    dynamicRowHeight: ReturnType<typeof useDynamicRowHeight>
+}
+
+function InspectorRow({
+    index,
+    style,
+    items,
+    displayGroups,
+    dynamicRowHeight,
+}: {
+    ariaAttributes: Record<string, unknown>
+    index: number
+    style: CSSProperties
+} & InspectorRowProps): JSX.Element {
+    const rowRef = useRef<HTMLDivElement>(null)
+
+    useEffect(() => {
+        if (rowRef.current) {
+            return dynamicRowHeight.observeRowElements([rowRef.current])
+        }
+    }, [dynamicRowHeight])
+
+    const group = displayGroups[index]
+    const item = items[group.indices[0]]
+    const groupCount = group.indices.length > 1 ? group.indices.length : undefined
+    const groupedItems = group.indices.length > 1 ? group.indices.map((i) => items[i]) : undefined
+
+    return (
+        <div ref={rowRef} style={style} data-index={index}>
+            <PlayerInspectorListItem
+                key={index}
+                item={item}
+                index={index}
+                groupCount={groupCount}
+                groupedItems={groupedItems}
+            />
+        </div>
+    )
+}
 
 export function PlayerInspectorList(): JSX.Element {
     const { logicProps, snapshotsLoaded } = useValues(sessionRecordingPlayerLogic)
     const inspectorLogic = playerInspectorLogic(logicProps)
 
-    const { items, isLoading, isReady, playbackIndicatorIndex, playbackIndicatorIndexStop, syncScrollPaused } =
-        useValues(inspectorLogic)
+    const {
+        displayGroups,
+        items,
+        isLoading,
+        isReady,
+        playbackIndicatorIndex,
+        playbackIndicatorIndexStop,
+        syncScrollPaused,
+    } = useValues(inspectorLogic)
     const { setSyncScrollPaused } = useActions(inspectorLogic)
 
-    const cellMeasurerCache = useMemo(
-        () =>
-            new CellMeasurerCache({
-                fixedWidth: true,
-                minHeight: 10,
-                defaultHeight: DEFAULT_INSPECTOR_ROW_HEIGHT,
-            }),
-        []
-    )
+    const dynamicRowHeight = useDynamicRowHeight({ defaultRowHeight: DEFAULT_INSPECTOR_ROW_HEIGHT })
 
-    const listRef = useRef<List | null>()
+    const listRef = useListRef(null)
+    const markerRef = useRef<HTMLDivElement>(null)
     const scrolledByJsFlag = useRef<boolean>(true)
     const mouseHoverRef = useRef<boolean>(false)
 
-    // TRICKY: this is hacky but there is no other way to add a timestamp marker to the <List> component children
-    // We want this as otherwise we would have a tonne of unnecessary re-rendering going on or poor scroll matching
     useEffect(() => {
-        if (listRef.current) {
-            if (document.getElementById('PlayerInspectorListMarker')) {
-                return
-            }
-            const listElement = document.getElementById('PlayerInspectorList')
-            const positionMarkerEl = document.createElement('div')
-            positionMarkerEl.id = 'PlayerInspectorListMarker'
-            listElement?.appendChild(positionMarkerEl)
-        }
-    }, [listRef.current])
-
-    useEffect(() => {
-        if (listRef.current) {
+        if (listRef.current && markerRef.current) {
             const offset = range(playbackIndicatorIndexStop).reduce(
-                (acc, x) => acc + cellMeasurerCache.getHeight(x, 0),
+                (acc, x) => acc + (dynamicRowHeight.getRowHeight(x) ?? DEFAULT_INSPECTOR_ROW_HEIGHT),
                 0
             )
-            document
-                .getElementById('PlayerInspectorListMarker')
-                ?.setAttribute('style', `transform: translateY(${offset}px)`)
+            markerRef.current.style.transform = `translateY(${offset}px)`
 
-            if (!syncScrollPaused) {
+            if (!syncScrollPaused && playbackIndicatorIndex >= 0) {
                 scrolledByJsFlag.current = true
-                listRef.current.scrollToRow(playbackIndicatorIndex)
+                listRef.current.scrollToRow({ index: playbackIndicatorIndex })
             }
         }
     }, [playbackIndicatorIndex]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    const createLayoutHandler = useCallback(
-        (measure: () => void, index: number) => {
-            return ({ height }: { height: number }) => {
-                if (height !== cellMeasurerCache.getHeight(index, 0)) {
-                    measure()
-                }
-            }
-        },
-        [cellMeasurerCache]
-    )
-
-    const renderRow: ListRowRenderer = useCallback(
-        ({ index, key, parent, style }) => {
-            return (
-                <CellMeasurer cache={cellMeasurerCache} columnIndex={0} key={key} rowIndex={index} parent={parent}>
-                    {({ measure, registerChild }) => (
-                        // eslint-disable-next-line react/forbid-dom-props
-                        <div ref={(r) => registerChild?.(r || undefined)} style={style}>
-                            <PlayerInspectorListItem
-                                key={index}
-                                item={items[index]}
-                                index={index}
-                                onLayout={createLayoutHandler(measure, index)}
-                            />
-                        </div>
-                    )}
-                </CellMeasurer>
-            )
-        },
-        [items, cellMeasurerCache, createLayoutHandler]
-    )
+    const handleScroll = useCallback(() => {
+        // TRICKY: There is no way to know for sure whether the scroll is directly from user input
+        // As such we only pause scrolling if we the last scroll triggered wasn't by the auto-scroller
+        // and the user is currently hovering over the list
+        if (!scrolledByJsFlag.current && mouseHoverRef.current) {
+            setSyncScrollPaused(true)
+        }
+        scrolledByJsFlag.current = false
+    }, [setSyncScrollPaused])
 
     return (
         <div className="flex flex-col bg-primary flex-1 overflow-hidden relative">
             {!snapshotsLoaded ? (
                 <div className="p-16 text-center text-secondary">Data will be shown once playback starts</div>
-            ) : items.length ? (
+            ) : displayGroups.length ? (
                 <div
                     className="absolute inset-0"
                     onMouseEnter={() => (mouseHoverRef.current = true)}
                     onMouseLeave={() => (mouseHoverRef.current = false)}
                 >
-                    <AutoSizer>
-                        {({ height, width }) => (
-                            <List
-                                height={height}
-                                width={width}
-                                deferredMeasurementCache={cellMeasurerCache}
-                                overscanRowCount={20}
-                                rowCount={items.length}
-                                rowHeight={cellMeasurerCache.rowHeight}
-                                rowRenderer={renderRow}
-                                ref={listRef as any}
-                                id="PlayerInspectorList"
-                                onScroll={() => {
-                                    // TRICKY: There is no way to know for sure whether the scroll is directly from user input
-                                    // As such we only pause scrolling if we the last scroll triggered wasn't by the auto-scroller
-                                    // and the user is currently hovering over the list
-                                    if (!scrolledByJsFlag.current && mouseHoverRef.current) {
-                                        setSyncScrollPaused(true)
-                                    }
-                                    scrolledByJsFlag.current = false
-                                }}
-                            />
-                        )}
-                    </AutoSizer>
+                    <AutoSizer
+                        renderProp={({ height, width }) =>
+                            height && width ? (
+                                <List<InspectorRowProps>
+                                    style={{ height, width }}
+                                    overscanCount={20}
+                                    rowCount={displayGroups.length}
+                                    rowHeight={dynamicRowHeight}
+                                    rowComponent={InspectorRow}
+                                    rowProps={{ items, displayGroups, dynamicRowHeight }}
+                                    listRef={listRef}
+                                    id="PlayerInspectorList"
+                                    onScroll={handleScroll}
+                                >
+                                    <div ref={markerRef} id="PlayerInspectorListMarker" />
+                                </List>
+                            ) : null
+                        }
+                    />
                 </div>
             ) : isLoading ? (
                 <div className="p-2">

@@ -4,8 +4,9 @@ from datetime import UTC, datetime, timedelta
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 
-from posthog.models import FeatureFlag, ScheduledChange
+from posthog.models import FeatureFlag, Organization, ScheduledChange
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.team import Team
 from posthog.tasks.process_scheduled_changes import process_scheduled_changes
 
 
@@ -603,8 +604,11 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(updated_flag.filters["multivariate"]["variants"]), 3)
         self.assertEqual(updated_flag.filters["multivariate"]["variants"], new_variants)
 
-        # Check that payloads were updated
-        self.assertEqual(updated_flag.filters["payloads"], new_payloads)
+        # Check that payloads were updated (object values are normalized to JSON strings)
+        self.assertEqual(
+            updated_flag.filters["payloads"],
+            {k: json.dumps(v) if isinstance(v, dict) else v for k, v in new_payloads.items()},
+        )
 
         # Verify other filter properties were preserved
         self.assertEqual(updated_flag.filters["groups"], [])
@@ -672,7 +676,11 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
 
         # Check that variants were updated
         self.assertEqual(updated_flag.filters["multivariate"]["variants"], new_variants)
-        self.assertEqual(updated_flag.filters["payloads"], new_payloads)
+        # Object payloads are normalized to JSON strings
+        self.assertEqual(
+            updated_flag.filters["payloads"],
+            {k: json.dumps(v) if isinstance(v, dict) else v for k, v in new_payloads.items()},
+        )
 
         # Check that existing release conditions were preserved
         self.assertEqual(len(updated_flag.filters["groups"]), 1)
@@ -1107,3 +1115,295 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         # Verify the flag was updated
         updated_flag = FeatureFlag.objects.get(key="past-test-flag")
         self.assertEqual(updated_flag.active, True)
+
+    @freeze_time("2024-01-15T09:00:00Z")
+    def test_recurring_schedule_computes_next_weekly_run(self) -> None:
+        """Recurring weekly schedule should advance scheduled_at by 1 week, not mark as executed."""
+        feature_flag = FeatureFlag.objects.create(
+            name="Recurring Flag",
+            key="recurring-weekly-flag",
+            active=True,
+            filters={"groups": []},
+            team=self.team,
+            created_by=self.user,
+        )
+
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": False},
+            scheduled_at=datetime(2024, 1, 15, 9, 0, tzinfo=UTC),
+            is_recurring=True,
+            recurrence_interval="weekly",
+        )
+
+        process_scheduled_changes()
+
+        scheduled_change.refresh_from_db()
+        # Should NOT be marked as executed
+        self.assertIsNone(scheduled_change.executed_at)
+        # Should be scheduled for next week
+        self.assertEqual(scheduled_change.scheduled_at, datetime(2024, 1, 22, 9, 0, tzinfo=UTC))
+        # Flag should be disabled
+        feature_flag.refresh_from_db()
+        self.assertEqual(feature_flag.active, False)
+
+    @freeze_time("2024-01-15T09:00:00Z")
+    def test_recurring_schedule_computes_next_daily_run(self) -> None:
+        """Recurring daily schedule should advance scheduled_at by 1 day."""
+        feature_flag = FeatureFlag.objects.create(
+            name="Recurring Daily Flag",
+            key="recurring-daily-flag",
+            active=False,
+            filters={"groups": []},
+            team=self.team,
+            created_by=self.user,
+        )
+
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": True},
+            scheduled_at=datetime(2024, 1, 15, 9, 0, tzinfo=UTC),
+            is_recurring=True,
+            recurrence_interval="daily",
+        )
+
+        process_scheduled_changes()
+
+        scheduled_change.refresh_from_db()
+        self.assertIsNone(scheduled_change.executed_at)
+        self.assertEqual(scheduled_change.scheduled_at, datetime(2024, 1, 16, 9, 0, tzinfo=UTC))
+
+    @freeze_time("2024-01-15T09:00:00Z")
+    def test_recurring_schedule_computes_next_monthly_run(self) -> None:
+        """Recurring monthly schedule should advance scheduled_at by 1 month."""
+        feature_flag = FeatureFlag.objects.create(
+            name="Recurring Monthly Flag",
+            key="recurring-monthly-flag",
+            active=True,
+            filters={"groups": []},
+            team=self.team,
+            created_by=self.user,
+        )
+
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": False},
+            scheduled_at=datetime(2024, 1, 15, 9, 0, tzinfo=UTC),
+            is_recurring=True,
+            recurrence_interval="monthly",
+        )
+
+        process_scheduled_changes()
+
+        scheduled_change.refresh_from_db()
+        self.assertIsNone(scheduled_change.executed_at)
+        self.assertEqual(scheduled_change.scheduled_at, datetime(2024, 2, 15, 9, 0, tzinfo=UTC))
+
+    @freeze_time("2024-01-15T09:00:00Z")
+    def test_non_recurring_schedule_still_marks_executed(self) -> None:
+        """Non-recurring schedules should continue to mark executed_at (existing behavior)."""
+        feature_flag = FeatureFlag.objects.create(
+            name="Non-Recurring Flag",
+            key="non-recurring-flag",
+            active=True,
+            filters={"groups": []},
+            team=self.team,
+            created_by=self.user,
+        )
+
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": False},
+            scheduled_at=datetime(2024, 1, 15, 9, 0, tzinfo=UTC),
+            is_recurring=False,
+        )
+
+        process_scheduled_changes()
+
+        scheduled_change.refresh_from_db()
+        # Should be marked as executed
+        self.assertIsNotNone(scheduled_change.executed_at)
+
+    @freeze_time("2024-01-15T09:00:00Z")
+    def test_paused_recurring_schedule_does_not_execute(self) -> None:
+        """Paused recurring schedules (is_recurring=False with interval) should be skipped."""
+        feature_flag = FeatureFlag.objects.create(
+            name="Paused Flag",
+            key="paused-flag",
+            active=True,
+            filters={"groups": []},
+            team=self.team,
+            created_by=self.user,
+        )
+
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": False},
+            scheduled_at=datetime(2024, 1, 15, 9, 0, tzinfo=UTC),
+            is_recurring=False,  # Paused
+            recurrence_interval="daily",  # But has interval preserved
+        )
+
+        process_scheduled_changes()
+
+        scheduled_change.refresh_from_db()
+        feature_flag.refresh_from_db()
+
+        # Should NOT have executed
+        self.assertIsNone(scheduled_change.executed_at)
+        self.assertIsNone(scheduled_change.last_executed_at)
+        self.assertEqual(feature_flag.active, True)  # Unchanged
+
+    @freeze_time("2024-01-15T09:00:00Z")
+    def test_recurring_schedule_executes_multiple_times(self) -> None:
+        """Recurring schedule should execute each time its scheduled_at is due."""
+        feature_flag = FeatureFlag.objects.create(
+            name="Multi-Execute Flag",
+            key="multi-execute-flag",
+            active=True,
+            filters={"groups": []},
+            team=self.team,
+            created_by=self.user,
+        )
+
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": False},
+            scheduled_at=datetime(2024, 1, 15, 9, 0, tzinfo=UTC),
+            is_recurring=True,
+            recurrence_interval="daily",
+        )
+
+        # First execution
+        process_scheduled_changes()
+        scheduled_change.refresh_from_db()
+        feature_flag.refresh_from_db()
+        self.assertEqual(feature_flag.active, False)
+        self.assertEqual(scheduled_change.scheduled_at, datetime(2024, 1, 16, 9, 0, tzinfo=UTC))
+
+        # Manually enable the flag (simulating manual override)
+        feature_flag.active = True
+        feature_flag.save()
+
+        # Second execution (next day)
+        with freeze_time("2024-01-16T09:00:00Z"):
+            process_scheduled_changes()
+            scheduled_change.refresh_from_db()
+            feature_flag.refresh_from_db()
+            # Schedule corrects the manual override
+            self.assertEqual(feature_flag.active, False)
+            self.assertEqual(scheduled_change.scheduled_at, datetime(2024, 1, 17, 9, 0, tzinfo=UTC))
+
+    @freeze_time("2024-01-15T09:00:00Z")
+    def test_recurring_schedule_computes_next_yearly_run(self) -> None:
+        """Recurring yearly schedule should advance scheduled_at by 1 year."""
+        feature_flag = FeatureFlag.objects.create(
+            name="Recurring Yearly Flag",
+            key="recurring-yearly-flag",
+            active=True,
+            filters={"groups": []},
+            team=self.team,
+            created_by=self.user,
+        )
+
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": False},
+            scheduled_at=datetime(2024, 1, 15, 9, 0, tzinfo=UTC),
+            is_recurring=True,
+            recurrence_interval="yearly",
+        )
+
+        process_scheduled_changes()
+
+        scheduled_change.refresh_from_db()
+        self.assertIsNone(scheduled_change.executed_at)
+        self.assertEqual(scheduled_change.scheduled_at, datetime(2025, 1, 15, 9, 0, tzinfo=UTC))
+        feature_flag.refresh_from_db()
+        self.assertEqual(feature_flag.active, False)
+
+    @freeze_time("2024-02-29T09:00:00Z")
+    def test_recurring_yearly_schedule_handles_leap_year(self) -> None:
+        """Yearly schedule on Feb 29 should advance to Feb 28 in non-leap years."""
+        feature_flag = FeatureFlag.objects.create(
+            name="Leap Year Flag",
+            key="leap-year-flag",
+            active=True,
+            filters={"groups": []},
+            team=self.team,
+            created_by=self.user,
+        )
+
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": False},
+            scheduled_at=datetime(2024, 2, 29, 9, 0, tzinfo=UTC),
+            is_recurring=True,
+            recurrence_interval="yearly",
+        )
+
+        process_scheduled_changes()
+
+        scheduled_change.refresh_from_db()
+        self.assertIsNone(scheduled_change.executed_at)
+        # 2025 is not a leap year, so Feb 29 becomes Feb 28
+        self.assertEqual(scheduled_change.scheduled_at, datetime(2025, 2, 28, 9, 0, tzinfo=UTC))
+        feature_flag.refresh_from_db()
+        self.assertEqual(feature_flag.active, False)
+
+    def test_scheduled_change_cannot_modify_another_teams_feature_flag(self) -> None:
+        """A scheduled change whose record_id points to a different team's flag must fail."""
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+
+        victim_flag = FeatureFlag.objects.create(
+            name="Victim Flag",
+            key="victim-flag",
+            active=True,
+            filters={"groups": []},
+            team=other_team,
+            created_by=self.user,
+        )
+
+        # Simulate a scheduled change that targets a flag belonging to a different team
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=victim_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": False},
+            scheduled_at=(datetime.now(UTC) - timedelta(seconds=30)),
+            created_by=self.user,
+        )
+
+        process_scheduled_changes()
+
+        # The victim flag must remain unchanged
+        victim_flag.refresh_from_db()
+        self.assertTrue(victim_flag.active)
+
+        # The scheduled change should be permanently failed (unrecoverable, no retry)
+        scheduled_change.refresh_from_db()
+        self.assertIsNotNone(scheduled_change.executed_at)
+        self.assertIsNotNone(scheduled_change.failure_reason)
+        self.assertEqual(scheduled_change.failure_count, 1)
+
+        assert scheduled_change.failure_reason is not None
+        failure_data = json.loads(scheduled_change.failure_reason)
+        self.assertFalse(failure_data["will_retry"])
+        self.assertEqual(failure_data["error_classification"], "unrecoverable")

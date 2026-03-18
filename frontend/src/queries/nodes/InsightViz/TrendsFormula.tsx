@@ -14,7 +14,7 @@ const ALLOWED_FORMULA_CHARACTERS = /^[a-zA-Z \-*^0-9+/().]+$/
 
 export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element | null {
     const { formulaNodes, hasFormula } = useValues(insightVizDataLogic(insightProps))
-    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
+    const { updateInsightFilter, removeFormulaNode } = useActions(insightVizDataLogic(insightProps))
 
     // Initialize with at least one empty value
     const [values, setValues] = useState<TrendsFormulaNode[]>(formulaNodes)
@@ -107,15 +107,8 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
 
     const removeFormula = (index: number): void => {
         const newValues = localValues.filter((_, i) => i !== index)
-        // Always ensure at least one empty value
-        if (newValues.length === 0) {
-            newValues.push({ formula: '' })
-        }
         setLocalValues(newValues)
-        // Only update if there are non-empty values
-        if (newValues.some((v) => v.formula.trim() !== '')) {
-            updateFormulas(newValues)
-        }
+        removeFormulaNode(newValues)
     }
 
     return hasFormula ? (
@@ -142,14 +135,14 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
                             onBlur={() => handleCustomNameBlur(index)}
                             onPressEnter={handleFormulaEnter}
                         />
-                        {localValues.length > 1 && (
-                            <LemonButton
-                                icon={<IconTrash />}
-                                status="alt"
-                                onClick={() => removeFormula(index)}
-                                title="Remove formula"
-                            />
-                        )}
+                        <LemonButton
+                            icon={<IconTrash />}
+                            status="alt"
+                            onClick={() => removeFormula(index)}
+                            title={
+                                localValues.length === 1 ? 'Remove formula and disable formula mode' : 'Remove formula'
+                            }
+                        />
                     </div>
                 </div>
             ))}

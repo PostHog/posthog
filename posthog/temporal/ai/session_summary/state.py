@@ -4,12 +4,15 @@ import hashlib
 from enum import Enum
 from typing import TypeVar
 
+import structlog
 from redis import asyncio as aioredis
 
 from posthog.redis import get_async_client
 
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_DB_DATA_REDIS_TTL
 from ee.models.session_summaries import ExtraSummaryContext, SingleSessionSummary
+
+logger = structlog.get_logger(__name__)
 
 T = TypeVar("T")
 
@@ -81,7 +84,9 @@ def generate_state_key(key_base: str, label: StateActivitiesEnum, state_id: str 
         Formatted key for Redis.
     """
     if not state_id:
-        raise ValueError("state_id is required")
+        msg = "state_id is required"
+        logger.error(msg, signals_type="session-summaries")
+        raise ValueError(msg)
     return f"{key_base}:{label.value}:{state_id}"
 
 
@@ -96,7 +101,9 @@ def decompress_redis_data(raw_redis_data: bytes | str) -> str:
         return gzip.decompress(raw_redis_data).decode("utf-8")
     if isinstance(raw_redis_data, str):
         return raw_redis_data
-    raise ValueError(f"Invalid Redis data type: {type(raw_redis_data)}")
+    msg = f"Invalid Redis data type: {type(raw_redis_data)}"  # type: ignore[unreachable]
+    logger.error(msg, signals_type="session-summaries")
+    raise ValueError(msg)
 
 
 async def store_data_in_redis(
@@ -108,7 +115,9 @@ async def store_data_in_redis(
 ) -> None:
     """Compress and store data in Redis with an expiry time."""
     if not redis_key:
-        raise ValueError(f"Redis key is required for {label.value} to store data in Redis ({data})")
+        msg = f"Redis key is required for {label.value} to store data in Redis ({data})"
+        logger.error(msg, signals_type="session-summaries")
+        raise ValueError(msg)
     compressed_data = _compress_redis_data(data)
     await redis_client.setex(redis_key, ttl, compressed_data)
     return None
@@ -128,7 +137,9 @@ async def get_data_class_from_redis(
         return target_class(**json.loads(redis_data_str))
     except Exception as err:
         # Should be an actual exception as the data is already in Redis, but malformed
-        raise ValueError(f"Failed to parse output data for Redis key {redis_key} ({label.value}): {err}") from err
+        msg = f"Failed to parse output data for Redis key {redis_key} ({label.value}): {err}"
+        logger.exception(msg, redis_key=redis_key, signals_type="session-summaries")
+        raise ValueError(msg) from err
 
 
 async def get_data_str_from_redis(
@@ -147,9 +158,9 @@ async def get_data_str_from_redis(
         return redis_data_str
     except Exception as err:
         # Also exception if the data is present, but malformed
-        raise ValueError(
-            f"Failed to decompress output data ({raw_redis_data}) for Redis key {redis_key} ({label.value}): {err}"
-        ) from err
+        msg = f"Failed to decompress output data ({raw_redis_data}) for Redis key {redis_key} ({label.value}): {err}"
+        logger.exception(msg, redis_key=redis_key, signals_type="session-summaries")
+        raise ValueError(msg) from err
 
 
 def get_ready_summaries_from_db(

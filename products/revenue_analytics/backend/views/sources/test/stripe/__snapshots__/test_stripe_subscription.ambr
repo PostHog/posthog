@@ -15,29 +15,29 @@
 # ---
 # name: TestSubscriptionStripeBuilder.test_build_with_no_subscription_schema
   '''
-  SELECT NULL AS id,
-         NULL AS source_label,
-         NULL AS plan_id,
-         NULL AS product_id,
-         NULL AS customer_id,
-         NULL AS status,
-         NULL AS started_at,
-         NULL AS ended_at,
-         NULL AS metadata
+  SELECT '' AS id,
+         '' AS source_label,
+         '' AS plan_id,
+         '' AS product_id,
+         '' AS customer_id,
+         '' AS status,
+         toDateTime('1970-01-01 00:00:00.000000') AS started_at,
+         toDateTime('1970-01-01 00:00:00.000000') AS ended_at,
+         '' AS metadata
   WHERE false
   '''
 # ---
 # name: TestSubscriptionStripeBuilder.test_build_with_subscription_schema_but_no_table
   '''
-  SELECT NULL AS id,
-         NULL AS source_label,
-         NULL AS plan_id,
-         NULL AS product_id,
-         NULL AS customer_id,
-         NULL AS status,
-         NULL AS started_at,
-         NULL AS ended_at,
-         NULL AS metadata
+  SELECT '' AS id,
+         '' AS source_label,
+         '' AS plan_id,
+         '' AS product_id,
+         '' AS customer_id,
+         '' AS status,
+         toDateTime('1970-01-01 00:00:00.000000') AS started_at,
+         toDateTime('1970-01-01 00:00:00.000000') AS ended_at,
+         '' AS metadata
   WHERE false
   '''
 # ---

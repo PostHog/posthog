@@ -9,11 +9,6 @@ from posthog.models.tag import tagify
 
 
 def forwards(apps, schema_editor):
-    import structlog
-
-    logger = structlog.get_logger(__name__)
-    logger.info("ee/0012_migrate_tags_v2_start")
-
     Tag = apps.get_model("posthog", "Tag")
     TaggedItem = apps.get_model("posthog", "TaggedItem")
     EnterpriseEventDefinition = apps.get_model("ee", "EnterpriseEventDefinition")
@@ -33,11 +28,6 @@ def forwards(apps, schema_editor):
     )
 
     for event_definition_page in event_definition_paginator.page_range:
-        logger.info(
-            "event_definition_tag_batch_get_start",
-            limit=batch_size,
-            offset=(event_definition_page - 1) * batch_size,
-        )
         event_definitions = iter(event_definition_paginator.get_page(event_definition_page))
         for tags, team_id, event_definition_id in event_definitions:
             unique_tags = {tagify(t) for t in tags if isinstance(t, str) and t.strip() != ""}
@@ -50,9 +40,6 @@ def forwards(apps, schema_editor):
                     )
                 )
 
-    logger.info("event_definition_tag_get_end", tags_count=len(createables))
-    num_event_definition_tags = len(createables)
-
     # Collect property definition tags and taggeditems
     property_definition_paginator = Paginator(
         EnterprisePropertyDefinition.objects.exclude(
@@ -64,11 +51,6 @@ def forwards(apps, schema_editor):
     )
 
     for property_definition_page in property_definition_paginator.page_range:
-        logger.info(
-            "property_definition_tag_batch_get_start",
-            limit=batch_size,
-            offset=(property_definition_page - 1) * batch_size,
-        )
         property_definitions = iter(property_definition_paginator.get_page(property_definition_page))
         for tags, team_id, property_definition_id in property_definitions:
             unique_tags = {tagify(t) for t in tags if isinstance(t, str) and t.strip() != ""}
@@ -84,11 +66,6 @@ def forwards(apps, schema_editor):
                     )
                 )
 
-    logger.info(
-        "property_definition_tag_get_end",
-        tags_count=len(createables) - num_event_definition_tags,
-    )
-
     # Consistent ordering to make independent runs non-deterministic
     createables = sorted(createables, key=lambda pair: pair[0].name)
 
@@ -96,12 +73,10 @@ def forwards(apps, schema_editor):
     # about which tags were ignored and created, so we must take care of this manually.
     tags_to_create = [tag for (tag, _) in createables]
     Tag.objects.bulk_create(tags_to_create, ignore_conflicts=True, batch_size=batch_size)
-    logger.info("tags_bulk_created")
 
     # Associate tag ids with tagged_item objects in batches. Best case scenario all tags are new. Worst case
     # scenario, all tags already exist and get is made for every tag.
     for offset in range(0, len(tags_to_create), batch_size):
-        logger.info("tagged_item_batch_create_start", limit=batch_size, offset=offset)
         batch = tags_to_create[offset : (offset + batch_size)]
 
         # Find tags that were created, and not already existing
@@ -122,8 +97,6 @@ def forwards(apps, schema_editor):
             ignore_conflicts=True,
             batch_size=batch_size,
         )
-
-    logger.info("ee/0012_migrate_tags_v2_end")
 
 
 def reverse(apps, schema_editor):

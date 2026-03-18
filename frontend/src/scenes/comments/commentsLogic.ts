@@ -162,7 +162,7 @@ export const commentsLogic = kea<commentsLogicType>([
                         item_context: itemContext,
                         source_comment: values.replyingCommentId ?? undefined,
                         mentions,
-                        slug: discussionsSlug(),
+                        slug: discussionsSlug(props.scope, props.item_id),
                     })
 
                     values.itemContext?.callback?.({ sent: true })
@@ -195,7 +195,7 @@ export const commentsLogic = kea<commentsLogicType>([
                         rich_content,
                         content: textContent,
                         mentions: newMentions,
-                        slug: discussionsSlug(),
+                        slug: discussionsSlug(props.scope, props.item_id),
                     })
                     return [...existingComments.filter((c) => c.id !== editedComment.id), updatedComment]
                 },
@@ -340,6 +340,14 @@ export const commentsLogic = kea<commentsLogicType>([
             (s) => [s.user],
             (user) => {
                 return (comment: CommentType): boolean => comment.created_by?.uuid === user?.uuid
+            },
+        ],
+
+        disabledReasonFor: [
+            (s) => [s.user],
+            (user) => {
+                return (comment: CommentType): string | null =>
+                    comment.created_by?.uuid === user?.uuid ? null : 'You can only delete your own comments'
             },
         ],
     }),

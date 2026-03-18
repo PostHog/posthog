@@ -3,8 +3,9 @@ import { useEffect, useState } from 'react'
 
 import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -18,6 +19,10 @@ export function WebhookIntegration(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openSupportForm } = useActions(supportLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     useEffect(() => {
         if (currentTeam?.slack_incoming_webhook) {
@@ -44,8 +49,8 @@ export function WebhookIntegration(): JSX.Element {
             <>
                 <p>
                     The Webhook integration has been replaced with our new{' '}
-                    <Link to={urls.dataPipelines('destinations')}>Pipeline Destinations</Link> allowing you to create
-                    multiple, highly customizable webhook triggers based off of Actions or Events.
+                    <Link to={urls.destinations()}>Pipeline Destinations</Link> allowing you to create multiple, highly
+                    customizable webhook triggers based off of Actions or Events.
                 </p>
             </>
         )
@@ -53,15 +58,6 @@ export function WebhookIntegration(): JSX.Element {
 
     return (
         <div>
-            <p>
-                Send notifications when selected actions are performed by users.
-                <br />
-                Guidance on integrating with webhooks available in our docs,{' '}
-                <Link to="https://posthog.com/docs/webhooks/slack">for Slack</Link> and{' '}
-                <Link to="https://posthog.com/docs/webhooks/microsoft-teams">for Microsoft Teams</Link>. Discord is also
-                supported.
-            </p>
-
             <div className="deprecated-space-y-4 max-w-160">
                 <LemonInput
                     value={webhook}
@@ -72,6 +68,7 @@ export function WebhookIntegration(): JSX.Element {
                     }
                     disabled={loading}
                     onPressEnter={() => testWebhook(webhook)}
+                    disabledReason={restrictedReason}
                 />
                 <div className="flex items-center gap-2">
                     <LemonButton
@@ -82,6 +79,7 @@ export function WebhookIntegration(): JSX.Element {
                             testWebhook(webhook)
                         }}
                         loading={loading}
+                        disabledReason={restrictedReason}
                     >
                         Test & Save
                     </LemonButton>
@@ -94,6 +92,7 @@ export function WebhookIntegration(): JSX.Element {
                             setWebhook('')
                         }}
                         disabled={!currentTeam?.slack_incoming_webhook}
+                        disabledReason={restrictedReason}
                     >
                         Clear & Disable
                     </LemonButton>

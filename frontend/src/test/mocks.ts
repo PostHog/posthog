@@ -60,6 +60,7 @@ export const mockEventDefinitions: EventDefinition[] = [
     name: name || `misc-${index}-generated`,
     description: `${name || 'name generation'} is the best!`,
     tags: [],
+    last_seen_at: '2022-01-24T21:32:38.359756Z',
 }))
 
 export const mockEventPropertyDefinition = {
@@ -265,3 +266,17 @@ export const mockSlackChannels: SlackChannelType[] = [
         is_member: false,
     },
 ]
+
+export const mockGetEventDefinitions = (req: { url: URL }): [number, Record<string, any>] => {
+    const search = req.url.searchParams.get('search') ?? ''
+    const results = search ? mockEventDefinitions.filter((e) => e.name.includes(search)) : mockEventDefinitions
+    return [200, { results, count: results.length }]
+}
+
+export const mockGetPropertyDefinitions = (req: { url: URL }): [number, Record<string, any>] => {
+    const search = req.url.searchParams.get('search') ?? ''
+    const results = search
+        ? mockEventPropertyDefinitions.filter((p) => p.name.includes(search))
+        : mockEventPropertyDefinitions
+    return [200, { results, count: results.length }]
+}

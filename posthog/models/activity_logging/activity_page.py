@@ -1,8 +1,17 @@
-from rest_framework import request, response, status
+from rest_framework import request, response, serializers, status
 
 from posthog.models.activity_logging.activity_log import ActivityPage
 from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.utils import format_query_params_absolute_url
+
+
+class ActivityLogPaginatedResponseSerializer(serializers.Serializer):
+    """Response shape for paginated activity log endpoints."""
+
+    results = ActivityLogSerializer(many=True)
+    next = serializers.URLField(allow_null=True)
+    previous = serializers.URLField(allow_null=True)
+    total_count = serializers.IntegerField()
 
 
 def activity_page_response(

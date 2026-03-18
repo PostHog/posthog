@@ -168,6 +168,7 @@ const surveyActionsMapping: Record<
 
         const fieldNameMapping: Record<keyof SurveyAppearance, string> = {
             backgroundColor: 'background color',
+            textColor: 'text color',
             submitButtonColor: 'submit button color',
             submitButtonText: 'submit button text',
             submitButtonTextColor: 'submit button text color',
@@ -183,6 +184,7 @@ const surveyActionsMapping: Record<
             thankYouMessageCloseButtonText: 'thank you message close button text',
             autoDisappear: 'auto-disappear option',
             position: 'survey position',
+            tabPosition: 'survey button position',
             shuffleQuestions: 'question shuffling',
             surveyPopupDelaySeconds: 'survey popup delay',
             widgetType: 'widget type',
@@ -198,6 +200,8 @@ const surveyActionsMapping: Record<
             maxWidth: 'max width',
             textSubtleColor: 'text subtle color',
             inputBackground: 'input background',
+            inputTextColor: 'input text color',
+            hideCancelButton: 'hide cancel button',
         }
 
         Object.entries(fieldNameMapping).forEach(([field, readableFieldName]) => {
@@ -330,7 +334,7 @@ export function surveyActivityDescriber(logItem: ActivityLogItem, asNotification
         return { description: null }
     }
 
-    const user = <strong>{userNameForLogItem(logItem)}</strong>
+    const user = <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
     const surveyLink = nameOrLinkToSurvey(logItem?.item_id, logItem?.detail.name, logItem.activity)
 
     if (logItem.activity === 'created') {

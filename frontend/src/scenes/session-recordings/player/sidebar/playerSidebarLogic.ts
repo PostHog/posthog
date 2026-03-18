@@ -34,14 +34,17 @@ export const playerSidebarLogic = kea<playerSidebarLogicType>([
     })),
 
     urlToAction(({ actions, values }) => ({
-        // intentionally locked to replay/* to prevent other pages from setting the tab
-        // this is a debug affordance
-        ['**/replay/*']: (_, searchParams) => {
+        '*': (_, searchParams, hashParams) => {
+            const isShowingRecording =
+                Object.keys(searchParams).includes('sessionRecordingId') ||
+                Object.keys(hashParams).includes('sessionRecordingId')
             const urlTab = Object.values(SessionRecordingSidebarTab).includes(searchParams.tab)
                 ? (searchParams.tab as SessionRecordingSidebarTab)
-                : SessionRecordingSidebarTab.INSPECTOR
+                : Object.values(SessionRecordingSidebarTab).includes(hashParams.tab)
+                  ? (hashParams.tab as SessionRecordingSidebarTab)
+                  : null
 
-            if (urlTab !== values.activeTab) {
+            if (isShowingRecording && urlTab && urlTab !== values.activeTab) {
                 actions.setTab(urlTab)
             }
         },

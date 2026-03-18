@@ -1,6 +1,6 @@
 import time
-from datetime import timedelta
-from typing import Any, Optional
+from datetime import datetime, timedelta
+from typing import Optional
 
 from django.conf import settings
 from django.db.models import Case, DurationField, ExpressionWrapper, F, Q, QuerySet, When
@@ -10,15 +10,19 @@ import structlog
 import posthoganalytics
 from celery import chain, current_task, shared_task
 from dateutil.relativedelta import relativedelta
-from prometheus_client import Counter, Gauge
+from prometheus_client import Counter, Gauge, Histogram
 
 from posthog.api.monitoring import Feature
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags, update_tags
+from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorS3Error, CHQueryErrorTooManySimultaneousQueries
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Cohort
 from posthog.models.cohort import CohortOrEmpty
+from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.cohort.util import (
+    COHORT_STATS_COLLECTION_DELAY_SECONDS,
     get_all_cohort_dependencies,
     get_all_cohort_dependents,
     get_clickhouse_query_stats,
@@ -42,6 +46,10 @@ COHORTS_STALE_COUNT_GAUGE = Gauge(
     "cohorts_stale", "Number of cohorts that haven't been calculated in more than X hours", ["hours"]
 )
 
+COHORTS_TOTAL_GAUGE = Gauge(
+    "cohorts_total", "Total number of eligible cohorts for recalculation (non-static, non-deleted)"
+)
+
 COHORT_STUCK_COUNT_GAUGE = Gauge(
     # TODO: rename to cohorts_stuck because this is a gauge not a counter
     "cohort_stuck_count",
@@ -56,6 +64,30 @@ COHORT_STUCK_RESETS_COUNTER = Counter("cohort_stuck_resets_total", "Number of st
 
 COHORT_MAXED_ERRORS_GAUGE = Gauge(
     "cohort_maxed_errors", "Number of cohorts that have reached the maximum number of errors"
+)
+
+COHORT_CALCULATION_STARTED_COUNTER = Counter(
+    "cohort_calculation_started_total",
+    "Cohort calculations started (tracks all attempts including those that may OOM)",
+)
+
+COHORT_CALCULATION_COMPLETED_COUNTER = Counter(
+    "cohort_calculation_completed_total",
+    "Cohort calculations that completed (either success or caught error)",
+    ["status"],  # labels: "success", "error"
+)
+
+COHORT_CALCULATION_FAILURES_COUNTER = Counter(
+    "cohort_calculation_failures_total",
+    "Cohort calculation failures by type",
+    ["failure_type"],  # labels: "exception", "clickhouse_error", etc.
+)
+
+COHORT_CALCULATION_DURATION_SECONDS = Histogram(
+    "cohort_calculation_duration_seconds",
+    "Duration of cohort calculations in seconds",
+    ["status"],  # labels: "success", "error"
+    buckets=[1, 5, 10, 30, 60, 120, 300, 600, 1800, 3600],
 )
 
 logger = structlog.get_logger(__name__)
@@ -116,6 +148,8 @@ def update_cohort_metrics() -> None:
         is_calculating=False,
         errors_calculating__lte=MAX_ERRORS_CALCULATING,
     ).exclude(is_static=True)
+
+    COHORTS_TOTAL_GAUGE.set(base_queryset.count())
 
     for hours in [24, 36, 48]:
         stale_count = base_queryset.filter(last_calculation__lte=now - relativedelta(hours=hours)).count()
@@ -178,10 +212,11 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
             capture_exception(error=e, additional_properties={"cohort_id": cohort.pk, "team_id": cohort.team_id})
             # Skip this cohort and continue with others
             continue
-    logger.warning("enqueued_cohort_calculation", cohort_ids=cohort_ids)
 
     backlog = get_cohort_calculation_candidates_queryset().count()
     COHORT_RECALCULATIONS_BACKLOG_GAUGE.set(backlog)
+
+    logger.warning("enqueued_cohort_calculation", cohort_ids=cohort_ids, COHORT_RECALCULATIONS_BACKLOG_GAUGE=backlog)
 
     try:
         update_cohort_metrics()
@@ -214,19 +249,22 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
             _enqueue_single_cohort_calculation(cohort, initiating_user)
             return
 
-        # Create a chain of tasks to ensure sequential execution
-        task_chain = []
+        # Create a chain of tasks to ensure sequential execution.
+        # Non-first tasks get a 2s countdown to mitigate ClickHouse replica lag:
+        # the preceding cohort's new rows may not have replicated yet. See #47618.
+        task_chain: list = []
         for cohort_id in sorted_cohort_ids:
             current_cohort = seen_cohorts_cache.get(cohort_id)
             if current_cohort and not current_cohort.is_static:
                 _prepare_cohort_for_calculation(current_cohort)
-                task_chain.append(
-                    calculate_cohort_ch.si(
-                        current_cohort.id,
-                        current_cohort.pending_version,
-                        initiating_user.id if initiating_user else None,
-                    )
+                task = calculate_cohort_ch.si(
+                    current_cohort.id,
+                    current_cohort.pending_version,
+                    initiating_user.id if initiating_user else None,
                 )
+                if len(task_chain) > 0:
+                    task = task.set(countdown=2)
+                task_chain.append(task)
 
         if task_chain:
             chain(*task_chain).apply_async()
@@ -236,12 +274,15 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
 
 
 def _prepare_cohort_for_calculation(cohort: Cohort) -> None:
+    """
+    Prepare cohort for calculation by incrementing version and setting calculating state.
+    When a new calculation is requested, we increment the pending_version which effectively
+    supersedes any older calculations - they will complete but won't update the final version.
+    """
     cohort.pending_version = Case(When(pending_version__isnull=True, then=1), default=F("pending_version") + 1)
     update_fields = ["pending_version"]
 
     if not cohort.is_static:
-        # avoid starting another cohort calculation if one is already expected to be in progress
-        # XXX: it is possible for a job to fail without resetting this field and need to be manually recovered
         cohort.is_calculating = True
         update_fields.append("is_calculating")
 
@@ -255,13 +296,36 @@ def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: Optional
     calculate_cohort_ch.delay(cohort.id, cohort.pending_version, initiating_user.id if initiating_user else None)
 
 
-@shared_task(ignore_result=True, max_retries=2, queue=CeleryQueue.LONG_RUNNING.value)
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    # Auto-retry for transient ClickHouse errors with exponential backoff
+    autoretry_for=(
+        CHQueryErrorTooManySimultaneousQueries,
+        CHQueryErrorCannotScheduleTask,
+        ClickHouseAtCapacity,
+        CHQueryErrorS3Error,
+    ),
+    retry_backoff=60,
+    retry_backoff_max=1800,
+    max_retries=6,
+)
 def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id: Optional[int] = None) -> None:
     with posthoganalytics.new_context():
         posthoganalytics.tag("feature", Feature.COHORT.value)
         posthoganalytics.tag("cohort_id", cohort_id)
 
         cohort: Cohort = Cohort.objects.get(pk=cohort_id)
+
+        # Skip calculation if this version is now obsolete (superseded by newer save)
+        if cohort.pending_version and pending_version < cohort.pending_version:
+            logger.info(
+                "cohort_calculation_skipped_obsolete",
+                cohort_id=cohort_id,
+                task_version=pending_version,
+                current_pending_version=cohort.pending_version,
+            )
+            return
 
         posthoganalytics.tag("team_id", cohort.team.id)
 
@@ -309,24 +373,6 @@ def calculate_cohort_from_list(
 
 
 @shared_task(ignore_result=True, max_retries=1)
-def insert_cohort_from_insight_filter(
-    cohort_id: int, filter_data: dict[str, Any], team_id: Optional[int] = None
-) -> None:
-    """
-    team_id is only optional for backwards compatibility with the old celery task signature.
-    All new tasks should pass team_id explicitly.
-    """
-    from posthog.api.cohort import insert_cohort_actors_into_ch, insert_cohort_people_into_pg
-
-    cohort = Cohort.objects.get(pk=cohort_id)
-    if team_id is None:
-        team_id = cohort.team_id
-
-    insert_cohort_actors_into_ch(cohort, filter_data, team_id=team_id)
-    insert_cohort_people_into_pg(cohort, team_id=team_id)
-
-
-@shared_task(ignore_result=True, max_retries=1)
 def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> None:
     """
     team_id is only optional for backwards compatibility with the old celery task signature.
@@ -362,12 +408,80 @@ def insert_cohort_from_feature_flag(cohort_id: int, flag_key: str, team_id: int)
     get_cohort_actors_for_feature_flag(cohort_id, flag_key, team_id, batchsize=10_000)
 
 
-@shared_task(ignore_result=True, max_retries=2)
+def _collect_cohort_calculation_metrics(history: CohortCalculationHistory, start_time: datetime) -> None:
+    """
+    Collect Prometheus metrics for cohort calculation based on the history record.
+    This is called from collect_cohort_query_stats to ensure metrics are captured even if OOM occurred.
+
+    Args:
+        history: CohortCalculationHistory instance
+        start_time: datetime when the calculation started (used as fallback)
+    """
+    # Determine if calculation completed
+    if not history.finished_at:
+        # Calculation never finished - likely OOM or worker crash
+        COHORT_CALCULATION_FAILURES_COUNTER.labels(failure_type="stuck_inferred_oom").inc()
+        COHORT_CALCULATION_COMPLETED_COUNTER.labels(status="error").inc()
+        logger.warning(
+            "cohort_calculation_stuck_detected",
+            cohort_id=history.cohort_id,
+            history_id=str(history.id),
+        )
+        return
+
+    # Get actual query duration from ClickHouse query_log (most accurate)
+    # Fallback to wall-clock time if query stats aren't available
+    duration_seconds = None
+    if history.total_query_ms:
+        duration_seconds = history.total_query_ms / 1000.0
+    else:
+        # Fallback: use wall-clock time
+        duration_seconds = (history.finished_at - start_time).total_seconds()
+
+    if history.error:
+        # Calculation finished with error
+        COHORT_CALCULATION_COMPLETED_COUNTER.labels(status="error").inc()
+        if duration_seconds is not None:
+            COHORT_CALCULATION_DURATION_SECONDS.labels(status="error").observe(duration_seconds)
+
+        # Categorize failure type
+        failure_type = "exception"
+        error_lower = history.error.lower()
+        if "clickhouse" in error_lower or "code:" in error_lower:
+            failure_type = "clickhouse_error"
+        elif "memory" in error_lower or "oom" in error_lower:
+            failure_type = "memory_error"
+        elif "timeout" in error_lower or "timed out" in error_lower:
+            failure_type = "timeout_error"
+
+        COHORT_CALCULATION_FAILURES_COUNTER.labels(failure_type=failure_type).inc()
+        logger.warning(
+            "cohort_calculation_failed_with_error",
+            cohort_id=history.cohort_id,
+            history_id=str(history.id),
+            failure_type=failure_type,
+            duration_seconds=duration_seconds,
+        )
+    else:
+        # Calculation succeeded
+        COHORT_CALCULATION_COMPLETED_COUNTER.labels(status="success").inc()
+        if duration_seconds is not None:
+            COHORT_CALCULATION_DURATION_SECONDS.labels(status="success").observe(duration_seconds)
+        logger.info(
+            "cohort_calculation_completed_successfully",
+            cohort_id=history.cohort_id,
+            history_id=str(history.id),
+            duration_seconds=duration_seconds,
+            count=history.count,
+        )
+
+
+@shared_task(ignore_result=True, max_retries=3)
 def collect_cohort_query_stats(
     tag_matcher: str, cohort_id: int, start_time_iso: str, history_id: str, query: str
 ) -> None:
     """
-    Delayed task to collect cohort query statistics
+    Delayed task to collect cohort query statistics and observability metrics
 
     Args:
         tag_matcher: Query tag to match in query_log_archive
@@ -379,8 +493,6 @@ def collect_cohort_query_stats(
     try:
         from dateutil import parser
 
-        from posthog.models.cohort.calculation_history import CohortCalculationHistory
-
         try:
             history = CohortCalculationHistory.objects.get(id=history_id)
         except CohortCalculationHistory.DoesNotExist:
@@ -390,7 +502,24 @@ def collect_cohort_query_stats(
         start_time = parser.parse(start_time_iso)
         query_stats = get_clickhouse_query_stats(tag_matcher, cohort_id, start_time, history.team.id)
 
-        if query_stats:
+        if query_stats:  # Skip if stats already collected (check if queries field is non-empty)
+            if history.queries:
+                logger.warning(
+                    "Query stats already collected, skipping duplicate collection",
+                    history_id=history_id,
+                    cohort_id=cohort_id,
+                )
+                return
+
+            update_fields = []
+
+            # Only update history if it's still in progress (no finished_at)
+            if "exception" in query_stats and not history.finished_at:
+                history.finished_at = timezone.now()
+                history.error = query_stats.get("exception")
+                update_fields.append("finished_at")
+                update_fields.append("error")
+
             history.add_query_info(
                 query=query,
                 query_id=query_stats.get("query_id"),
@@ -399,14 +528,21 @@ def collect_cohort_query_stats(
                 read_rows=query_stats.get("read_rows"),
                 written_rows=query_stats.get("written_rows"),
             )
-            history.save(update_fields=["queries"])
+            update_fields.append("queries")
+            history.save(update_fields=update_fields)
         else:
             logger.warning(
-                "No query stats found for cohort calculation",
+                "No query stats found for cohort calculation, will retry",
                 tag_matcher=tag_matcher,
                 cohort_id=cohort_id,
                 history_id=history_id,
             )
+            # Retry the task with 60 second countdown
+            raise collect_cohort_query_stats.retry(countdown=COHORT_STATS_COLLECTION_DELAY_SECONDS)
+
+        # Collect observability metrics based on the calculation result
+        # This runs even if the worker OOM'd, since this task was scheduled before the calculation
+        _collect_cohort_calculation_metrics(history, start_time)
 
     except Exception as e:
         logger.exception(

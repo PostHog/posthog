@@ -1,12 +1,13 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.test.client import Client as HttpClient
 
 from rest_framework import status
 
 from posthog.models.integration import PRIVATE_CHANNEL_WITHOUT_ACCESS, EmailIntegration, Integration, SlackIntegration
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -217,12 +218,17 @@ class TestEmailIntegration:
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
 
-    @patch("posthog.models.integration.MailjetProvider")
-    def test_integration_from_domain(self, mock_mailjet_provider_class):
+    @patch("posthog.models.integration.SESProvider")
+    def test_integration_from_domain(self, mock_ses_provider_class):
         mock_client = MagicMock()
-        mock_mailjet_provider_class.return_value = mock_client
+        mock_ses_provider_class.return_value = mock_client
 
-        integration = EmailIntegration.create_native_integration(self.valid_config, self.team.id, self.user)
+        integration = EmailIntegration.create_native_integration(
+            {**self.valid_config, "mail_from_subdomain": "youmustnothavelikedmyemail", "provider": "ses"},
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            created_by=self.user,
+        )
         assert integration.kind == "email"
         assert integration.integration_id == self.valid_config["email"]
         assert integration.team_id == self.team.id
@@ -230,140 +236,149 @@ class TestEmailIntegration:
             "email": self.valid_config["email"],
             "name": self.valid_config["name"],
             "domain": "posthog.com",
+            "mail_from_subdomain": "youmustnothavelikedmyemail",
             "verified": False,
-            "provider": "mailjet",
+            "provider": "ses",
         }
         assert integration.sensitive_config == {}
         assert integration.created_by == self.user
 
-        mock_client.create_email_domain.assert_called_once_with("posthog.com", team_id=self.team.id)
+        mock_client.create_email_domain.assert_called_once_with(
+            "posthog.com", mail_from_subdomain="youmustnothavelikedmyemail", team_id=self.team.id
+        )
 
-    @patch("posthog.models.integration.MailjetProvider")
-    def test_email_verify_returns_mailjet_result(self, mock_mailjet_provider_class):
+    @patch("posthog.models.integration.SESProvider")
+    def test_email_verify_returns_ses_result(self, mock_ses_provider_class):
         mock_client = MagicMock()
-        mock_mailjet_provider_class.return_value = mock_client
+        mock_ses_provider_class.return_value = mock_client
 
         # Mock the verify_email_domain method to return a test result
         expected_result = {
             "status": "pending",
             "dnsRecords": [
                 {
-                    "type": "dkim",
+                    "type": "verification",
                     "recordType": "TXT",
-                    "recordHostname": "mailjet._domainkey.example.com",
-                    "recordValue": "v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBA...",
+                    "recordHostname": "_amazonses.posthog.com",
+                    "recordValue": "test-verification-token",
+                    "status": "pending",
+                },
+                {
+                    "type": "dkim",
+                    "recordType": "CNAME",
+                    "recordHostname": "token1._domainkey.posthog.com",
+                    "recordValue": "token1.dkim.amazonses.com",
                     "status": "pending",
                 },
                 {
                     "type": "spf",
                     "recordType": "TXT",
                     "recordHostname": "@",
-                    "recordValue": "v=spf1 include:spf.mailjet.com ~all",
+                    "recordValue": "v=spf1 include:amazonses.com ~all",
                     "status": "pending",
                 },
             ],
         }
         mock_client.verify_email_domain.return_value = expected_result
 
-        integration = EmailIntegration.create_native_integration(self.valid_config, self.team.id, self.user)
+        integration = EmailIntegration.create_native_integration(
+            {**self.valid_config, "provider": "ses"},
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            created_by=self.user,
+        )
         email_integration = EmailIntegration(integration)
         verification_result = email_integration.verify()
 
         assert verification_result == expected_result
 
-        mock_client.verify_email_domain.assert_called_once_with("posthog.com")
+        mock_client.verify_email_domain.assert_called_once_with(
+            "posthog.com", mail_from_subdomain="feedback", team_id=self.team.id
+        )
 
         integration.refresh_from_db()
         assert integration.config == {
             "email": self.valid_config["email"],
             "name": self.valid_config["name"],
             "domain": "posthog.com",
+            "mail_from_subdomain": "feedback",
             "verified": False,
-            "provider": "mailjet",
+            "provider": "ses",
         }
 
-    @patch("posthog.models.integration.MailjetProvider")
-    def test_email_verify_updates_integration(self, mock_mailjet_provider_class):
+    @patch("posthog.models.integration.SESProvider")
+    def test_email_verify_updates_integration(self, mock_ses_provider_class):
         mock_client = MagicMock()
-        mock_mailjet_provider_class.return_value = mock_client
+        mock_ses_provider_class.return_value = mock_client
 
         # Mock the verify_email_domain method to return a test result
         expected_result = {
             "status": "success",
-            "dnsRecords": [
-                {
-                    "type": "dkim",
-                    "recordType": "TXT",
-                    "recordHostname": "mailjet._domainkey.example.com",
-                    "recordValue": "v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBA...",
-                    "status": "success",
-                },
-                {
-                    "type": "spf",
-                    "recordType": "TXT",
-                    "recordHostname": "@",
-                    "recordValue": "v=spf1 include:spf.mailjet.com ~all",
-                    "status": "success",
-                },
-            ],
+            "dnsRecords": [],
         }
         mock_client.verify_email_domain.return_value = expected_result
 
-        integration = EmailIntegration.create_native_integration(self.valid_config, self.team.id, self.user)
+        integration = EmailIntegration.create_native_integration(
+            {**self.valid_config, "provider": "ses"},
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            created_by=self.user,
+        )
         email_integration = EmailIntegration(integration)
         verification_result = email_integration.verify()
 
         assert verification_result == expected_result
 
-        mock_client.verify_email_domain.assert_called_once_with("posthog.com")
+        mock_client.verify_email_domain.assert_called_once_with(
+            "posthog.com", mail_from_subdomain="feedback", team_id=self.team.id
+        )
 
         integration.refresh_from_db()
         assert integration.config == {
             "email": self.valid_config["email"],
             "name": self.valid_config["name"],
             "domain": "posthog.com",
+            "mail_from_subdomain": "feedback",
             "verified": True,
-            "provider": "mailjet",
+            "provider": "ses",
         }
 
-    @patch("posthog.models.integration.MailjetProvider")
-    def test_email_verify_updates_all_other_integrations_with_same_domain(self, mock_mailjet_provider_class, settings):
-        settings.MAILJET_PUBLIC_KEY = "test_api_key"
-        settings.MAILJET_SECRET_KEY = "test_secret_key"
+    @patch("posthog.models.integration.SESProvider")
+    def test_email_verify_updates_all_other_integrations_with_same_domain(self, mock_ses_provider_class, settings):
+        settings.SES_ACCESS_KEY_ID = "test_access_key"
+        settings.SES_SECRET_ACCESS_KEY = "test_secret_key"
 
         mock_client = MagicMock()
-        mock_mailjet_provider_class.return_value = mock_client
+        mock_ses_provider_class.return_value = mock_client
         # Mock the verify_email_domain method to return a test result
         expected_result = {
             "status": "success",
-            "dnsRecords": [
-                {
-                    "type": "dkim",
-                    "recordType": "TXT",
-                    "recordHostname": "mailjet._domainkey.example.com",
-                    "recordValue": "v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBA...",
-                    "status": "success",
-                },
-                {
-                    "type": "spf",
-                    "recordType": "TXT",
-                    "recordHostname": "@",
-                    "recordValue": "v=spf1 include:spf.mailjet.com ~all",
-                    "status": "success",
-                },
-            ],
+            "dnsRecords": [],
         }
         mock_client.verify_email_domain.return_value = expected_result
 
-        integration1 = EmailIntegration.create_native_integration(self.valid_config, self.team.id, self.user)
-        integration2 = EmailIntegration.create_native_integration(self.valid_config, self.team.id, self.user)
+        integration1 = EmailIntegration.create_native_integration(
+            {**self.valid_config, "provider": "ses"},
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            created_by=self.user,
+        )
+        integration2 = EmailIntegration.create_native_integration(
+            {**self.valid_config, "provider": "ses"},
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            created_by=self.user,
+        )
         integrationOtherDomain = EmailIntegration.create_native_integration(
             {
                 "email": "me@otherdomain.com",
                 "name": "Me",
+                "mail_from_subdomain": "feedback",
+                "provider": "ses",
             },
-            self.team.id,
-            self.user,
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            created_by=self.user,
         )
 
         assert not integration1.config["verified"]
@@ -388,7 +403,9 @@ class TestDatabricksIntegration:
     def setup_integration(self, db):
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
-        self.user = User.objects.create_and_join(self.organization, "test@posthog.com", "test")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
 
     @patch("posthog.models.integration.socket.socket")
     def test_integration_from_config_with_valid_config(
@@ -587,7 +604,10 @@ class TestIntegrationAPIKeyAccess:
 
     @patch("posthog.models.integration.GitHubIntegration.list_repositories")
     def test_github_repos_with_scope_succeeds(self, mock_list_repos, client: HttpClient):
-        mock_list_repos.return_value = ["repo1", "repo2"]
+        mock_list_repos.return_value = [
+            {"id": 1, "name": "repo1", "full_name": "org/repo1"},
+            {"id": 2, "name": "repo2", "full_name": "org/repo2"},
+        ]
 
         key_value = "test_key_123"
         PersonalAPIKey.objects.create(
@@ -603,7 +623,10 @@ class TestIntegrationAPIKeyAccess:
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["repositories"] == ["repo1", "repo2"]
+        repos = response.json()["repositories"]
+        assert len(repos) == 2
+        assert repos[0]["name"] == "repo1"
+        assert repos[1]["name"] == "repo2"
 
     def test_github_repos_without_scope_fails(self, client: HttpClient):
         key_value = "test_key_123"
@@ -669,3 +692,132 @@ class TestIntegrationAPIKeyAccess:
         kinds = [integration["kind"] for integration in results]
         assert "github" in kinds
         assert "twilio" in kinds
+
+
+class TestGitHubIntegrationStateValidation:
+    @pytest.fixture(autouse=True)
+    def setup_environment(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_create_github_integration_without_state_rejected(self, mock_from_install, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations/",
+            {"kind": "github", "config": {"installation_id": "12345"}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "state token must be provided" in response.json()["detail"]
+        mock_from_install.assert_not_called()
+
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_create_github_integration_with_invalid_state_rejected(self, mock_from_install, client: HttpClient):
+        client.force_login(self.user)
+        cache.set(f"github_state:{self.user.id}", "correct-token", timeout=300)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations/",
+            {"kind": "github", "config": {"installation_id": "12345", "state": "wrong-token"}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Invalid or expired state token" in response.json()["detail"]
+        mock_from_install.assert_not_called()
+
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_create_github_integration_with_expired_state_rejected(self, mock_from_install, client: HttpClient):
+        client.force_login(self.user)
+        # No token in cache = expired
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations/",
+            {"kind": "github", "config": {"installation_id": "12345", "state": "some-token"}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Invalid or expired state token" in response.json()["detail"]
+        mock_from_install.assert_not_called()
+
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_create_github_integration_with_valid_state_succeeds(self, mock_from_install, client: HttpClient):
+        client.force_login(self.user)
+        state_token = "valid-token-abc123"
+        cache.set(f"github_state:{self.user.id}", state_token, timeout=300)
+
+        mock_integration = Integration(
+            id=1,
+            team=self.team,
+            kind="github",
+            config={"installation_id": "12345"},
+        )
+        mock_from_install.return_value = mock_integration
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations/",
+            {"kind": "github", "config": {"installation_id": "12345", "state": state_token}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        mock_from_install.assert_called_once_with("12345", self.team.pk, self.user)
+        # Token consumed — cannot be reused
+        assert cache.get(f"github_state:{self.user.id}") is None
+
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_create_github_integration_state_token_single_use(self, mock_from_install, client: HttpClient):
+        client.force_login(self.user)
+        state_token = "single-use-token"
+        cache.set(f"github_state:{self.user.id}", state_token, timeout=300)
+
+        mock_integration = Integration(
+            id=1,
+            team=self.team,
+            kind="github",
+            config={"installation_id": "12345"},
+        )
+        mock_from_install.return_value = mock_integration
+
+        # First request succeeds
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations/",
+            {"kind": "github", "config": {"installation_id": "12345", "state": state_token}},
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        # Second request with same token fails
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations/",
+            {"kind": "github", "config": {"installation_id": "12345", "state": state_token}},
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Invalid or expired state token" in response.json()["detail"]
+
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_create_github_integration_cross_user_state_rejected(self, mock_from_install, client: HttpClient):
+        other_user = User.objects.create_and_join(
+            self.organization, "attacker@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+        client.force_login(other_user)
+        # Token belongs to self.user, not other_user
+        cache.set(f"github_state:{self.user.id}", "victim-token", timeout=300)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations/",
+            {"kind": "github", "config": {"installation_id": "12345", "state": "victim-token"}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Invalid or expired state token" in response.json()["detail"]
+        mock_from_install.assert_not_called()

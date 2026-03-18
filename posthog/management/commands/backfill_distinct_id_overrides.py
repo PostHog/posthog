@@ -58,6 +58,7 @@ class Backfill:
             # needs to be iterated over to force execution, so we might as well
             # return something...
             updated_teams = list(
+                # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized, admin-only management command)
                 Team.objects.raw(
                     """
                     UPDATE posthog_team

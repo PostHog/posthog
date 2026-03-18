@@ -90,6 +90,53 @@ export const MultipleSelectWithCustom: Story = {
     },
 }
 
+export const Autocomplete: Story = {
+    args: {
+        placeholder: 'Enter a new URL or select existing (Single Select With Custom)',
+        mode: 'single',
+        allowCustomValues: true,
+        formatCreateLabel: (input) => (
+            <>
+                {input} <i>(new entry)</i>
+            </>
+        ),
+        options: [
+            {
+                key: 'http://posthog.com/docs',
+                label: 'http://posthog.com/docs',
+            },
+            {
+                key: 'http://posthog.com/pricing',
+                label: 'http://posthog.com/pricing',
+            },
+            {
+                key: 'http://posthog.com/products',
+                label: 'http://posthog.com/products',
+            },
+        ],
+    },
+}
+
+export const WithInputNormalization: Story = {
+    args: {
+        placeholder: 'Enter a URL (spaces to dashes, lowercase)',
+        mode: 'single',
+        allowCustomValues: true,
+        inputTransform: (input) => input.toLowerCase().replace(/\s+/g, '-'),
+        formatCreateLabel: (input) => (
+            <>
+                {input} <i>(new entry)</i>
+            </>
+        ),
+        options: [
+            {
+                key: 'http://posthog.com/docs',
+                label: 'http://posthog.com/docs',
+            },
+        ],
+    },
+}
+
 export const Disabled: Story = {
     args: {
         mode: 'single',
@@ -194,6 +241,34 @@ export const CountModeWithSelectClear: Story = {
         displayMode: 'count',
         bulkActions: 'select-and-clear-all',
         value: names.slice(0, 5).map((_, i) => `user-${i}`),
+    },
+}
+
+export const SnacksModeWithSortable: Story = {
+    args: {
+        mode: 'multiple',
+        displayMode: 'snacks',
+        value: names.slice(0, 5).map((_, i) => `user-${i}`),
+        sortable: true,
+    },
+}
+
+export const PrefilledSingleValue: Story = {
+    args: {
+        mode: 'single',
+        allowCustomValues: true,
+        placeholder: 'Pick one email',
+        value: ['user-0'],
+    },
+}
+
+export const PrefilledSingleValueAsSnack: Story = {
+    args: {
+        mode: 'single',
+        singleValueAsSnack: true,
+        allowCustomValues: true,
+        placeholder: 'Pick one email',
+        value: ['user-0'],
     },
 }
 

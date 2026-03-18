@@ -71,13 +71,19 @@ export const getMetric = (
         ?.filter((result) => result.action.custom_name === metric) // Filter to the right metric
         .find((result) => result.action.math === percentile)?.data // Get the right percentile // Get the actual data array
 
-    // If CLS, just return last value, it can be 0
+    if (!data || data.length === 0) {
+        return undefined
+    }
+
+    // If CLS, return last value only if there's any non-zero data
+    // (CLS can legitimately be 0, but if ALL values are 0, there's no data)
     if (metric === 'CLS') {
-        return data?.slice(-1)[0]
+        const hasAnyData = data.some((value) => value !== 0)
+        return hasAnyData ? data.slice(-1)[0] : undefined
     }
 
     // Else, return the last non-0 value
-    return data?.filter((value) => value !== 0).slice(-1)[0] // Get the last non-0 value
+    return data.filter((value) => value !== 0).slice(-1)[0] // Get the last non-0 value
 }
 
 export const getMetricBand = (value: number | undefined, metric: WebVitalsMetric): WebVitalsMetricBand | 'none' => {

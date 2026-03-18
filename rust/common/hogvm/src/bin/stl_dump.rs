@@ -1,6 +1,7 @@
 use hogvm::hog_stl;
 
 pub fn main() {
+    // nosemgrep: rust.lang.security.args.args
     let output_file = std::env::args()
         .next_back()
         .expect("Usage: stl_dump <output_file>");

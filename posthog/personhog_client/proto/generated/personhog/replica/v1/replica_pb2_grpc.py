@@ -1,0 +1,1001 @@
+"""Client and server classes corresponding to protobuf-defined services."""
+
+import grpc
+
+from ....personhog.types.v1 import (
+    cohort_pb2 as personhog_dot_types_dot_v1_dot_cohort__pb2,
+    feature_flag_pb2 as personhog_dot_types_dot_v1_dot_feature__flag__pb2,
+    group_pb2 as personhog_dot_types_dot_v1_dot_group__pb2,
+    person_pb2 as personhog_dot_types_dot_v1_dot_person__pb2,
+)
+
+GRPC_GENERATED_VERSION = "1.71.2"
+GRPC_VERSION = grpc.__version__
+_version_not_supported = False
+try:
+    from grpc._utilities import first_version_is_lower
+
+    _version_not_supported = first_version_is_lower(GRPC_VERSION, GRPC_GENERATED_VERSION)
+except ImportError:
+    _version_not_supported = True
+if _version_not_supported:
+    raise RuntimeError(
+        f"The grpc package installed is at version {GRPC_VERSION},"
+        + f" but the generated code in personhog/replica/v1/replica_pb2_grpc.py depends on"
+        + f" grpcio>={GRPC_GENERATED_VERSION}."
+        + f" Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}"
+        + f" or downgrade your generated code using grpcio-tools<={GRPC_VERSION}."
+    )
+
+
+class PersonHogReplicaStub:
+    """PersonHogReplica is the internal read API exposed by replica pods.
+    The router calls this service after determining which replica owns the vnode.
+    """
+
+    def __init__(self, channel):
+        """Constructor.
+
+        Args:
+            channel: A grpc.Channel.
+        """
+        self.GetPerson = channel.unary_unary(
+            "/personhog.replica.v1.PersonHogReplica/GetPerson",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.GetPersonRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.GetPersonResponse.FromString,
+            _registered_method=True,
+        )
+        self.GetPersons = channel.unary_unary(
+            "/personhog.replica.v1.PersonHogReplica/GetPersons",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.GetPersonsRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.PersonsResponse.FromString,
+            _registered_method=True,
+        )
+        self.GetPersonByUuid = channel.unary_unary(
+            "/personhog.replica.v1.PersonHogReplica/GetPersonByUuid",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.GetPersonByUuidRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.GetPersonResponse.FromString,
+            _registered_method=True,
+        )
+        self.GetPersonsByUuids = channel.unary_unary(
+            "/personhog.replica.v1.PersonHogReplica/GetPersonsByUuids",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.GetPersonsByUuidsRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.PersonsResponse.FromString,
+            _registered_method=True,
+        )
+        self.GetPersonByDistinctId = channel.unary_unary(
+            "/personhog.replica.v1.PersonHogReplica/GetPersonByDistinctId",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.GetPersonByDistinctIdRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.GetPersonResponse.FromString,
+            _registered_method=True,
+        )
+        self.GetPersonsByDistinctIdsInTeam = channel.unary_unary(
+            "/personhog.replica.v1.PersonHogReplica/GetPersonsByDistinctIdsInTeam",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.GetPersonsByDistinctIdsInTeamRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.PersonsByDistinctIdsInTeamResponse.FromString,
+            _registered_method=True,
+        )
+        self.GetPersonsByDistinctIds = channel.unary_unary(
+            "/personhog.replica.v1.PersonHogReplica/GetPersonsByDistinctIds",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.GetPersonsByDistinctIdsRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.PersonsByDistinctIdsResponse.FromString,
+            _registered_method=True,
+        )
+        self.GetDistinctIdsForPerson = channel.unary_unary(
+            "/personhog.replica.v1.PersonHogReplica/GetDistinctIdsForPerson",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.GetDistinctIdsForPersonRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.GetDistinctIdsForPersonResponse.FromString,
+            _registered_method=True,
+        )
+        self.GetDistinctIdsForPersons = channel.unary_unary(
+            "/personhog.replica.v1.PersonHogReplica/GetDistinctIdsForPersons",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.GetDistinctIdsForPersonsRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.GetDistinctIdsForPersonsResponse.FromString,
+            _registered_method=True,
+        )
+        self.GetHashKeyOverrideContext = channel.unary_unary(
+            "/personhog.replica.v1.PersonHogReplica/GetHashKeyOverrideContext",
+            request_serializer=personhog_dot_types_dot_v1_dot_feature__flag__pb2.GetHashKeyOverrideContextRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_feature__flag__pb2.GetHashKeyOverrideContextResponse.FromString,
+            _registered_method=True,
+        )
+        self.UpsertHashKeyOverrides = channel.unary_unary(
+            "/personhog.replica.v1.PersonHogReplica/UpsertHashKeyOverrides",
+            request_serializer=personhog_dot_types_dot_v1_dot_feature__flag__pb2.UpsertHashKeyOverridesRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_feature__flag__pb2.UpsertHashKeyOverridesResponse.FromString,
+            _registered_method=True,
+        )
+        self.DeleteHashKeyOverridesByTeams = channel.unary_unary(
+            "/personhog.replica.v1.PersonHogReplica/DeleteHashKeyOverridesByTeams",
+            request_serializer=personhog_dot_types_dot_v1_dot_feature__flag__pb2.DeleteHashKeyOverridesByTeamsRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_feature__flag__pb2.DeleteHashKeyOverridesByTeamsResponse.FromString,
+            _registered_method=True,
+        )
+        self.CheckCohortMembership = channel.unary_unary(
+            "/personhog.replica.v1.PersonHogReplica/CheckCohortMembership",
+            request_serializer=personhog_dot_types_dot_v1_dot_cohort__pb2.CheckCohortMembershipRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_cohort__pb2.CohortMembershipResponse.FromString,
+            _registered_method=True,
+        )
+        self.GetGroup = channel.unary_unary(
+            "/personhog.replica.v1.PersonHogReplica/GetGroup",
+            request_serializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupResponse.FromString,
+            _registered_method=True,
+        )
+        self.GetGroups = channel.unary_unary(
+            "/personhog.replica.v1.PersonHogReplica/GetGroups",
+            request_serializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupsRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.GroupsResponse.FromString,
+            _registered_method=True,
+        )
+        self.GetGroupsBatch = channel.unary_unary(
+            "/personhog.replica.v1.PersonHogReplica/GetGroupsBatch",
+            request_serializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupsBatchRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupsBatchResponse.FromString,
+            _registered_method=True,
+        )
+        self.GetGroupTypeMappingsByTeamId = channel.unary_unary(
+            "/personhog.replica.v1.PersonHogReplica/GetGroupTypeMappingsByTeamId",
+            request_serializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupTypeMappingsByTeamIdRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.GroupTypeMappingsResponse.FromString,
+            _registered_method=True,
+        )
+        self.GetGroupTypeMappingsByTeamIds = channel.unary_unary(
+            "/personhog.replica.v1.PersonHogReplica/GetGroupTypeMappingsByTeamIds",
+            request_serializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupTypeMappingsByTeamIdsRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.GroupTypeMappingsBatchResponse.FromString,
+            _registered_method=True,
+        )
+        self.GetGroupTypeMappingsByProjectId = channel.unary_unary(
+            "/personhog.replica.v1.PersonHogReplica/GetGroupTypeMappingsByProjectId",
+            request_serializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupTypeMappingsByProjectIdRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.GroupTypeMappingsResponse.FromString,
+            _registered_method=True,
+        )
+        self.GetGroupTypeMappingsByProjectIds = channel.unary_unary(
+            "/personhog.replica.v1.PersonHogReplica/GetGroupTypeMappingsByProjectIds",
+            request_serializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupTypeMappingsByProjectIdsRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.GroupTypeMappingsBatchResponse.FromString,
+            _registered_method=True,
+        )
+
+
+class PersonHogReplicaServicer:
+    """PersonHogReplica is the internal read API exposed by replica pods.
+    The router calls this service after determining which replica owns the vnode.
+    """
+
+    def GetPerson(self, request, context):
+        """Person lookups"""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def GetPersons(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def GetPersonByUuid(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def GetPersonsByUuids(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def GetPersonByDistinctId(self, request, context):
+        """Person lookups by distinct ID"""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def GetPersonsByDistinctIdsInTeam(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def GetPersonsByDistinctIds(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def GetDistinctIdsForPerson(self, request, context):
+        """Distinct ID operations"""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def GetDistinctIdsForPersons(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def GetHashKeyOverrideContext(self, request, context):
+        """Feature flag hash key override support"""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def UpsertHashKeyOverrides(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def DeleteHashKeyOverridesByTeams(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def CheckCohortMembership(self, request, context):
+        """Cohort membership"""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def GetGroup(self, request, context):
+        """Groups"""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def GetGroups(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def GetGroupsBatch(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def GetGroupTypeMappingsByTeamId(self, request, context):
+        """Group type mappings"""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def GetGroupTypeMappingsByTeamIds(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def GetGroupTypeMappingsByProjectId(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def GetGroupTypeMappingsByProjectIds(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+
+def add_PersonHogReplicaServicer_to_server(servicer, server):
+    rpc_method_handlers = {
+        "GetPerson": grpc.unary_unary_rpc_method_handler(
+            servicer.GetPerson,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.GetPersonRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.GetPersonResponse.SerializeToString,
+        ),
+        "GetPersons": grpc.unary_unary_rpc_method_handler(
+            servicer.GetPersons,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.GetPersonsRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.PersonsResponse.SerializeToString,
+        ),
+        "GetPersonByUuid": grpc.unary_unary_rpc_method_handler(
+            servicer.GetPersonByUuid,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.GetPersonByUuidRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.GetPersonResponse.SerializeToString,
+        ),
+        "GetPersonsByUuids": grpc.unary_unary_rpc_method_handler(
+            servicer.GetPersonsByUuids,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.GetPersonsByUuidsRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.PersonsResponse.SerializeToString,
+        ),
+        "GetPersonByDistinctId": grpc.unary_unary_rpc_method_handler(
+            servicer.GetPersonByDistinctId,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.GetPersonByDistinctIdRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.GetPersonResponse.SerializeToString,
+        ),
+        "GetPersonsByDistinctIdsInTeam": grpc.unary_unary_rpc_method_handler(
+            servicer.GetPersonsByDistinctIdsInTeam,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.GetPersonsByDistinctIdsInTeamRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.PersonsByDistinctIdsInTeamResponse.SerializeToString,
+        ),
+        "GetPersonsByDistinctIds": grpc.unary_unary_rpc_method_handler(
+            servicer.GetPersonsByDistinctIds,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.GetPersonsByDistinctIdsRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.PersonsByDistinctIdsResponse.SerializeToString,
+        ),
+        "GetDistinctIdsForPerson": grpc.unary_unary_rpc_method_handler(
+            servicer.GetDistinctIdsForPerson,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.GetDistinctIdsForPersonRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.GetDistinctIdsForPersonResponse.SerializeToString,
+        ),
+        "GetDistinctIdsForPersons": grpc.unary_unary_rpc_method_handler(
+            servicer.GetDistinctIdsForPersons,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.GetDistinctIdsForPersonsRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.GetDistinctIdsForPersonsResponse.SerializeToString,
+        ),
+        "GetHashKeyOverrideContext": grpc.unary_unary_rpc_method_handler(
+            servicer.GetHashKeyOverrideContext,
+            request_deserializer=personhog_dot_types_dot_v1_dot_feature__flag__pb2.GetHashKeyOverrideContextRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_feature__flag__pb2.GetHashKeyOverrideContextResponse.SerializeToString,
+        ),
+        "UpsertHashKeyOverrides": grpc.unary_unary_rpc_method_handler(
+            servicer.UpsertHashKeyOverrides,
+            request_deserializer=personhog_dot_types_dot_v1_dot_feature__flag__pb2.UpsertHashKeyOverridesRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_feature__flag__pb2.UpsertHashKeyOverridesResponse.SerializeToString,
+        ),
+        "DeleteHashKeyOverridesByTeams": grpc.unary_unary_rpc_method_handler(
+            servicer.DeleteHashKeyOverridesByTeams,
+            request_deserializer=personhog_dot_types_dot_v1_dot_feature__flag__pb2.DeleteHashKeyOverridesByTeamsRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_feature__flag__pb2.DeleteHashKeyOverridesByTeamsResponse.SerializeToString,
+        ),
+        "CheckCohortMembership": grpc.unary_unary_rpc_method_handler(
+            servicer.CheckCohortMembership,
+            request_deserializer=personhog_dot_types_dot_v1_dot_cohort__pb2.CheckCohortMembershipRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_cohort__pb2.CohortMembershipResponse.SerializeToString,
+        ),
+        "GetGroup": grpc.unary_unary_rpc_method_handler(
+            servicer.GetGroup,
+            request_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupResponse.SerializeToString,
+        ),
+        "GetGroups": grpc.unary_unary_rpc_method_handler(
+            servicer.GetGroups,
+            request_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupsRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_group__pb2.GroupsResponse.SerializeToString,
+        ),
+        "GetGroupsBatch": grpc.unary_unary_rpc_method_handler(
+            servicer.GetGroupsBatch,
+            request_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupsBatchRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupsBatchResponse.SerializeToString,
+        ),
+        "GetGroupTypeMappingsByTeamId": grpc.unary_unary_rpc_method_handler(
+            servicer.GetGroupTypeMappingsByTeamId,
+            request_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupTypeMappingsByTeamIdRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_group__pb2.GroupTypeMappingsResponse.SerializeToString,
+        ),
+        "GetGroupTypeMappingsByTeamIds": grpc.unary_unary_rpc_method_handler(
+            servicer.GetGroupTypeMappingsByTeamIds,
+            request_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupTypeMappingsByTeamIdsRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_group__pb2.GroupTypeMappingsBatchResponse.SerializeToString,
+        ),
+        "GetGroupTypeMappingsByProjectId": grpc.unary_unary_rpc_method_handler(
+            servicer.GetGroupTypeMappingsByProjectId,
+            request_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupTypeMappingsByProjectIdRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_group__pb2.GroupTypeMappingsResponse.SerializeToString,
+        ),
+        "GetGroupTypeMappingsByProjectIds": grpc.unary_unary_rpc_method_handler(
+            servicer.GetGroupTypeMappingsByProjectIds,
+            request_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupTypeMappingsByProjectIdsRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_group__pb2.GroupTypeMappingsBatchResponse.SerializeToString,
+        ),
+    }
+    generic_handler = grpc.method_handlers_generic_handler("personhog.replica.v1.PersonHogReplica", rpc_method_handlers)
+    server.add_generic_rpc_handlers((generic_handler,))
+    server.add_registered_method_handlers("personhog.replica.v1.PersonHogReplica", rpc_method_handlers)
+
+
+class PersonHogReplica:
+    """PersonHogReplica is the internal read API exposed by replica pods.
+    The router calls this service after determining which replica owns the vnode.
+    """
+
+    @staticmethod
+    def GetPerson(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.replica.v1.PersonHogReplica/GetPerson",
+            personhog_dot_types_dot_v1_dot_person__pb2.GetPersonRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.GetPersonResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def GetPersons(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.replica.v1.PersonHogReplica/GetPersons",
+            personhog_dot_types_dot_v1_dot_person__pb2.GetPersonsRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.PersonsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def GetPersonByUuid(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.replica.v1.PersonHogReplica/GetPersonByUuid",
+            personhog_dot_types_dot_v1_dot_person__pb2.GetPersonByUuidRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.GetPersonResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def GetPersonsByUuids(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.replica.v1.PersonHogReplica/GetPersonsByUuids",
+            personhog_dot_types_dot_v1_dot_person__pb2.GetPersonsByUuidsRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.PersonsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def GetPersonByDistinctId(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.replica.v1.PersonHogReplica/GetPersonByDistinctId",
+            personhog_dot_types_dot_v1_dot_person__pb2.GetPersonByDistinctIdRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.GetPersonResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def GetPersonsByDistinctIdsInTeam(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.replica.v1.PersonHogReplica/GetPersonsByDistinctIdsInTeam",
+            personhog_dot_types_dot_v1_dot_person__pb2.GetPersonsByDistinctIdsInTeamRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.PersonsByDistinctIdsInTeamResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def GetPersonsByDistinctIds(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.replica.v1.PersonHogReplica/GetPersonsByDistinctIds",
+            personhog_dot_types_dot_v1_dot_person__pb2.GetPersonsByDistinctIdsRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.PersonsByDistinctIdsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def GetDistinctIdsForPerson(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.replica.v1.PersonHogReplica/GetDistinctIdsForPerson",
+            personhog_dot_types_dot_v1_dot_person__pb2.GetDistinctIdsForPersonRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.GetDistinctIdsForPersonResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def GetDistinctIdsForPersons(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.replica.v1.PersonHogReplica/GetDistinctIdsForPersons",
+            personhog_dot_types_dot_v1_dot_person__pb2.GetDistinctIdsForPersonsRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.GetDistinctIdsForPersonsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def GetHashKeyOverrideContext(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.replica.v1.PersonHogReplica/GetHashKeyOverrideContext",
+            personhog_dot_types_dot_v1_dot_feature__flag__pb2.GetHashKeyOverrideContextRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_feature__flag__pb2.GetHashKeyOverrideContextResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def UpsertHashKeyOverrides(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.replica.v1.PersonHogReplica/UpsertHashKeyOverrides",
+            personhog_dot_types_dot_v1_dot_feature__flag__pb2.UpsertHashKeyOverridesRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_feature__flag__pb2.UpsertHashKeyOverridesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def DeleteHashKeyOverridesByTeams(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.replica.v1.PersonHogReplica/DeleteHashKeyOverridesByTeams",
+            personhog_dot_types_dot_v1_dot_feature__flag__pb2.DeleteHashKeyOverridesByTeamsRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_feature__flag__pb2.DeleteHashKeyOverridesByTeamsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def CheckCohortMembership(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.replica.v1.PersonHogReplica/CheckCohortMembership",
+            personhog_dot_types_dot_v1_dot_cohort__pb2.CheckCohortMembershipRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_cohort__pb2.CohortMembershipResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def GetGroup(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.replica.v1.PersonHogReplica/GetGroup",
+            personhog_dot_types_dot_v1_dot_group__pb2.GetGroupRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_group__pb2.GetGroupResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def GetGroups(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.replica.v1.PersonHogReplica/GetGroups",
+            personhog_dot_types_dot_v1_dot_group__pb2.GetGroupsRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_group__pb2.GroupsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def GetGroupsBatch(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.replica.v1.PersonHogReplica/GetGroupsBatch",
+            personhog_dot_types_dot_v1_dot_group__pb2.GetGroupsBatchRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_group__pb2.GetGroupsBatchResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def GetGroupTypeMappingsByTeamId(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.replica.v1.PersonHogReplica/GetGroupTypeMappingsByTeamId",
+            personhog_dot_types_dot_v1_dot_group__pb2.GetGroupTypeMappingsByTeamIdRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_group__pb2.GroupTypeMappingsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def GetGroupTypeMappingsByTeamIds(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.replica.v1.PersonHogReplica/GetGroupTypeMappingsByTeamIds",
+            personhog_dot_types_dot_v1_dot_group__pb2.GetGroupTypeMappingsByTeamIdsRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_group__pb2.GroupTypeMappingsBatchResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def GetGroupTypeMappingsByProjectId(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.replica.v1.PersonHogReplica/GetGroupTypeMappingsByProjectId",
+            personhog_dot_types_dot_v1_dot_group__pb2.GetGroupTypeMappingsByProjectIdRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_group__pb2.GroupTypeMappingsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def GetGroupTypeMappingsByProjectIds(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.replica.v1.PersonHogReplica/GetGroupTypeMappingsByProjectIds",
+            personhog_dot_types_dot_v1_dot_group__pb2.GetGroupTypeMappingsByProjectIdsRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_group__pb2.GroupTypeMappingsBatchResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )

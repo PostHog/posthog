@@ -3,21 +3,23 @@ import { useActions, useValues } from 'kea'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
+import { DashboardsTableContainer } from 'scenes/dashboard/dashboards/DashboardsTable'
+import { DashboardTemplatesTable } from 'scenes/dashboard/dashboards/templates/DashboardTemplatesTable'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
-import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
-import { DashboardsTableContainer } from 'scenes/dashboard/dashboards/DashboardsTable'
-import { DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
-import { DashboardTemplatesTable } from 'scenes/dashboard/dashboards/templates/DashboardTemplatesTable'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { DashboardTemplateChooser } from '../DashboardTemplateChooser'
@@ -25,7 +27,7 @@ import { DashboardTemplateChooser } from '../DashboardTemplateChooser'
 export const scene: SceneExport = {
     component: Dashboards,
     logic: dashboardsLogic,
-    settingSectionId: 'environment-product-analytics',
+    productKey: ProductKey.PRODUCT_ANALYTICS,
 }
 
 export function Dashboards(): JSX.Element {
@@ -65,19 +67,26 @@ export function Dashboards(): JSX.Element {
                             resourceType={AccessControlResourceType.Dashboard}
                             minAccessLevel={AccessControlLevel.Editor}
                         >
-                            <LemonButton
-                                size="small"
-                                data-attr="new-dashboard"
-                                onClick={showNewDashboardModal}
-                                type="primary"
+                            <AppShortcut
+                                name="NewDashboard"
+                                keybind={[keyBinds.new]}
+                                intent="New dashboard"
+                                interaction="click"
+                                scope={Scene.Dashboards}
                             >
-                                New dashboard
-                            </LemonButton>
+                                <LemonButton
+                                    size="small"
+                                    data-attr="new-dashboard"
+                                    onClick={showNewDashboardModal}
+                                    type="primary"
+                                >
+                                    New dashboard
+                                </LemonButton>
+                            </AppShortcut>
                         </AccessControlAction>
                     </>
                 }
             />
-            <SceneDivider />
             <LemonTabs
                 activeKey={currentTab}
                 onChange={(newKey) => setCurrentTab(newKey)}

@@ -1,11 +1,10 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useFeatureFlagVariantKey } from 'posthog-js/react'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { TZLabel } from 'lib/components/TZLabel'
 import { isEventFilter } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -15,10 +14,10 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { cn } from 'lib/utils/css-classes'
 import { GroupLogicProps, groupLogic } from 'scenes/groups/groupLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
+import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { RelatedFeatureFlags } from 'scenes/persons/RelatedFeatureFlags'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
@@ -36,16 +35,19 @@ import {
     ActivityScope,
     FilterLogicalOperator,
     GroupsTabType,
-    Group as IGroup,
     PersonsTabType,
     PropertyDefinitionType,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
 
+import { GroupProfileCanvas } from 'products/customer_analytics/frontend/components/GroupProfileCanvas'
+
+import { GroupDashboardCard } from './cards/GroupDashboardCard'
+import { GroupNotebookCard } from './cards/GroupNotebookCard'
+import { GroupCaption } from './components/GroupCaption'
 import { GroupOverview } from './GroupOverview'
 import { RelatedGroups } from './RelatedGroups'
-import { GroupNotebookCard } from './cards/GroupNotebookCard'
 
 export const scene: SceneExport<GroupLogicProps> = {
     component: Group,
@@ -56,49 +58,32 @@ export const scene: SceneExport<GroupLogicProps> = {
     }),
 }
 
-export function GroupCaption({ groupData, groupTypeName }: { groupData: IGroup; groupTypeName: string }): JSX.Element {
-    return (
-        <div className="flex items-center flex-wrap">
-            <div className="mr-4">
-                <span className="text-secondary">Type:</span> {groupTypeName}
-            </div>
-            <div className="mr-4">
-                <span className="text-secondary">Key:</span>{' '}
-                <CopyToClipboardInline
-                    tooltipMessage={null}
-                    description="group key"
-                    style={{ display: 'inline-flex', justifyContent: 'flex-end' }}
-                >
-                    {groupData.group_key}
-                </CopyToClipboardInline>
-            </div>
-            <div>
-                <span className="text-secondary">First seen:</span>{' '}
-                {groupData.created_at ? <TZLabel time={groupData.created_at} /> : 'unknown'}
-            </div>
-        </div>
-    )
-}
-
-export function Group(): JSX.Element {
+export function Group({ tabId }: { tabId?: string }): JSX.Element {
+    if (!tabId) {
+        throw new Error('GroupScene rendered with no tabId')
+    }
+    const mountedGroupLogic = useMountedLogic(groupLogic)
     const { logicProps, groupData, groupDataLoading, groupTypeName, groupType, groupTab, groupEventsQuery } =
-        useValues(groupLogic)
+        useValues(mountedGroupLogic)
     const { groupKey, groupTypeIndex } = logicProps
-    const { setGroupEventsQuery, editProperty, deleteProperty } = useActions(groupLogic)
+    const { setGroupEventsQuery, editProperty, deleteProperty } = useActions(mountedGroupLogic)
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { aggregationLabel } = useValues(groupsModel)
+    const groupProfileVariant = useFeatureFlagVariantKey(FEATURE_FLAGS.GROUP_PROFILE_EXPERIMENT)
+    const isProfileEnabled = groupProfileVariant === 'test'
+    const showProfile = featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] || isProfileEnabled
 
     if (!groupData || !groupType) {
         return groupDataLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="group" />
     }
 
-    const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
+    const activeTab = groupTab ?? (showProfile ? 'profile' : 'overview')
 
     return (
-        <SceneContent fullHeight>
+        <SceneContent>
             <SceneTitleSection
-                name={groupData.group_key}
+                name={groupDisplayId(groupData.group_key, groupData.group_properties)}
                 resourceType={{ type: 'group' }}
                 forceBackTo={{
                     name: capitalizeFirstLetter(aggregationLabel(groupTypeIndex).plural),
@@ -119,24 +104,34 @@ export function Group(): JSX.Element {
                     />
                 }
             />
-            <SceneDivider />
             <GroupCaption groupData={groupData} groupTypeName={groupTypeName} />
             <SceneDivider />
             <LemonTabs
                 sceneInset
-                activeKey={groupTab ?? 'overview'}
+                activeKey={activeTab}
                 onChange={(tab) => router.actions.push(urls.group(String(groupTypeIndex), groupKey, true, tab))}
-                contentClassName={cn({
-                    'flex flex-col grow': groupTab === PersonsTabType.SESSION_RECORDINGS,
-                })}
-                className="grow"
                 tabs={[
+                    ...(showProfile
+                        ? [
+                              {
+                                  key: GroupsTabType.PROFILE,
+                                  label: <span data-attr="groups-profile-tab">Profile</span>,
+                                  content: (
+                                      <GroupProfileCanvas
+                                          group={groupData}
+                                          tabId={tabId}
+                                          attachTo={mountedGroupLogic}
+                                      />
+                                  ),
+                              },
+                          ]
+                        : []),
                     {
                         key: GroupsTabType.OVERVIEW,
                         label: <span data-attr="groups-overview-tab">Overview</span>,
-                        content: <GroupOverview groupData={groupData} />,
+                        content: showProfile ? <GroupDashboardCard /> : <GroupOverview groupData={groupData} />,
                     },
-                    ...(featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE] && groupData.notebook
+                    ...(featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] && groupData.notebook
                         ? [
                               {
                                   key: GroupsTabType.NOTES,
@@ -180,63 +175,65 @@ export function Group(): JSX.Element {
                                 {!currentTeam?.session_recording_opt_in ? (
                                     <div className="mb-4">
                                         <LemonBanner type="info">
-                                            Session recordings are currently disabled for this {settingLevel}. To use
-                                            this feature, please go to your{' '}
+                                            Session recordings are currently disabled for this project. To use this
+                                            feature, please go to your{' '}
                                             <Link to={`${urls.settings('project')}#recordings`}>project settings</Link>{' '}
                                             and enable it.
                                         </LemonBanner>
                                     </div>
                                 ) : (
-                                    <SessionRecordingsPlaylist
-                                        logicKey={`groups-recordings-${groupKey}-${groupTypeIndex}`}
-                                        updateSearchParams
-                                        filters={{
-                                            duration: [
-                                                {
-                                                    type: PropertyFilterType.Recording,
-                                                    key: 'duration',
-                                                    value: 1,
-                                                    operator: PropertyOperator.GreaterThan,
-                                                },
-                                            ],
-                                            filter_group: {
-                                                type: FilterLogicalOperator.And,
-                                                values: [
+                                    <div className="SessionRecordingPlaylistHeightWrapper">
+                                        <SessionRecordingsPlaylist
+                                            logicKey={`groups-recordings-${groupKey}-${groupTypeIndex}`}
+                                            updateSearchParams
+                                            filters={{
+                                                duration: [
                                                     {
-                                                        type: FilterLogicalOperator.And,
-                                                        values: [
-                                                            {
-                                                                type: 'events',
-                                                                name: 'All events',
-                                                                properties: [
-                                                                    {
-                                                                        key: `$group_${groupTypeIndex} = '${groupKey}'`,
-                                                                        type: 'hogql',
-                                                                    },
-                                                                ],
-                                                            } as ActionFilter,
-                                                        ],
+                                                        type: PropertyFilterType.Recording,
+                                                        key: 'duration',
+                                                        value: 1,
+                                                        operator: PropertyOperator.GreaterThan,
                                                     },
                                                 ],
-                                            },
-                                        }}
-                                        onFiltersChange={(filters) => {
-                                            const eventFilters =
-                                                filtersFromUniversalFilterGroups(filters).filter(isEventFilter)
+                                                filter_group: {
+                                                    type: FilterLogicalOperator.And,
+                                                    values: [
+                                                        {
+                                                            type: FilterLogicalOperator.And,
+                                                            values: [
+                                                                {
+                                                                    type: 'events',
+                                                                    name: 'All events',
+                                                                    properties: [
+                                                                        {
+                                                                            key: `$group_${groupTypeIndex} = '${groupKey}'`,
+                                                                            type: 'hogql',
+                                                                        },
+                                                                    ],
+                                                                } as ActionFilter,
+                                                            ],
+                                                        },
+                                                    ],
+                                                },
+                                            }}
+                                            onFiltersChange={(filters) => {
+                                                const eventFilters =
+                                                    filtersFromUniversalFilterGroups(filters).filter(isEventFilter)
 
-                                            const stillHasGroupFilter = eventFilters?.some((event) => {
-                                                return event.properties?.some(
-                                                    (prop: Record<string, any>) =>
-                                                        prop.key === `$group_${groupTypeIndex} = '${groupKey}'`
-                                                )
-                                            })
-                                            if (!stillHasGroupFilter) {
-                                                lemonToast.warning(
-                                                    'Group filter removed. Please add it back to see recordings for this group.'
-                                                )
-                                            }
-                                        }}
-                                    />
+                                                const stillHasGroupFilter = eventFilters?.some((event) => {
+                                                    return event.properties?.some(
+                                                        (prop: Record<string, any>) =>
+                                                            prop.key === `$group_${groupTypeIndex} = '${groupKey}'`
+                                                    )
+                                                })
+                                                if (!stillHasGroupFilter) {
+                                                    lemonToast.warning(
+                                                        'Group filter removed. Please add it back to see recordings for this group.'
+                                                    )
+                                                }
+                                            }}
+                                        />
+                                    </div>
                                 )}
                             </>
                         ),

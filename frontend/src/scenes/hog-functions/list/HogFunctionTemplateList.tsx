@@ -5,6 +5,10 @@ import { IconMegaphone, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { isManagedSourceTemplate } from 'scenes/data-warehouse/utils'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
 import { HogFunctionStatusTag } from '../misc/HogFunctionStatusTag'
@@ -53,7 +57,13 @@ export function HogFunctionTemplateList({
                         title: '',
                         width: 0,
                         render: function RenderIcon(_, template) {
-                            return <HogFunctionIcon src={template.icon_url} size="small" />
+                            return (
+                                <HogFunctionIcon
+                                    src={template.icon_url}
+                                    className={template.icon_class_name}
+                                    size="small"
+                                />
+                            )
                         },
                     },
                     {
@@ -63,9 +73,15 @@ export function HogFunctionTemplateList({
                         key: 'name',
                         dataIndex: 'name',
                         render: (_, template) => {
+                            const hasAccess =
+                                !isManagedSourceTemplate(template) ||
+                                !getAccessControlDisabledReason(
+                                    AccessControlResourceType.ExternalDataSource,
+                                    AccessControlLevel.Editor
+                                )
                             return (
                                 <LemonTableLink
-                                    to={urlForTemplate(template) ?? undefined}
+                                    to={hasAccess ? (urlForTemplate(template) ?? undefined) : undefined}
                                     title={
                                         <>
                                             {template.name}
@@ -81,6 +97,13 @@ export function HogFunctionTemplateList({
                     {
                         width: 0,
                         render: function Render(_, template) {
+                            const dataWarehouseSourceAccessDisabledReason =
+                                isManagedSourceTemplate(template) &&
+                                getAccessControlDisabledReason(
+                                    AccessControlResourceType.ExternalDataSource,
+                                    AccessControlLevel.Editor
+                                )
+
                             if (template.status === 'coming_soon') {
                                 return (
                                     <LemonButton
@@ -94,17 +117,20 @@ export function HogFunctionTemplateList({
                                     </LemonButton>
                                 )
                             }
-                            return (
+
+                            const button = (
                                 <LemonButton
                                     type="primary"
                                     data-attr="new-destination"
                                     icon={<IconPlusSmall />}
                                     to={urlForTemplate(template) ?? undefined}
                                     fullWidth
+                                    disabledReason={dataWarehouseSourceAccessDisabledReason ?? undefined}
                                 >
                                     Create
                                 </LemonButton>
                             )
+                            return button
                         },
                     },
                 ]}

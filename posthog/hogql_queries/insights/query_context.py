@@ -1,6 +1,6 @@
 from abc import ABC
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Protocol
 
 from posthog.schema import HogQLQueryModifiers
 
@@ -43,3 +43,7 @@ class QueryContext(ABC):
             modifiers=self.modifiers,
         )
         self.now = now or datetime.now()
+
+
+class QueryContextProtocol(Protocol):
+    context: QueryContext

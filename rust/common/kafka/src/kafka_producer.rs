@@ -1,6 +1,7 @@
-use crate::config::KafkaConfig;
+use std::sync::Arc;
 
-use health::HealthHandle;
+use crate::config::KafkaConfig;
+use common_liveness::SyncLivenessReporter;
 use rdkafka::error::KafkaError;
 use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
 use rdkafka::{ClientConfig, ClientContext};
@@ -10,28 +11,39 @@ use thiserror::Error;
 use tracing::{debug, error, info};
 
 pub struct KafkaContext {
-    liveness: HealthHandle,
+    liveness: Arc<dyn SyncLivenessReporter>,
 }
 
-impl From<HealthHandle> for KafkaContext {
-    fn from(value: HealthHandle) -> Self {
-        KafkaContext { liveness: value }
+impl KafkaContext {
+    pub fn new(liveness: impl SyncLivenessReporter + Clone + 'static) -> Self {
+        Self {
+            liveness: Arc::new(liveness),
+        }
+    }
+}
+
+impl From<health::HealthHandle> for KafkaContext {
+    fn from(value: health::HealthHandle) -> Self {
+        Self::new(value)
     }
 }
 
 impl rdkafka::ClientContext for KafkaContext {
     fn stats(&self, _: rdkafka::Statistics) {
         // Signal liveness, as the main rdkafka loop is running and calling us
-        self.liveness.report_healthy_blocking();
+        self.liveness.report_healthy();
 
         // TODO: Take stats recording pieces that we want from `capture-rs`.
     }
 }
 
-pub async fn create_kafka_producer(
+pub async fn create_kafka_producer<L>(
     config: &KafkaConfig,
-    liveness: HealthHandle,
-) -> Result<FutureProducer<KafkaContext>, KafkaError> {
+    liveness: L,
+) -> Result<FutureProducer<KafkaContext>, KafkaError>
+where
+    L: SyncLivenessReporter + Clone + 'static,
+{
     let mut client_config = ClientConfig::new();
     client_config
         .set("bootstrap.servers", &config.kafka_hosts)
@@ -61,7 +73,8 @@ pub async fn create_kafka_producer(
     };
 
     debug!("rdkafka configuration: {:?}", client_config);
-    let api: FutureProducer<KafkaContext> = client_config.create_with_context(liveness.into())?;
+    let api: FutureProducer<KafkaContext> =
+        client_config.create_with_context(KafkaContext::new(liveness))?;
 
     // "Ping" the Kafka brokers by requesting metadata
     match api
@@ -113,11 +126,26 @@ pub async fn send_keyed_iter_to_kafka<T, C: ClientContext>(
 where
     T: Serialize,
 {
+    send_keyed_iter_to_kafka_with_headers(kafka_producer, topic, key_extractor, |_| None, iter)
+        .await
+}
+
+pub async fn send_keyed_iter_to_kafka_with_headers<T, C: ClientContext>(
+    kafka_producer: &FutureProducer<C>,
+    topic: &str,
+    key_extractor: impl Fn(&T) -> Option<String>,
+    headers_extractor: impl Fn(&T) -> Option<rdkafka::message::OwnedHeaders>,
+    iter: impl IntoIterator<Item = T>,
+) -> Vec<Result<(), KafkaProduceError>>
+where
+    T: Serialize,
+{
     let mut results = Vec::new();
     let mut handles = Vec::new();
 
     for (index, item) in iter.into_iter().enumerate() {
         let key = key_extractor(&item);
+        let headers = headers_extractor(&item);
         let payload = match serde_json::to_string(&item)
             .map_err(|e| KafkaProduceError::SerializationError { error: e })
         {
@@ -134,7 +162,7 @@ where
             payload: Some(&payload),
             timestamp: None,
             partition: None,
-            headers: None,
+            headers,
         };
 
         let future_handle = match kafka_producer.send_result(record) {

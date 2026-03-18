@@ -3,5 +3,97 @@
 
     z-index: var(--z-tooltip);
     color: var(--color-text-primary-inverse);
+}
+
+.Tooltip__popup {
     box-shadow: var(--modal-shadow-elevation);
+    opacity: 1;
+    transition:
+        opacity 100ms ease-out,
+        transform 100ms ease-out;
+    transform: translateY(0);
+
+    &[data-starting-style],
+    &[data-ending-style] {
+        opacity: 0;
+    }
+
+    &[data-starting-style][data-side='top'],
+    &[data-ending-style][data-side='top'] {
+        transform: translateY(3px);
+    }
+
+    &[data-starting-style][data-side='bottom'],
+    &[data-ending-style][data-side='bottom'] {
+        transform: translateY(-3px);
+    }
+
+    &[data-starting-style][data-side='left'],
+    &[data-ending-style][data-side='left'] {
+        transform: translateX(3px);
+    }
+
+    &[data-starting-style][data-side='right'],
+    &[data-ending-style][data-side='right'] {
+        transform: translateX(-3px);
+    }
+
+    &[data-ending-style] {
+        transition-duration: 50ms;
+    }
+}
+
+.Tooltip__arrow {
+    position: relative;
+
+    // Arrow dimensions matching the old FloatingArrow (width: 8, height: 4)
+    width: 8px;
+    height: 8px;
+
+    // Create the arrow shape using a rotated square
+    &::before {
+        position: absolute;
+        width: 8px;
+        height: 8px;
+        content: '';
+        background: var(--color-bg-surface-tooltip);
+        transform: rotate(45deg);
+    }
+
+    // Position the arrow relative to the tooltip
+    &[data-side='top'] {
+        bottom: 0;
+
+        &::before {
+            bottom: -4px;
+            left: 0;
+        }
+    }
+
+    &[data-side='bottom'] {
+        top: 0;
+
+        &::before {
+            top: -4px;
+            left: 0;
+        }
+    }
+
+    &[data-side='left'] {
+        right: 0;
+
+        &::before {
+            top: 0;
+            right: -4px;
+        }
+    }
+
+    &[data-side='right'] {
+        left: 0;
+
+        &::before {
+            top: 0;
+            left: -4px;
+        }
+    }
 }

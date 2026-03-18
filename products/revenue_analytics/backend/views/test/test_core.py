@@ -1,7 +1,6 @@
 import pytest
 
-from posthog.warehouse.models.external_data_source import ExternalDataSource
-
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.revenue_analytics.backend.views.core import view_prefix_for_event, view_prefix_for_source
 
 

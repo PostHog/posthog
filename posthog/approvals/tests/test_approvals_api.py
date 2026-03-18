@@ -1,0 +1,685 @@
+from datetime import timedelta
+
+from posthog.test.base import APIBaseTest
+from unittest.mock import patch
+
+from django.utils import timezone
+
+from parameterized import parameterized
+from rest_framework import status
+
+from posthog.approvals.models import (
+    Approval,
+    ApprovalDecision,
+    ApprovalPolicy,
+    ChangeRequest,
+    ChangeRequestState,
+    ValidationStatus,
+)
+from posthog.constants import AvailableFeature
+from posthog.models import FeatureFlag, User
+
+
+class TestApprovalsFeatureGating(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = 8  # Admin, required for approval_policies
+        self.organization_membership.save()
+
+    @parameterized.expand(["change_requests", "approval_policies"])
+    @patch("posthog.permissions.is_cloud", return_value=True)
+    def test_requires_approvals_feature_on_cloud(self, endpoint, _mock_is_cloud):
+        response = self.client.get(f"/api/environments/{self.team.id}/{endpoint}/")
+        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
+
+    @parameterized.expand(["change_requests", "approval_policies"])
+    @patch("posthog.permissions.is_cloud", return_value=True)
+    def test_accessible_with_approvals_feature_on_cloud(self, endpoint, _mock_is_cloud):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+        response = self.client.get(f"/api/environments/{self.team.id}/{endpoint}/")
+        assert response.status_code == status.HTTP_200_OK
+
+    @parameterized.expand(["change_requests", "approval_policies"])
+    def test_accessible_without_feature_when_not_cloud(self, endpoint):
+        response = self.client.get(f"/api/environments/{self.team.id}/{endpoint}/")
+        assert response.status_code == status.HTTP_200_OK
+
+    @parameterized.expand(["approve", "reject", "cancel"])
+    @patch("posthog.permissions.is_cloud", return_value=True)
+    def test_change_request_actions_require_feature_on_cloud(self, action, _mock_is_cloud):
+        cr = ChangeRequest.objects.create(
+            team=self.team,
+            organization=self.organization,
+            created_by=self.user,
+            action_key="feature_flag.enable",
+            resource_type="feature_flag",
+            resource_id="123",
+            state=ChangeRequestState.PENDING,
+            intent={"gated_changes": {"active": True}},
+            intent_display={"description": "Enable feature flag"},
+            policy_snapshot={"quorum": 1, "users": [self.user.id], "allow_self_approve": True},
+            expires_at=timezone.now() + timedelta(days=7),
+        )
+        response = self.client.post(f"/api/environments/{self.team.id}/change_requests/{cr.id}/{action}/")
+        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
+
+
+class TestChangeRequestViewSet(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+
+    def _create_change_request(self, **kwargs):
+        defaults = {
+            "team": self.team,
+            "organization": self.organization,
+            "created_by": self.user,
+            "action_key": "feature_flag.enable",
+            "resource_type": "feature_flag",
+            "resource_id": "123",
+            "state": ChangeRequestState.PENDING,
+            "intent": {"gated_changes": {"active": True}},
+            "intent_display": {"description": "Enable feature flag"},
+            "policy_snapshot": {"quorum": 1, "users": [self.user.id], "allow_self_approve": True},
+            "expires_at": timezone.now() + timedelta(days=7),
+        }
+        defaults.update(kwargs)
+        return ChangeRequest.objects.create(**defaults)
+
+    def test_list_change_requests(self):
+        cr = self._create_change_request()
+        response = self.client.get(f"/api/environments/{self.team.id}/change_requests/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == str(cr.id)
+
+    def test_list_filters_by_state(self):
+        pending = self._create_change_request(state=ChangeRequestState.PENDING)
+        self._create_change_request(state=ChangeRequestState.APPLIED, resource_id="456")
+
+        response = self.client.get(f"/api/environments/{self.team.id}/change_requests/?state=pending")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == str(pending.id)
+
+    def test_list_filters_by_requester(self):
+        other_user = User.objects.create(email="other@posthog.com")
+        mine = self._create_change_request()
+        self._create_change_request(created_by=other_user, resource_id="456")
+
+        response = self.client.get(f"/api/environments/{self.team.id}/change_requests/?requester={self.user.id}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == str(mine.id)
+
+    def test_list_requester_filter_non_numeric_returns_400(self):
+        self._create_change_request()
+
+        response = self.client.get(f"/api/environments/{self.team.id}/change_requests/?requester=abc")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_list_filters_by_comma_separated_states(self):
+        pending = self._create_change_request(state=ChangeRequestState.PENDING)
+        applied = self._create_change_request(state=ChangeRequestState.APPLIED, resource_id="456")
+        self._create_change_request(state=ChangeRequestState.REJECTED, resource_id="789")
+
+        response = self.client.get(f"/api/environments/{self.team.id}/change_requests/?state=pending,applied")
+
+        assert response.status_code == status.HTTP_200_OK
+        result_ids = {r["id"] for r in response.json()["results"]}
+        assert result_ids == {str(pending.id), str(applied.id)}
+
+    def test_list_filters_by_resource(self):
+        cr = self._create_change_request(resource_type="feature_flag", resource_id="123")
+        self._create_change_request(resource_type="feature_flag", resource_id="456")
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/change_requests/?resource_type=feature_flag&resource_id=123"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == str(cr.id)
+
+    def test_get_change_request(self):
+        cr = self._create_change_request()
+        response = self.client.get(f"/api/environments/{self.team.id}/change_requests/{cr.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == str(cr.id)
+        assert response.json()["action_key"] == "feature_flag.enable"
+
+    @patch("posthog.approvals.services.apply_change_request")
+    def test_approve_success(self, mock_apply):
+        mock_apply.return_value = type("obj", (object,), {"id": 123, "version": 1})()
+        cr = self._create_change_request()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/change_requests/{cr.id}/approve/",
+            {"reason": "Looks good"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == "applied"
+        assert Approval.objects.filter(change_request=cr, decision=ApprovalDecision.APPROVED).exists()
+
+    def test_approve_already_voted(self):
+        cr = self._create_change_request()
+        Approval.objects.create(change_request=cr, created_by=self.user, decision=ApprovalDecision.APPROVED)
+
+        response = self.client.post(f"/api/environments/{self.team.id}/change_requests/{cr.id}/approve/")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "already voted" in response.json()["error"].lower()
+
+    def test_approve_not_pending(self):
+        cr = self._create_change_request(state=ChangeRequestState.APPLIED)
+
+        response = self.client.post(f"/api/environments/{self.team.id}/change_requests/{cr.id}/approve/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_reject_success(self):
+        cr = self._create_change_request()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/change_requests/{cr.id}/reject/",
+            {"reason": "Not ready for production"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == "rejected"
+        cr.refresh_from_db()
+        assert cr.state == ChangeRequestState.REJECTED
+
+    def test_reject_requires_reason(self):
+        cr = self._create_change_request()
+
+        response = self.client.post(f"/api/environments/{self.team.id}/change_requests/{cr.id}/reject/")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "reason" in response.json()["error"].lower()
+
+    def test_reject_already_voted(self):
+        cr = self._create_change_request()
+        Approval.objects.create(change_request=cr, created_by=self.user, decision=ApprovalDecision.APPROVED)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/change_requests/{cr.id}/reject/",
+            {"reason": "Changed my mind"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "already voted" in response.json()["error"].lower()
+
+    def test_cancel_success(self):
+        cr = self._create_change_request()
+
+        response = self.client.post(f"/api/environments/{self.team.id}/change_requests/{cr.id}/cancel/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == "canceled"
+        cr.refresh_from_db()
+        assert cr.state == ChangeRequestState.REJECTED
+
+    def test_cancel_only_by_requester(self):
+        other_user = User.objects.create(email="other@posthog.com")
+        cr = self._create_change_request(created_by=other_user)
+
+        response = self.client.post(f"/api/environments/{self.team.id}/change_requests/{cr.id}/cancel/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_cancel_not_pending(self):
+        cr = self._create_change_request(state=ChangeRequestState.APPLIED)
+
+        response = self.client.post(f"/api/environments/{self.team.id}/change_requests/{cr.id}/cancel/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_cancel_blocked_when_has_approvals(self):
+        other_user = User.objects.create(email="approver@posthog.com")
+        cr = self._create_change_request(policy_snapshot={"quorum": 3, "users": [self.user.id, other_user.id]})
+        Approval.objects.create(change_request=cr, created_by=other_user, decision=ApprovalDecision.APPROVED)
+
+        response = self.client.post(f"/api/environments/{self.team.id}/change_requests/{cr.id}/cancel/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_cancel_allowed_when_stale_despite_approvals(self):
+        other_user = User.objects.create(email="approver@posthog.com")
+        cr = self._create_change_request(
+            policy_snapshot={"quorum": 3, "users": [self.user.id, other_user.id]},
+            validation_status=ValidationStatus.STALE,
+        )
+        Approval.objects.create(change_request=cr, created_by=other_user, decision=ApprovalDecision.APPROVED)
+
+        response = self.client.post(f"/api/environments/{self.team.id}/change_requests/{cr.id}/cancel/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == "canceled"
+        cr.refresh_from_db()
+        assert cr.state == ChangeRequestState.REJECTED
+
+    def test_cancel_allowed_when_no_approvals(self):
+        cr = self._create_change_request(policy_snapshot={"quorum": 3, "users": [self.user.id]})
+
+        response = self.client.post(f"/api/environments/{self.team.id}/change_requests/{cr.id}/cancel/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == "canceled"
+
+    def test_can_cancel_field_false_when_has_approvals(self):
+        other_user = User.objects.create(email="approver@posthog.com")
+        cr = self._create_change_request(policy_snapshot={"quorum": 3, "users": [self.user.id, other_user.id]})
+        Approval.objects.create(change_request=cr, created_by=other_user, decision=ApprovalDecision.APPROVED)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/change_requests/{cr.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["can_cancel"] is False
+
+    def test_can_cancel_field_true_when_stale_with_approvals(self):
+        other_user = User.objects.create(email="approver@posthog.com")
+        cr = self._create_change_request(
+            policy_snapshot={"quorum": 3, "users": [self.user.id, other_user.id]},
+            validation_status=ValidationStatus.STALE,
+        )
+        Approval.objects.create(change_request=cr, created_by=other_user, decision=ApprovalDecision.APPROVED)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/change_requests/{cr.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["can_cancel"] is True
+
+
+class TestApprovalPolicyViewSet(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+        self.organization_membership.level = 8  # Admin level
+        self.organization_membership.save()
+
+    def test_list_policies(self):
+        policy = ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.enable",
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/approval_policies/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == str(policy.id)
+
+    def test_create_policy(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/approval_policies/",
+            {
+                "action_key": "feature_flag.enable",
+                "approver_config": {"quorum": 2, "users": [self.user.id]},
+                "allow_self_approve": False,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["action_key"] == "feature_flag.enable"
+        assert response.json()["approver_config"]["quorum"] == 2
+        assert ApprovalPolicy.objects.filter(action_key="feature_flag.enable").exists()
+
+    def test_update_policy(self):
+        policy = ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.enable",
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/approval_policies/{policy.id}/",
+            {"approver_config": {"quorum": 2, "users": [self.user.id]}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        policy.refresh_from_db()
+        assert policy.approver_config["quorum"] == 2
+
+    def test_delete_policy(self):
+        policy = ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.enable",
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/approval_policies/{policy.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not ApprovalPolicy.objects.filter(id=policy.id).exists()
+
+    def test_filter_by_action_key(self):
+        policy1 = ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.enable",
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.delete",
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/approval_policies/?action_key=feature_flag.enable"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == str(policy1.id)
+
+    def test_filter_by_enabled(self):
+        enabled = ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.enable",
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            enabled=True,
+            created_by=self.user,
+        )
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.delete",
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            enabled=False,
+            created_by=self.user,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/approval_policies/?enabled=true")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == str(enabled.id)
+
+    def test_create_duplicate_policy_returns_error(self):
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.enable",
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/approval_policies/",
+            {
+                "action_key": "feature_flag.enable",
+                "approver_config": {"quorum": 2, "users": [self.user.id]},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "already exists" in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("string_levels", ["8", "15"]),
+            ("integer_levels", [8, 15]),
+        ]
+    )
+    def test_create_policy_with_bypass_org_membership_levels(self, _name, levels):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/approval_policies/",
+            {
+                "action_key": "feature_flag.enable",
+                "approver_config": {"quorum": 1, "users": [self.user.id]},
+                "bypass_org_membership_levels": levels,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        policy = ApprovalPolicy.objects.get(id=response.json()["id"])
+        assert policy.bypass_org_membership_levels == [8, 15]
+
+    @parameterized.expand(
+        [
+            ("zero", 0, status.HTTP_400_BAD_REQUEST),
+            ("negative", -1, status.HTTP_400_BAD_REQUEST),
+            ("one", 1, status.HTTP_201_CREATED),
+        ]
+    )
+    def test_create_policy_quorum_validation(self, _name, quorum, expected_status):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/approval_policies/",
+            {
+                "action_key": "feature_flag.enable",
+                "approver_config": {"quorum": quorum, "users": [self.user.id]},
+            },
+            format="json",
+        )
+
+        assert response.status_code == expected_status
+
+    def test_create_policy_with_non_integer_bypass_levels_rejected(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/approval_policies/",
+            {
+                "action_key": "feature_flag.enable",
+                "approver_config": {"quorum": 1, "users": [self.user.id]},
+                "bypass_org_membership_levels": ["admin", "owner"],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_policy_with_nonexistent_bypass_role_returns_error(self):
+        import uuid
+
+        fake_role_id = str(uuid.uuid4())
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/approval_policies/",
+            {
+                "action_key": "feature_flag.enable",
+                "approver_config": {"quorum": 1, "users": [self.user.id]},
+                "bypass_roles": [fake_role_id],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "do not exist" in str(response.json())
+
+
+class TestFeatureFlagApprovalIntegration(APIBaseTest):
+    """
+    End-to-end tests: policy exists → API call blocked → change request created
+    → approve → resource actually mutated.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+
+        self.flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="approval-integration-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            created_by=self.user,
+        )
+
+    def _create_update_policy(self, conditions=None):
+        return ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.update",
+            conditions=conditions if conditions is not None else {},
+            approver_config={"quorum": 1, "users": [self.user.id], "roles": []},
+            allow_self_approve=True,
+            expires_after=timedelta(days=14),
+            created_by=self.user,
+        )
+
+    def _patch_rollout(self, rollout_percentage: int):
+        return self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{self.flag.id}/",
+            {
+                "key": self.flag.key,
+                "filters": {"groups": [{"properties": [], "rollout_percentage": rollout_percentage}]},
+                "active": True,
+            },
+            format="json",
+        )
+
+    # --- update policy (no conditions = all changes gated) ---
+
+    def test_update_policy_blocks_patch_and_creates_change_request(self):
+        self._create_update_policy()
+
+        response = self._patch_rollout(50)
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json()["code"] == "approval_required"
+
+        self.flag.refresh_from_db()
+        assert self.flag.filters["groups"][0]["rollout_percentage"] == 100  # unchanged
+
+        cr = ChangeRequest.objects.get(team=self.team, action_key="feature_flag.update")
+        assert cr.state == ChangeRequestState.PENDING
+        assert cr.intent["gated_changes"]["rollout_percentage"][0]["value"] == 50
+        assert response.json()["change_request_id"] == str(cr.id)
+
+    def test_approve_applies_rollout_change_to_flag(self):
+        self._create_update_policy()
+        self._patch_rollout(50)
+
+        cr = ChangeRequest.objects.get(team=self.team, action_key="feature_flag.update")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/change_requests/{cr.id}/approve/",
+            {"reason": "Looks good"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == "applied"
+
+        cr.refresh_from_db()
+        assert cr.state == ChangeRequestState.APPLIED
+        assert cr.apply_error == ""
+
+        self.flag.refresh_from_db()
+        assert self.flag.filters["groups"][0]["rollout_percentage"] == 50
+
+    def test_reject_leaves_flag_unchanged(self):
+        self._create_update_policy()
+        self._patch_rollout(50)
+
+        cr = ChangeRequest.objects.get(team=self.team, action_key="feature_flag.update")
+
+        self.client.post(
+            f"/api/environments/{self.team.id}/change_requests/{cr.id}/reject/",
+            {"reason": "Not ready"},
+        )
+
+        self.flag.refresh_from_db()
+        assert self.flag.filters["groups"][0]["rollout_percentage"] == 100
+
+    @parameterized.expand(
+        [
+            ("below_threshold", 40, True),  # 40 ≤ 50, not gated
+            ("above_threshold", 80, False),  # 80 > 50, gated
+        ]
+    )
+    def test_conditional_policy_only_gates_changes_matching_condition(self, _name, rollout, applied_directly):
+        self._create_update_policy(
+            conditions={"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 50}
+        )
+        self.flag.filters = {"groups": [{"properties": [], "rollout_percentage": 30}]}
+        self.flag.save()
+
+        response = self._patch_rollout(rollout)
+
+        if applied_directly:
+            assert response.status_code == status.HTTP_200_OK
+            self.flag.refresh_from_db()
+            assert self.flag.filters["groups"][0]["rollout_percentage"] == rollout
+        else:
+            assert response.status_code == status.HTTP_409_CONFLICT
+            self.flag.refresh_from_db()
+            assert self.flag.filters["groups"][0]["rollout_percentage"] == 30  # unchanged
+
+    # --- enable policy ---
+
+    def test_enable_policy_blocks_toggle_and_approve_applies_it(self):
+        self.flag.active = False
+        self.flag.save()
+
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.enable",
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id], "roles": []},
+            allow_self_approve=True,
+            expires_after=timedelta(days=14),
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{self.flag.id}/",
+            {"active": True},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_409_CONFLICT
+
+        self.flag.refresh_from_db()
+        assert self.flag.active is False
+
+        cr = ChangeRequest.objects.get(team=self.team, action_key="feature_flag.enable")
+
+        approve = self.client.post(f"/api/environments/{self.team.id}/change_requests/{cr.id}/approve/")
+        assert approve.status_code == status.HTTP_200_OK
+        assert approve.json()["status"] == "applied"
+
+        self.flag.refresh_from_db()
+        assert self.flag.active is True
+
+    # --- no policy ---
+
+    def test_patch_applies_directly_when_no_policy(self):
+        response = self._patch_rollout(75)
+
+        assert response.status_code == status.HTTP_200_OK
+        self.flag.refresh_from_db()
+        assert self.flag.filters["groups"][0]["rollout_percentage"] == 75
+        assert not ChangeRequest.objects.filter(team=self.team).exists()

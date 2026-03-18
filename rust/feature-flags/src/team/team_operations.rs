@@ -1,82 +1,10 @@
 use crate::{
-    api::errors::FlagError,
-    team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
+    api::errors::{simplify_serde_error, FlagError},
+    database::get_connection_with_metrics,
+    team::team_models::Team,
 };
 use common_database::PostgresReader;
-use common_redis::Client as RedisClient;
-use std::{future::Future, sync::Arc};
-use tracing::{debug, warn};
-
-/// Fetches a team from Redis cache with PostgreSQL fallback
-///
-/// This helper consolidates the common pattern of:
-/// 1. Try Redis cache first
-/// 2. On cache miss, fetch from PostgreSQL using the provided lookup function
-/// 3. Update Redis cache on successful database fetch
-/// 4. Return the team
-///
-/// # Arguments
-/// * `redis_reader` - Redis client for cache reads
-/// * `redis_writer` - Redis client for cache writes
-/// * `token` - Token to use for cache key lookup
-/// * `db_lookup` - Async function to fetch team from PostgreSQL on cache miss
-pub async fn fetch_team_from_redis_with_fallback<F, Fut>(
-    redis_reader: Arc<dyn RedisClient + Send + Sync>,
-    redis_writer: Arc<dyn RedisClient + Send + Sync>,
-    token: &str,
-    db_lookup: F,
-) -> Result<Team, FlagError>
-where
-    F: FnOnce() -> Fut,
-    Fut: Future<Output = Result<Team, FlagError>>,
-{
-    // Try to get team from cache first
-    match Team::from_redis(redis_reader.clone(), token).await {
-        Ok(team) if team.organization_id.is_some() => {
-            debug!(team_id = team.id, "Found complete team in Redis cache");
-            Ok(team)
-        }
-        Ok(team) => {
-            debug!(
-                team_id = team.id,
-                "Team in cache missing organization_id, treating as cache miss"
-            );
-            // Treat as cache miss - fetch complete team from database
-            match db_lookup().await {
-                Ok(team) => {
-                    debug!(team_id = team.id, "Found team in PostgreSQL");
-                    // Update Redis cache with complete team
-                    if let Err(e) = Team::update_redis_cache(redis_writer, &team).await {
-                        warn!(team_id = team.id, error = %e, "Failed to update Redis cache");
-                    }
-                    Ok(team)
-                }
-                Err(e) => {
-                    warn!(error = %e, "Team not found in PostgreSQL");
-                    Err(e)
-                }
-            }
-        }
-        Err(e) => {
-            debug!(error = %e, "Team not found in Redis cache");
-            // Fallback to database using provided lookup function
-            match db_lookup().await {
-                Ok(team) => {
-                    debug!(team_id = team.id, "Found team in PostgreSQL");
-                    // Update Redis cache for next time
-                    if let Err(e) = Team::update_redis_cache(redis_writer, &team).await {
-                        warn!(team_id = team.id, error = %e, "Failed to update Redis cache");
-                    }
-                    Ok(team)
-                }
-                Err(e) => {
-                    warn!(error = %e, "Team not found in PostgreSQL");
-                    Err(e)
-                }
-            }
-        }
-    }
-}
+use serde_json::Value;
 
 /// SQL fragment for selecting all Team columns
 const TEAM_COLUMNS: &str = "
@@ -84,7 +12,6 @@ const TEAM_COLUMNS: &str = "
     uuid,
     name,
     api_token,
-    project_id,
     organization_id,
     cookieless_server_hash_mode,
     timezone,
@@ -93,10 +20,14 @@ const TEAM_COLUMNS: &str = "
     autocapture_web_vitals_opt_in,
     capture_performance_opt_in,
     capture_console_log_opt_in,
+    logs_settings,
     session_recording_opt_in,
     inject_web_apps,
     surveys_opt_in,
+    product_tours_opt_in,
     heatmaps_opt_in,
+    conversations_enabled,
+    conversations_settings,
     capture_dead_clicks,
     flags_persistence_default,
     session_recording_sample_rate,
@@ -108,6 +39,7 @@ const TEAM_COLUMNS: &str = "
     session_recording_masking_config,
     session_replay_config,
     survey_config,
+    extra_settings,
     session_recording_url_trigger_config,
     session_recording_url_blocklist_config,
     session_recording_event_trigger_config,
@@ -116,82 +48,20 @@ const TEAM_COLUMNS: &str = "
 ";
 
 impl Team {
-    /// Validates a token, and returns a team if it exists.
-    pub async fn from_redis(
-        client: Arc<dyn RedisClient + Send + Sync>,
-        token: &str,
-    ) -> Result<Team, FlagError> {
-        tracing::debug!(
-            "Attempting to read team from Redis at key '{TEAM_TOKEN_CACHE_PREFIX}{token}'"
-        );
-
-        // NB: if this lookup fails, we fall back to the database before returning an error
-        let serialized_team = client
-            .get(format!("{TEAM_TOKEN_CACHE_PREFIX}{token}"))
-            .await?;
-
-        // TODO: Consider an LRU cache for teams as well, with small TTL to skip redis/pg lookups
-        let mut team: Team = serde_json::from_str(&serialized_team).map_err(|e| {
-            tracing::error!("failed to parse data to team for token {token}: {e}");
-            FlagError::RedisDataParsingError
-        })?;
-        if team.project_id == 0 {
-            // If `project_id` is 0, this means the payload is from before December 2024, which we correct for here
-            team.project_id = team.id as i64;
-        }
-
-        tracing::debug!(
-            "Successfully read team {} from Redis at key '{}{}'",
-            team.id,
-            TEAM_TOKEN_CACHE_PREFIX,
-            token
-        );
-
-        Ok(team)
-    }
-
-    pub async fn update_redis_cache(
-        client: Arc<dyn RedisClient + Send + Sync>,
-        team: &Team,
-    ) -> Result<(), FlagError> {
-        let serialized_team = serde_json::to_string(&team).map_err(|e| {
-            tracing::error!(
-                "Failed to serialize team {} (token {}): {}",
-                team.id,
-                team.api_token,
-                e
-            );
-            FlagError::RedisDataParsingError
-        })?;
-
-        tracing::info!(
-            "Writing team to Redis at key '{}{}': team_id={}",
-            TEAM_TOKEN_CACHE_PREFIX,
-            team.api_token,
-            team.id
-        );
-
-        client
-            .set(
-                format!("{TEAM_TOKEN_CACHE_PREFIX}{}", team.api_token),
-                serialized_team,
-            )
-            .await
-            .map_err(|e| {
-                tracing::error!(
-                    "Failed to update Redis cache for team {} (token {}): {}",
-                    team.id,
-                    team.api_token,
-                    e
-                );
-                FlagError::CacheUpdateError
-            })?;
-
-        Ok(())
+    /// Parse team from HyperCache JSON value (team_metadata cache format).
+    pub fn from_hypercache_value(value: Value) -> Result<Team, FlagError> {
+        serde_json::from_value(value).map_err(|e| {
+            tracing::error!("Failed to deserialize team from HyperCache: {e}");
+            FlagError::DataParsingErrorWithContext(format!(
+                "Failed to parse team configuration: {}",
+                simplify_serde_error(&e.to_string())
+            ))
+        })
     }
 
     pub async fn from_pg(client: PostgresReader, token: &str) -> Result<Team, FlagError> {
-        let mut conn = client.get_connection().await?;
+        let mut conn =
+            get_connection_with_metrics(&client, "non_persons_reader", "fetch_team").await?;
 
         let query = format!("SELECT {TEAM_COLUMNS} FROM posthog_team WHERE api_token = $1");
         let row = sqlx::query_as::<_, Team>(&query)
@@ -206,7 +76,9 @@ impl Team {
         client: PostgresReader,
         token: &str,
     ) -> Result<Team, FlagError> {
-        let mut conn = client.get_connection().await?;
+        let mut conn =
+            get_connection_with_metrics(&client, "non_persons_reader", "fetch_team_by_secret")
+                .await?;
 
         let query = format!(
             "SELECT {TEAM_COLUMNS} FROM posthog_team WHERE secret_api_token = $1 OR secret_api_token_backup = $1"
@@ -222,124 +94,29 @@ impl Team {
 
 #[cfg(test)]
 mod tests {
-    use rand::Rng;
-    use redis::AsyncCommands;
-    use uuid::Uuid;
+    use serde_json::json;
 
     use super::*;
     use crate::utils::test_utils::{
-        insert_new_team_in_redis, random_string, setup_redis_client, TestContext,
+        insert_new_team_in_redis, setup_redis_client, setup_team_hypercache_reader, TestContext,
     };
 
     #[tokio::test]
-    async fn test_fetch_team_from_redis() {
+    async fn test_fetch_team_from_hypercache() {
         let client = setup_redis_client(None).await;
 
         let team = insert_new_team_in_redis(client.clone())
             .await
             .expect("Failed to insert team in redis");
 
-        let target_token = team.api_token;
+        // Verify we can fetch team from HyperCache
+        let team_hypercache_reader = setup_team_hypercache_reader(client.clone()).await;
+        let key = common_hypercache::KeyType::string(&team.api_token);
+        let (data, _source) = team_hypercache_reader.get_with_source(&key).await.unwrap();
 
-        let team_from_redis = Team::from_redis(client.clone(), &target_token)
-            .await
-            .unwrap();
-        assert_eq!(team_from_redis.api_token, target_token);
-        assert_eq!(team_from_redis.id, team.id);
-        assert_eq!(team_from_redis.project_id, team.project_id);
-    }
-
-    #[tokio::test]
-    async fn test_fetch_invalid_team_from_redis() {
-        let client = setup_redis_client(None).await;
-
-        match Team::from_redis(client.clone(), "banana").await {
-            Err(FlagError::TokenValidationError) => (),
-            _ => panic!("Expected TokenValidationError"),
-        };
-    }
-
-    #[tokio::test]
-    #[should_panic(expected = "Failed to create redis client")]
-    async fn test_cant_connect_to_redis_error_is_not_token_validation_error() {
-        // Test that client creation fails when Redis is unavailable
-        setup_redis_client(Some("redis://localhost:1111/".to_string())).await;
-    }
-
-    #[tokio::test]
-    async fn test_corrupted_data_in_redis_is_handled() {
-        let id = rand::thread_rng().gen_range(1..10_000_000);
-        let token = random_string("phc_", 12);
-        let team = Team {
-            id,
-            project_id: i64::from(id) - 1,
-            name: "team".to_string(),
-            api_token: token,
-            cookieless_server_hash_mode: 0,
-            timezone: "UTC".to_string(),
-            ..Default::default()
-        };
-        let serialized_team = serde_json::to_string(&team).expect("Failed to serialise team");
-
-        // manually insert non-pickled data in redis
-        let client =
-            redis::Client::open("redis://localhost:6379/").expect("Failed to create redis client");
-        let mut conn = client
-            .get_async_connection()
-            .await
-            .expect("Failed to get redis connection");
-        conn.set::<String, String, ()>(
-            format!("{}{}", TEAM_TOKEN_CACHE_PREFIX, team.api_token.clone()),
-            serialized_team,
-        )
-        .await
-        .expect("Failed to write data to redis");
-
-        // now get client connection for data
-        let client = setup_redis_client(None).await;
-
-        match Team::from_redis(client.clone(), team.api_token.as_str()).await {
-            Err(FlagError::RedisDataParsingError) => (),
-            Err(other) => panic!("Expected DataParsingError, got {other:?}"),
-            Ok(_) => panic!("Expected DataParsingError"),
-        };
-    }
-
-    #[tokio::test]
-    async fn test_fetch_team_from_before_project_id_from_redis() {
-        let client = setup_redis_client(None).await;
-        let target_token = "phc_123456789012".to_string();
-        // A payload form before December 2025, it's missing `project_id`
-        let test_team = Team {
-            id: 343,
-            name: "team".to_string(),
-            api_token: target_token.clone(),
-            project_id: 0,
-            uuid: Uuid::nil(),
-            session_recording_opt_in: false,
-            cookieless_server_hash_mode: 0,
-            timezone: "UTC".to_string(),
-            ..Default::default()
-        };
-
-        let serialized_team = serde_json::to_string(&test_team).expect("Failed to serialize team");
-        tracing::info!("Inserting test team payload: {serialized_team}");
-        client
-            .set(
-                format!("{TEAM_TOKEN_CACHE_PREFIX}{target_token}"),
-                serialized_team,
-            )
-            .await
-            .expect("Failed to write data to redis");
-
-        let team_from_redis = Team::from_redis(client.clone(), target_token.as_str())
-            .await
-            .expect("Failed to fetch team from redis");
-
-        assert_eq!(team_from_redis.api_token, target_token);
-        assert_eq!(team_from_redis.id, 343);
-        assert_eq!(team_from_redis.project_id, 343); // Same as `id`
-        assert_eq!(team_from_redis.cookieless_server_hash_mode, 0);
+        let team_from_cache = Team::from_hypercache_value(data).unwrap();
+        assert_eq!(team_from_cache.api_token, team.api_token);
+        assert_eq!(team_from_cache.id, team.id);
     }
 
     #[tokio::test]
@@ -386,11 +163,13 @@ mod tests {
             .expect("Failed to insert team in pg");
 
         // Manually update the team to have NULL elements in session_recording_event_trigger_config
-        let mut conn = context
-            .non_persons_reader
-            .get_connection()
-            .await
-            .expect("Failed to get connection");
+        let mut conn = get_connection_with_metrics(
+            &context.non_persons_reader,
+            "non_persons_reader",
+            "test_update_team",
+        )
+        .await
+        .expect("Failed to get connection");
 
         // Update with an array containing NULL elements: {NULL, 'valid_event', NULL, 'another_event'}
         sqlx::query(
@@ -422,5 +201,271 @@ mod tests {
         assert_eq!(config[1], Some("valid_event".to_string()));
         assert_eq!(config[2], None);
         assert_eq!(config[3], Some("another_event".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_team_with_extra_settings_from_pg() {
+        let context = TestContext::new(None).await;
+
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team in pg");
+
+        // Update the team with extra_settings containing recorder_script
+        let mut conn = get_connection_with_metrics(
+            &context.non_persons_reader,
+            "non_persons_reader",
+            "test_extra_settings",
+        )
+        .await
+        .expect("Failed to get connection");
+
+        let extra_settings = serde_json::json!({
+            "recorder_script": "posthog-recorder",
+            "something_else": 123
+        });
+
+        sqlx::query("UPDATE posthog_team SET extra_settings = $1 WHERE id = $2")
+            .bind(&extra_settings)
+            .bind(team.id)
+            .execute(&mut *conn)
+            .await
+            .expect("Failed to update team with extra_settings");
+
+        // Fetch the team and verify extra_settings deserializes correctly
+        let team_from_pg = Team::from_pg(context.non_persons_reader.clone(), &team.api_token)
+            .await
+            .expect("Failed to fetch team with extra_settings from pg");
+
+        assert!(team_from_pg.extra_settings.is_some());
+        let config = team_from_pg.extra_settings.unwrap();
+        assert_eq!(
+            config.get("recorder_script").and_then(|v| v.as_str()),
+            Some("posthog-recorder")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_fetch_team_with_empty_recorder_script_from_pg() {
+        let context = TestContext::new(None).await;
+
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team in pg");
+
+        // Update the team with extra_settings containing empty recorder_script
+        let mut conn = get_connection_with_metrics(
+            &context.non_persons_reader,
+            "non_persons_reader",
+            "test_empty_recorder_script",
+        )
+        .await
+        .expect("Failed to get connection");
+
+        let extra_settings = serde_json::json!({
+            "recorder_script": ""
+        });
+
+        sqlx::query("UPDATE posthog_team SET extra_settings = $1 WHERE id = $2")
+            .bind(&extra_settings)
+            .bind(team.id)
+            .execute(&mut *conn)
+            .await
+            .expect("Failed to update team with empty recorder_script");
+
+        // Fetch the team and verify empty string is handled correctly
+        let team_from_pg = Team::from_pg(context.non_persons_reader.clone(), &team.api_token)
+            .await
+            .expect("Failed to fetch team with empty recorder_script from pg");
+
+        assert!(team_from_pg.extra_settings.is_some());
+        let config = team_from_pg.extra_settings.unwrap();
+        let recorder_script = config.get("recorder_script").and_then(|v| v.as_str());
+        assert_eq!(recorder_script, Some(""));
+    }
+
+    #[tokio::test]
+    async fn test_from_hypercache_value_parses_extra_settings() {
+        let extra_settings = json!({
+            "recorder_script": "posthog-recorder",
+            "something_else": 123
+        });
+
+        let team_data = json!({
+            "id": 12345,
+            "name": "Test Team",
+            "api_token": "phc_test123",
+            "uuid": "00000000-0000-0000-0000-000000012345",
+            "timezone": "America/New_York",
+            "extra_settings": extra_settings,
+        });
+
+        let team = Team::from_hypercache_value(team_data).expect("Failed to parse team");
+        assert_eq!(team.id, 12345);
+        assert_eq!(team.api_token, "phc_test123");
+        assert_eq!(team.timezone, "America/New_York");
+        assert!(team.extra_settings.is_some());
+
+        let config = team.extra_settings.unwrap();
+        assert_eq!(
+            config.get("recorder_script").and_then(|v| v.as_str()),
+            Some("posthog-recorder")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_from_hypercache_value_handles_all_optional_fields() {
+        let team_data = json!({
+            "id": 99999,
+            "name": "Minimal Team",
+            "api_token": "phc_minimal",
+            "uuid": "00000000-0000-0000-0000-000000000001",
+            "organization_id": "00000000-0000-0000-0000-000000000002",
+            "autocapture_opt_out": true,
+            "session_recording_opt_in": false,
+            "session_recording_sample_rate": "0.75",
+            "cookieless_server_hash_mode": 1,
+            "timezone": "Europe/London",
+        });
+
+        let team = Team::from_hypercache_value(team_data).expect("Failed to parse team");
+        assert_eq!(team.id, 99999);
+        assert_eq!(team.api_token, "phc_minimal");
+        assert_eq!(team.autocapture_opt_out, Some(true));
+        assert!(!team.session_recording_opt_in);
+        assert_eq!(team.cookieless_server_hash_mode, Some(1));
+        assert_eq!(team.timezone, "Europe/London");
+    }
+
+    #[tokio::test]
+    async fn test_from_hypercache_value_rejects_non_object() {
+        // Test with array
+        let result = Team::from_hypercache_value(json!(["not", "an", "object"]));
+        assert!(matches!(
+            result,
+            Err(FlagError::DataParsingErrorWithContext(_))
+        ));
+
+        // Test with string
+        let result = Team::from_hypercache_value(json!("just a string"));
+        assert!(matches!(
+            result,
+            Err(FlagError::DataParsingErrorWithContext(_))
+        ));
+
+        // Test with number
+        let result = Team::from_hypercache_value(json!(42));
+        assert!(matches!(
+            result,
+            Err(FlagError::DataParsingErrorWithContext(_))
+        ));
+
+        // Test with null
+        let result = Team::from_hypercache_value(json!(null));
+        assert!(matches!(
+            result,
+            Err(FlagError::DataParsingErrorWithContext(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_from_hypercache_value_rejects_missing_required_fields() {
+        // Missing id
+        let result = Team::from_hypercache_value(json!({
+            "api_token": "phc_test",
+            "uuid": "00000000-0000-0000-0000-000000000001"
+        }));
+        assert!(matches!(
+            result,
+            Err(FlagError::DataParsingErrorWithContext(_))
+        ));
+
+        // Missing api_token
+        let result = Team::from_hypercache_value(json!({
+            "id": 123,
+            "uuid": "00000000-0000-0000-0000-000000000001"
+        }));
+        assert!(matches!(
+            result,
+            Err(FlagError::DataParsingErrorWithContext(_))
+        ));
+
+        // Missing uuid
+        let result = Team::from_hypercache_value(json!({
+            "id": 123,
+            "api_token": "phc_test"
+        }));
+        assert!(matches!(
+            result,
+            Err(FlagError::DataParsingErrorWithContext(_))
+        ));
+
+        // Empty object
+        let result = Team::from_hypercache_value(json!({}));
+        assert!(matches!(
+            result,
+            Err(FlagError::DataParsingErrorWithContext(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_from_hypercache_value_rejects_invalid_uuid() {
+        let result = Team::from_hypercache_value(json!({
+            "id": 123,
+            "api_token": "phc_test",
+            "uuid": "not-a-valid-uuid"
+        }));
+        assert!(matches!(
+            result,
+            Err(FlagError::DataParsingErrorWithContext(_))
+        ));
+
+        let result = Team::from_hypercache_value(json!({
+            "id": 123,
+            "api_token": "phc_test",
+            "uuid": ""
+        }));
+        assert!(matches!(
+            result,
+            Err(FlagError::DataParsingErrorWithContext(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_from_hypercache_value_rejects_wrong_field_types() {
+        // id as string instead of number
+        let result = Team::from_hypercache_value(json!({
+            "id": "not-a-number",
+            "api_token": "phc_test",
+            "uuid": "00000000-0000-0000-0000-000000000001"
+        }));
+        assert!(matches!(
+            result,
+            Err(FlagError::DataParsingErrorWithContext(_))
+        ));
+
+        // api_token as number instead of string
+        let result = Team::from_hypercache_value(json!({
+            "id": 123,
+            "api_token": 12345,
+            "uuid": "00000000-0000-0000-0000-000000000001"
+        }));
+        assert!(matches!(
+            result,
+            Err(FlagError::DataParsingErrorWithContext(_))
+        ));
+
+        // uuid as number instead of string
+        let result = Team::from_hypercache_value(json!({
+            "id": 123,
+            "api_token": "phc_test",
+            "uuid": 12345
+        }));
+        assert!(matches!(
+            result,
+            Err(FlagError::DataParsingErrorWithContext(_))
+        ));
     }
 }

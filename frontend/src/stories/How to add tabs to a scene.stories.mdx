@@ -10,8 +10,8 @@ This guide follows on from ["How to build a scene"](/docs/how-to-build-a-scene--
 
 ```ts title="frontend/src/types.ts"
 export enum DashboardsTabs {
-    First = 'first',
-    Second = 'second',
+  First = 'first',
+  Second = 'second',
 }
 ```
 
@@ -41,49 +41,49 @@ import { urls } from 'scenes/urls'
 import { Breadcrumb, DashboardsTabs } from '~/types'
 
 export const DASHBOARDS_TAB_TO_NAME: Record<DashboardsTabs, string> = {
-    [DashboardsTabs.First]: 'First',
-    [DashboardsTabs.Second]: 'Second',
+  [DashboardsTabs.First]: 'First',
+  [DashboardsTabs.Second]: 'Second',
 }
 
 export const dashboardsLogic = kea([
-    path(['scenes', 'dashboard', 'dashboardsLogic']),
-    actions({
-        setCurrentTab: (tab: DashboardsTabs = DashboardsTabs.First) => ({ tab }),
-    }),
-    reducers({
-        currentTab: [
-            DashboardsTabs.First as DashboardsTabs,
-            {
-                setCurrentTab: (_, { tab }) => tab,
-            },
-        ],
-    }),
-    selectors(() => ({
-        breadcrumbs: [
-            // Optional if you'd like the breadcrumbs to show the current tab
-            (s) => [s.currentTab],
-            (tab): Breadcrumb[] => {
-                const breadcrumbs: Breadcrumb[] = [{ name: 'Dashboards' }]
-                breadcrumbs.push({
-                    name: DASHBOARDS_TAB_TO_NAME[tab],
-                })
+  path(['scenes', 'dashboard', 'dashboardsLogic']),
+  actions({
+    setCurrentTab: (tab: DashboardsTabs = DashboardsTabs.First) => ({ tab }),
+  }),
+  reducers({
+    currentTab: [
+      DashboardsTabs.First as DashboardsTabs,
+      {
+        setCurrentTab: (_, { tab }) => tab,
+      },
+    ],
+  }),
+  selectors(() => ({
+    breadcrumbs: [
+      // Optional if you'd like the breadcrumbs to show the current tab
+      (s) => [s.currentTab],
+      (tab): Breadcrumb[] => {
+        const breadcrumbs: Breadcrumb[] = [{ name: 'Dashboards' }]
+        breadcrumbs.push({
+          name: DASHBOARDS_TAB_TO_NAME[tab],
+        })
 
-                return breadcrumbs
-            },
-        ],
-    })),
-    actionToUrl(({ values }) => {
-        return {
-            setCurrentTab: () => [urls.dashboards(values.currentTab)],
-        }
-    }),
-    urlToAction(({ actions, values }) => ({
-        '/dashboards/:tab': ({ tab }) => {
-            if (tab !== values.currentTab) {
-                actions.setCurrentTab(tab as DashboardsTabs)
-            }
-        },
-    })),
+        return breadcrumbs
+      },
+    ],
+  })),
+  actionToUrl(({ values }) => {
+    return {
+      setCurrentTab: () => [urls.dashboards(values.currentTab)],
+    }
+  }),
+  urlToAction(({ actions, values }) => ({
+    '/dashboards/:tab': ({ tab }) => {
+      if (tab !== values.currentTab) {
+        actions.setCurrentTab(tab as DashboardsTabs)
+      }
+    },
+  })),
 ])
 ```
 
@@ -102,30 +102,30 @@ import { DashboardsTabs } from '~/types'
 import { dashboardsLogic, humanFriendlyTabName } from './dashboardsLogic'
 
 const DASHBOARDS_TAB_TO_CONTENT: Record<DashboardsTabs, JSX.Element> = {
-    [DashboardsTabs.First]: <div>First tab content</div>,
-    [DashboardsTabs.Second]: <div>Second tab content</div>,
+  [DashboardsTabs.First]: <div>First tab content</div>,
+  [DashboardsTabs.Second]: <div>Second tab content</div>,
 }
 
 export const scene: SceneExport = {
-    component: Dashboards,
-    logic: dashboardsLogic,
+  component: Dashboards,
+  logic: dashboardsLogic,
 }
 
 export function Dashboards(): JSX.Element {
-    const { currentTab } = useValues(dashboardsLogic)
+  const { currentTab } = useValues(dashboardsLogic)
 
-    return (
-        <div>
-            <LemonTabs
-                activeKey={currentTab}
-                onChange={(tab) => router.actions.push(urls.dashboards(tab as DashboardsTabs))}
-                tabs={Object.values(DashboardsTabs).map((tab) => ({
-                    label: DASHBOARDS_TAB_TO_NAME[tab],
-                    key: tab,
-                    content: DASHBOARDS_TAB_TO_CONTENT[tab],
-                }))}
-            />
-        </div>
-    )
+  return (
+    <div>
+      <LemonTabs
+        activeKey={currentTab}
+        onChange={(tab) => router.actions.push(urls.dashboards(tab as DashboardsTabs))}
+        tabs={Object.values(DashboardsTabs).map((tab) => ({
+          label: DASHBOARDS_TAB_TO_NAME[tab],
+          key: tab,
+          content: DASHBOARDS_TAB_TO_CONTENT[tab],
+        }))}
+      />
+    </div>
+  )
 }
 ```

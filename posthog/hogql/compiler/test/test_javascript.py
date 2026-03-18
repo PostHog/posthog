@@ -212,6 +212,11 @@ return fibonacci(6);"""
         code = to_js_expr("(1, 2, 3).2")
         self.assertEqual(code, "__getProperty(tuple(1, 2, 3), 2, false)")
 
+    def test_between_expr(self):
+        code = to_js_expr("properties.value between 1 and 10")
+        self.assertIn("expr >= 1 && expr <= 10", code)
+        self.assertEqual(code.count("__getProperty"), 1)
+
     def test_function_assignment_error(self):
         compiler = JavaScriptCompiler()
         with self.assertRaises(QueryError) as context:

@@ -3,15 +3,22 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 import React from 'react'
 
-import { IconAtSign, IconDashboard, IconGraph, IconPageChart, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { IconAtSign, IconDashboard, IconGraph, IconNotebook, IconPageChart } from '@posthog/icons'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { IconAction, IconEvent } from 'lib/lemon-ui/icons'
 
+import { ModeSelector } from './components/ModeSelector'
 import { maxContextLogic } from './maxContextLogic'
 import { maxThreadLogic } from './maxThreadLogic'
-import { MaxActionContext, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
+import {
+    MaxActionContext,
+    MaxDashboardContext,
+    MaxEventContext,
+    MaxInsightContext,
+    MaxNotebookContext,
+} from './maxTypes'
 
 function pluralize(count: number, word: string): string {
     return `${count} ${word}${count > 1 ? 's' : ''}`
@@ -28,6 +35,7 @@ interface ContextSummaryProps {
     dashboards?: MaxDashboardContext[]
     events?: MaxEventContext[]
     actions?: MaxActionContext[]
+    notebooks?: MaxNotebookContext[]
     useCurrentPageContext?: boolean
 }
 
@@ -36,6 +44,7 @@ export function ContextSummary({
     dashboards,
     events,
     actions,
+    notebooks,
     useCurrentPageContext,
 }: ContextSummaryProps): JSX.Element | null {
     const contextCounts = useMemo(() => {
@@ -45,16 +54,18 @@ export function ContextSummary({
             currentPage: useCurrentPageContext ? 1 : 0,
             events: events ? events.length : 0,
             actions: actions ? actions.length : 0,
+            notebooks: notebooks ? notebooks.length : 0,
         }
         return counts
-    }, [insights, dashboards, useCurrentPageContext, events, actions])
+    }, [insights, dashboards, useCurrentPageContext, events, actions, notebooks])
 
     const totalCount =
         contextCounts.insights +
         contextCounts.dashboards +
         contextCounts.currentPage +
         contextCounts.events +
-        contextCounts.actions
+        contextCounts.actions +
+        contextCounts.notebooks
 
     const contextSummaryText = useMemo(() => {
         const parts = []
@@ -72,6 +83,9 @@ export function ContextSummary({
         }
         if (contextCounts.actions > 0) {
             parts.push(pluralize(contextCounts.actions, 'action'))
+        }
+        if (contextCounts.notebooks > 0) {
+            parts.push(pluralize(contextCounts.notebooks, 'notebook'))
         }
 
         if (parts.length === 1) {
@@ -126,8 +140,18 @@ export function ContextSummary({
             })
         }
 
+        if (notebooks) {
+            notebooks.forEach((notebook) => {
+                items.push({
+                    type: 'notebook',
+                    name: notebook.name || `Notebook ${notebook.id}`,
+                    icon: <IconNotebook />,
+                })
+            })
+        }
+
         return items
-    }, [dashboards, insights, events, actions])
+    }, [dashboards, insights, events, actions, notebooks])
 
     if (totalCount === 0) {
         return null
@@ -155,12 +179,24 @@ export function ContextSummary({
 }
 
 export function ContextTags({ size = 'default' }: { size?: 'small' | 'default' }): JSX.Element | null {
-    const { contextInsights, contextDashboards, contextEvents, contextActions } = useValues(maxContextLogic)
-    const { removeContextInsight, removeContextDashboard, removeContextEvent, removeContextAction } =
-        useActions(maxContextLogic)
+    const { contextInsights, contextDashboards, contextEvents, contextActions, contextNotebooks, toolContextItems } =
+        useValues(maxContextLogic)
+    const {
+        removeContextInsight,
+        removeContextDashboard,
+        removeContextEvent,
+        removeContextAction,
+        removeContextNotebook,
+    } = useActions(maxContextLogic)
 
     const allTags = useMemo(() => {
         const tags: JSX.Element[] = []
+
+        // Collect tool context item names (these have precedence and shouldn't be duplicated)
+        const toolContextNames = new Set<string>()
+        toolContextItems.forEach((item) => {
+            toolContextNames.add(item.text.toLowerCase())
+        })
 
         // Context items configuration
         const contextConfigs = [
@@ -192,13 +228,24 @@ export function ContextTags({ size = 'default' }: { size?: 'small' | 'default' }
                 removeAction: removeContextAction,
                 getName: (item: MaxActionContext) => item.name || `Action ${item.id}`,
             },
+            {
+                items: contextNotebooks,
+                type: 'notebook',
+                icon: IconNotebook,
+                removeAction: removeContextNotebook,
+                getName: (item: MaxNotebookContext) => item.name || `Notebook ${item.id}`,
+            },
         ]
 
-        // Generate tags for each context type
+        // Generate tags for each context type, skipping items already in tool context
         contextConfigs.forEach(({ items, type, icon: IconComponent, removeAction, getName }) => {
             if (items) {
                 items.forEach((item: any) => {
                     const name = getName(item)
+                    // Skip if this item is already shown in tool context
+                    if (!name || toolContextNames.has(name.toLowerCase())) {
+                        return
+                    }
                     tags.push(
                         <Tooltip key={`${type}-${item.id}`} title={name}>
                             <LemonTag
@@ -207,7 +254,10 @@ export function ContextTags({ size = 'default' }: { size?: 'small' | 'default' }
                                 onClose={() => removeAction(item.id)}
                                 closable
                                 closeOnClick
-                                className={clsx('flex items-center', size === 'small' ? 'max-w-20' : 'max-w-48')}
+                                className={clsx(
+                                    'flex items-center text-secondary',
+                                    size === 'small' ? 'max-w-20' : 'max-w-48'
+                                )}
                             >
                                 <span className="truncate min-w-0 flex-1">{name}</span>
                             </LemonTag>
@@ -224,17 +274,60 @@ export function ContextTags({ size = 'default' }: { size?: 'small' | 'default' }
         contextInsights,
         contextEvents,
         contextActions,
+        contextNotebooks,
+        toolContextItems,
         removeContextDashboard,
         removeContextInsight,
         removeContextEvent,
         removeContextAction,
+        removeContextNotebook,
     ])
 
     if (allTags.length === 0) {
         return null
     }
 
-    return <div className="flex flex-wrap gap-1 flex-1 min-w-0 overflow-hidden">{allTags}</div>
+    return <>{allTags}</>
+}
+
+export function ContextToolInfoTags({ size = 'default' }: { size?: 'small' | 'default' }): JSX.Element | null {
+    const { toolContextItems } = useValues(maxContextLogic)
+
+    if (toolContextItems.length === 0) {
+        return null
+    }
+
+    const tooltipContent =
+        toolContextItems.length === 1 ? (
+            'This context is auto-included from the current view'
+        ) : (
+            <div className="flex flex-col gap-1">
+                <div className="text-xs font-semibold mb-1">This context is auto-included from the current view:</div>
+                {toolContextItems.map((item, index) => (
+                    <div key={index} className="flex items-center gap-1.5">
+                        {item.icon}
+                        <span>{item.text}</span>
+                    </div>
+                ))}
+            </div>
+        )
+
+    return (
+        <Tooltip title={tooltipContent}>
+            <LemonTag
+                icon={toolContextItems[0].icon}
+                className={clsx(
+                    'flex items-center cursor-default border-dashed text-secondary',
+                    size === 'small' ? 'max-w-20' : 'max-w-48'
+                )}
+            >
+                <span className="truncate min-w-0 flex-1">
+                    {toolContextItems[0].text}
+                    {toolContextItems.length > 1 && <span className="ml-1">+{toolContextItems.length - 1}</span>}
+                </span>
+            </LemonTag>
+        </Tooltip>
+    )
 }
 
 interface ContextDisplayProps {
@@ -242,43 +335,38 @@ interface ContextDisplayProps {
 }
 
 export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.Element | null {
-    const { deepResearchMode, showContextUI } = useValues(maxThreadLogic)
-    const { hasData, contextOptions, taxonomicGroupTypes, mainTaxonomicGroupType } = useValues(maxContextLogic)
+    const { showContextUI, contextDisabledReason } = useValues(maxThreadLogic)
+    const { hasData, contextOptions, taxonomicGroupTypes, mainTaxonomicGroupType, toolContextItems } =
+        useValues(maxContextLogic)
     const { handleTaxonomicFilterChange } = useActions(maxContextLogic)
 
     if (!showContextUI) {
         return null
     }
 
+    const hasToolContext = toolContextItems.length > 0
+
     return (
-        <div className="px-1 w-full">
+        <div className="px-2 w-full">
             <div className="flex flex-wrap items-start gap-1 w-full">
-                {deepResearchMode ? (
-                    <LemonButton
+                <ModeSelector />
+                <Tooltip title={contextDisabledReason ?? 'Add context to help PostHog AI answer your question'}>
+                    <TaxonomicPopover
                         size="xxsmall"
                         type="tertiary"
                         className="flex-shrink-0 border"
-                        icon={<IconWarning />}
-                        disabledReason="Deep research mode doesn't currently support adding context"
-                    >
-                        Turn off deep research to add context
-                    </LemonButton>
-                ) : (
-                    <Tooltip title="Add context to help Max answer your question">
-                        <TaxonomicPopover
-                            size="xxsmall"
-                            type="tertiary"
-                            className="flex-shrink-0 border"
-                            groupType={mainTaxonomicGroupType}
-                            groupTypes={taxonomicGroupTypes}
-                            onChange={handleTaxonomicFilterChange}
-                            icon={<IconAtSign />}
-                            placeholder={!hasData ? 'Add context' : null}
-                            maxContextOptions={contextOptions}
-                            width={450}
-                        />
-                    </Tooltip>
-                )}
+                        groupType={mainTaxonomicGroupType}
+                        groupTypes={taxonomicGroupTypes}
+                        onChange={handleTaxonomicFilterChange}
+                        icon={<IconAtSign className="text-secondary" />}
+                        placeholder={!hasData && !hasToolContext ? 'Add context' : null}
+                        placeholderClass="text-secondary"
+                        maxContextOptions={contextOptions}
+                        width={450}
+                        disabledReason={contextDisabledReason}
+                    />
+                </Tooltip>
+                <ContextToolInfoTags size={size} />
                 <ContextTags size={size} />
             </div>
         </div>

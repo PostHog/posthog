@@ -31,6 +31,7 @@ AXES_HTTP_RESPONSE_CODE = 403
 # TODO: Automatically generate these like we do for the frontend
 # NOTE: Add these definitions here and on `tach.toml`
 PRODUCTS_APPS = [
+    "products.analytics_platform.backend.apps.AnalyticsPlatformConfig",
     "products.early_access_features.backend.apps.EarlyAccessFeaturesConfig",
     "products.tasks.backend.apps.TasksConfig",
     "products.links.backend.apps.LinksConfig",
@@ -41,6 +42,26 @@ PRODUCTS_APPS = [
     "products.marketing_analytics.backend.apps.MarketingAnalyticsConfig",
     "products.error_tracking.backend.apps.ErrorTrackingConfig",
     "products.notebooks.backend.apps.NotebooksConfig",
+    "products.surveys.backend.apps.SurveysConfig",
+    "products.data_warehouse.backend.apps.DataWarehouseConfig",
+    "products.data_modeling.backend.apps.DataModelingConfig",
+    "products.desktop_recordings.backend.apps.DesktopRecordingsConfig",
+    "products.live_debugger.backend.apps.LiveDebuggerConfig",
+    "products.experiments.backend.apps.ExperimentsConfig",
+    "products.feature_flags.backend.apps.FeatureFlagsConfig",
+    "products.customer_analytics.backend.apps.CustomerAnalyticsConfig",
+    "products.conversations.backend.apps.ConversationsConfig",
+    "products.slack_app.backend.apps.SlackAppConfig",
+    "products.product_tours.backend.apps.ProductToursConfig",
+    "products.workflows.backend.apps.WorkflowsConfig",
+    "products.posthog_ai.backend.apps.PosthogAiConfig",
+    "products.signals.backend.apps.SignalsConfig",
+    "products.visual_review.backend.apps.VisualReviewConfig",
+    "products.mcp_store.backend.apps.McpStoreConfig",
+    "products.event_definitions.backend.apps.EventDefinitionsConfig",
+    "products.logs.backend.apps.LogsConfig",
+    "products.tracing.backend.apps.TracingConfig",
+    "products.metrics.backend.apps.MetricsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -82,6 +103,7 @@ MIDDLEWARE = [
     "django_structlog.middlewares.RequestMiddleware",
     "posthog.middleware.Fix204Middleware",
     "django.middleware.security.SecurityMiddleware",
+    "posthog.middleware.ToolbarOAuthCoopMiddleware",
     # NOTE: we need healthcheck high up to avoid hitting middlewares that may be
     # using dependencies that the healthcheck should be checking. It should be
     # ok below the above middlewares however.
@@ -103,7 +125,10 @@ MIDDLEWARE = [
     "django_otp.middleware.OTPMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "posthog.middleware.AutoLogoutImpersonateMiddleware",
+    "posthog.middleware.ImpersonationReadOnlyMiddleware",
+    "posthog.middleware.ImpersonationBlockedPathsMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "posthog.middleware.ActiveOrganizationMiddleware",
     "posthog.middleware.CsvNeverCacheMiddleware",
     "axes.middleware.AxesMiddleware",
     "posthog.middleware.AutoProjectMiddleware",
@@ -160,7 +185,6 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "posthog.wsgi.application"
 
-
 ####
 # Authentication
 
@@ -169,6 +193,7 @@ AUTHENTICATION_BACKENDS: list[str] = [
     "social_core.backends.github.GithubOAuth2",
     "social_core.backends.gitlab.GitLabOAuth2",
     "django.contrib.auth.backends.ModelBackend",
+    "posthog.auth.WebauthnBackend",
 ]
 
 AUTH_USER_MODEL = "posthog.User"
@@ -177,7 +202,7 @@ LOGIN_URL = "/login"
 LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
-CORS_URLS_REGEX = r"^(/site_app/|/array/|/static/|/api/(?!early_access_features|surveys|web_experiments).*$)"
+CORS_URLS_REGEX = r"^(/site_app/|/array/|/static/|/oauth/token/|/toolbar_oauth/check|/api/(?!early_access_features|surveys|web_experiments).*$)"
 CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
@@ -237,7 +262,16 @@ IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY = get_from_env(
     "IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY", "impersonation_last_activity"
 )
 # Disallow impersonating other staff
-CAN_LOGIN_AS = lambda request, target_user: request.user.is_staff and not target_user.is_staff
+CAN_LOGIN_AS = lambda request, target_user: (
+    # user performing action must be a staff member
+    request.user.is_staff
+    # cannot impersonate other staff
+    and not target_user.is_staff
+    # target user must not have opted out of impersonation (None treated as allowed)
+    and target_user.allow_impersonation is not False
+)
+# Require a reason when logging in as another user
+LOGINAS_LOGIN_REASON_REQUIRED = True
 
 SESSION_COOKIE_CREATED_AT_KEY = get_from_env("SESSION_COOKIE_CREATED_AT_KEY", "session_created_at")
 
@@ -266,7 +300,6 @@ PASSWORD_RESET_TIMEOUT = 86_400  # 1 day
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"
 USE_I18N = True
-USE_L10N = True
 USE_TZ = True
 
 ####
@@ -278,7 +311,14 @@ STATIC_URL = "/static/"
 STATICFILES_DIRS = [
     os.path.join(BASE_DIR, "frontend/dist"),
 ]
-STATICFILES_STORAGE = "whitenoise.storage.ManifestStaticFilesStorage"
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.ManifestStaticFilesStorage",
+    },
+}
 
 
 def static_varies_origin(headers, path, url):
@@ -317,6 +357,7 @@ if DEBUG:
 
 SPECTACULAR_SETTINGS = {
     "AUTHENTICATION_WHITELIST": ["posthog.auth.PersonalAPIKeyAuthentication"],
+    "GET_MOCK_REQUEST": "posthog.api.documentation.build_openapi_mock_request",
     "PREPROCESSING_HOOKS": ["posthog.api.documentation.preprocess_exclude_path_format"],
     "POSTPROCESSING_HOOKS": [
         "drf_spectacular.hooks.postprocess_schema_enums",
@@ -324,7 +365,9 @@ SPECTACULAR_SETTINGS = {
     ],
     "ENUM_NAME_OVERRIDES": {
         "DashboardRestrictionLevel": "posthog.models.dashboard.Dashboard.RestrictionLevel",
+        "PropertyGroupOperator": ["AND", "OR"],
         "OrganizationMembershipLevel": "posthog.models.organization.OrganizationMembership.Level",
+        "SetupTaskId": "posthog.models.team.setup_tasks.SetupTaskId",
         "SurveyType": "posthog.models.surveys.survey.Survey.SurveyType",
     },
 }
@@ -385,7 +428,6 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
     )
 )
 
-
 ####
 # Prometheus Django metrics settings, see
 # https://github.com/korfuri/django-prometheus for more details
@@ -401,8 +443,20 @@ PUBLIC_EGRESS_IP_ADDRESSES = get_list(os.getenv("PUBLIC_EGRESS_IP_ADDRESSES", ""
 
 PROXY_PROVISIONER_URL = get_from_env("PROXY_PROVISIONER_URL", "")  # legacy, from before gRPC
 PROXY_PROVISIONER_ADDR = get_from_env("PROXY_PROVISIONER_ADDR", "")
+PROXY_USE_GATEWAY_API = get_from_env("PROXY_USE_GATEWAY_API", False, type_cast=str_to_bool)
 PROXY_TARGET_CNAME = get_from_env("PROXY_TARGET_CNAME", "")
 PROXY_BASE_CNAME = get_from_env("PROXY_BASE_CNAME", "")
+
+# Cloudflare for SaaS proxy settings
+CLOUDFLARE_PROXY_ENABLED = get_from_env("CLOUDFLARE_PROXY_ENABLED", False, type_cast=str_to_bool)
+CLOUDFLARE_API_TOKEN = get_from_env("CLOUDFLARE_API_TOKEN", "")
+CLOUDFLARE_ZONE_ID = get_from_env("CLOUDFLARE_ZONE_ID", "")
+CLOUDFLARE_WORKER_NAME = get_from_env("CLOUDFLARE_WORKER_NAME", "")
+CLOUDFLARE_PROXY_BASE_CNAME = get_from_env("CLOUDFLARE_PROXY_BASE_CNAME", "")
+
+# Domain Connect (automated DNS configuration)
+DOMAIN_CONNECT_PRIVATE_KEY: str | None = os.getenv("DOMAIN_CONNECT_PRIVATE_KEY", "").replace("\\n", "\n") or None
+DOMAIN_CONNECT_KEY_ID: str = os.getenv("DOMAIN_CONNECT_KEY_ID", "_dcpubkeyv1")
 
 ####
 # CDP
@@ -410,41 +464,12 @@ PROXY_BASE_CNAME = get_from_env("PROXY_BASE_CNAME", "")
 LOGO_DEV_TOKEN = get_from_env("LOGO_DEV_TOKEN", "")
 
 ####
-# /decide
-
-# Decide rate limit setting
-DECIDE_RATE_LIMIT_ENABLED = get_from_env("DECIDE_RATE_LIMIT_ENABLED", False, type_cast=str_to_bool)
-DECIDE_BUCKET_CAPACITY = get_from_env("DECIDE_BUCKET_CAPACITY", type_cast=int, default=500)
-DECIDE_BUCKET_REPLENISH_RATE = get_from_env("DECIDE_BUCKET_REPLENISH_RATE", type_cast=float, default=10.0)
-
-# This is a list of team-ids that are prevented from using the /decide endpoint
-# until they fix an issue with their feature flags causing instability in posthog.
-DECIDE_SHORT_CIRCUITED_TEAM_IDS = [0]
-
-# Decide db settings
-DECIDE_SKIP_POSTGRES_FLAGS = get_from_env("DECIDE_SKIP_POSTGRES_FLAGS", False, type_cast=str_to_bool)
-
-# Decide billing analytics
+# Feature flag billing analytics
+# Used to track feature flag requests for billing purposes.
+# Named "decide" for historical reasons: the /decide endpoint was the original
+# way clients fetched feature flags before the Rust feature flags service.
 DECIDE_BILLING_SAMPLING_RATE = get_from_env("DECIDE_BILLING_SAMPLING_RATE", 0.1, type_cast=float)
 DECIDE_BILLING_ANALYTICS_TOKEN = get_from_env("DECIDE_BILLING_ANALYTICS_TOKEN", None, type_cast=str, optional=True)
-
-# Decide regular request analytics
-# Takes 3 possible formats, all separated by commas:
-# A number: "2"
-# A range: "2:5" -- represents team IDs 2, 3, 4, 5
-# The string "all" -- represents all team IDs
-DECIDE_TRACK_TEAM_IDS = get_list(os.getenv("DECIDE_TRACK_TEAM_IDS", ""))
-
-# Decide skip hash key overrides
-DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES = get_from_env(
-    "DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES", False, type_cast=str_to_bool
-)
-
-# if `true` we disable session replay if over quota
-DECIDE_SESSION_REPLAY_QUOTA_CHECK = get_from_env("DECIDE_SESSION_REPLAY_QUOTA_CHECK", False, type_cast=str_to_bool)
-
-# if `true` we disable feature flags if over quota
-DECIDE_FEATURE_FLAG_QUOTA_CHECK = get_from_env("DECIDE_FEATURE_FLAG_QUOTA_CHECK", False, type_cast=str_to_bool)
 
 ####
 # /remote_config
@@ -469,12 +494,18 @@ KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SEC
 # if `true` we highly increase the rate limit on /query endpoint and limit the number of concurrent queries
 API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_to_bool)
 
-
 ####
 # Livestream
 
 # Passed to the frontend for the web app to know where to connect to
 LIVESTREAM_HOST = get_from_env("LIVESTREAM_HOST", "")
+
+####
+# Graceful shutdown
+
+# Marker file created by Kubernetes preStop hook to signal pod is shutting down.
+# When this file exists, the /_readyz endpoint returns 503 to stop receiving new traffic.
+PRESTOP_MARKER_FILE = get_from_env("PRESTOP_MARKER_FILE", "/tmp/posthog_prestop")
 
 ####
 # Local dev
@@ -494,12 +525,18 @@ POSTHOG_JS_UUID_VERSION = os.getenv("POSTHOG_JS_UUID_VERSION", "v7")
 # Comma-separated list of team IDs that should receive the digest
 HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS = get_list(get_from_env("HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS", ""))
 
+# Comma-separated list of org ids allowed to receive the Error Tracking weekly digest
+# "*" for all, empty to disable feature
+ERROR_TRACKING_WEEKLY_DIGEST_ORG_IDS = get_list(get_from_env("ERROR_TRACKING_WEEKLY_DIGEST_ORG_IDS", ""))
+
+# Comma-separated list of email addresses allowed to receive the Error Tracking weekly digest
+# "*" for all
+ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS = get_list(get_from_env("ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS", ""))
 
 ####
 # OAuth
 
 OIDC_RSA_PRIVATE_KEY = os.getenv("OIDC_RSA_PRIVATE_KEY", "").replace("\\n", "\n")
-
 
 OAUTH_EXPIRED_TOKEN_RETENTION_PERIOD = 60 * 60 * 24 * 30  # 30 days
 
@@ -511,16 +548,26 @@ OAUTH2_PROVIDER = {
         "openid": "OpenID Connect scope",
         "profile": "Access to user's profile",
         "email": "Access to user's email address",
+        "introspection": "Access to introspect tokens",
         "*": "Full access to all scopes",
         **get_scope_descriptions(),
     },
-    "ALLOWED_REDIRECT_URI_SCHEMES": ["https"],
-    "AUTHORIZATION_CODE_EXPIRE_SECONDS": 60
-    * 5,  # client has 5 minutes to complete the OAuth flow before the authorization code expires
+    # Block dangerous URI schemes that could be used for attacks
+    # Since we use DCR with pre-registration, clients can use any scheme not in this blocklist
+    # Security validation in OAuthApplication.clean() ensures http is only allowed for loopback addresses
+    "BLOCKED_REDIRECT_URI_SCHEMES": [
+        "javascript",  # XSS attacks
+        "data",  # Data exfiltration / XSS
+        "file",  # Local file access
+        "blob",  # Similar to data URIs
+        "vbscript",  # Legacy script injection
+    ],
+    "AUTHORIZATION_CODE_EXPIRE_SECONDS": 60 * 5,
+    # client has 5 minutes to complete the OAuth flow before the authorization code expires
     "DEFAULT_SCOPES": ["openid"],
     "ACCESS_TOKEN_GENERATOR": "posthog.models.utils.generate_random_oauth_access_token",
     "REFRESH_TOKEN_GENERATOR": "posthog.models.utils.generate_random_oauth_refresh_token",
-    "OAUTH2_VALIDATOR_CLASS": "posthog.api.oauth.OAuthValidator",
+    "OAUTH2_VALIDATOR_CLASS": "posthog.api.oauth.views.OAuthValidator",
     "ACCESS_TOKEN_EXPIRE_SECONDS": 60 * 60,  # 1 hour
     "ROTATE_REFRESH_TOKEN": True,  # Rotate the refresh token whenever a new access token is issued
     "REFRESH_TOKEN_REUSE_PROTECTION": True,
@@ -532,15 +579,37 @@ OAUTH2_PROVIDER = {
     "CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL": 1,
 }
 
-
 OAUTH2_PROVIDER_APPLICATION_MODEL = "posthog.OAuthApplication"
 OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL = "posthog.OAuthAccessToken"
 OAUTH2_PROVIDER_REFRESH_TOKEN_MODEL = "posthog.OAuthRefreshToken"
 OAUTH2_PROVIDER_ID_TOKEN_MODEL = "posthog.OAuthIDToken"
 OAUTH2_PROVIDER_GRANT_MODEL = "posthog.OAuthGrant"
 
+TOOLBAR_OAUTH_STATE_TTL_SECONDS = 60 * 5
+TOOLBAR_OAUTH_EXCHANGE_TIMEOUT_SECONDS = 10
+TOOLBAR_OAUTH_APPLICATION_NAME = "PostHog Toolbar"
+TOOLBAR_OAUTH_SCOPES = [
+    "openid",
+    "user:read",
+    "action:read",
+    "action:write",
+    "feature_flag:read",
+    "experiment:read",
+    "experiment:write",
+    "query:read",
+    "product_tour:read",
+    "product_tour:write",
+    "heatmap:read",
+    "element:read",
+    "uploaded_media:write",
+]
+
+ELEMENT_STATS_DEFAULT_LIMIT = get_from_env("ELEMENT_STATS_DEFAULT_LIMIT", 50_000, type_cast=int)
+
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes
 
-if DEBUG:
-    OAUTH2_PROVIDER["ALLOWED_REDIRECT_URI_SCHEMES"] = ["http", "https"]
+SURVEYS_API_USE_HYPERCACHE_TOKENS = get_list(os.getenv("SURVEYS_API_USE_HYPERCACHE_TOKENS", ""))
+SURVEYS_API_USE_REMOTE_CONFIG_COMPARE = get_from_env(
+    "SURVEYS_API_USE_REMOTE_CONFIG_COMPARE", False, type_cast=str_to_bool
+)

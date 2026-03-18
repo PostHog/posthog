@@ -4,6 +4,7 @@ from typing import Any, Optional
 
 import pyarrow as pa
 import requests
+import structlog
 from dateutil import parser
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from structlog.types import FilteringBoundLogger
@@ -11,7 +12,8 @@ from structlog.types import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_iterator
 from posthog.temporal.data_imports.sources.generated_configs import DoItSourceConfig
-from posthog.warehouse.types import IncrementalField, IncrementalFieldType
+
+from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 
 DOIT_INCREMENTAL_FIELDS: list[IncrementalField] = [
     {
@@ -49,14 +51,32 @@ def build_pyarrow_schema(schema: dict[str, str]) -> pa.Schema:
     return pa.schema(fields)
 
 
-def doit_list_reports(config: DoItSourceConfig) -> list[tuple[str, str]]:
+def doit_list_reports(config: DoItSourceConfig, logger: Optional[FilteringBoundLogger] = None) -> list[tuple[str, str]]:
+    if logger is None:
+        logger = structlog.get_logger(__name__)
+
     res = requests.get(
-        "https://api.doit.com/analytics/v1/reports", headers={"Authorization": f"Bearer {config.api_key}"}
+        "https://api.doit.com/analytics/v1/reports",
+        headers={"Authorization": f"Bearer {config.api_key}"},
     )
 
     reports = res.json()["reports"]
 
-    return [(NamingConvention().normalize_identifier(report["reportName"]), report["id"]) for report in reports]
+    result = []
+    for report in reports:
+        report_name = report.get("reportName") or ""
+        report_id = report.get("id", "unknown")
+        if not report_name.strip():
+            logger.warning("Skipping DoIt report with empty name", report_id=report_id)
+            continue
+        try:
+            normalized = NamingConvention().normalize_identifier(report_name)
+            result.append((normalized, report["id"]))
+        except ValueError:
+            logger.warning("Skipping DoIt report with invalid name", report_id=report_id, report_name=report_name)
+            continue
+
+    return result
 
 
 def append_primary_key(row: dict[str, Any]) -> dict[str, Any]:
@@ -66,6 +86,8 @@ def append_primary_key(row: dict[str, Any]) -> dict[str, Any]:
         if name not in columns_to_ignore:
             key = f"{key}-{value}"
 
+    # this hash has no security impact
+    # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
     hash_key = hashlib.md5(key.encode()).hexdigest()
 
     return {**row, "id": hash_key}
@@ -78,7 +100,7 @@ def doit_source(
     db_incremental_field_last_value: Optional[Any],
     should_use_incremental_field: bool = False,
 ) -> SourceResponse:
-    all_reports = doit_list_reports(config)
+    all_reports = doit_list_reports(config, logger=logger)
     selected_reports = [id for name, id in all_reports if name == report_name]
     if len(selected_reports) == 0:
         raise Exception("Report no longer exists")
@@ -124,6 +146,9 @@ def doit_source(
 
         rows: list[list[Any]] = result["result"]["rows"]
 
+        if "id" not in arrow_schema.names:
+            arrow_schema = arrow_schema.append(pa.field("id", pa.string(), nullable=False))
+
         yield table_from_iterator((append_primary_key(dict(zip(column_names, row))) for row in rows), arrow_schema)
 
-    return SourceResponse(name=report_name, items=get_rows(report_id), primary_keys=["id"])
+    return SourceResponse(name=report_name, items=lambda: get_rows(report_id), primary_keys=["id"])

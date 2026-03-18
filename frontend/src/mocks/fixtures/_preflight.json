@@ -468,6 +468,7 @@
     "site_url": "http://localhost:6006",
     "instance_preferences": {
         "debug_queries": false,
-        "disable_paid_fs": false
+        "disable_paid_fs": false,
+        "cloudflare_proxy_enabled": true
     }
 }

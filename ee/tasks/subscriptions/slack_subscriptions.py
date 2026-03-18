@@ -4,11 +4,15 @@ from typing import Any
 
 from django.conf import settings
 
+import aiohttp
 import structlog
+from slack_sdk.errors import SlackApiError
 
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.subscription import Subscription
+
+from ee.tasks.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_MESSAGE, _has_asset_failed
 
 logger = structlog.get_logger(__name__)
 
@@ -38,7 +42,31 @@ class SlackDeliveryResult:
         return self.main_message_sent and len(self.failed_thread_message_indices) == 0
 
 
-def _block_for_asset(asset: ExportedAsset) -> dict:
+def _block_for_asset(asset: ExportedAsset, resource_url: str) -> dict:
+    if _has_asset_failed(asset):
+        insight_name = asset.insight.name or asset.insight.derived_name if asset.insight else "Unknown insight"
+
+        # Slack text blocks have a 3000 character limit
+        # Reserve space for the insight name, formatting, and support message
+        max_error_length = 2000
+
+        if asset.exception:
+            exception_text = str(asset.exception)
+            if len(exception_text) > max_error_length:
+                exception_text = exception_text[:max_error_length] + "... (truncated)"
+        else:
+            exception_text = ASSET_GENERATION_FAILED_MESSAGE
+
+        support_url = f"{resource_url}#panel=support:bug:analytics_platform:high:true"
+        error_text = (
+            f"*{insight_name}*\n"
+            f"There was an error generating your asset: {exception_text}\n"
+            f"_If this issue persists, please <{support_url}|contact support>._"
+        )
+
+        return {"type": "section", "text": {"type": "mrkdwn", "text": error_text}}
+
+    # Normal image block for successful assets
     image_url = asset.get_public_content_url()
     alt_text = None
     if asset.insight:
@@ -88,15 +116,20 @@ def _prepare_slack_message(
     channel = subscription.target_value.split("|")[0]
     first_asset, *other_assets = assets
 
+    if subscription.title:
+        display_name = f"*{subscription.title}* ({resource_info.kind}: {resource_info.name})"
+    else:
+        display_name = f"the {resource_info.kind} *{resource_info.name}*"
+
     if is_new_subscription:
-        title = f"This channel has been subscribed to the {resource_info.kind} *{resource_info.name}* on PostHog! 🎉"
+        title = f"This channel has been subscribed to {display_name} on PostHog! 🎉"
         title += f"\nThis subscription is {subscription.summary}. The next one will be sent on {subscription.next_delivery_date.strftime('%A %B %d, %Y')}"
     else:
-        title = f"Your subscription to the {resource_info.kind} *{resource_info.name}* is ready! 🎉"
+        title = f"Your subscription to {display_name} is ready! 🎉"
 
     blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": title}},
-        _block_for_asset(first_asset),
+        _block_for_asset(first_asset, resource_url=resource_info.url),
     ]
 
     if other_assets:
@@ -131,7 +164,7 @@ def _prepare_slack_message(
     # Prepare additional messages for thread
     thread_messages = []
     for asset in other_assets:
-        thread_messages.append({"blocks": [_block_for_asset(asset)]})
+        thread_messages.append({"blocks": [_block_for_asset(asset, resource_url=resource_info.url)]})
 
     if total_asset_count > len(assets):
         thread_messages.append(
@@ -179,27 +212,33 @@ def send_slack_message_with_integration(
             slack_integration.client.chat_postMessage(channel=message_data.channel, thread_ts=thread_ts, **thread_msg)
 
 
-async def _send_slack_message_with_retry(client, max_retries: int = 2, **kwargs):
+async def _send_slack_message_with_retry(client, max_retries: int = 3, **kwargs):
     for attempt in range(max_retries):
         try:
             return await client.chat_postMessage(**kwargs)
-        except TimeoutError:
-            if attempt < max_retries - 1:
-                wait_time = 2**attempt
-                logger.warning(
-                    "_send_slack_message_with_retry.timeout_retrying",
-                    attempt=attempt + 1,
-                    max_retries=max_retries,
-                    wait_time=wait_time,
-                    channel=kwargs.get("channel"),
-                    is_thread=bool(kwargs.get("thread_ts")),
-                    exc_info=True,
-                )
-                await asyncio.sleep(wait_time)
-                continue
+        except (TimeoutError, SlackApiError) as e:
+            if isinstance(e, SlackApiError):
+                slack_error = e.response.get("error", "")
+                if slack_error != "invalid_blocks":
+                    raise
+                log_event = "_send_slack_message_with_retry.invalid_blocks_retrying"
             else:
-                # Final attempt failed, re-raise
+                log_event = "_send_slack_message_with_retry.timeout_retrying"
+
+            if attempt >= max_retries - 1:
                 raise
+
+            logger.warning(
+                log_event,
+                attempt=attempt + 1,
+                max_retries=max_retries,
+                channel=kwargs.get("channel"),
+                is_thread=bool(kwargs.get("thread_ts")),
+                exc_info=True,
+            )
+
+            wait_time = 2**attempt
+            await asyncio.sleep(wait_time)
 
 
 async def send_slack_message_with_integration_async(
@@ -212,36 +251,42 @@ async def send_slack_message_with_integration_async(
     message_data = _prepare_slack_message(subscription, assets, total_asset_count, is_new_subscription)
     slack_integration = SlackIntegration(integration)
 
-    message_res = await _send_slack_message_with_retry(
-        slack_integration.async_client,
-        channel=message_data.channel,
-        blocks=message_data.blocks,
-        text=message_data.title,
-    )
+    async with aiohttp.ClientSession(trust_env=True) as slack_session:
+        async_client = slack_integration.async_client(session=slack_session)
 
-    thread_ts = message_res.get("ts")
-    failed_thread_messages = []
+        message_res = await _send_slack_message_with_retry(
+            async_client,
+            channel=message_data.channel,
+            blocks=message_data.blocks,
+            text=message_data.title,
+        )
+        logger.info("send_slack_message_with_integration_async.main_message_sent", subscription_id=subscription.id)
 
-    if thread_ts:
-        for idx, thread_msg in enumerate(message_data.thread_messages):
-            try:
-                await _send_slack_message_with_retry(
-                    slack_integration.async_client,
-                    channel=message_data.channel,
-                    thread_ts=thread_ts,
-                    **thread_msg,
-                )
-            except TimeoutError:
-                logger.error(
-                    "send_slack_message_with_integration_async.slack_thread_message_failed_after_retries",
-                    subscription_id=subscription.id,
-                    channel=message_data.channel,
-                    thread_index=idx,
-                    total_thread_messages=len(message_data.thread_messages),
-                    thread_ts=thread_ts,
-                    exc_info=True,
-                )
-                failed_thread_messages.append(idx)
+        thread_ts = message_res.get("ts")
+        failed_thread_messages = []
+
+        if thread_ts:
+            for idx, thread_msg in enumerate(message_data.thread_messages):
+                try:
+                    await _send_slack_message_with_retry(
+                        async_client,
+                        channel=message_data.channel,
+                        thread_ts=thread_ts,
+                        **thread_msg,
+                    )
+                except Exception as e:
+                    # Thread message failed, continue with others
+                    logger.error(
+                        "send_slack_message_with_integration_async.slack_thread_message_failed_after_retries",
+                        subscription_id=subscription.id,
+                        channel=message_data.channel,
+                        thread_index=idx,
+                        total_thread_messages=len(message_data.thread_messages),
+                        thread_ts=thread_ts,
+                        error=str(e),
+                        exc_info=True,
+                    )
+                    failed_thread_messages.append(idx)
 
     return SlackDeliveryResult(
         main_message_sent=True,

@@ -1,10 +1,23 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 use crate::properties::property_models::PropertyFilter;
 
-// TRICKY: This cache data is coming from django-redis. If it ever goes out of sync, we'll bork.
-// TODO: Add integration tests across repos to ensure this doesn't happen.
-pub const TEAM_FLAGS_CACHE_PREFIX: &str = "posthog:1:team_feature_flags_";
+/// Wrapper struct for deserializing hypercache format: {"flags": [...]}
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct HypercacheFlagsWrapper {
+    pub flags: Vec<FeatureFlag>,
+}
+
+/// New holdout format: `{"id": 42, "exclusion_percentage": 10}`.
+/// Replaces the legacy `holdout_groups` array which reused `FlagPropertyGroup` with
+/// confusing semantics (rollout_percentage meant exclusion, variant was just "holdout-{id}").
+/// See holdout-migration-plan.md for the full migration plan.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Holdout {
+    pub id: i64,
+    pub exclusion_percentage: f64,
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct FlagPropertyGroup {
@@ -14,6 +27,11 @@ pub struct FlagPropertyGroup {
     pub rollout_percentage: Option<f64>,
     #[serde(default)]
     pub variant: Option<String>,
+    /// Per-condition-set aggregation group type index. When present, this condition
+    /// set uses the specified group type for hashing and property evaluation. When
+    /// absent/null, the condition set uses person-level aggregation (distinct_id).
+    #[serde(default)]
+    pub aggregation_group_type_index: Option<i32>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -74,9 +92,20 @@ pub struct FlagFilters {
     /// ]
     #[serde(default)]
     pub holdout_groups: Option<Vec<FlagPropertyGroup>>,
+    /// New holdout format: `{"id": 42, "exclusion_percentage": 10}`.
+    /// Preferred over `holdout_groups` when present (Phase 2 of holdout migration).
+    #[serde(default)]
+    pub holdout: Option<Holdout>,
 }
 
 pub type FeatureFlagId = i32;
+
+/// Defines which identifier is used for bucketing users into rollout and variants
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BucketingIdentifier {
+    DistinctId,
+    DeviceId,
+}
 
 // TODO: see if you can combine these two structs, like we do with cohort models
 // this will require not deserializing on read and instead doing it lazily, on-demand
@@ -100,6 +129,19 @@ pub struct FeatureFlag {
     pub evaluation_runtime: Option<String>,
     #[serde(default)]
     pub evaluation_tags: Option<Vec<String>>,
+    #[serde(default)]
+    pub bucketing_identifier: Option<String>,
+}
+
+impl FeatureFlag {
+    /// Returns the bucketing identifier for this flag.
+    /// Defaults to DistinctId if not specified or if an invalid value is provided.
+    pub fn get_bucketing_identifier(&self) -> BucketingIdentifier {
+        match self.bucketing_identifier.as_deref() {
+            Some("device_id") => BucketingIdentifier::DeviceId,
+            _ => BucketingIdentifier::DistinctId,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -117,9 +159,16 @@ pub struct FeatureFlagRow {
     pub evaluation_runtime: Option<String>,
     #[serde(default)]
     pub evaluation_tags: Option<Vec<String>>,
+    #[serde(default)]
+    pub bucketing_identifier: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct FeatureFlagList {
     pub flags: Vec<FeatureFlag>,
+    /// Runtime-only set of flag IDs that should be skipped during evaluation.
+    /// Includes inactive, deleted, survey-excluded, runtime-mismatched, and tag-filtered flags.
+    /// Not serialized — this is a request-scoped concern, not a cache concern.
+    #[serde(skip)]
+    pub filtered_out_flag_ids: HashSet<i32>,
 }

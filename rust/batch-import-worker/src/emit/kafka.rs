@@ -16,7 +16,10 @@ use common_types::InternallyCapturedEvent;
 use rdkafka::types::RDKafkaErrorCode;
 use tracing::{error, info};
 
-use crate::{context::AppContext, job::config::KafkaEmitterConfig};
+use crate::{
+    context::AppContext, job::config::KafkaEmitterConfig,
+    person_processing_filter::PersonProcessingFilter,
+};
 
 use super::{Emitter, Transaction};
 
@@ -24,6 +27,7 @@ pub struct KafkaEmitter {
     producer: TransactionalProducer,
     topic: String,
     send_rate: u64, // Messages sent per second
+    person_processing_filter: PersonProcessingFilter,
 }
 
 pub struct KafkaEmitterTransaction<'a> {
@@ -32,6 +36,7 @@ pub struct KafkaEmitterTransaction<'a> {
     send_rate: u64,
     start: Instant,
     count: AtomicUsize,
+    person_processing_filter: &'a PersonProcessingFilter,
 }
 
 impl KafkaEmitter {
@@ -50,6 +55,7 @@ impl KafkaEmitter {
             producer,
             topic: emitter_config.topic,
             send_rate: emitter_config.send_rate,
+            person_processing_filter: context.person_processing_filter.clone(),
         })
     }
 }
@@ -64,6 +70,7 @@ impl Emitter for KafkaEmitter {
             topic: &self.topic,
             send_rate: self.send_rate,
             count: AtomicUsize::new(0),
+            person_processing_filter: &self.person_processing_filter,
         }))
     }
 }
@@ -73,7 +80,18 @@ impl<'a> Transaction<'a> for KafkaEmitterTransaction<'a> {
     async fn emit(&self, data: &[InternallyCapturedEvent]) -> Result<(), Error> {
         for (idx, result) in self
             .inner
-            .send_keyed_iter_to_kafka(self.topic, |e| Some(e.inner.key()), data.iter())
+            .send_keyed_iter_to_kafka_with_headers(
+                self.topic,
+                |e| {
+                    let disable = self.disable_person_processing(e);
+                    self.kafka_key(e, disable)
+                },
+                |e| {
+                    let disable = self.disable_person_processing(e);
+                    self.kafka_headers(e, disable)
+                },
+                data.iter(),
+            )
             .await
             .into_iter()
             .enumerate()
@@ -115,10 +133,116 @@ impl<'a> Transaction<'a> for KafkaEmitterTransaction<'a> {
 }
 
 impl<'a> KafkaEmitterTransaction<'a> {
+    #[inline]
+    fn disable_person_processing(&self, e: &InternallyCapturedEvent) -> bool {
+        self.person_processing_filter
+            .should_disable_person_processing(&e.inner.token, &e.inner.distinct_id)
+    }
+
+    #[inline]
+    fn kafka_key(
+        &self,
+        e: &InternallyCapturedEvent,
+        disable_person_processing: bool,
+    ) -> Option<String> {
+        (!disable_person_processing).then(|| e.inner.key())
+    }
+
+    #[inline]
+    fn kafka_headers(
+        &self,
+        e: &InternallyCapturedEvent,
+        disable_person_processing: bool,
+    ) -> Option<rdkafka::message::OwnedHeaders> {
+        let mut headers = e.inner.to_headers();
+        if disable_person_processing {
+            headers.set_force_disable_person_processing(true);
+        }
+        Some(headers.into())
+    }
+
     fn get_min_txn_duration(&self, txn_count: usize) -> Duration {
         // Get how long the send must take if this is the first send
         let max_send_rate = self.send_rate as f64;
         let batch_size = txn_count as f64;
         Duration::from_secs_f64(batch_size / max_send_rate)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use common_types::{CapturedEvent, CapturedEventHeaders};
+    use uuid::Uuid;
+
+    #[test]
+    fn test_captured_event_to_headers() {
+        let event = CapturedEvent {
+            uuid: Uuid::now_v7(),
+            distinct_id: "user123".to_string(),
+            session_id: None,
+            ip: "127.0.0.1".to_string(),
+            data: r#"{"event":"test_event","properties":{}}"#.to_string(),
+            now: "2023-10-15T14:30:00+00:00".to_string(),
+            sent_at: None,
+            token: "test_token".to_string(),
+            event: "test_event".to_string(),
+            timestamp: chrono::DateTime::parse_from_rfc3339("2023-10-15T14:30:00+00:00")
+                .unwrap()
+                .with_timezone(&chrono::Utc),
+            is_cookieless_mode: false,
+            historical_migration: true,
+        };
+
+        let headers: CapturedEventHeaders = event.to_headers();
+
+        assert_eq!(headers.token, Some("test_token".to_string()));
+        assert_eq!(headers.distinct_id, Some("user123".to_string()));
+        assert_eq!(headers.uuid, Some(event.uuid.to_string()));
+        assert_eq!(headers.now, Some("2023-10-15T14:30:00+00:00".to_string()));
+        assert_eq!(headers.historical_migration, Some(true));
+        assert_eq!(headers.force_disable_person_processing, None);
+        assert_eq!(
+            headers.timestamp,
+            Some(event.timestamp.timestamp_millis().to_string())
+        );
+        assert_eq!(headers.event, Some("test_event".to_string()));
+    }
+
+    #[test]
+    fn test_headers_conversion_to_owned_headers() {
+        let event = CapturedEvent {
+            uuid: Uuid::now_v7(),
+            distinct_id: "user456".to_string(),
+            session_id: None,
+            ip: "127.0.0.1".to_string(),
+            data: r#"{"event":"another_event","properties":{}}"#.to_string(),
+            now: "2023-10-15T15:00:00+00:00".to_string(),
+            sent_at: None,
+            token: "another_token".to_string(),
+            event: "another_event".to_string(),
+            timestamp: chrono::DateTime::parse_from_rfc3339("2023-10-15T15:00:00+00:00")
+                .unwrap()
+                .with_timezone(&chrono::Utc),
+            is_cookieless_mode: false,
+            historical_migration: false,
+        };
+
+        let headers: CapturedEventHeaders = event.to_headers();
+        let owned_headers: rdkafka::message::OwnedHeaders = headers.into();
+
+        // Convert back to verify round-trip
+        let parsed_headers = CapturedEventHeaders::from(owned_headers);
+
+        assert_eq!(parsed_headers.token, Some("another_token".to_string()));
+        assert_eq!(parsed_headers.distinct_id, Some("user456".to_string()));
+        assert_eq!(parsed_headers.uuid, Some(event.uuid.to_string()));
+        assert_eq!(
+            parsed_headers.now,
+            Some("2023-10-15T15:00:00+00:00".to_string())
+        );
+        // historical_migration=false is omitted from headers (None means false)
+        assert_eq!(parsed_headers.historical_migration, None);
+        assert_eq!(parsed_headers.force_disable_person_processing, None);
+        assert_eq!(parsed_headers.event, Some("another_event".to_string()));
     }
 }

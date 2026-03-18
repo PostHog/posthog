@@ -1,0 +1,318 @@
+import { BuiltLogic, actions, kea, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
+import { router } from 'kea-router'
+
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { ActivityScope, Breadcrumb, Experiment, ProjectTreeRef } from '~/types'
+
+import {
+    type ExperimentLogicProps,
+    FORM_MODES,
+    type FormModes,
+    NEW_EXPERIMENT,
+    experimentLogic,
+} from './experimentLogic'
+import type { experimentLogicType } from './experimentLogicType'
+import type { experimentSceneLogicType } from './experimentSceneLogicType'
+import { stepStorageKey } from './ExperimentWizard/experimentWizardLogic'
+
+export interface ExperimentSceneLogicProps extends ExperimentLogicProps {
+    tabId?: string
+}
+
+export const experimentSceneLogic = kea<experimentSceneLogicType>([
+    props({} as ExperimentSceneLogicProps),
+    path(['scenes', 'experiments', 'experimentSceneLogic']),
+    tabAwareScene(),
+    actions({
+        setActiveTabKey: (activeTabKey: string) => ({ activeTabKey }),
+        setSceneState: (experimentId: Experiment['id'], formMode: FormModes) => ({ experimentId, formMode }),
+        setExperimentLogicRef: (
+            logic: BuiltLogic<experimentLogicType> | null,
+            unmount: null | (() => void),
+            logicProps: ExperimentLogicProps | null
+        ) => ({
+            logic,
+            unmount,
+            logicProps,
+        }),
+        setEditMode: (editing: boolean) => ({ editing }),
+        resetExperimentState: (experimentConfig: Experiment) => ({ experimentConfig }),
+    }),
+    reducers({
+        activeTabKey: [
+            'metrics' as string,
+            {
+                setActiveTabKey: (_, { activeTabKey }) => activeTabKey,
+                setSceneState: () => 'metrics',
+            },
+        ],
+        experimentId: [
+            (props: ExperimentSceneLogicProps) => props.experimentId ?? 'new',
+            {
+                setSceneState: (_, { experimentId }) => experimentId,
+            },
+        ],
+        formMode: [
+            (props: ExperimentSceneLogicProps) => props.formMode ?? FORM_MODES.update,
+            {
+                setSceneState: (_, { formMode }) => formMode,
+            },
+        ],
+        experimentLogicRef: [
+            null as null | {
+                logic: BuiltLogic<experimentLogicType>
+                unmount: () => void
+                props: ExperimentLogicProps
+            },
+            {
+                setExperimentLogicRef: (_, { logic, unmount, logicProps }) =>
+                    logic && unmount && logicProps ? { logic, unmount, props: logicProps } : null,
+            },
+        ],
+    }),
+    selectors({
+        tabId: [() => [(_, props) => props.tabId], (tabId: string | undefined): string | undefined => tabId],
+        experimentSelector: [
+            (s) => [s.experimentLogicRef],
+            (experimentLogicRef) => experimentLogicRef?.logic.selectors.experiment,
+        ],
+        experiment: [
+            (s) => [
+                (state, props) => {
+                    try {
+                        return s.experimentSelector?.(state, props)?.(state, props)
+                    } catch {
+                        return null
+                    }
+                },
+            ],
+            (experiment): Experiment => (experiment ?? NEW_EXPERIMENT) as Experiment,
+        ],
+        experimentMissingSelector: [
+            (s) => [s.experimentLogicRef],
+            (experimentLogicRef) => experimentLogicRef?.logic.selectors.experimentMissing,
+        ],
+        experimentMissing: [
+            (s) => [
+                (state, props) => {
+                    try {
+                        return s.experimentMissingSelector?.(state, props)?.(state, props)
+                    } catch {
+                        return false
+                    }
+                },
+            ],
+            (experimentMissing): boolean => experimentMissing ?? false,
+        ],
+        isExperimentLaunchedSelector: [
+            (s) => [s.experimentLogicRef],
+            (experimentLogicRef) => experimentLogicRef?.logic.selectors.isExperimentLaunched,
+        ],
+        isExperimentLaunched: [
+            (s) => [
+                (state, props) => {
+                    try {
+                        return s.isExperimentLaunchedSelector?.(state, props)?.(state, props)
+                    } catch {
+                        return false
+                    }
+                },
+            ],
+            (isExperimentLaunched): boolean => isExperimentLaunched ?? false,
+        ],
+        breadcrumbs: [
+            (s) => [s.experiment, s.experimentId],
+            (experiment: Experiment, experimentId: Experiment['id']): Breadcrumb[] => {
+                return [
+                    {
+                        key: Scene.Experiments,
+                        name: sceneConfigurations[Scene.Experiments].name || 'Experiments',
+                        path: urls.experiments(),
+                        iconType: sceneConfigurations[Scene.Experiments].iconType || 'default_icon_type',
+                    },
+                    {
+                        key: [Scene.Experiment, experimentId],
+                        name: experiment?.name || 'New Experiment',
+                        iconType: sceneConfigurations[Scene.Experiment].iconType || 'default_icon_type',
+                    },
+                ]
+            },
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.experimentId],
+            (experimentId: Experiment['id']): SidePanelSceneContext | null => {
+                return experimentId && experimentId !== 'new'
+                    ? {
+                          activity_scope: ActivityScope.EXPERIMENT,
+                          activity_item_id: `${experimentId}`,
+                      }
+                    : null
+            },
+        ],
+        projectTreeRef: [
+            (s) => [s.experimentId],
+            (experimentId: Experiment['id']): ProjectTreeRef => {
+                return { type: 'experiment', ref: experimentId === 'new' ? null : String(experimentId) }
+            },
+        ],
+    }),
+    sharedListeners(({ actions, values }) => ({
+        ensureExperimentLogicMounted: () => {
+            if (!values.tabId) {
+                throw new Error('Tab-aware scene logic must have a tabId prop')
+            }
+
+            const currentProps = values.experimentLogicRef?.props
+            const desiredExperimentId = values.experimentId ?? 'new'
+            const desiredFormMode = values.formMode ?? FORM_MODES.update
+
+            if (
+                !values.experimentLogicRef ||
+                currentProps?.experimentId !== desiredExperimentId ||
+                currentProps?.formMode !== desiredFormMode ||
+                currentProps?.tabId !== values.tabId
+            ) {
+                const oldRef = values.experimentLogicRef
+
+                const logicProps: ExperimentLogicProps = {
+                    experimentId: desiredExperimentId,
+                    formMode: desiredFormMode,
+                    tabId: values.tabId,
+                }
+
+                const logic = experimentLogic.build(logicProps)
+                const unmount = logic.mount()
+                actions.setExperimentLogicRef(logic, unmount, logicProps)
+
+                if (oldRef) {
+                    oldRef.unmount()
+                }
+            }
+        },
+    })),
+    listeners(({ sharedListeners, values }) => ({
+        setSceneState: (payload, breakpoint, action, previousState) => {
+            sharedListeners.ensureExperimentLogicMounted(payload, breakpoint, action, previousState)
+            values.experimentLogicRef?.logic.actions.loadExperiment({ triggeredBy: 'page_load' })
+        },
+        setEditMode: (payload, breakpoint, action, previousState) => {
+            sharedListeners.ensureExperimentLogicMounted(payload, breakpoint, action, previousState)
+            values.experimentLogicRef?.logic.actions.setEditExperiment(payload.editing)
+        },
+        resetExperimentState: (payload, breakpoint, action, previousState) => {
+            sharedListeners.ensureExperimentLogicMounted(payload, breakpoint, action, previousState)
+        },
+    })),
+    tabAwareActionToUrl(({ values }) => {
+        const actionToUrl = ({
+            experimentId = values.experimentId,
+            formMode = values.formMode,
+        }: {
+            experimentId?: Experiment['id']
+            formMode?: FormModes
+        }):
+            | [string, Record<string, any> | string | undefined, Record<string, any> | string | undefined]
+            | undefined => {
+            const id = experimentId ?? 'new'
+            const effectiveFormMode =
+                id === 'new' && formMode === FORM_MODES.create
+                    ? undefined
+                    : formMode === FORM_MODES.update
+                      ? undefined
+                      : formMode
+
+            // Preserve search params (e.g. ?metric=...) when navigating to a new experiment
+            const search = id === 'new' ? router.values.currentLocation.searchParams : undefined
+            return [urls.experiment(id, effectiveFormMode), search, undefined]
+        }
+
+        return {
+            setSceneState: actionToUrl,
+        }
+    }),
+    tabAwareUrlToAction(({ actions, values }) => ({
+        '/experiments/:id': ({ id }, query, __, currentLocation, previousLocation) => {
+            // Ignore sub-routes like /experiments/shared-metrics/new
+            // The :id parameter should only be 'new' or a number, not strings like 'shared-metrics'
+            if (!id || (id !== 'new' && isNaN(parseInt(id, 10)))) {
+                return
+            }
+
+            const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
+
+            if (id && didPathChange) {
+                const parsedId = id === 'new' ? 'new' : parseInt(id)
+                const formMode = parsedId === 'new' ? FORM_MODES.create : FORM_MODES.update
+                const existingProps = values.experimentLogicRef?.props
+                const matchesExistingLogic =
+                    existingProps?.experimentId === parsedId && existingProps?.formMode === formMode
+                const isSameSceneState = values.experimentId === parsedId && values.formMode === formMode
+
+                actions.setEditMode(false)
+
+                if (!currentLocation.initial && matchesExistingLogic && isSameSceneState) {
+                    return
+                }
+
+                actions.setSceneState(parsedId, formMode)
+
+                if (parsedId === 'new') {
+                    // Only reset if we're not already viewing a new experiment (tab switch scenario)
+                    const shouldReset = currentLocation.initial || values.experimentId !== 'new'
+
+                    if (shouldReset) {
+                        // Clear wizard step before the wizard mounts so it starts on 'about'
+                        try {
+                            sessionStorage.removeItem(stepStorageKey(values.tabId!))
+                        } catch {
+                            // ignore
+                        }
+                        actions.resetExperimentState({
+                            ...NEW_EXPERIMENT,
+                            metrics: query.metric ? [query.metric] : [],
+                            name: query.name ?? '',
+                        })
+                    }
+                }
+            }
+        },
+        '/experiments/:id/:formMode': ({ id, formMode }, _, __, currentLocation, previousLocation) => {
+            // Ignore routes where id is not a valid experiment identifier (number or 'new')
+            // This prevents matching routes like /experiments/shared-metrics/new
+            if (!id || (id !== 'new' && isNaN(parseInt(id, 10)))) {
+                return
+            }
+
+            const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
+
+            if (id && didPathChange) {
+                const parsedId = id === 'new' ? 'new' : parseInt(id)
+                const parsedFormMode =
+                    formMode && Object.values(FORM_MODES).includes(formMode as FormModes)
+                        ? (formMode as FormModes)
+                        : parsedId === 'new'
+                          ? FORM_MODES.create
+                          : FORM_MODES.update
+                const existingProps = values.experimentLogicRef?.props
+                const matchesExistingLogic =
+                    existingProps?.experimentId === parsedId && existingProps?.formMode === parsedFormMode
+                const isSameSceneState = values.experimentId === parsedId && values.formMode === parsedFormMode
+
+                actions.setEditMode(false)
+
+                if (!currentLocation.initial && matchesExistingLogic && isSameSceneState) {
+                    return
+                }
+
+                actions.setSceneState(parsedId, parsedFormMode)
+            }
+        },
+    })),
+])

@@ -19,7 +19,7 @@ export const test = coreTest.extend<{ loginBeforeTests: void }>({
                     password: LOGIN_PASSWORD,
                 },
             })
-            await page.goto(urls.projectHomepage())
+            await page.goto(urls.projectRoot())
 
             // Continue with tests
             // eslint-disable-next-line react-hooks/rules-of-hooks

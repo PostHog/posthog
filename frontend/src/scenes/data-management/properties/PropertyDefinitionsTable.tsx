@@ -12,13 +12,11 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { cn } from 'lib/utils/css-classes'
 import { DefinitionHeader, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { PropertyDefinition } from '~/types'
 
@@ -26,7 +24,6 @@ export function PropertyDefinitionsTable(): JSX.Element {
     const { propertyDefinitions, propertyDefinitionsLoading, filters, propertyTypeOptions } =
         useValues(propertyDefinitionsTableLogic)
     const { loadPropertyDefinitions, setFilters, setPropertyType } = useActions(propertyDefinitionsTableLogic)
-    const { hasTagging } = useValues(organizationLogic)
 
     const columns: LemonTableColumns<PropertyDefinition> = [
         {
@@ -63,17 +60,13 @@ export function PropertyDefinitionsTable(): JSX.Element {
                 )
             },
         },
-        ...(hasTagging
-            ? [
-                  {
-                      title: 'Tags',
-                      key: 'tags',
-                      render: function Render(_, definition: PropertyDefinition) {
-                          return <ObjectTags tags={definition.tags ?? []} staticOnly />
-                      },
-                  } as LemonTableColumn<PropertyDefinition, keyof PropertyDefinition | undefined>,
-              ]
-            : []),
+        {
+            title: 'Tags',
+            key: 'tags',
+            render: function Render(_, definition: PropertyDefinition) {
+                return <ObjectTags tags={definition.tags ?? []} staticOnly />
+            },
+        } as LemonTableColumn<PropertyDefinition, keyof PropertyDefinition | undefined>,
     ]
 
     return (
@@ -85,7 +78,6 @@ export function PropertyDefinitionsTable(): JSX.Element {
                     type: sceneConfigurations[Scene.PropertyDefinition].iconType || 'default_icon_type',
                 }}
             />
-            <SceneDivider />
             <LemonBanner type="info">
                 Looking for {filters.type === 'person' ? 'person ' : ''}property usage statistics?{' '}
                 <Link

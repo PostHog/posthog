@@ -18,60 +18,62 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
 
 2. In your `max_tools.py`, define a new tool class inheriting from `MaxTool`:
 
-    ```python
-    from pydantic import BaseModel, Field
+   ```python
+   from pydantic import BaseModel, Field
 
-    from ee.hogai.llm import MaxChatOpenAI
-    from ee.hogai.tool import MaxTool
-
-
-    # Define your tool's arguments schema
-    class YourToolArgs(BaseModel):
-        parameter_name: str = Field(description="Description of the parameter")
+   from ee.hogai.llm import MaxChatOpenAI
+   from ee.hogai.tool import MaxTool
 
 
-    class YourToolOutput(BaseModel):
-        result_data: int
+   # Define your tool's arguments schema
+   class YourToolArgs(BaseModel):
+       parameter_name: str = Field(description="Description of the parameter")
 
 
-    class YourTool(MaxTool):
-        name: str = "your_tool_name"  # Must match a value in AssistantContextualTool enum
-        description: str = "What this tool does"
-        thinking_message: str = "What to show while tool is working"
-        context_prompt_template: str = "Context about the tool state: {context_var}"
-        args_schema: type[BaseModel] = YourToolArgs
+   class YourToolOutput(BaseModel):
+       result_data: int
 
-        async def _arun_impl(self, parameter_name: str) -> tuple[str, YourToolOutput]:
-            # Implement tool logic here
-            # Access context with self.context (must have context_var from template)
-            # If you use Django's ORM, ensure you utilize its asynchronous capabilities.
 
-            # Optional: Use LLM to process inputs or generate structured outputs
-            model = MaxChatOpenAI(model="gpt-4o", temperature=0.2).with_structured_output(YourToolOutput).with_retry()
+   class YourTool(MaxTool):
+       name: str = "your_tool_name"  # Must match a value in AssistantTool enum
+       description: str = "What this tool does"
+       context_prompt_template: str = "Context about the tool state: {context_var}"
+       args_schema: type[BaseModel] = YourToolArgs
 
-            response = model.ainvoke({"question": "What is PostHog?"})
+       async def _arun_impl(self, parameter_name: str) -> tuple[str, YourToolOutput]:
+           # Implement tool logic here
+           # Access context with self.context (must have context_var from template)
+           # If you use Django's ORM, ensure you utilize its asynchronous capabilities.
 
-            # Process and return results as (message, structured_data)
-            return "Tool execution completed", response
-    ```
+           # Optional: Use LLM to process inputs or generate structured outputs
+           model = MaxChatOpenAI(model="gpt-4o", temperature=0.2).with_structured_output(YourToolOutput).with_retry()
 
-3. Add your tool name to the `AssistantContextualTool` union in `frontend/src/queries/schema/schema-assistant-messages.ts`, then run `pnpm schema:build`.
+           response = model.ainvoke({"question": "What is PostHog?"})
+
+           # Process and return results as (message, structured_data)
+           return "Tool execution completed", response
+   ```
+
+3. Add your tool name to the `AssistantTool` union in `frontend/src/queries/schema/schema-assistant-messages.ts`, then run `pnpm schema:build`.
 
 4. Define tool metadata in `TOOL_DEFINITIONS` in `frontend/src/scenes/max/max-constants.tsx`:
 
-    ```tsx
-    export const TOOL_DEFINITIONS: ... = {
-        // ... existing tools ...
-        your_tool_name: {
-            name: 'Do something',
-            description: 'Do something to blah blah',
-            product: Scene.YourProduct, // or null for the rare global tool
-            flag: FEATURE_FLAGS.YOUR_FLAG, // optional indication that this is flagged
-        },
-    }
-    ```
+   ```tsx
+   export const TOOL_DEFINITIONS: ... = {
+       // ... existing tools ...
+       your_tool_name: {
+           name: 'Do something',
+           description: 'Do something to blah blah',
+           product: Scene.YourProduct, // or null for the rare global tool
+           flag: FEATURE_FLAGS.YOUR_FLAG, // optional indication that this is flagged
+       },
+   }
+   ```
 
-For an example, see `products/replay/backend/max_tools.py`, which defines the `search_session_recordings` tool, and `products/data_warehouse/backend/max_tools.py`, which defines the `generate_hogql_query` tool.
+For an example, see `ee/hogai/tools`:
+
+- `execute_sql` – SQL generation and execution.
+- `upsert_dashboard` – creating and editing dashboards.
 
 ### Mounting
 
@@ -81,27 +83,27 @@ Use the `MaxTool` component to wrap UI elements that can benefit from AI assista
 import { MaxTool } from 'scenes/max/MaxTool'
 
 function YourComponent() {
-    return (
-        <MaxTool
-            name="your_tool_name" // Must match backend tool name - enforced by the AssistantContextualTool enum
-            displayName="Human-friendly name"
-            context={{
-                // Context data passed to backend - can be empty if there truly is no context
-                context_var: relevantData,
-            }}
-            callback={(toolOutput) => {
-                // Handle structured output from tool
-                updateUIWithToolResults(toolOutput)
-            }}
-            initialMaxPrompt="Optional initial prompt for Max"
-            onMaxOpen={() => {
-                // Optional actions when Max panel opens
-            }}
-        >
-            {/* Your UI component that will have Max assistant */}
-            <YourUIComponent />
-        </MaxTool>
-    )
+  return (
+    <MaxTool
+      name="your_tool_name" // Must match backend tool name - enforced by the AssistantTool enum
+      displayName="Human-friendly name"
+      context={{
+        // Context data passed to backend - can be empty if there truly is no context
+        context_var: relevantData,
+      }}
+      callback={(toolOutput) => {
+        // Handle structured output from tool
+        updateUIWithToolResults(toolOutput)
+      }}
+      initialMaxPrompt="Optional initial prompt for Max"
+      onMaxOpen={() => {
+        // Optional actions when Max panel opens
+      }}
+    >
+      {/* Your UI component that will have Max assistant */}
+      <YourUIComponent />
+    </MaxTool>
+  )
 }
 ```
 
@@ -117,6 +119,43 @@ When developing, get full visibility into what the tool is doing using local Pos
 
 If you've got any requests for Max, including around tools, let us know at #team-posthog-ai in Slack!
 
+### Access control
+
+MaxTools support two levels of access control: resource-level and object-level. Both raise `MaxToolAccessDeniedError` if the user lacks permission.
+The main access check logic lives in `posthog/rbac/user_access_control.py`.
+
+#### Resource-level access control
+
+Restricts tool execution based on user permissions for a resource type (e.g., prevent creating feature flags if the user lacks editor access). Runs automatically before `_arun_impl()` is called.
+
+1. Override `get_required_resource_access()` in your tool:
+
+```python
+def get_required_resource_access(self):
+    return [("feature_flag", "editor")]  # Single resource
+    # Or multiple: return [("dashboard", "editor"), ("insight", "viewer")]
+```
+
+2. Update `TOOLS_WITHOUT_ACCESS_CONTROL` in `ee/hogai/test/test_tool.py` to remove your tool from the exempt list.
+
+Supported resources: see `APIScopeObject` in `posthog/scopes.py` (e.g., `feature_flag`, `dashboard`, `insight`, `experiment`, `survey`)
+Access levels: `none`, `viewer`, `editor`, `manager`
+
+#### Object-level access control
+
+Restricts access to specific object instances (e.g., a particular dashboard or insight). Call `check_object_access()` after fetching the object:
+
+```python
+async def _arun_impl(self, dashboard_id: str) -> tuple[str, Any]:
+    dashboard = await Dashboard.objects.aget(id=dashboard_id)
+    await self.check_object_access(dashboard, "editor", resource="dashboard", action="edit")
+    # ... rest of implementation
+```
+
+#### Opting out
+
+If your tool doesn't need access control (read-only, no protected resources), add it to `TOOLS_WITHOUT_ACCESS_CONTROL` in `ee/hogai/test/test_tool.py`.
+
 ### Best practices for LLM-based tools
 
 - Provide comprehensive context about current state from the frontend
@@ -128,92 +167,51 @@ For a _lot_ of great detail on prompting, check out the [GPT-4.1 prompting guide
 
 ## Support new query types
 
-Max can now read from frontend context multiple query types like trends, funnels, retention, and HogQL queries. To add support for new query types, you need to extend both the QueryExecutor and the Root node.
+PostHog AI can now read from frontend context multiple query types like trends, funnels, retention, and HogQL queries. To add support for new query types, you need to extend both the QueryExecutor and the Root node.
 
-NOTE: this won't extend query types generation. For that, talk to the Max AI team.
+NOTE: this won't extend query types generation. For that, talk to the PostHog AI team.
 
 ### Adding a new query type
 
-1. **Update the schema to include the new query types**
-    - Update `AnyAssistantSupportedQuery` in [`schema-assistant-messages.ts`](frontend/src/queries/schema/schema-assistant-messages.ts)
+1. **Update the query executor and formatters** (`@ee/hogai/context/insight/`):
+   - Add a new formatter class in `context/insight/format/` that implements query result formatting for AI consumption. Make sure it's imported and exported from `context/insight/format/__init__.py`. See below (Step 3) for more information.
+   - Add formatting logic to `_compress_results()` method in `context/insight/query_executor.py`:
 
-        ```typescript
-        AnyAssistantSupportedQuery =
-            | TrendsQuery
-            | FunnelsQuery
-            | RetentionQuery
-            | HogQLQuery
-            | YourNewQuery           // Add your query type
-        ```
+     ```python
+     elif isinstance(query, YourNewAssistantQuery | YourNewQuery):
+         return YourNewResultsFormatter(query, response["results"]).format()
+     ```
 
-    - Add your new query type to the `SupportedQueryTypes` union in [`query_executor.py`](ee/hogai/graph/query_executor/query_executor.py):
+   - Add example prompts for your query type in `context/insight/prompts.py`, this explains to the LLM the query results formatting
+   - Update `get_example_prompt()` function in `context/insight/query_executor.py` to handle your new query type:
 
-        ```python
-        SupportedQueryTypes = (
-            AssistantTrendsQuery
-            | TrendsQuery
-            | AssistantFunnelsQuery
-            | FunnelsQuery
-            | AssistantRetentionQuery
-            | RetentionQuery
-            | AssistantHogQLQuery
-            | HogQLQuery
-            | YourNewQuery           # Add your query type
-        )
-        ```
+     ```python
+     if isinstance(viz_message.answer, YourNewAssistantQuery):
+         return YOUR_NEW_EXAMPLE_PROMPT
+     ```
 
-2. **Update the query executor and formatters** (`@ee/hogai/graph/query_executor/`):
-    - Add a new formatter class in `query_executor/format/` that implements query result formatting for AI consumption. Make sure it's imported and exported from `query_executor/format/__init__.py`. See below (Step 3) for more information.
-    - Add formatting logic to `_compress_results()` method in `query_executor/query_executor.py`:
+2. **Create the formatter class**:
 
-        ```python
-        elif isinstance(query, YourNewAssistantQuery | YourNewQuery):
-            return YourNewResultsFormatter(query, response["results"]).format()
-        ```
+   Create a new formatter in `format/your_formatter.py` following the pattern of existing formatters:
 
-    - Add example prompts for your query type in `query_executor/prompts.py`, this explains to the LLM the query results formatting
-    - Update `_get_example_prompt()` method in `query_executor/nodes.py` to handle your new query type:
+   ```python
+   class YourNewResultsFormatter:
+       def __init__(self, query: YourNewQuery, results: dict, team: Optional[Team] = None, utc_now_datetime: Optional[datetime] = None):
+           self._query = query
+           self._results = results
+           self._team = team
+           self._utc_now_datetime = utc_now_datetime
 
-        ```python
-        if isinstance(viz_message.answer, YourNewAssistantQuery):
-            return YOUR_NEW_EXAMPLE_PROMPT
-        ```
+       def format(self) -> str:
+           # Format your query results for AI consumption
+           # Return a string representation optimized for LLM understanding
+           pass
+   ```
 
-3. **Update the root node** (`@ee/hogai/graph/root/`):
-    - Add your new query type to the `MAX_SUPPORTED_QUERY_KIND_TO_MODEL` mapping in `nodes.py:57`:
-
-        ```python
-        MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[SupportedQueryTypes]] = {
-            "TrendsQuery": TrendsQuery,
-            "FunnelsQuery": FunnelsQuery,
-            "RetentionQuery": RetentionQuery,
-            "HogQLQuery": HogQLQuery,
-            "YourNewQuery": YourNewQuery,  # Add your query mapping
-        }
-        ```
-
-4. **Create the formatter class**:
-
-    Create a new formatter in `format/your_formatter.py` following the pattern of existing formatters:
-
-    ```python
-    class YourNewResultsFormatter:
-        def __init__(self, query: YourNewQuery, results: dict, team: Optional[Team] = None, utc_now_datetime: Optional[datetime] = None):
-            self._query = query
-            self._results = results
-            self._team = team
-            self._utc_now_datetime = utc_now_datetime
-
-        def format(self) -> str:
-            # Format your query results for AI consumption
-            # Return a string representation optimized for LLM understanding
-            pass
-    ```
-
-5. **Add tests**:
-    - Add test cases in `test/test_query_executor.py` for your new query type
-    - Add test cases in `test/format/test_format.py` for your new formatter
-    - Ensure tests cover both successful execution and error handling
+3. **Add tests**:
+   - Add test cases in `test/test_query_executor.py` for your new query type
+   - Add test cases in `test/format/test_format.py` for your new formatter
+   - Ensure tests cover both successful execution and error handling
 
 ### Taxonomy Agent
 
@@ -235,8 +233,8 @@ class MaxToolTaxonomyOutput(BaseModel):
 
 ```python
 from pydantic import BaseModel, Field
-from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
-from ee.hogai.graph.taxonomy.tools import base_final_answer
+from ee.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit
+from ee.hogai.chat_agent.taxonomy.tools import base_final_answer
 from posthog.models import Team
 
 
@@ -277,9 +275,9 @@ class YourToolkit(TaxonomyAgentToolkit):
 ```python
 from langchain_core.prompts import ChatPromptTemplate
 from posthog.models import Team, User
-from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
-from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
-from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
+from ee.hogai.chat_agent.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
+from ee.hogai.chat_agent.taxonomy.agent import TaxonomyAgent
+from ee.hogai.chat_agent.taxonomy.types import TaxonomyAgentState
 
 class LoopNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState[MaxToolTaxonomyOutput]]):
     def __init__(self, team: Team, user: User, toolkit_class: type[YourToolkit]):
@@ -307,10 +305,11 @@ class ToolsNode(TaxonomyAgentToolsNode[TaxonomyAgentState, TaxonomyAgentState[Ma
 
 
 class YourTaxonomyGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[MaxToolTaxonomyOutput]]):
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team, user: User, tool_call_id: str):
         super().__init__(
             team,
             user,
+            tool_call_id,
             loop_node_class=LoopNode,
             tools_node_class=ToolsNode,
             toolkit_class=YourToolkit,

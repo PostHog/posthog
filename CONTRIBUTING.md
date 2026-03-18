@@ -6,6 +6,8 @@ Just create a new pull request if you want to make an update.
 
 We recommend you create an issue if one doesn't already exist, and continue the conversation on the issue to get more info/alignment on what to build.
 
+We don't assign issues to individuals. If you want to work on something, just create a pull request and link the issue.
+
 For more information on how we review PRs, please refer to our [handbook](https://posthog.com/handbook/engineering/how-we-review).
 
 # External PRs: what to expect

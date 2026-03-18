@@ -6,7 +6,7 @@ import urllib.parse
 from enum import Enum, auto
 from functools import wraps
 from ipaddress import ip_address
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, cast
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -15,6 +15,7 @@ from django.db.models import QuerySet
 from django.http import HttpRequest
 
 import structlog
+from loginas.utils import is_impersonated_session
 from posthoganalytics import capture_exception
 from prometheus_client import Counter
 from requests.adapters import HTTPAdapter
@@ -33,7 +34,8 @@ from posthog.exceptions import (
     UnspecifiedCompressionFallbackParsingError,
     generate_exception_response,
 )
-from posthog.models import Entity
+from posthog.models import Entity, User
+from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.entity import MathType
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -422,6 +424,11 @@ def unparsed_hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]],
     return hostname_in_allowed_url_list(allowed_url_list, hostname)
 
 
+def _strip_www(host: str) -> str:
+    """Treat www.domain.com and domain.com as equivalent."""
+    return host[4:] if host.startswith("www.") else host
+
+
 def hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname: Optional[str]) -> bool:
     if not hostname:
         return False
@@ -438,7 +445,7 @@ def hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname
             pattern = "^{}$".format(re.escape(permitted_domain).replace("\\*", "(.*)"))
             if re.search(pattern, hostname):
                 return True
-        elif permitted_domain == hostname:
+        elif _strip_www(permitted_domain) == _strip_www(hostname):
             return True
 
     return False
@@ -452,7 +459,7 @@ def on_permitted_recording_domain(permitted_domains: list[str], request: HttpReq
     origin = parse_domain(request.headers.get("Origin"))
     referer = parse_domain(request.headers.get("Referer"))
 
-    user_agent = request.META.get("HTTP_USER_AGENT")
+    user_agent = request.headers.get("user-agent")
 
     is_authorized_web_client: bool = hostname_in_allowed_url_list(
         permitted_domains, origin
@@ -576,3 +583,43 @@ class ServerTimingsGathered:
             current_length = new_length
 
         return ", ".join(result)
+
+
+ACTIVITY_TYPES = {
+    "partial_update": "updated",
+    "update": "updated",
+    "delete": "deleted",
+    "create": "created",
+    "default": "changed",
+}
+
+
+def log_activity_from_viewset(
+    viewset, instance, activity=None, name=None, previous=None, detail_type=None, short_id=None
+) -> None:
+    try:
+        model_class = instance.__class__.__name__
+        name = name or model_class
+        activity = activity or ACTIVITY_TYPES.get(viewset.action, ACTIVITY_TYPES["default"])
+
+        detail_kwargs = {"name": name}
+        if previous is not None:
+            changes = changes_between(model_class, previous=previous, current=instance)
+            detail_kwargs["changes"] = changes
+        if detail_type is not None:
+            detail_kwargs["type"] = detail_type
+        if short_id is not None:
+            detail_kwargs["short_id"] = short_id
+
+        log_activity(
+            organization_id=viewset.organization.id,
+            team_id=viewset.team.id,
+            user=cast(User, viewset.request.user),
+            was_impersonated=is_impersonated_session(viewset.request),
+            item_id=str(instance.id),
+            scope=model_class,
+            activity=activity,
+            detail=Detail(**detail_kwargs),
+        )
+    except:
+        pass

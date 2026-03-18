@@ -1,6 +1,7 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
+
 import { render } from '@testing-library/react'
 
 import { makeTestSetup } from 'lib/components/ActivityLog/activityLogLogic.test.setup'
@@ -160,7 +161,7 @@ describe('the activity log logic', () => {
 
             let renderedExtendedDescription = render(<>{actual[0].extendedDescription}</>).container
             expect(renderedExtendedDescription).toHaveTextContent(
-                "Query summaryAShowing \"Views\"Pageviewcounted by total countwhere event'sBrowser= equals Chromeand person belongs to cohortUser in ID 2FiltersEvent'sCurrent URL= equals https://hedgebox.net/files/or event'sCountry code= equals US or AUBreakdown byCountry code"
+                "QueryACounting \"Views\"Pageviewby total countwhere event'sBrowser= equals Chromeand person belongs to cohortUser in ID 2FiltersEvent'sCurrent URL= equals https://hedgebox.net/files/or event'sCountry code= equals US or AUBreakdown byCountry code"
             )
             ;(insightMock.after.breakdownFilter as BreakdownFilter) = {
                 breakdowns: [
@@ -183,7 +184,7 @@ describe('the activity log logic', () => {
 
             renderedExtendedDescription = render(<>{actual[0].extendedDescription}</>).container
             expect(renderedExtendedDescription).toHaveTextContent(
-                "Query summaryAShowing \"Views\"Pageviewcounted by total countwhere event'sBrowser= equals Chromeand person belongs to cohortUser in ID 2FiltersEvent'sCurrent URL= equals https://hedgebox.net/files/or event'sCountry code= equals US or AUBreakdown byCountry codeSession duration"
+                "QueryACounting \"Views\"Pageviewby total countwhere event'sBrowser= equals Chromeand person belongs to cohortUser in ID 2FiltersEvent'sCurrent URL= equals https://hedgebox.net/files/or event'sCountry code= equals US or AUBreakdown byCountry code"
             )
         })
 

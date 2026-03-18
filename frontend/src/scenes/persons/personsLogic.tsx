@@ -10,8 +10,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -31,7 +31,13 @@ import {
     PersonsTabType,
 } from '~/types'
 
-import { asDisplay, getHogqlQueryStringForPersonId } from './person-utils'
+import {
+    asDisplay,
+    coercePropertyValue,
+    getHogqlQueryStringForPersonId,
+    parsePersonFromHogQLRow,
+    scoreDistinctId,
+} from './person-utils'
 import type { personsLogicType } from './personsLogicType'
 
 export interface PersonsLogicProps {
@@ -41,16 +47,20 @@ export interface PersonsLogicProps {
     fixedProperties?: PersonPropertyFilter[]
 }
 
+export const PERSON_EVENTS_CONTEXT_KEY = 'person-profile-events'
+
 function createInitialEventsPayload(personId: string): DataTableNode {
     return {
         kind: NodeKind.DataTableNode,
         full: true,
+        showEventsFilter: true,
+        showTableViews: true,
+        contextKey: PERSON_EVENTS_CONTEXT_KEY,
         hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
         source: {
             kind: NodeKind.EventsQuery,
             select: defaultDataTableColumns(NodeKind.EventsQuery),
             personId: personId,
-            where: ["notEquals(event, '$exception')"],
             after: '-24h',
         },
     }
@@ -68,6 +78,22 @@ function createInitialExceptionsPayload(personId: string): DataTableNode {
             personId: personId,
             event: '$exception',
             after: '-24h',
+        },
+    }
+}
+
+function createInitialSurveyResponsesPayload(personId: string): DataTableNode {
+    return {
+        kind: NodeKind.DataTableNode,
+        full: true,
+        showEventFilter: false,
+        hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
+        source: {
+            kind: NodeKind.EventsQuery,
+            select: ['*', 'properties.$survey_name', 'properties.$lib', 'timestamp'],
+            personId: personId,
+            event: 'survey sent',
+            after: '-90d',
         },
     }
 }
@@ -111,6 +137,7 @@ export const personsLogic = kea<personsLogicType>([
         setDistinctId: (distinctId: string) => ({ distinctId }),
         setEventsQuery: (eventsQuery: DataTableNode | null) => ({ eventsQuery }),
         setExceptionsQuery: (exceptionsQuery: DataTableNode | null) => ({ exceptionsQuery }),
+        setSurveyResponsesQuery: (surveyResponsesQuery: DataTableNode | null) => ({ surveyResponsesQuery }),
     }),
     loaders(({ values, actions, props }) => ({
         persons: [
@@ -136,7 +163,7 @@ export const personsLogic = kea<personsLogicType>([
                             result = { ...(await api.persons.list(newFilters)), offset: 0 }
                         }
                     } else {
-                        result = { ...(await api.get(url)), offset: parseInt(decodeParams(url).offset) }
+                        result = { ...(await api.get(url)), offset: parseInt(decodeParams(url).offset) || 0 }
                     }
                     return result
                 },
@@ -158,6 +185,8 @@ export const personsLogic = kea<personsLogicType>([
                             actions.setEventsQuery(eventsQuery)
                             const exceptionsQuery = createInitialExceptionsPayload(person.id)
                             actions.setExceptionsQuery(exceptionsQuery)
+                            const surveyResponsesQuery = createInitialSurveyResponsesPayload(person.id)
+                            actions.setSurveyResponsesQuery(surveyResponsesQuery)
                         }
                     }
 
@@ -167,20 +196,15 @@ export const personsLogic = kea<personsLogicType>([
                     const response = await hogqlQuery(getHogqlQueryStringForPersonId(), { id: uuid }, 'blocking')
                     const row = response?.results?.[0]
                     if (row) {
-                        const person: PersonType = {
-                            id: row[0],
-                            uuid: row[0],
-                            distinct_ids: row[1],
-                            properties: JSON.parse(row[2] || '{}'),
-                            is_identified: !!row[3],
-                            created_at: row[4],
-                        }
+                        const person = parsePersonFromHogQLRow(row)
                         actions.reportPersonDetailViewed(person)
                         if (person.id != null) {
                             const eventsQuery = createInitialEventsPayload(person.id)
                             actions.setEventsQuery(eventsQuery)
                             const exceptionsQuery = createInitialExceptionsPayload(person.id)
                             actions.setExceptionsQuery(exceptionsQuery)
+                            const surveyResponsesQuery = createInitialSurveyResponsesPayload(person.id)
+                            actions.setSurveyResponsesQuery(surveyResponsesQuery)
                         }
                         return person
                     }
@@ -289,6 +313,12 @@ export const personsLogic = kea<personsLogicType>([
                 setExceptionsQuery: (_, { exceptionsQuery }) => exceptionsQuery,
             },
         ],
+        surveyResponsesQuery: [
+            null as DataTableNode | null,
+            {
+                setSurveyResponsesQuery: (_, { surveyResponsesQuery }) => surveyResponsesQuery,
+            },
+        ],
     })),
     selectors(() => ({
         apiDocsURL: [
@@ -302,7 +332,7 @@ export const personsLogic = kea<personsLogicType>([
         currentTab: [(s) => [s.activeTab, s.defaultTab], (activeTab, defaultTab) => activeTab || defaultTab],
         defaultTab: [
             (s) => [s.feedEnabled],
-            (feedEnabled) => (feedEnabled ? PersonsTabType.FEED : PersonsTabType.PROPERTIES),
+            (feedEnabled) => (feedEnabled ? PersonsTabType.PROFILE : PersonsTabType.PROPERTIES),
         ],
         breadcrumbs: [
             (s) => [s.person, router.selectors.location],
@@ -352,23 +382,14 @@ export const personsLogic = kea<personsLogicType>([
             ],
         ],
         urlId: [() => [(_, props) => props.urlId], (urlId) => urlId],
-        feedEnabled: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]],
+        feedEnabled: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS]],
         primaryDistinctId: [
             (s) => [s.person],
             (person): string | null => {
-                // We do not track which distinct ID was created through identify, but we can try to guess
-                const nonUuidDistinctIds = person?.distinct_ids.filter((id) => id?.split('-').length !== 5)
-
-                if (nonUuidDistinctIds && nonUuidDistinctIds?.length >= 1) {
-                    /**
-                     * If there are one or more distinct IDs that are not a UUID, one of them is most likely
-                     * the identified ID. In most cases, there would be only one non-UUID distinct ID.
-                     */
-                    return nonUuidDistinctIds[0]
+                if (!person?.distinct_ids.length) {
+                    return null
                 }
-
-                // Otherwise, just fall back to the default first distinct ID
-                return person?.distinct_ids[0] || null
+                return person.distinct_ids.slice().sort((a, b) => scoreDistinctId(b) - scoreDistinctId(a))[0]
             },
         ],
     })),
@@ -377,61 +398,52 @@ export const personsLogic = kea<personsLogicType>([
             const person = values.person
 
             if (person && person.id) {
-                let parsedValue = newValue
+                const parsedValue = coercePropertyValue(newValue ?? null)
 
-                // Instrumentation stuff
-                let action: 'added' | 'updated'
                 const oldPropertyType = person.properties[key] === null ? 'null' : typeof person.properties[key]
-                let newPropertyType: string = typeof newValue
+                const newPropertyType: string = parsedValue === null ? 'null' : typeof parsedValue
+                const action: 'added' | 'updated' = Object.keys(person.properties).includes(key) ? 'updated' : 'added'
 
-                // If the property is a number, store it as a number
-                const attemptedParsedNumber = Number(newValue)
-                if (!Number.isNaN(attemptedParsedNumber) && typeof newValue !== 'boolean') {
-                    parsedValue = attemptedParsedNumber
-                    newPropertyType = 'number'
+                const updatedProperties =
+                    action === 'added'
+                        ? { [key]: parsedValue, ...person.properties }
+                        : { ...person.properties, [key]: parsedValue }
+
+                actions.setPerson({ ...person, properties: updatedProperties })
+
+                try {
+                    await api.persons.updateProperty(person.id, key, parsedValue)
+                    lemonToast.success(`Person property ${action}`)
+
+                    eventUsageLogic.actions.reportPersonPropertyUpdated(
+                        action,
+                        Object.keys(updatedProperties).length,
+                        oldPropertyType,
+                        newPropertyType
+                    )
+                } catch {
+                    actions.setPerson({ ...person })
+                    lemonToast.error(`Failed to update person property`)
                 }
-
-                const lowercaseValue = typeof parsedValue === 'string' && parsedValue.toLowerCase()
-                if (lowercaseValue === 'true' || lowercaseValue === 'false' || lowercaseValue === 'null') {
-                    parsedValue = lowercaseValue === 'true' ? true : lowercaseValue === 'null' ? null : false
-                    newPropertyType = parsedValue !== null ? 'boolean' : 'null'
-                }
-
-                if (!Object.keys(person.properties).includes(key)) {
-                    person.properties = { [key]: parsedValue, ...person.properties } // To add property at the top (if new)
-                    action = 'added'
-                } else {
-                    person.properties[key] = parsedValue
-                    action = 'updated'
-                }
-
-                actions.setPerson({ ...person }) // To update the UI immediately while the request is being processed
-                // :KLUDGE: Person properties are updated asynchronously in the plugin server - the response won't reflect
-                //      the _updated_ properties yet.
-                await api.persons.updateProperty(person.id, key, parsedValue)
-                lemonToast.success(`Person property ${action}`)
-
-                eventUsageLogic.actions.reportPersonPropertyUpdated(
-                    action,
-                    Object.keys(person.properties).length,
-                    oldPropertyType,
-                    newPropertyType
-                )
             }
         },
         deleteProperty: async ({ key }) => {
             const person = values.person
 
             if (person && person.id) {
-                const updatedProperties = { ...person.properties }
-                delete updatedProperties[key]
+                const { [key]: _, ...updatedProperties } = person.properties
 
-                actions.setPerson({ ...person, properties: updatedProperties }) // To update the UI immediately
-                // await api.create(`api/person/${person.id}/delete_property`, { $unset: key })
-                await api.persons.deleteProperty(person.id, key)
-                lemonToast.success(`Person property deleted`)
+                actions.setPerson({ ...person, properties: updatedProperties })
 
-                eventUsageLogic.actions.reportPersonPropertyUpdated('removed', 1, undefined, undefined)
+                try {
+                    await api.persons.deleteProperty(person.id, key)
+                    lemonToast.success(`Person property deleted`)
+
+                    eventUsageLogic.actions.reportPersonPropertyUpdated('removed', 1, undefined, undefined)
+                } catch {
+                    actions.setPerson({ ...person })
+                    lemonToast.error(`Failed to delete person property`)
+                }
             }
         },
         navigateToCohort: ({ cohort }) => {
@@ -445,9 +457,18 @@ export const personsLogic = kea<personsLogicType>([
             }
         },
         navigateToTab: () => {
-            if (props.syncWithUrl && router.values.location.pathname.indexOf('/person') > -1) {
-                const searchParams = {}
-
+            if (
+                props.syncWithUrl &&
+                router.values.location.pathname.indexOf('/person') > -1 &&
+                router.values.hashParams.activeTab !== values.activeTab
+            ) {
+                // When navigating away from recordings tab, clear sessionRecordingId from search params
+                // to prevent urlToAction from forcing back to recordings tab
+                let searchParams = router.values.searchParams
+                if (values.activeTab !== PersonsTabType.SESSION_RECORDINGS && searchParams.sessionRecordingId) {
+                    const { sessionRecordingId: _, ...restSearchParams } = searchParams
+                    searchParams = restSearchParams
+                }
                 return [
                     router.values.location.pathname,
                     searchParams,
@@ -468,7 +489,7 @@ export const personsLogic = kea<personsLogicType>([
                     actions.navigateToTab(activeTab as PersonsTabType)
                 }
 
-                if (!activeTab) {
+                if (!activeTab && values.activeTab !== values.defaultTab) {
                     actions.setActiveTab(values.defaultTab)
                 }
 

@@ -8,3 +8,7 @@
         margin: 0 !important;
     }
 }
+
+.PasswordWrapper .LemonInput__input::placeholder {
+    opacity: 0.5;
+}

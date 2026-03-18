@@ -1,0 +1,116 @@
+// Shared code block styling mixin
+@mixin code-block-styles {
+    .SupportEditor__code-block {
+        position: relative;
+        margin: 0.5em 0;
+        background-color: var(--color-bg-fill-tertiary);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+
+        pre {
+            padding: 0.75em;
+            margin: 0;
+            overflow-x: auto;
+
+            code {
+                display: block;
+                padding: 0;
+                font-size: 0.8125em;
+                line-height: 1.5;
+                tab-size: 4;
+                white-space: pre;
+                background: none;
+                border: none;
+            }
+        }
+    }
+
+    .SupportEditor__code-block-copy {
+        position: absolute;
+        top: 0.25em;
+        right: 0.25em;
+        opacity: 0;
+        transition: opacity 0.15s ease;
+    }
+
+    .SupportEditor__code-block:hover .SupportEditor__code-block-copy {
+        opacity: 1;
+    }
+}
+
+// Shared inline code styling mixin
+@mixin inline-code-styles {
+    code {
+        padding: 0.125em 0.375em;
+        font-family: var(--font-mono);
+        font-size: 0.875em;
+        background-color: var(--color-bg-fill-tertiary);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+    }
+}
+
+.SupportEditor {
+    .SupportEditor__content {
+        background-color: var(--color-bg-fill-input);
+        border-top-left-radius: var(--radius);
+        border-top-right-radius: var(--radius);
+
+        & > div[contenteditable] {
+            outline: none;
+
+            p {
+                margin-bottom: 0;
+            }
+        }
+    }
+
+    &__image {
+        display: block;
+        max-width: 100%;
+        max-height: 200px;
+        margin: 0.5em 0;
+        object-fit: contain;
+        border-radius: var(--radius);
+    }
+
+    &__link {
+        color: var(--color-link);
+        text-decoration: underline;
+        cursor: pointer;
+
+        &:hover {
+            color: var(--color-link-dark);
+        }
+    }
+
+    @include inline-code-styles;
+    @include code-block-styles;
+}
+
+.SupportRichContentPreview {
+    p {
+        margin-bottom: 0;
+    }
+
+    .SupportEditor__image {
+        display: block;
+        max-width: 100%;
+        max-height: 300px;
+        margin: 0.5em 0;
+        object-fit: contain;
+        border-radius: var(--radius);
+    }
+
+    .SupportEditor__link {
+        color: var(--color-link);
+        text-decoration: underline;
+
+        &:hover {
+            color: var(--color-link-dark);
+        }
+    }
+
+    @include inline-code-styles;
+    @include code-block-styles;
+}

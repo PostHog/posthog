@@ -43,6 +43,7 @@ class Migration(AsyncMigrationDefinition):
         return is_cloud()
 
     def _get_partitions_to_move(self):
+        # nosemgrep: clickhouse-injection-taint - migration params, not user input
         result = sync_execute(
             f"""
             SELECT DISTINCT partition_id FROM system.parts

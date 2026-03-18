@@ -1,10 +1,10 @@
-import { EventsNode, EventsQuery } from '~/queries/schema/schema-general'
+import { EventsNode, EventsQuery, SessionsQuery } from '~/queries/schema/schema-general'
 
 import { EventName as EventNameComponent } from 'products/actions/frontend/components/EventName'
 
 interface EventNameProps {
-    query: EventsNode | EventsQuery
-    setQuery?: (query: EventsNode | EventsQuery) => void
+    query: EventsNode | EventsQuery | SessionsQuery
+    setQuery?: (query: EventsNode | EventsQuery | SessionsQuery) => void
 }
 
 export function EventName({ query, setQuery }: EventNameProps): JSX.Element {

@@ -1,0 +1,55 @@
+.sparkles-container {
+    position: relative;
+    display: inline-block;
+}
+
+.sparkle {
+    position: absolute;
+    transition: all 0.3s ease-out;
+    transform-origin: center;
+}
+
+.sparkles-container:hover .sparkle,
+.sparkles-container.animate .sparkle {
+    transform: scale(1);
+    animation: Sparkle__pulse 1.3s ease-in-out infinite;
+}
+
+.sparkle--small {
+    top: 3px;
+    left: 9px;
+    animation-delay: 0s;
+}
+
+.sparkle--medium {
+    top: 6px;
+    left: 13px;
+    animation-delay: 0.1s;
+}
+
+.sparkle--large {
+    right: 9px;
+    bottom: 3px;
+    animation-delay: 0.2s;
+}
+
+@keyframes Sparkle__pulse {
+    0% {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    20% {
+        opacity: 1;
+        transform: scale(1.1);
+    }
+
+    90% {
+        opacity: 0.3;
+    }
+
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+}

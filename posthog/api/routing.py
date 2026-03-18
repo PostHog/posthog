@@ -12,6 +12,7 @@ from rest_framework_extensions.settings import extensions_api_settings
 
 from posthog.api.utils import get_token
 from posthog.auth import (
+    InternalAPIAuthentication,
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
@@ -100,6 +101,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             return self.dangerously_get_permissions()
         except NotImplementedError:
             pass
+
+        if isinstance(self.request.successful_authenticator, InternalAPIAuthentication):
+            return [IsAuthenticated()]
 
         if isinstance(
             self.request.successful_authenticator,
@@ -272,7 +276,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         else:
             try:
                 team = Team.objects.get(id=self.team_id)
-            except Team.DoesNotExist:
+            except (Team.DoesNotExist, ValueError):
                 raise NotFound(
                     detail="Project not found."  # TODO: "Environment" instead of "Project" when project environments are rolled out
                 )
@@ -305,8 +309,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             assert team.project is not None
             return team.project
         try:
+            # nosemgrep: idor-lookup-without-org (routing validates org access via permissions)
             return Project.objects.get(id=self.project_id)
-        except Project.DoesNotExist:
+        except (Project.DoesNotExist, ValueError):
             raise NotFound(detail="Project not found.")
 
     @cached_property
@@ -319,7 +324,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             if self._is_team_view:
                 # TODO: self.team.project.organization_id when project environments are rolled out
                 current_organization_id = self.team.organization_id
-            if self._is_project_view:
+            elif self._is_project_view:
                 current_organization_id = self.project.organization_id
             elif user:
                 current_organization_id = user.current_organization_id
@@ -332,10 +337,14 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
     def organization(self) -> Organization:
         try:
             return Organization.objects.get(id=self.organization_id)
-        except Organization.DoesNotExist:
+        except (Organization.DoesNotExist, ValueError):
             raise NotFound(detail="Organization not found.")
 
     def _filter_queryset_by_parents_lookups(self, queryset):
+        if hasattr(self, "_should_skip_parents_filter") and callable(self._should_skip_parents_filter):
+            if self._should_skip_parents_filter():
+                return queryset
+
         parents_query_dict = self.parents_query_dict.copy()
 
         for source, destination in self.filter_rewrite_rules.items():
@@ -418,6 +427,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
                     query_value = team_from_request.project_id if team_from_request else int(query_value)
                 except ValueError:
                     raise NotFound("Project not found.")
+            elif query_lookup == "organization_id":
+                try:
+                    query_value = UUID(query_value)
+                except ValueError:
+                    raise NotFound("Organization not found.")
 
             result[query_lookup] = query_value
 
@@ -435,7 +449,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             serializer_context["team_id"] = serializer_context["project_id"]
         return serializer_context
 
-    @lru_cache(maxsize=1)
+    @lru_cache(maxsize=1)  # noqa: B019 - short-lived per-request router
     def _get_team_from_request(self) -> Optional["Team"]:
         team_found = None
         token = get_token(None, self.request)

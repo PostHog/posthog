@@ -13,7 +13,9 @@ use tracing::{debug, error, info};
 use crate::{
     config::KafkaConfig,
     kafka_consumer::Offset,
-    kafka_producer::{send_keyed_iter_to_kafka, KafkaProduceError},
+    kafka_producer::{
+        send_keyed_iter_to_kafka, send_keyed_iter_to_kafka_with_headers, KafkaProduceError,
+    },
 };
 
 // TODO - it's kinda gross to leak the underlying producer context type here, makes for a really gross API. We should
@@ -142,6 +144,26 @@ impl<'a, C: ClientContext> KafkaTransaction<'a, C> {
         D: Serialize,
     {
         send_keyed_iter_to_kafka(&self.producer.inner, topic, key_extractor, iter).await
+    }
+
+    pub async fn send_keyed_iter_to_kafka_with_headers<D>(
+        &self,
+        topic: &str,
+        key_extractor: impl Fn(&D) -> Option<String>,
+        headers_extractor: impl Fn(&D) -> Option<rdkafka::message::OwnedHeaders>,
+        iter: impl IntoIterator<Item = D>,
+    ) -> Vec<Result<(), KafkaProduceError>>
+    where
+        D: Serialize,
+    {
+        send_keyed_iter_to_kafka_with_headers(
+            &self.producer.inner,
+            topic,
+            key_extractor,
+            headers_extractor,
+            iter,
+        )
+        .await
     }
 
     pub async fn send_iter_to_kafka<D>(

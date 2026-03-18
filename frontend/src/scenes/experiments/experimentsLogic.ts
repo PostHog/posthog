@@ -11,11 +11,20 @@ import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual, toParams } from 'lib/utils'
 import { FLAGS_PER_PAGE, type FeatureFlagsResult, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { ActivityScope, Breadcrumb, Experiment, ExperimentsTabs, FeatureFlagType, ProgressStatus } from '~/types'
+import {
+    ActivityScope,
+    Breadcrumb,
+    Experiment,
+    ExperimentStatus,
+    ExperimentVelocityStats,
+    ExperimentsTabs,
+    FeatureFlagType,
+} from '~/types'
 
 import type { experimentsLogicType } from './experimentsLogicType'
 
@@ -28,8 +37,9 @@ export interface ExperimentsResult extends CountedPaginatedResponse<Experiment> 
 
 export interface ExperimentsFilters {
     search?: string
-    status?: ProgressStatus | 'all'
+    status?: ExperimentStatus | 'all'
     created_by_id?: number
+    archived?: boolean
     page?: number
     order?: string
 }
@@ -47,6 +57,7 @@ const DEFAULT_FILTERS: ExperimentsFilters = {
     search: undefined,
     status: 'all',
     created_by_id: undefined,
+    archived: false,
     page: 1,
     order: undefined,
 }
@@ -60,24 +71,120 @@ const DEFAULT_MODAL_FILTERS: FeatureFlagModalFilters = {
     evaluation_runtime: undefined,
 }
 
-export function getExperimentStatus(experiment: Experiment): ProgressStatus {
-    if (!experiment.start_date) {
-        return ProgressStatus.Draft
-    } else if (!experiment.end_date) {
-        return ProgressStatus.Running
+type ExperimentStatusInput = Pick<Experiment, 'status' | 'start_date' | 'end_date'> | null | undefined
+type ExperimentStatusDisplayInput =
+    | Pick<Experiment, 'status' | 'start_date' | 'end_date' | 'feature_flag'>
+    | null
+    | undefined
+
+export function getExperimentStatus(experiment: ExperimentStatusInput): ExperimentStatus {
+    if (!experiment) {
+        return ExperimentStatus.Draft
     }
-    return ProgressStatus.Complete
+
+    if (experiment.status) {
+        return experiment.status
+    }
+
+    // Fallback for stale fixtures and older mocked data during the transition.
+    if (experiment.end_date) {
+        return ExperimentStatus.Stopped
+    }
+    if (experiment.start_date) {
+        return ExperimentStatus.Running
+    }
+    return ExperimentStatus.Draft
 }
 
-export function getExperimentStatusColor(status: ProgressStatus): LemonTagType {
+export function isExperimentPaused(experiment: ExperimentStatusDisplayInput): boolean {
+    return (
+        getExperimentStatus(experiment) === ExperimentStatus.Running &&
+        !!experiment?.feature_flag &&
+        !experiment.feature_flag.active
+    )
+}
+
+export function isLaunched(experiment: ExperimentStatusInput): boolean {
+    return getExperimentStatus(experiment) !== ExperimentStatus.Draft
+}
+
+export function hasEnded(experiment: ExperimentStatusInput): boolean {
+    return getExperimentStatus(experiment) === ExperimentStatus.Stopped
+}
+
+export function isSingleVariantShipped(experiment: Experiment): boolean {
+    const filters = experiment.feature_flag?.filters
+
+    return (
+        !!filters &&
+        Array.isArray(filters.groups?.[0]?.properties) &&
+        filters.groups?.[0]?.properties?.length === 0 &&
+        filters.groups?.[0]?.rollout_percentage === 100 &&
+        (filters.multivariate?.variants?.some(({ rollout_percentage }) => rollout_percentage === 100) || false)
+    )
+}
+
+export function getShippedVariantKey(experiment: Experiment): string | null {
+    if (!isSingleVariantShipped(experiment)) {
+        return null
+    }
+    return (
+        experiment.feature_flag?.filters.multivariate?.variants?.find(
+            ({ rollout_percentage }) => rollout_percentage === 100
+        )?.key || null
+    )
+}
+
+export function getExperimentStatusLabel(status: ExperimentStatus, isPaused: boolean = false): string {
+    if (isPaused) {
+        return 'Paused'
+    }
+
     switch (status) {
-        case ProgressStatus.Draft:
+        case ExperimentStatus.Draft:
+            return 'Draft'
+        case ExperimentStatus.Running:
+            return 'Running'
+        case ExperimentStatus.Stopped:
+            return 'Complete'
+    }
+
+    return 'Draft'
+}
+
+export function getExperimentStatusColor(status: ExperimentStatus, isPaused: boolean = false): LemonTagType {
+    if (isPaused) {
+        return 'warning'
+    }
+
+    switch (status) {
+        case ExperimentStatus.Draft:
             return 'default'
-        case ProgressStatus.Running:
+        case ExperimentStatus.Running:
             return 'success'
-        case ProgressStatus.Complete:
+        case ExperimentStatus.Stopped:
             return 'completion'
     }
+
+    return 'default'
+}
+
+function normalizeExperimentFilterStatus(status: string | undefined): ExperimentStatus | 'all' {
+    if (!status) {
+        return 'all'
+    }
+
+    const normalizedStatus = status.toLowerCase()
+
+    if (normalizedStatus === 'complete') {
+        return ExperimentStatus.Stopped
+    }
+
+    if (Object.values(ExperimentStatus).includes(normalizedStatus as ExperimentStatus)) {
+        return normalizedStatus as ExperimentStatus
+    }
+
+    return 'all'
 }
 
 export const experimentsLogic = kea<experimentsLogicType>([
@@ -94,7 +201,10 @@ export const experimentsLogic = kea<experimentsLogicType>([
             ['featureFlags'],
             router,
             ['location'],
+            teamLogic,
+            ['currentTeam'],
         ],
+        actions: [teamLogic, ['loadCurrentTeamSuccess', 'updateCurrentTeamSuccess']],
     })),
     actions({
         setExperimentsTab: (tabKey: ExperimentsTabs) => ({ tabKey }),
@@ -104,6 +214,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
             replace,
         }),
         resetFeatureFlagModalFilters: true,
+        openFeatureFlagModal: true,
     }),
     reducers({
         filters: [
@@ -135,13 +246,21 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 setExperimentsTab: (state, { tabKey }) => tabKey ?? state,
             },
         ],
+        hasLoadedExperiments: [
+            false,
+            {
+                loadExperimentsSuccess: () => true,
+                loadExperimentsFailure: () => true,
+            },
+        ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setExperimentsFilters: async (_, breakpoint) => {
-            /**
-             * this debounces the search input. Yeah, I know.
-             */
-            await breakpoint(300)
+            // Only debounce after the first load — the debounce is for search input,
+            // but the initial load from urlToAction should fire immediately.
+            if (values.hasLoadedExperiments || values.experimentsLoading) {
+                await breakpoint(300)
+            }
             actions.loadExperiments()
         },
         setFeatureFlagModalFilters: async (_, breakpoint) => {
@@ -150,6 +269,19 @@ export const experimentsLogic = kea<experimentsLogicType>([
         },
         resetFeatureFlagModalFilters: () => {
             actions.loadFeatureFlagModalFeatureFlags()
+        },
+        openFeatureFlagModal: () => {
+            actions.loadFeatureFlagModalFeatureFlags()
+        },
+        loadCurrentTeamSuccess: () => {
+            if (values.featureFlagModalFeatureFlags.results.length > 0) {
+                actions.loadFeatureFlagModalFeatureFlags()
+            }
+        },
+        updateCurrentTeamSuccess: () => {
+            if (values.featureFlagModalFeatureFlags.results.length > 0) {
+                actions.loadFeatureFlagModalFeatureFlags()
+            }
         },
     })),
     loaders(({ values }) => ({
@@ -219,25 +351,48 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 },
             },
         ],
+        experimentsStats: [
+            {
+                launched_last_30d: 0,
+                launched_previous_30d: 0,
+                percent_change: 0,
+                active_experiments: 0,
+                completed_last_30d: 0,
+            } as ExperimentVelocityStats,
+            {
+                loadExperimentsStats: async () => {
+                    const response = await api.get(`api/projects/${values.currentProjectId}/experiments/stats/`)
+                    return response
+                },
+            },
+        ],
     })),
     selectors(() => ({
         count: [(selectors) => [selectors.experiments], (experiments) => experiments.count],
         paramsFromFilters: [
-            (s) => [s.filters, s.tab],
-            (filters: ExperimentsFilters, tab: ExperimentsTabs) => ({
+            (s) => [s.filters],
+            (filters: ExperimentsFilters) => ({
                 ...filters,
                 limit: EXPERIMENTS_PER_PAGE,
                 offset: filters.page ? (filters.page - 1) * EXPERIMENTS_PER_PAGE : 0,
-                archived: tab === ExperimentsTabs.Archived,
             }),
         ],
         featureFlagModalParamsFromFilters: [
-            (s) => [s.featureFlagModalFilters],
-            (filters: FeatureFlagModalFilters) => ({
-                ...filters,
-                limit: FLAGS_PER_PAGE,
-                offset: filters.page ? (filters.page - 1) * FLAGS_PER_PAGE : 0,
-            }),
+            (s) => [s.featureFlagModalFilters, s.currentTeam],
+            (filters: FeatureFlagModalFilters, currentTeam) => {
+                const params: Record<string, any> = {
+                    ...filters,
+                    limit: FLAGS_PER_PAGE,
+                    offset: filters.page ? (filters.page - 1) * FLAGS_PER_PAGE : 0,
+                }
+
+                // Add evaluation tags filter if required by team
+                if (currentTeam?.require_evaluation_contexts) {
+                    params.has_evaluation_tags = true
+                }
+
+                return params
+            },
         ],
         featureFlagModalPageFromURL: [
             () => [router.selectors.searchParams],
@@ -327,7 +482,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
         ],
     }),
     afterMount(({ actions, values }) => {
-        actions.loadExperiments()
+        actions.loadExperimentsStats()
         // Sync modal page with URL on mount
         const urlPage = values.featureFlagModalPageFromURL
         if (urlPage !== 1) {
@@ -347,7 +502,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                   },
               ]
             | void => {
-            const searchParams: Record<string, string | number> = {
+            const searchParams: Record<string, string | number | boolean> = {
                 ...values.filters,
             }
 
@@ -355,7 +510,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 searchParams['tab'] = values.tab
             }
 
-            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: false }]
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         }
 
         const changeFeatureFlagModalUrl = ():
@@ -368,7 +523,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                   },
               ]
             | void => {
-            const searchParams: Record<string, string | number> = {
+            const searchParams: Record<string, string | number | boolean> = {
                 ...values.filters,
             }
 
@@ -382,7 +537,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 searchParams['ff_page'] = modalPage
             }
 
-            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: false }]
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         }
 
         return {
@@ -404,15 +559,16 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 actions.setExperimentsTab(tabInURL)
             }
 
-            const { page, search, status, created_by_id, order } = searchParams
+            const { page, search, status, created_by_id, order, archived } = searchParams
             const pageFiltersFromUrl: Partial<ExperimentsFilters> = {
                 search,
                 created_by_id,
                 order,
             }
 
-            pageFiltersFromUrl.status = status || 'all'
+            pageFiltersFromUrl.status = normalizeExperimentFilterStatus(status)
             pageFiltersFromUrl.page = page !== undefined ? parseInt(page) : 1
+            pageFiltersFromUrl.archived = String(archived) === 'true'
 
             actions.setExperimentsFilters({ ...DEFAULT_FILTERS, ...pageFiltersFromUrl })
         },

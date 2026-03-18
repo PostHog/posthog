@@ -70,7 +70,7 @@ class ConsoleTreeFormatter(RiskFormatter):
         explanations = {
             RiskLevel.BLOCKED: "Causes locks or breaks compatibility",
             RiskLevel.NEEDS_REVIEW: "May have performance impact",
-            RiskLevel.SAFE: "No locks, backwards compatible",
+            RiskLevel.SAFE: "Brief or no lock, backwards compatible",
         }
         explanation = explanations.get(level, "")
         lines.append(f"## {icon} {level.category}\n")

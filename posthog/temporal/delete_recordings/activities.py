@@ -1,191 +1,38 @@
-import os
-import re
 import json
-from datetime import datetime
-from pathlib import Path
-from tempfile import mkstemp
-from urllib.parse import urlparse
+from datetime import UTC, datetime
+from urllib import parse
 from uuid import uuid4
 
-import pytz
+from django.conf import settings
+
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
+from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.models import Team
+from posthog.security.outbound_proxy import internal_httpx_async_client
+from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from posthog.session_recordings.session_recording_v2_service import (
-    RecordingBlock,
-    RecordingBlockListing,
-    build_block_list,
-)
-from posthog.storage import session_recording_v2_object_storage
+from posthog.session_recordings.utils import filter_from_params_to_query
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
-from posthog.temporal.delete_recordings.metrics import (
-    get_block_deleted_counter,
-    get_block_deleted_error_counter,
-    get_block_loaded_counter,
-)
+from posthog.temporal.delete_recordings import object_storage as chunk_storage
 from posthog.temporal.delete_recordings.types import (
-    DeleteRecordingError,
-    GroupRecordingError,
+    CleanupChunksInput,
+    DeleteRecordingsInput,
+    DeleteRecordingsResult,
+    LoadChunkInput,
     LoadRecordingError,
-    Recording,
-    RecordingBlockGroup,
+    LoadRecordingsPage,
+    PurgeDeletedMetadataInput,
+    PurgeDeletedMetadataResult,
     RecordingsWithPersonInput,
-    RecordingWithBlocks,
+    RecordingsWithQueryInput,
+    RecordingsWithTeamInput,
 )
 
 LOGGER = get_write_only_logger()
-
-
-def _parse_block_listing_response(raw_response: bytes) -> list[tuple]:
-    if len(raw_response) == 0:
-        raise DeleteRecordingError("Got empty response from ClickHouse.")
-
-    try:
-        result = json.loads(raw_response)
-        first_row = result["data"][0]
-        return [
-            (
-                first_row["start_time"],
-                first_row["block_first_timestamps"],
-                first_row["block_last_timestamps"],
-                first_row["block_urls"],
-            )
-        ]
-    except json.JSONDecodeError as e:
-        raise DeleteRecordingError("Unable to parse JSON response from ClickHouse.") from e
-    except KeyError as e:
-        raise DeleteRecordingError("Got malformed JSON response from ClickHouse.") from e
-    except IndexError as e:
-        raise DeleteRecordingError("No rows in response from ClickHouse.") from e
-
-
-@activity.defn(name="load-recording-blocks")
-async def load_recording_blocks(input: Recording) -> list[RecordingBlock]:
-    bind_contextvars(session_id=input.session_id, team_id=input.team_id)
-    logger = LOGGER.bind()
-    logger.info("Loading recording blocks")
-
-    query: str = SessionReplayEvents.get_block_listing_query(format="JSON")
-    parameters = {
-        "team_id": input.team_id,
-        "session_id": input.session_id,
-        "python_now": datetime.now(pytz.timezone("UTC")),
-        "ttl_days": 365,
-    }
-
-    ch_query_id = str(uuid4())
-    logger.info(f"Querying ClickHouse with query_id: {ch_query_id}")
-    raw_response: bytes = b""
-    async with get_client() as client:
-        async with client.aget_query(query=query, query_parameters=parameters, query_id=ch_query_id) as ch_response:
-            raw_response = await ch_response.content.read()
-
-    block_listing: RecordingBlockListing | None = SessionReplayEvents.build_recording_block_listing(
-        input.session_id, _parse_block_listing_response(raw_response)
-    )
-
-    logger.info("Building block list")
-    blocks: list[RecordingBlock] = build_block_list(input.session_id, input.team_id, block_listing)
-
-    logger.info(f"Successfully loaded {len(blocks)} blocks")
-    get_block_loaded_counter().add(len(blocks))
-    return blocks
-
-
-@activity.defn(name="group-recording-blocks")
-async def group_recording_blocks(input: RecordingWithBlocks) -> list[RecordingBlockGroup]:
-    block_count = len(input.blocks)
-    bind_contextvars(session_id=input.recording.session_id, team_id=input.recording.team_id, block_count=block_count)
-    logger = LOGGER.bind()
-    logger.info("Grouping recording blocks")
-
-    block_map: dict[str, RecordingBlockGroup] = {}
-
-    for block in input.blocks:
-        _, _, path, _, query, _ = urlparse(block.url)
-        path = path.lstrip("/")
-
-        match = re.match(r"^range=bytes=(\d+)-(\d+)$", query)
-
-        if not match:
-            raise GroupRecordingError(f"Got malformed byte range in block URL: {query}")
-
-        start_byte, end_byte = int(match.group(1)), int(match.group(2))
-
-        block_group: RecordingBlockGroup = block_map.get(path, RecordingBlockGroup(input.recording, path, []))
-        block_group.ranges.append((start_byte, end_byte))
-        block_map[path] = block_group
-
-    block_groups: list[RecordingBlockGroup] = list(block_map.values())
-
-    logger.info(f"Grouped {block_count} blocks into {len(block_groups)} groups")
-    return block_groups
-
-
-def overwrite_block(path: str, start_byte: int, block_length: int, buffer_size: int = 1024) -> None:
-    with open(path, "rb+") as fp:
-        fp.seek(start_byte)
-
-        for _ in range(block_length // buffer_size):
-            fp.write(bytearray(buffer_size))
-
-        fp.write(bytearray(block_length % buffer_size))
-
-
-@activity.defn(name="delete-recording-blocks")
-async def delete_recording_blocks(input: RecordingBlockGroup) -> None:
-    bind_contextvars(
-        session_id=input.recording.session_id, team_id=input.recording.team_id, block_count=len(input.ranges)
-    )
-    logger = LOGGER.bind()
-    logger.info("Deleting recording blocks")
-
-    async with session_recording_v2_object_storage.async_client() as storage:
-        block_deleted_counter = 0
-        block_deleted_error_counter = 0
-
-        tmpfile = None
-        try:
-            _, tmpfile = mkstemp()
-
-            await storage.download_file(input.path, tmpfile)
-
-            for start_byte, end_byte in input.ranges:
-                try:
-                    block_length = end_byte - start_byte + 1
-
-                    size_before = Path(tmpfile).stat().st_size
-
-                    overwrite_block(tmpfile, start_byte, block_length)
-
-                    size_after = Path(tmpfile).stat().st_size
-
-                    assert size_before == size_after
-                    block_deleted_counter += 1
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to delete block at range ({start_byte}, {end_byte}) in file at {input.path}, skipping..."
-                    )
-                    logger.warning(f"Got exception {e}")
-                    block_deleted_error_counter += 1
-
-            await storage.upload_file(input.path, tmpfile)
-
-            logger.info(f"Deleted {len(input.ranges)} blocks in {input.path}")
-        except session_recording_v2_object_storage.FileDownloadError:
-            logger.warning(f"Failed to download file at {input.path}, skipping...")
-        except session_recording_v2_object_storage.FileUploadError:
-            logger.warning(f"Failed to upload file to {input.path}, skipping...")
-        finally:
-            if tmpfile is not None:
-                os.remove(tmpfile)
-
-    get_block_deleted_counter().add(block_deleted_counter)
-    get_block_deleted_error_counter().add(block_deleted_error_counter)
-    logger.info(f"Successfully deleted {block_deleted_counter} blocks")
-    logger.info(f"Skipped {block_deleted_error_counter} blocks")
 
 
 def _parse_session_recording_list_response(raw_response: bytes) -> list[str]:
@@ -203,26 +50,202 @@ def _parse_session_recording_list_response(raw_response: bytes) -> list[str]:
 
 
 @activity.defn(name="load-recordings-with-person")
-async def load_recordings_with_person(input: RecordingsWithPersonInput) -> list[str]:
+async def load_recordings_with_person(input: RecordingsWithPersonInput) -> LoadRecordingsPage:
     bind_contextvars(distinct_ids=input.distinct_ids, team_id=input.team_id)
+    tag_queries(product=Product.REPLAY, team_id=input.team_id)
     logger = LOGGER.bind()
-    logger.info(f"Loading all sessions for {len(input.distinct_ids)} distinct IDs")
+    logger.info("Loading sessions for distinct IDs", distinct_id_count=len(input.distinct_ids), cursor=input.cursor)
 
-    query: str = SessionReplayEvents.get_sessions_from_distinct_id_query(format="JSON")
-    parameters = {
+    query: str = SessionReplayEvents.get_sessions_from_distinct_id_query(format="JSON", paginated=True)
+    parameters: dict = {
         "team_id": input.team_id,
         "distinct_ids": input.distinct_ids,
-        "python_now": datetime.now(pytz.timezone("UTC")),
-        "ttl_days": 365,
+        "python_now": datetime.now(UTC),
+        "cursor": input.cursor or "",
+        "page_size": input.page_size,
     }
 
     ch_query_id = str(uuid4())
-    logger.info(f"Querying ClickHouse with query_id: {ch_query_id}")
+    logger.info("Querying ClickHouse", query_id=ch_query_id)
     raw_response: bytes = b""
     async with get_client() as client:
         async with client.aget_query(query=query, query_parameters=parameters, query_id=ch_query_id) as ch_response:
             raw_response = await ch_response.content.read()
 
     session_ids: list[str] = _parse_session_recording_list_response(raw_response)
-    logger.info(f"Successfully loaded {len(session_ids)} session IDs")
-    return session_ids
+    next_cursor = session_ids[-1] if len(session_ids) == input.page_size else None
+    logger.info("Loaded session IDs page", session_count=len(session_ids), has_more=next_cursor is not None)
+    return LoadRecordingsPage(session_ids=session_ids, next_cursor=next_cursor)
+
+
+@activity.defn(name="load-recordings-with-team-id")
+async def load_recordings_with_team_id(input: RecordingsWithTeamInput) -> LoadRecordingsPage:
+    bind_contextvars(team_id=input.team_id)
+    tag_queries(product=Product.REPLAY, team_id=input.team_id)
+    logger = LOGGER.bind()
+    logger.info("Loading sessions for team", cursor=input.cursor)
+
+    query: str = SessionReplayEvents.get_sessions_from_team_id_query(format="JSON", paginated=True)
+    parameters: dict = {
+        "team_id": input.team_id,
+        "python_now": datetime.now(UTC),
+        "cursor": input.cursor or "",
+        "page_size": input.page_size,
+    }
+
+    ch_query_id = str(uuid4())
+    logger.info("Querying ClickHouse", query_id=ch_query_id)
+    raw_response: bytes = b""
+    async with get_client() as client:
+        async with client.aget_query(query=query, query_parameters=parameters, query_id=ch_query_id) as ch_response:
+            raw_response = await ch_response.content.read()
+
+    session_ids: list[str] = _parse_session_recording_list_response(raw_response)
+    next_cursor = session_ids[-1] if len(session_ids) == input.page_size else None
+    logger.info("Loaded session IDs page", session_count=len(session_ids), has_more=next_cursor is not None)
+    return LoadRecordingsPage(session_ids=session_ids, next_cursor=next_cursor)
+
+
+@activity.defn(name="load-recordings-with-query")
+async def load_recordings_with_query(input: RecordingsWithQueryInput) -> LoadRecordingsPage:
+    bind_contextvars(team_id=input.team_id)
+    tag_queries(product=Product.REPLAY, team_id=input.team_id)
+    logger = LOGGER.bind()
+    logger.info("Loading sessions matching query", cursor=input.cursor)
+
+    query_dict = dict(parse.parse_qsl(input.query))
+    query_dict.pop("add_events_to_property_queries", None)
+    parsed_query = filter_from_params_to_query(query_dict)
+    parsed_query.limit = input.query_limit
+
+    if input.cursor:
+        parsed_query.after = input.cursor
+
+    team = (
+        await Team.objects.select_related("organization")
+        .only("id", "organization__available_product_features")
+        .aget(id=input.team_id)
+    )
+
+    query_instance = SessionRecordingListFromQuery(
+        query=parsed_query,
+        team=team,
+        hogql_query_modifiers=None,
+    )
+    query_results = await database_sync_to_async(query_instance.run)()
+    session_ids = [session["session_id"] for session in query_results.results]
+    next_cursor = query_results.next_cursor if query_results.has_more_recording else None
+
+    logger.info("Loaded session IDs page", session_count=len(session_ids), has_more=next_cursor is not None)
+    return LoadRecordingsPage(session_ids=session_ids, next_cursor=next_cursor)
+
+
+@activity.defn(name="purge-deleted-metadata")
+async def purge_deleted_metadata(input: PurgeDeletedMetadataInput) -> PurgeDeletedMetadataResult:
+    """Purge metadata from ClickHouse for recordings that have been deleted.
+
+    This runs nightly to clean up metadata.
+    Uses lightweight DELETE to remove rows where is_deleted=1 and older than the grace period.
+    The grace period provides a safety buffer for recovery if needed.
+    """
+    from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
+
+    started_at = datetime.now(UTC)
+    logger = LOGGER.bind()
+    logger.info(
+        "Starting metadata purge for deleted recordings",
+        grace_period_days=input.grace_period_days,
+    )
+
+    query_id = str(uuid4())
+
+    if not (1 <= input.grace_period_days <= 365):
+        raise ValueError(f"grace_period_days must be between 1 and 365, got {input.grace_period_days}")
+
+    delete_query = f"""
+        DELETE FROM sharded_session_replay_events
+        ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+        WHERE is_deleted = 1
+          AND _timestamp < now() - INTERVAL {{grace_period_days:Int32}} DAY
+    """
+
+    logger.info("Executing delete query", query_id=query_id)
+    async with get_client() as client:
+        await client.execute_query(
+            delete_query,
+            query_id=query_id,
+            query_parameters={"grace_period_days": input.grace_period_days},
+        )
+
+    completed_at = datetime.now(UTC)
+    logger.info(
+        "Metadata purge completed",
+        duration_seconds=(completed_at - started_at).total_seconds(),
+    )
+
+    return PurgeDeletedMetadataResult(
+        started_at=started_at,
+        completed_at=completed_at,
+    )
+
+
+@activity.defn(name="delete-recordings")
+async def delete_recordings(input: DeleteRecordingsInput) -> DeleteRecordingsResult:
+    """Delete recordings via the recording API."""
+    bind_contextvars(team_id=input.team_id, session_count=len(input.session_ids), dry_run=input.dry_run)
+    logger = LOGGER.bind()
+
+    if input.dry_run:
+        logger.info("Dry run: skipping deletion")
+        return DeleteRecordingsResult(deleted=[])
+
+    logger.info("Deleting recordings via recording API")
+
+    recording_api_url = settings.RECORDING_API_URL
+    if not recording_api_url:
+        raise RuntimeError("RECORDING_API_URL is not configured")
+
+    url = f"{recording_api_url}/api/projects/{input.team_id}/recordings/delete"
+
+    headers: dict[str, str] = {}
+    if settings.INTERNAL_API_SECRET:
+        headers["X-Internal-Api-Secret"] = settings.INTERNAL_API_SECRET
+
+    async with internal_httpx_async_client(timeout=60.0, headers=headers) as client:
+        response = await client.post(url, json={"session_ids": input.session_ids, "deleted_by": input.deleted_by})
+        response.raise_for_status()
+        data = response.json()
+
+    deleted = [r["sessionId"] for r in data if r.get("ok")]
+    failed_count = len(data) - len(deleted)
+
+    logger.info(
+        "Delete batch completed",
+        deleted_count=len(deleted),
+        failed_count=failed_count,
+    )
+
+    return DeleteRecordingsResult(deleted=deleted, failed_count=failed_count)
+
+
+@activity.defn(name="load-session-id-chunk")
+async def load_session_id_chunk(input: LoadChunkInput) -> LoadRecordingsPage:
+    logger = LOGGER.bind()
+    logger.info("Loading session ID chunk from S3", chunk_index=input.chunk_index, s3_prefix=input.s3_prefix)
+
+    session_ids = await chunk_storage.load_session_id_chunk(input.s3_prefix, input.chunk_index)
+
+    logger.info("Loaded session ID chunk", session_count=len(session_ids))
+    return LoadRecordingsPage(session_ids=session_ids)
+
+
+@activity.defn(name="cleanup-session-id-chunks")
+async def cleanup_session_id_chunks(input: CleanupChunksInput) -> None:
+    logger = LOGGER.bind()
+    logger.info("Cleaning up session ID chunks from S3", s3_prefix=input.s3_prefix, total_chunks=input.total_chunks)
+
+    try:
+        await chunk_storage.delete_session_id_chunks(input.s3_prefix, input.total_chunks)
+        logger.info("Cleanup completed")
+    except Exception as e:
+        logger.warning("Cleanup failed", error=str(e))

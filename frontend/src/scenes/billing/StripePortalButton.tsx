@@ -7,7 +7,13 @@ import { billingLogic } from './billingLogic'
 export const StripePortalButton = (): JSX.Element | null => {
     const { billing } = useValues(billingLogic)
 
-    if (!billing?.customer_id || !billing?.stripe_portal_url) {
+    if (!billing?.customer_id) {
+        return null
+    }
+
+    const billingUrl = billing.external_billing_provider_invoices_url || billing.stripe_portal_url
+
+    if (!billingUrl) {
         return null
     }
 
@@ -16,7 +22,7 @@ export const StripePortalButton = (): JSX.Element | null => {
             <LemonButton
                 type="primary"
                 htmlType="submit"
-                to={billing.stripe_portal_url}
+                to={billingUrl}
                 disableClientSideRouting
                 targetBlank
                 center

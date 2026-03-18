@@ -19,24 +19,36 @@ from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_TABL
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
 from posthog.temporal.data_imports.sources.generated_configs import BigQuerySourceConfig
-from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
+
+from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
 
 def get_schemas(
     config: BigQuerySourceConfig,
     logger: FilteringBoundLogger | None = None,
-) -> dict[str, list[tuple[str, str]]]:
-    schema_list = collections.defaultdict(list)
+    names: list[str] | None = None,
+) -> dict[str, list[tuple[str, str, bool]]]:
+    schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
+
+    region: str | None = None
+    if (
+        config.use_custom_region
+        and config.use_custom_region.enabled
+        and config.use_custom_region.region is not None
+        and config.use_custom_region.region != ""
+    ):
+        region = config.use_custom_region.region
 
     with bigquery_client(
         config.key_file.project_id,
+        region,
         config.key_file.private_key,
         config.key_file.private_key_id,
         config.key_file.client_email,
         config.key_file.token_uri,
     ) as bq:
         query = bq.query(
-            f"SELECT table_name, column_name, data_type FROM `{config.dataset_id}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC",
+            f"SELECT table_name, column_name, data_type, is_nullable FROM `{config.dataset_id}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC",
             project=config.dataset_project.dataset_project_id
             if config.dataset_project and config.dataset_project.enabled
             else config.key_file.project_id,
@@ -52,14 +64,23 @@ def get_schemas(
             return {}
 
         for row in rows:
-            schema_list[row.table_name].append((row.column_name, row.data_type))
+            schema_list[row.table_name].append((row.column_name, row.data_type, row.is_nullable == "YES"))
+
+    if names is not None:
+        names_set = set(names)
+        schema_list = {k: v for k, v in schema_list.items() if k in names_set}
 
     return schema_list
 
 
 @contextlib.contextmanager
 def bigquery_client(
-    project_id: str, private_key: str, private_key_id: str, client_email: str, token_uri: str
+    project_id: str,
+    location: str | None,
+    private_key: str,
+    private_key_id: str,
+    client_email: str,
+    token_uri: str,
 ) -> typing.Iterator[bigquery.Client]:
     """Manage a BigQuery client."""
     credentials = service_account.Credentials.from_service_account_info(
@@ -74,6 +95,7 @@ def bigquery_client(
     )
     client = bigquery.Client(
         project=project_id,
+        location=location,
         credentials=credentials,
     )
 
@@ -84,9 +106,15 @@ def bigquery_client(
 
 
 def delete_table(
-    table_id: str, project_id: str, private_key: str, private_key_id: str, client_email: str, token_uri: str
+    table_id: str,
+    project_id: str,
+    location: str | None,
+    private_key: str,
+    private_key_id: str,
+    client_email: str,
+    token_uri: str,
 ) -> None:
-    with bigquery_client(project_id, private_key, private_key_id, client_email, token_uri) as bq:
+    with bigquery_client(project_id, location, private_key, private_key_id, client_email, token_uri) as bq:
         bq.delete_table(table_id, not_found_ok=True)
 
 
@@ -94,6 +122,7 @@ def delete_all_temp_destination_tables(
     dataset_id: str,
     table_prefix: str,
     project_id: str,
+    location: str | None,
     dataset_project_id: str | None,
     private_key: str,
     private_key_id: str,
@@ -101,7 +130,7 @@ def delete_all_temp_destination_tables(
     token_uri: str,
     logger: None | FilteringBoundLogger,
 ) -> None:
-    with bigquery_client(project_id, private_key, private_key_id, client_email, token_uri) as bq:
+    with bigquery_client(project_id, location, private_key, private_key_id, client_email, token_uri) as bq:
         try:
             tables = bq.list_tables(bq.dataset(dataset_id, project=dataset_project_id or project_id))
             for table in tables:
@@ -113,16 +142,16 @@ def delete_all_temp_destination_tables(
             capture_exception(e)
 
 
-def filter_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
-    results: list[tuple[str, IncrementalFieldType]] = []
-    for column_name, type in columns:
+def filter_incremental_fields(columns: list[tuple[str, str, bool]]) -> list[tuple[str, IncrementalFieldType, bool]]:
+    results: list[tuple[str, IncrementalFieldType, bool]] = []
+    for column_name, type, nullable in columns:
         type = type.upper()
         if type.startswith("TIMESTAMP"):
-            results.append((column_name, IncrementalFieldType.Timestamp))
-        elif type.startswith("DATE"):
-            results.append((column_name, IncrementalFieldType.Date))
+            results.append((column_name, IncrementalFieldType.Timestamp, nullable))
         elif type.startswith("DATETIME"):
-            results.append((column_name, IncrementalFieldType.DateTime))
+            results.append((column_name, IncrementalFieldType.DateTime, nullable))
+        elif type.startswith("DATE"):
+            results.append((column_name, IncrementalFieldType.Date, nullable))
         elif (
             type.startswith("INT64")
             or type.startswith("NUMERIC")
@@ -134,12 +163,14 @@ def filter_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str,
             or type.startswith("TINYINT")
             or type.startswith("BYTEINT")
         ):
-            results.append((column_name, IncrementalFieldType.Integer))
+            results.append((column_name, IncrementalFieldType.Integer, nullable))
 
     return results
 
 
-def validate_credentials(dataset_id: str, key_file: dict[str, str], dataset_project_id: str | None) -> bool:
+def validate_credentials(
+    dataset_id: str, key_file: dict[str, str], dataset_project_id: str | None, location: str | None
+) -> bool:
     project_id = key_file.get("project_id")
     private_key = key_file.get("private_key")
     private_key_id = key_file.get("private_key_id")
@@ -149,7 +180,7 @@ def validate_credentials(dataset_id: str, key_file: dict[str, str], dataset_proj
     if not project_id or not private_key or not private_key_id or not client_email or not token_uri:
         return False
 
-    with bigquery_client(project_id, private_key, private_key_id, client_email, token_uri) as bq:
+    with bigquery_client(project_id, location, private_key, private_key_id, client_email, token_uri) as bq:
         try:
             bq.list_tables(
                 bq.dataset(dataset_id, project=dataset_project_id or project_id),
@@ -348,6 +379,7 @@ def _get_query(
 
 def bigquery_source(
     project_id: str,
+    location: str | None,
     dataset_id: str,
     table_name: str,
     private_key: str,
@@ -376,6 +408,7 @@ def bigquery_source(
 
     with bigquery_client(
         project_id=project_id,
+        location=location,
         private_key=private_key,
         private_key_id=private_key_id,
         client_email=client_email,
@@ -398,6 +431,7 @@ def bigquery_source(
     def get_rows(max_table_size: int) -> collections.abc.Iterator[pa.Table]:
         with bigquery_client(
             project_id=project_id,
+            location=location,
             private_key=private_key,
             private_key_id=private_key_id,
             client_email=client_email,
@@ -502,7 +536,7 @@ def bigquery_source(
 
     return SourceResponse(
         name=name,
-        items=get_rows(DEFAULT_TABLE_SIZE_BYTES),
+        items=lambda: get_rows(DEFAULT_TABLE_SIZE_BYTES),
         primary_keys=primary_keys,
         partition_count=partition_settings.partition_count if partition_settings else None,
         partition_size=partition_settings.partition_size if partition_settings else None,

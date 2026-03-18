@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+// Keep in sync with FEATURE_FLAG_SUPPORTED_OPERATORS in posthog/api/feature_flag.py
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OperatorType {
@@ -7,12 +8,23 @@ pub enum OperatorType {
     IsNot,
     Icontains,
     NotIcontains,
+    IcontainsMulti,
+    NotIcontainsMulti,
     Regex,
     NotRegex,
     Gt,
     Lt,
     Gte,
     Lte,
+    SemverGt,
+    SemverGte,
+    SemverLt,
+    SemverLte,
+    SemverEq,
+    SemverNeq,
+    SemverTilde,
+    SemverCaret,
+    SemverWildcard,
     IsSet,
     IsNotSet,
     IsDateExact,
