@@ -456,14 +456,16 @@ class HogQLQueryExecutor:
                         "connect_timeout": DIRECT_POSTGRES_CONNECT_TIMEOUT_SECONDS,
                         "sslmode": _get_sslmode(require_ssl),
                         "options": f"-c default_transaction_read_only=on -c statement_timeout={statement_timeout_ms}",
+                        # Prevent libpq from probing ~/.postgresql/ for client certs,
+                        # which fails with "Permission denied" in containers where
+                        # $HOME is /root/ but the process runs as a non-root user.
+                        "sslcert": "/tmp/no.txt",
+                        "sslkey": "/tmp/no.txt",
+                        "sslrootcert": "/tmp/no.txt",
                     }
                     if host.endswith(".us.postwh.com"):
                         # DuckLake hosts require SSL but do not use certificate-based auth.
-                        # Override sslmode to "require" (encrypt without cert verification).
                         connection_kwargs["sslmode"] = "require"
-                        connection_kwargs["sslcert"] = "/tmp/no.txt"
-                        connection_kwargs["sslkey"] = "/tmp/no.txt"
-                        connection_kwargs["sslrootcert"] = "/tmp/no.txt"
 
                     with psycopg.connect(**connection_kwargs) as connection:
                         with connection.cursor() as cursor:
