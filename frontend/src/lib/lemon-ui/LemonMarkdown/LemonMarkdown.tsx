@@ -99,7 +99,12 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
             },
             ...(lowKeyHeadings
                 ? Object.fromEntries(
-                      HEADING_TAGS.map((tag) => [tag, ({ children }: any): JSX.Element => <strong>{children}</strong>])
+                      HEADING_TAGS.map((tag) => [
+                          tag,
+                          ({ children }: any): JSX.Element => (
+                              <strong className="LemonMarkdown__low-key-heading">{children}</strong>
+                          ),
+                      ])
                   )
                 : {}),
         }),
