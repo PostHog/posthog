@@ -17,10 +17,7 @@ import type { SentimentLabel } from '../sentimentUtils'
 import type { CompatMessage } from '../types'
 import { normalizeMessages } from '../utils'
 import type { GroupedSentimentCard, SentimentCard, SentimentFeedbackLabel } from './llmAnalyticsSentimentLogic'
-import { llmAnalyticsSentimentLogic, SentimentFilterLabel } from './llmAnalyticsSentimentLogic'
-
-/** Max chars the backend sentiment classifier processes (last N chars of each message). */
-const CLASSIFIER_WINDOW = 2000
+import { CLASSIFIER_WINDOW, llmAnalyticsSentimentLogic, SentimentFilterLabel } from './llmAnalyticsSentimentLogic'
 
 /**
  * Truncates long text to show start + end with an ellipsis in the middle.
@@ -30,9 +27,8 @@ function truncateMiddle(text: string, maxChars: number = 500): string {
     if (text.length <= maxChars) {
         return text
     }
-    const headChars = Math.floor(maxChars / 2)
-    const tailChars = headChars
-    return text.slice(0, headChars) + ' … ' + text.slice(-tailChars)
+    const half = Math.floor(maxChars / 2)
+    return text.slice(0, half) + ' … ' + text.slice(-half)
 }
 
 /**
