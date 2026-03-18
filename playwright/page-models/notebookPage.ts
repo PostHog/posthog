@@ -75,7 +75,7 @@ export class NotebookPage {
         await this.editor.click()
         await this.page.keyboard.press('ControlOrMeta+End')
         await this.page.keyboard.press('Enter')
-        await this.page.keyboard.type('/')
+        await this.page.keyboard.type(`/${type}`)
         await expect(this.page.getByRole('button', { name: type, exact: true })).toBeVisible()
         await this.page.getByRole('button', { name: type, exact: true }).click()
         await expect(this.insightNodes).toHaveCount(currentCount + 1, { timeout: 15000 })
