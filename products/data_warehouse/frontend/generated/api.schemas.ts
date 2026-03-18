@@ -133,8 +133,10 @@ export interface ExternalDataSchemaApi {
     readonly incremental_field: string | null
     /** @nullable */
     readonly incremental_field_type: string | null
-    readonly sync_frequency: string
-    readonly sync_time_of_day: string
+    /** @nullable */
+    readonly sync_frequency: string | null
+    /** @nullable */
+    readonly sync_time_of_day: string | null
     /** @nullable */
     readonly description: string | null
 }
@@ -451,6 +453,8 @@ export interface ExternalDataSourceRevenueAnalyticsConfigApi {
     include_invoiceless_charges?: boolean
 }
 
+export type ExternalDataSourceSerializersApiSchemasItem = { [key: string]: unknown }
+
 /**
  * Mixin for serializers to add user access control fields
  */
@@ -463,7 +467,8 @@ export interface ExternalDataSourceSerializersApi {
     client_secret: string
     account_id: string
     readonly source_type: SourceTypeE09EnumApi
-    readonly latest_error: string
+    /** @nullable */
+    readonly latest_error: string | null
     /**
      * @maxLength 100
      * @nullable
@@ -476,7 +481,7 @@ export interface ExternalDataSourceSerializersApi {
     description?: string | null
     readonly access_method: AccessMethodEnumApi
     readonly last_run_at: string
-    readonly schemas: string
+    readonly schemas: readonly ExternalDataSourceSerializersApiSchemasItem[]
     job_inputs?: unknown | null
     readonly revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfigApi
     /**
@@ -495,6 +500,8 @@ export interface PaginatedExternalDataSourceSerializersListApi {
     results: ExternalDataSourceSerializersApi[]
 }
 
+export type PatchedExternalDataSourceSerializersApiSchemasItem = { [key: string]: unknown }
+
 /**
  * Mixin for serializers to add user access control fields
  */
@@ -507,7 +514,8 @@ export interface PatchedExternalDataSourceSerializersApi {
     client_secret?: string
     account_id?: string
     readonly source_type?: SourceTypeE09EnumApi
-    readonly latest_error?: string
+    /** @nullable */
+    readonly latest_error?: string | null
     /**
      * @maxLength 100
      * @nullable
@@ -520,7 +528,7 @@ export interface PatchedExternalDataSourceSerializersApi {
     description?: string | null
     readonly access_method?: AccessMethodEnumApi
     readonly last_run_at?: string
-    readonly schemas?: string
+    readonly schemas?: readonly PatchedExternalDataSourceSerializersApiSchemasItem[]
     job_inputs?: unknown | null
     readonly revenue_analytics_config?: ExternalDataSourceRevenueAnalyticsConfigApi
     /**
@@ -673,6 +681,8 @@ export const OriginEnumApi = {
     ManagedViewset: 'managed_viewset',
 } as const
 
+export type DataWarehouseSavedQueryMinimalApiColumnsItem = { [key: string]: unknown }
+
 /**
  * Lightweight serializer for list views - excludes large query field to reduce memory usage.
  */
@@ -683,8 +693,9 @@ export interface DataWarehouseSavedQueryMinimalApi {
     readonly name: string
     readonly created_by: UserBasicApi
     readonly created_at: string
-    readonly sync_frequency: string
-    readonly columns: string
+    /** @nullable */
+    readonly sync_frequency: string | null
+    readonly columns: readonly DataWarehouseSavedQueryMinimalApiColumnsItem[]
     /** The status of when this SavedQuery last ran.
 
 * `Cancelled` - Cancelled
@@ -695,7 +706,8 @@ export interface DataWarehouseSavedQueryMinimalApi {
     readonly status: StatusD5cEnumApi | NullEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
-    readonly managed_viewset_kind: string
+    /** @nullable */
+    readonly managed_viewset_kind: string | null
     /** @nullable */
     readonly latest_error: string | null
     /** @nullable */
@@ -717,6 +729,8 @@ export interface PaginatedDataWarehouseSavedQueryMinimalListApi {
     results: DataWarehouseSavedQueryMinimalApi[]
 }
 
+export type DataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
+
 /**
  * Shared methods for DataWarehouseSavedQuery serializers.
 
@@ -735,8 +749,9 @@ export interface DataWarehouseSavedQueryApi {
     query?: unknown | null
     readonly created_by: UserBasicApi
     readonly created_at: string
-    readonly sync_frequency: string
-    readonly columns: string
+    /** @nullable */
+    readonly sync_frequency: string | null
+    readonly columns: readonly DataWarehouseSavedQueryApiColumnsItem[]
     /** The status of when this SavedQuery last ran.
 
 * `Cancelled` - Cancelled
@@ -747,7 +762,8 @@ export interface DataWarehouseSavedQueryApi {
     readonly status: StatusD5cEnumApi | NullEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
-    readonly managed_viewset_kind: string
+    /** @nullable */
+    readonly managed_viewset_kind: string | null
     /** @nullable */
     readonly latest_error: string | null
     /**
@@ -755,7 +771,8 @@ export interface DataWarehouseSavedQueryApi {
      * @nullable
      */
     edited_history_id?: string | null
-    readonly latest_history_id: string
+    /** @nullable */
+    readonly latest_history_id: number | null
     /**
      * If true, skip column inference and validation. For saving drafts.
      * @nullable
@@ -770,6 +787,8 @@ export interface DataWarehouseSavedQueryApi {
 * `managed_viewset` - Managed Viewset */
     readonly origin: OriginEnumApi | NullEnumApi | null
 }
+
+export type PatchedDataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
 
 /**
  * Shared methods for DataWarehouseSavedQuery serializers.
@@ -789,8 +808,9 @@ export interface PatchedDataWarehouseSavedQueryApi {
     query?: unknown | null
     readonly created_by?: UserBasicApi
     readonly created_at?: string
-    readonly sync_frequency?: string
-    readonly columns?: string
+    /** @nullable */
+    readonly sync_frequency?: string | null
+    readonly columns?: readonly PatchedDataWarehouseSavedQueryApiColumnsItem[]
     /** The status of when this SavedQuery last ran.
 
 * `Cancelled` - Cancelled
@@ -801,7 +821,8 @@ export interface PatchedDataWarehouseSavedQueryApi {
     readonly status?: StatusD5cEnumApi | NullEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
-    readonly managed_viewset_kind?: string
+    /** @nullable */
+    readonly managed_viewset_kind?: string | null
     /** @nullable */
     readonly latest_error?: string | null
     /**
@@ -809,7 +830,8 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @nullable
      */
     edited_history_id?: string | null
-    readonly latest_history_id?: string
+    /** @nullable */
+    readonly latest_history_id?: number | null
     /**
      * If true, skip column inference and validation. For saving drafts.
      * @nullable
@@ -863,6 +885,13 @@ export interface SimpleExternalDataSourceSerializersApi {
     readonly source_type: SourceTypeE09EnumApi
 }
 
+export type TableApiColumnsItem = { [key: string]: unknown }
+
+/**
+ * @nullable
+ */
+export type TableApiExternalSchema = { [key: string]: unknown } | null | null
+
 export type TableApiOptions = { [key: string]: unknown }
 
 export interface TableApi {
@@ -877,9 +906,10 @@ export interface TableApi {
     /** @maxLength 500 */
     url_pattern: string
     credential: CredentialApi
-    readonly columns: string
+    readonly columns: readonly TableApiColumnsItem[]
     readonly external_data_source: SimpleExternalDataSourceSerializersApi
-    readonly external_schema: string
+    /** @nullable */
+    readonly external_schema: TableApiExternalSchema
     options?: TableApiOptions
 }
 

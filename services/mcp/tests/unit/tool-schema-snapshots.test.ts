@@ -79,9 +79,10 @@ function stableStringify(value: unknown): string {
 }
 
 function isSnapshotUpdateAll(): boolean {
-    return process.argv.some(
-        (arg) => arg === '-u' || arg === '--update' || arg === '--updateSnapshot' || arg === '--update-snapshots'
-    )
+    // Vitest strips CLI flags from process.argv in worker threads, so we read
+    // the snapshot-update mode from vitest's internal state instead.
+    const state = expect.getState() as unknown as { snapshotState?: { _updateSnapshot?: string } }
+    return state.snapshotState?._updateSnapshot === 'all'
 }
 
 async function formatSnapshotJson(snapshotPath: string, schema: unknown): Promise<string> {

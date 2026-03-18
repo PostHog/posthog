@@ -89,6 +89,81 @@
             "readOnlyHint": true
         }
     },
+    "alerts-list": {
+        "description": "List all insight alerts in the project. Returns alerts with their current state, threshold configuration, and timing information. Supports filtering by insight ID via query parameter.",
+        "category": "Alerts",
+        "feature": "alerts",
+        "summary": "List alerts",
+        "title": "List alerts",
+        "required_scopes": ["alert:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "alert-get": {
+        "description": "Get a specific alert by ID. Returns the full alert configuration including the last 5 check results, threshold settings, and subscribed users.",
+        "category": "Alerts",
+        "feature": "alerts",
+        "summary": "Get alert",
+        "title": "Get alert",
+        "required_scopes": ["alert:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "alert-create": {
+        "description": "Create a new alert on an insight. Alerts monitor insight values and notify subscribed users when thresholds are breached. Requires an insight ID, at least one subscribed user, and a threshold configuration. The alert condition determines how the value is evaluated (absolute_value, relative_increase, or relative_decrease).",
+        "category": "Alerts",
+        "feature": "alerts",
+        "summary": "Create alert",
+        "title": "Create alert",
+        "required_scopes": ["alert:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "alert-update": {
+        "description": "Update an existing alert by ID. Can update name, threshold, condition, config, subscribed users, enabled state, calculation interval, and weekend skipping. To snooze an alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.",
+        "category": "Alerts",
+        "feature": "alerts",
+        "summary": "Update alert",
+        "title": "Update alert",
+        "required_scopes": ["alert:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "alert-delete": {
+        "description": "Delete an alert by ID. This permanently removes the alert and all its check history. Subscribed users will no longer receive notifications.",
+        "category": "Alerts",
+        "feature": "alerts",
+        "summary": "Delete alert",
+        "title": "Delete alert",
+        "required_scopes": ["alert:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "annotations-list": {
         "description": "List annotations in the current project, newest first. Use this to review existing deployment markers and analysis notes before adding new annotations.",
         "category": "Annotations",

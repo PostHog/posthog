@@ -1312,6 +1312,181 @@ class TestExperimentService(APIBaseTest):
         assert [flag.key for flag in flags_without_tags["results"]] == ["flag-without-tags"]
 
     # ------------------------------------------------------------------
+    # Experiment list/querying
+    # ------------------------------------------------------------------
+
+    def test_filter_experiments_queryset_defaults_to_non_archived_non_deleted_for_list(self) -> None:
+        service = self._service()
+        service.create_experiment(name="Visible", feature_flag_key="list-visible")
+        service.create_experiment(name="Archived", feature_flag_key="list-archived", archived=True)
+        service.create_experiment(name="Deleted", feature_flag_key="list-deleted", deleted=True)
+
+        queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+        )
+
+        assert set(queryset.values_list("name", flat=True)) == {"Visible"}
+
+    def test_filter_experiments_queryset_includes_deleted_on_restore_update(self) -> None:
+        service = self._service()
+        experiment = service.create_experiment(name="Restore Me", feature_flag_key="restore-me", deleted=True)
+
+        default_queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="update",
+        )
+        restore_queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="update",
+            request_data={"deleted": "false"},
+        )
+
+        assert experiment.id not in default_queryset.values_list("id", flat=True)
+        assert experiment.id in restore_queryset.values_list("id", flat=True)
+
+    @parameterized.expand(
+        [
+            ("draft", {"status": "draft"}, {"Draft"}),
+            ("running", {"status": "running"}, {"Running"}),
+            ("stopped", {"status": "stopped"}, {"Stopped"}),
+            ("complete", {"status": "complete"}, {"Stopped"}),
+            ("all", {"status": "all"}, {"Draft", "Running", "Stopped"}),
+            ("invalid", {"status": "bogus"}, {"Draft", "Running", "Stopped"}),
+        ]
+    )
+    def test_filter_experiments_queryset_filters_by_status(
+        self, _: str, query_params: dict[str, str], expected_names: set[str]
+    ) -> None:
+        service = self._service()
+        now = timezone.now()
+        service.create_experiment(name="Draft", feature_flag_key="status-draft")
+        service.create_experiment(
+            name="Running",
+            feature_flag_key="status-running",
+            start_date=now - timedelta(days=2),
+        )
+        service.create_experiment(
+            name="Stopped",
+            feature_flag_key="status-stopped",
+            start_date=now - timedelta(days=4),
+            end_date=now - timedelta(days=1),
+        )
+
+        queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params=query_params,
+        )
+
+        assert set(queryset.values_list("name", flat=True)) == expected_names
+
+    @parameterized.expand(
+        [
+            ("created_by_id", {"created_by_id": None}, {"Creator self", "Search match"}),
+            ("archived_true", {"archived": "true"}, {"Archived search"}),
+            ("archived_false", {"archived": "false"}, {"Creator self", "Creator other", "Search match"}),
+            ("search", {"search": "Search"}, {"Search match"}),
+        ]
+    )
+    def test_filter_experiments_queryset_filters_by_common_query_params(
+        self, _: str, query_params: dict[str, str | None], expected_names: set[str]
+    ) -> None:
+        service = self._service()
+        other_user = self._create_user("other-user@example.com")
+
+        service.create_experiment(name="Creator self", feature_flag_key="created-by-self")
+        ExperimentService(team=self.team, user=other_user).create_experiment(
+            name="Creator other",
+            feature_flag_key="created-by-other",
+        )
+        service.create_experiment(name="Search match", feature_flag_key="search-match")
+        service.create_experiment(name="Archived search", feature_flag_key="archived-search", archived=True)
+
+        if "created_by_id" in query_params and query_params["created_by_id"] is None:
+            query_params = {**query_params, "created_by_id": str(self.user.id)}
+
+        queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params=query_params,
+        )
+
+        assert set(queryset.values_list("name", flat=True)) == expected_names
+
+    @parameterized.expand(
+        [
+            ("ascending", "duration", ["Short", "Long"]),
+            ("descending", "-duration", ["Long", "Short"]),
+        ]
+    )
+    def test_filter_experiments_queryset_orders_by_duration(
+        self, _: str, order: str, expected_order: list[str]
+    ) -> None:
+        service = self._service()
+        now = timezone.now()
+        service.create_experiment(
+            name="Short",
+            feature_flag_key="short-duration",
+            start_date=now - timedelta(days=2),
+            end_date=now - timedelta(days=1),
+        )
+        service.create_experiment(
+            name="Long",
+            feature_flag_key="long-duration",
+            start_date=now - timedelta(days=4),
+            end_date=now - timedelta(days=1),
+        )
+
+        queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params={"order": order},
+        )
+
+        assert list(queryset.values_list("name", flat=True)[:2]) == expected_order
+
+    @parameterized.expand(
+        [
+            ("ascending", "status", ["Draft", "Running", "Stopped"]),
+            ("descending", "-status", ["Stopped", "Running", "Draft"]),
+        ]
+    )
+    def test_filter_experiments_queryset_orders_by_status(self, _: str, order: str, expected_order: list[str]) -> None:
+        service = self._service()
+        now = timezone.now()
+        service.create_experiment(name="Draft", feature_flag_key="order-status-draft")
+        service.create_experiment(
+            name="Running",
+            feature_flag_key="order-status-running",
+            start_date=now - timedelta(days=2),
+        )
+        service.create_experiment(
+            name="Stopped",
+            feature_flag_key="order-status-stopped",
+            start_date=now - timedelta(days=4),
+            end_date=now - timedelta(days=1),
+        )
+
+        queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params={"order": order},
+        )
+
+        assert list(queryset.values_list("name", flat=True)[:3]) == expected_order
+
+    def test_filter_experiments_queryset_validates_feature_flag_id(self) -> None:
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().filter_experiments_queryset(
+                Experiment.objects.filter(team=self.team),
+                action="list",
+                query_params={"feature_flag_id": "not-an-int"},
+            )
+
+        assert "feature_flag_id must be an integer" in str(ctx.exception)
+
+    # ------------------------------------------------------------------
     # Velocity stats
     # ------------------------------------------------------------------
 
