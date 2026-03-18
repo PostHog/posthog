@@ -10,6 +10,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { QuickFilterSelector } from 'lib/components/QuickFilters/QuickFilterSelector'
 import { quickFiltersLogic } from 'lib/components/QuickFilters/quickFiltersLogic'
 import { quickFiltersSectionLogic } from 'lib/components/QuickFilters/quickFiltersSectionLogic'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -48,7 +49,7 @@ export function DashboardPrimaryFilters(): JSX.Element {
                         explicitDate={effectiveEditBarFilters.explicitDate}
                         onChange={(from_date, to_date, explicitDate) => {
                             if (dashboardMode !== DashboardMode.Edit) {
-                                setDashboardMode(DashboardMode.Edit, null)
+                                setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
                             }
                             setDates(from_date, to_date, explicitDate)
                         }}

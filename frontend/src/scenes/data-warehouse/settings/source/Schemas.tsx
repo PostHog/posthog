@@ -225,15 +225,24 @@ export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaT
                         title: 'Schema Name',
                         key: 'name',
                         render: function RenderName(_, schema) {
-                            if (isDirectQuerySource && schema.table) {
-                                return (
+                            const nameContent =
+                                isDirectQuerySource && schema.table ? (
                                     <Link to={urls.sqlEditor({ query: getPreviewQuery(schema.table.name) })}>
                                         {schema.name}
                                     </Link>
+                                ) : (
+                                    <span>{schema.name}</span>
                                 )
-                            }
-
-                            return <span>{schema.name}</span>
+                            return (
+                                <div className="flex items-center gap-1">
+                                    {nameContent}
+                                    {schema.description && (
+                                        <Tooltip title={schema.description}>
+                                            <IconInfo className="text-muted-alt text-base" />
+                                        </Tooltip>
+                                    )}
+                                </div>
+                            )
                         },
                     },
                     {
