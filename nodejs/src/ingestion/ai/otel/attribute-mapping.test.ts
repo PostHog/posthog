@@ -71,6 +71,61 @@ describe('mapOtelAttributes', () => {
     })
 
     it.each([
+        ['chat', '$ai_generation'],
+        ['completion', '$ai_generation'],
+        ['embedding', '$ai_embedding'],
+        ['embeddings', '$ai_embedding'],
+    ])('reclassifies $ai_span to %s when llm.request.type is "%s"', (requestType, expectedEvent) => {
+        const event = createEvent('$ai_span', { 'llm.request.type': requestType })
+        mapOtelAttributes(event)
+        expect(event.event).toBe(expectedEvent)
+    })
+
+    it.each(['unknown', 'rerank', ''])('keeps $ai_span when llm.request.type is "%s"', (requestType) => {
+        const event = createEvent('$ai_span', { 'llm.request.type': requestType, $ai_parent_id: 'parent-1' })
+        mapOtelAttributes(event)
+        expect(event.event).toBe('$ai_span')
+    })
+
+    it('does not reclassify already-classified events', () => {
+        const event = createEvent('$ai_generation', { 'llm.request.type': 'embedding' })
+        mapOtelAttributes(event)
+        expect(event.event).toBe('$ai_generation')
+    })
+
+    it('does not promote reclassified root $ai_generation to $ai_trace', () => {
+        const event = createEvent('$ai_span', { 'llm.request.type': 'chat' })
+        mapOtelAttributes(event)
+        expect(event.event).toBe('$ai_generation')
+    })
+
+    it('strips llm.request.type after processing', () => {
+        const event = createEvent('$ai_span', { 'llm.request.type': 'chat' })
+        mapOtelAttributes(event)
+        expect(event.properties!['llm.request.type']).toBeUndefined()
+    })
+
+    it.each([
+        ['gen_ai.usage.prompt_tokens', '$ai_input_tokens', 150],
+        ['gen_ai.usage.completion_tokens', '$ai_output_tokens', 50],
+    ])('uses deprecated %s as fallback for %s', (otelKey, phKey, value) => {
+        const event = createEvent('$ai_generation', { [otelKey]: value })
+        mapOtelAttributes(event)
+        expect(event.properties![phKey]).toBe(value)
+        expect(event.properties![otelKey]).toBeUndefined()
+    })
+
+    it.each([
+        ['gen_ai.usage.prompt_tokens', '$ai_input_tokens', 'gen_ai.usage.input_tokens'],
+        ['gen_ai.usage.completion_tokens', '$ai_output_tokens', 'gen_ai.usage.output_tokens'],
+    ])('does not override %s when primary %s mapping exists', (fallbackKey, phKey, primaryKey) => {
+        const event = createEvent('$ai_generation', { [primaryKey]: 100, [fallbackKey]: 200 })
+        mapOtelAttributes(event)
+        expect(event.properties![phKey]).toBe(100)
+        expect(event.properties![fallbackKey]).toBeUndefined()
+    })
+
+    it.each([
         ['gen_ai.system', '$ai_provider', 'openai'],
         ['gen_ai.request.model', '$ai_model', 'gpt-4'],
     ])('uses %s as fallback for %s', (otelKey, phKey, value) => {

@@ -817,6 +817,9 @@ jobs:
                   npm_config_fetch_retry_maxtimeout: 60000
               run: pnpm --filter=@posthog/root --filter=@posthog/frontend... --filter=@posthog/mcp... install --frozen-lockfile
 
+            - name: Add OpenAPI Problem Matcher
+              run: echo "::add-matcher::.github/openapi-problem-matcher.json"
+
             - name: Check and update OpenAPI types
               env:
                   EVENT_NAME: ${{ github.event_name }}
