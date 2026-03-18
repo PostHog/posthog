@@ -4,7 +4,6 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from freezegun import freeze_time
-from rest_framework.exceptions import ValidationError
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -18,6 +17,8 @@ from posthog.test.base import (
 from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
+
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import HogQLQueryModifiers, InCohortVia, RetentionQuery
 
