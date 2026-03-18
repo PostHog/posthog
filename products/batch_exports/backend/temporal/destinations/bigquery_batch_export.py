@@ -450,6 +450,9 @@ async def verify_impersonated_service_account_ownership(
     propagated by the time we get here, so we retry a `max_attempts` times if the
     description does not match the first time.
     """
+    if max_attempts <= 0:
+        raise ValueError("`max_attempts` must be at least 1")
+
     team = await Team.objects.aget(id=team_id)
     organization_id = team.organization_id
 
