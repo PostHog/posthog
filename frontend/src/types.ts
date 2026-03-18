@@ -3823,6 +3823,7 @@ export interface FeatureFlagGroupType {
     users_affected?: number
     sort_key?: string | null // Client-side only stable id for sorting.
     description?: string | null
+    aggregation_group_type_index?: integer | null
 }
 
 export interface MultivariateFlagVariant {

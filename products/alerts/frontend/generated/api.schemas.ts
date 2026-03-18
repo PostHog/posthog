@@ -135,6 +135,11 @@ export interface AlertCheckApi {
     readonly calculated_value: number | null
     readonly state: AlertCheckStateEnumApi
     readonly targets_notified: boolean
+    readonly anomaly_scores: unknown | null
+    readonly triggered_points: unknown | null
+    readonly triggered_dates: unknown | null
+    /** @nullable */
+    readonly interval: string | null
 }
 
 export type TrendsAlertConfigApiType = (typeof TrendsAlertConfigApiType)[keyof typeof TrendsAlertConfigApiType]
@@ -153,6 +158,122 @@ export interface TrendsAlertConfigApi {
     series_index: number
     type?: TrendsAlertConfigApiType
 }
+
+export interface PreprocessingConfigApi {
+    /**
+     * Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)
+     * @nullable
+     */
+    diffs_n?: number | null
+    /**
+     * Number of lag features. 0 = none, >0 = include n lagged values (default: 0)
+     * @nullable
+     */
+    lags_n?: number | null
+    /**
+     * Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)
+     * @nullable
+     */
+    smooth_n?: number | null
+}
+
+export type ZScoreDetectorConfigApiType = (typeof ZScoreDetectorConfigApiType)[keyof typeof ZScoreDetectorConfigApiType]
+
+export const ZScoreDetectorConfigApiType = {
+    Zscore: 'zscore',
+} as const
+
+export interface ZScoreDetectorConfigApi {
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfigApi | null
+    /**
+     * Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)
+     * @nullable
+     */
+    threshold?: number | null
+    type?: ZScoreDetectorConfigApiType
+    /**
+     * Rolling window size for calculating mean/std (default: 30)
+     * @nullable
+     */
+    window?: number | null
+}
+
+export type MADDetectorConfigApiType = (typeof MADDetectorConfigApiType)[keyof typeof MADDetectorConfigApiType]
+
+export const MADDetectorConfigApiType = {
+    Mad: 'mad',
+} as const
+
+export interface MADDetectorConfigApi {
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfigApi | null
+    /**
+     * Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)
+     * @nullable
+     */
+    threshold?: number | null
+    type?: MADDetectorConfigApiType
+    /**
+     * Rolling window size for calculating median/MAD (default: 30)
+     * @nullable
+     */
+    window?: number | null
+}
+
+export type ThresholdDetectorConfigApiType =
+    (typeof ThresholdDetectorConfigApiType)[keyof typeof ThresholdDetectorConfigApiType]
+
+export const ThresholdDetectorConfigApiType = {
+    Threshold: 'threshold',
+} as const
+
+export interface ThresholdDetectorConfigApi {
+    /**
+     * Lower bound - values below this are anomalies
+     * @nullable
+     */
+    lower_bound?: number | null
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfigApi | null
+    type?: ThresholdDetectorConfigApiType
+    /**
+     * Upper bound - values above this are anomalies
+     * @nullable
+     */
+    upper_bound?: number | null
+}
+
+export type EnsembleOperatorApi = (typeof EnsembleOperatorApi)[keyof typeof EnsembleOperatorApi]
+
+export const EnsembleOperatorApi = {
+    And: 'and',
+    Or: 'or',
+} as const
+
+export type EnsembleDetectorConfigApiType =
+    (typeof EnsembleDetectorConfigApiType)[keyof typeof EnsembleDetectorConfigApiType]
+
+export const EnsembleDetectorConfigApiType = {
+    Ensemble: 'ensemble',
+} as const
+
+export interface EnsembleDetectorConfigApi {
+    /** Sub-detector configurations (minimum 2) */
+    detectors: (ZScoreDetectorConfigApi | MADDetectorConfigApi | ThresholdDetectorConfigApi)[]
+    /** How to combine sub-detector results */
+    operator: EnsembleOperatorApi
+    type?: EnsembleDetectorConfigApiType
+}
+
+/**
+ * Detector configuration types
+ */
+export type DetectorConfigApi =
+    | EnsembleDetectorConfigApi
+    | ZScoreDetectorConfigApi
+    | MADDetectorConfigApi
+    | ThresholdDetectorConfigApi
 
 /**
  * * `hourly` - hourly
@@ -197,6 +318,7 @@ export interface AlertApi {
     readonly checks: readonly AlertCheckApi[]
     /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
     config?: TrendsAlertConfigApi | null
+    detector_config?: DetectorConfigApi | null
     /** How often the alert is checked: hourly, daily, weekly, or monthly.
 
 * `hourly` - hourly
@@ -258,6 +380,7 @@ export interface PatchedAlertApi {
     readonly checks?: readonly AlertCheckApi[]
     /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
     config?: TrendsAlertConfigApi | null
+    detector_config?: DetectorConfigApi | null
     /** How often the alert is checked: hourly, daily, weekly, or monthly.
 
 * `hourly` - hourly

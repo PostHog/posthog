@@ -4294,6 +4294,11 @@ export namespace Schemas {
       readonly calculated_value: number | null;
       readonly state: AlertCheckStateEnum;
       readonly targets_notified: boolean;
+      readonly anomaly_scores: unknown | null;
+      readonly triggered_points: unknown | null;
+      readonly triggered_dates: unknown | null;
+      /** @nullable */
+      readonly interval: string | null;
     }
 
     export type TrendsAlertConfigType = typeof TrendsAlertConfigType[keyof typeof TrendsAlertConfigType];
@@ -4313,6 +4318,121 @@ export namespace Schemas {
       series_index: number;
       type?: TrendsAlertConfigType;
     }
+
+    export interface PreprocessingConfig {
+      /**
+       * Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)
+       * @nullable
+       */
+      diffs_n?: number | null;
+      /**
+       * Number of lag features. 0 = none, >0 = include n lagged values (default: 0)
+       * @nullable
+       */
+      lags_n?: number | null;
+      /**
+       * Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)
+       * @nullable
+       */
+      smooth_n?: number | null;
+    }
+
+    export type ZScoreDetectorConfigType = typeof ZScoreDetectorConfigType[keyof typeof ZScoreDetectorConfigType];
+
+
+    export const ZScoreDetectorConfigType = {
+      Zscore: 'zscore',
+    } as const;
+
+    export interface ZScoreDetectorConfig {
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      /**
+       * Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)
+       * @nullable
+       */
+      threshold?: number | null;
+      type?: ZScoreDetectorConfigType;
+      /**
+       * Rolling window size for calculating mean/std (default: 30)
+       * @nullable
+       */
+      window?: number | null;
+    }
+
+    export type MADDetectorConfigType = typeof MADDetectorConfigType[keyof typeof MADDetectorConfigType];
+
+
+    export const MADDetectorConfigType = {
+      Mad: 'mad',
+    } as const;
+
+    export interface MADDetectorConfig {
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      /**
+       * Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)
+       * @nullable
+       */
+      threshold?: number | null;
+      type?: MADDetectorConfigType;
+      /**
+       * Rolling window size for calculating median/MAD (default: 30)
+       * @nullable
+       */
+      window?: number | null;
+    }
+
+    export type ThresholdDetectorConfigType = typeof ThresholdDetectorConfigType[keyof typeof ThresholdDetectorConfigType];
+
+
+    export const ThresholdDetectorConfigType = {
+      Threshold: 'threshold',
+    } as const;
+
+    export interface ThresholdDetectorConfig {
+      /**
+       * Lower bound - values below this are anomalies
+       * @nullable
+       */
+      lower_bound?: number | null;
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      type?: ThresholdDetectorConfigType;
+      /**
+       * Upper bound - values above this are anomalies
+       * @nullable
+       */
+      upper_bound?: number | null;
+    }
+
+    export type EnsembleOperator = typeof EnsembleOperator[keyof typeof EnsembleOperator];
+
+
+    export const EnsembleOperator = {
+      And: 'and',
+      Or: 'or',
+    } as const;
+
+    export type EnsembleDetectorConfigType = typeof EnsembleDetectorConfigType[keyof typeof EnsembleDetectorConfigType];
+
+
+    export const EnsembleDetectorConfigType = {
+      Ensemble: 'ensemble',
+    } as const;
+
+    export interface EnsembleDetectorConfig {
+      /** Sub-detector configurations (minimum 2) */
+      detectors: (ZScoreDetectorConfig | MADDetectorConfig | ThresholdDetectorConfig)[];
+      /** How to combine sub-detector results */
+      operator: EnsembleOperator;
+      type?: EnsembleDetectorConfigType;
+    }
+
+    /**
+     * Detector configuration types
+     */
+    export type DetectorConfig = EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | ThresholdDetectorConfig;
 
     /**
      * * `hourly` - hourly
@@ -4358,6 +4478,7 @@ export namespace Schemas {
       readonly checks: readonly AlertCheck[];
       /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
       config?: TrendsAlertConfig | null;
+      detector_config?: DetectorConfig | null;
       /** How often the alert is checked: hourly, daily, weekly, or monthly.
 
     * `hourly` - hourly
@@ -13162,6 +13283,8 @@ export namespace Schemas {
 
     export interface FeatureFlagGroupType {
       /** @nullable */
+      aggregation_group_type_index?: number | null;
+      /** @nullable */
       description?: string | null;
       /** @nullable */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | RevenueAnalyticsPropertyFilter)[] | null;
@@ -14465,6 +14588,11 @@ export namespace Schemas {
        * @nullable
        */
       variant?: string | null;
+      /**
+       * Group type index for this condition set. None means person-level aggregation.
+       * @nullable
+       */
+      aggregation_group_type_index?: number | null;
     }
 
     export interface FeatureFlagMultivariateVariantSchema {
@@ -18800,6 +18928,54 @@ export namespace Schemas {
       results: Repo[];
     }
 
+    export interface ReviewQueueItem {
+      readonly id: string;
+      /** Review queue ID that currently owns this pending trace. */
+      readonly queue_id: string;
+      /** Human-readable name of the queue that currently owns this pending trace. */
+      readonly queue_name: string;
+      /** Trace ID currently pending human review. */
+      readonly trace_id: string;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      /** User who queued this trace. */
+      readonly created_by: UserBasic;
+      readonly team: number;
+    }
+
+    export interface PaginatedReviewQueueItemList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ReviewQueueItem[];
+    }
+
+    export interface ReviewQueue {
+      readonly id: string;
+      /** Human-readable queue name. */
+      readonly name: string;
+      /** Number of pending traces currently assigned to this queue. */
+      readonly pending_item_count: number;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      /** User who created this review queue. */
+      readonly created_by: UserBasic;
+      readonly team: number;
+    }
+
+    export interface PaginatedReviewQueueList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ReviewQueue[];
+    }
+
     export type RoleMembersItem = {[key: string]: unknown};
 
     export interface Role {
@@ -20247,6 +20423,7 @@ export namespace Schemas {
       readonly checks?: readonly AlertCheck[];
       /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
       config?: TrendsAlertConfig | null;
+      detector_config?: DetectorConfig | null;
       /** How often the alert is checked: hourly, daily, weekly, or monthly.
 
     * `hourly` - hourly
@@ -22411,6 +22588,19 @@ export namespace Schemas {
     export interface PatchedRemovePersonRequest {
       /** Person UUID to remove from the cohort */
       person_id?: string;
+    }
+
+    export interface PatchedReviewQueueItemUpdate {
+      /** Review queue ID that should own this pending trace. */
+      queue_id?: string;
+    }
+
+    export interface PatchedReviewQueueUpdate {
+      /**
+       * Human-readable queue name.
+       * @maxLength 255
+       */
+      name?: string;
     }
 
     export type PatchedRoleMembersItem = {[key: string]: unknown};
@@ -26679,6 +26869,24 @@ export namespace Schemas {
       scan?: ScanEvidence;
     }
 
+    export interface ReviewQueueCreate {
+      /**
+       * Human-readable queue name.
+       * @maxLength 255
+       */
+      name: string;
+    }
+
+    export interface ReviewQueueItemCreate {
+      /** Review queue ID that should own this pending trace. */
+      queue_id: string;
+      /**
+       * Trace ID to add to the selected review queue.
+       * @maxLength 255
+       */
+      trace_id: string;
+    }
+
     export interface ReviewStateCounts {
       needs_review: number;
       clean: number;
@@ -29388,6 +29596,57 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type LlmAnalyticsReviewQueueItemsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Order by `created_at` or `updated_at`.
+     */
+    order_by?: string;
+    /**
+     * Filter by a specific review queue ID.
+     */
+    queue_id?: string;
+    /**
+     * Search pending trace IDs.
+     */
+    search?: string;
+    /**
+     * Filter by an exact trace ID.
+     */
+    trace_id?: string;
+    /**
+     * Filter by multiple trace IDs separated by commas.
+     */
+    trace_id__in?: string;
+    };
+
+    export type LlmAnalyticsReviewQueuesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    name?: string;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Order by `name`, `updated_at`, or `created_at`.
+     */
+    order_by?: string;
+    /**
+     * Search review queue names.
+     */
+    search?: string;
     };
 
     export type LlmAnalyticsScoreDefinitionsListParams = {
