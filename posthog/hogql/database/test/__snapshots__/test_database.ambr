@@ -2640,6 +2640,154 @@
           "row_count": null,
           "type": "system"
       },
+      "system.alerts": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "insight_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "insight_id",
+                  "id": null,
+                  "name": "insight_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "enabled": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "enabled",
+                  "id": null,
+                  "name": "enabled",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "state": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "state",
+                  "id": null,
+                  "name": "state",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "calculation_interval": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "calculation_interval",
+                  "id": null,
+                  "name": "calculation_interval",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "condition": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "condition",
+                  "id": null,
+                  "name": "condition",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "config": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "config",
+                  "id": null,
+                  "name": "config",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_notified_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_notified_at",
+                  "id": null,
+                  "name": "last_notified_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_checked_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_checked_at",
+                  "id": null,
+                  "name": "last_checked_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "next_check_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "next_check_at",
+                  "id": null,
+                  "name": "next_check_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "snoozed_until": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "snoozed_until",
+                  "id": null,
+                  "name": "snoozed_until",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "skip_weekend": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "skip_weekend",
+                  "id": null,
+                  "name": "skip_weekend",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              }
+          },
+          "id": "system.alerts",
+          "name": "system.alerts",
+          "row_count": null,
+          "type": "system"
+      },
       "system.annotations": {
           "fields": {
               "id": {
@@ -6693,6 +6841,154 @@
           },
           "id": "system.actions",
           "name": "system.actions",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.alerts": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "insight_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "insight_id",
+                  "id": null,
+                  "name": "insight_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "enabled": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "enabled",
+                  "id": null,
+                  "name": "enabled",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "state": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "state",
+                  "id": null,
+                  "name": "state",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "calculation_interval": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "calculation_interval",
+                  "id": null,
+                  "name": "calculation_interval",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "condition": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "condition",
+                  "id": null,
+                  "name": "condition",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "config": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "config",
+                  "id": null,
+                  "name": "config",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_notified_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_notified_at",
+                  "id": null,
+                  "name": "last_notified_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_checked_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_checked_at",
+                  "id": null,
+                  "name": "last_checked_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "next_check_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "next_check_at",
+                  "id": null,
+                  "name": "next_check_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "snoozed_until": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "snoozed_until",
+                  "id": null,
+                  "name": "snoozed_until",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "skip_weekend": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "skip_weekend",
+                  "id": null,
+                  "name": "skip_weekend",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              }
+          },
+          "id": "system.alerts",
+          "name": "system.alerts",
           "row_count": null,
           "type": "system"
       },

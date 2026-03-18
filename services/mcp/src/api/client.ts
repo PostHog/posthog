@@ -238,6 +238,11 @@ export class ApiClient {
                     )
                 }
 
+                // 204 No Content (e.g. DELETE) returns no body
+                if (response.status === 204) {
+                    return { success: true, data: undefined as T }
+                }
+
                 const rawData = await response.json()
                 return { success: true, data: rawData as T }
             } catch (error) {
