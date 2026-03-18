@@ -980,8 +980,13 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
 
     signal_ids = [s.signal_id for s in input.signals]
     timestamps = [s.timestamp for s in input.signals]
-    min_timestamp = min(timestamps)
-    max_timestamp = max(timestamps)
+    # Truncate to milliseconds to match ClickHouse DateTime64(3) storage precision.
+    # Without this, microsecond-precision timestamps from Python can miss rows because
+    # e.g. 22:11:18.627688 > 22:11:18.627000 (the stored value after truncation).
+    min_timestamp = min(timestamps).replace(microsecond=min(timestamps).microsecond // 1000 * 1000)
+    max_timestamp = max(timestamps).replace(microsecond=max(timestamps).microsecond // 1000 * 1000) + timedelta(
+        milliseconds=1
+    )
 
     query = """
         SELECT count(DISTINCT document_id)
