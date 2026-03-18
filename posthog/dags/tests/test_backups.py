@@ -666,18 +666,21 @@ def test_wait_for_backup_raises_on_max_tries_exceeded():
 
     mock_cluster = MagicMock()
 
-    # Simulate backup that never finishes: is_done always returns False
+    # Return CREATING_BACKUP status — this loops for tries < 3, then the
+    # MAX_WAIT_TRIES guard (patched to 2) fires before the creating() fallthrough.
     def mock_map_hosts(fn, **kwargs):
         mock_result = MagicMock()
-        # wait() returns None, is_done() returns False, status() returns CREATING_BACKUP
         status = BackupStatus(hostname="test", status="CREATING_BACKUP", event_time_microseconds=datetime.now())
         mock_result.result.return_value = {"host1": status}
         return mock_result
 
     mock_cluster.map_hosts_in_shard_by_role.side_effect = mock_map_hosts
 
-    # Patch backup.wait to be a no-op (avoid actual sleep)
-    with patch.object(Backup, "wait", return_value=None), patch.object(Backup, "is_done", return_value=True):
+    with (
+        patch.object(Backup, "wait", return_value=None),
+        patch.object(Backup, "is_done", return_value=True),
+        patch("posthog.dags.backups.MAX_WAIT_TRIES", 2),
+    ):
         with pytest.raises(dagster.Failure, match="did not complete"):
             wait_for_backup(
                 context=dagster.build_op_context(),
