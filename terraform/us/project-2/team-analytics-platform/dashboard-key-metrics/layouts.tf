@@ -92,7 +92,7 @@ resource "posthog_dashboard_layout" "team_analytics_platform_key_metrics" {
       })
     },
     {
-      text_body = "## Alerts & Subscriptions 🚨"
+      text_body = "## Alerts, subscriptions & exports 🚨"
       layouts_json = jsonencode({
         "sm": {
           "h": 1,
@@ -140,6 +140,38 @@ resource "posthog_dashboard_layout" "team_analytics_platform_key_metrics" {
       })
     },
     {
+      insight_id = posthog_insight.subscription_delivery_success_rate["US"].id
+      layouts_json = jsonencode({
+        "sm": {
+          "h": 5,
+          "i": "subscription_us",
+          "w": 6,
+          "x": 0,
+          "y": 16,
+          "minH": 1,
+          "minW": 1,
+          "moved": false,
+          "static": false
+        }
+      })
+    },
+    {
+      insight_id = posthog_insight.subscription_delivery_success_rate["EU"].id
+      layouts_json = jsonencode({
+        "sm": {
+          "h": 5,
+          "i": "subscription_eu",
+          "w": 6,
+          "x": 6,
+          "y": 16,
+          "minH": 1,
+          "minW": 1,
+          "moved": false,
+          "static": false
+        }
+      })
+    },
+    {
       insight_id = posthog_insight.alert_failures_by_exception_type_aggregated.id
       layouts_json = jsonencode({
         "sm": {
@@ -147,7 +179,7 @@ resource "posthog_dashboard_layout" "team_analytics_platform_key_metrics" {
           "i": "6157400",
           "w": 12,
           "x": 0,
-          "y": 16,
+          "y": 21,
           "minH": 1,
           "minW": 1,
           "moved": false,
@@ -163,7 +195,7 @@ resource "posthog_dashboard_layout" "team_analytics_platform_key_metrics" {
           "i": "6274570",
           "w": 12,
           "x": 0,
-          "y": 21,
+          "y": 26,
           "minH": 1,
           "minW": 1,
           "moved": false,
@@ -179,7 +211,7 @@ resource "posthog_dashboard_layout" "team_analytics_platform_key_metrics" {
           "i": "4788951",
           "w": 12,
           "x": 0,
-          "y": 22,
+          "y": 27,
           "minH": 1,
           "minW": 1,
           "moved": false,
@@ -195,7 +227,7 @@ resource "posthog_dashboard_layout" "team_analytics_platform_key_metrics" {
           "i": "3202514",
           "w": 12,
           "x": 0,
-          "y": 25,
+          "y": 30,
           "minH": 1,
           "minW": 1,
           "moved": false,

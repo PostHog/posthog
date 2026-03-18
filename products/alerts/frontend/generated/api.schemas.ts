@@ -67,9 +67,15 @@ export interface UserBasicApi {
 }
 
 export interface InsightsThresholdBoundsApi {
-    /** @nullable */
+    /**
+     * Alert fires when the value drops below this number.
+     * @nullable
+     */
     lower?: number | null
-    /** @nullable */
+    /**
+     * Alert fires when the value exceeds this number.
+     * @nullable
+     */
     upper?: number | null
 }
 
@@ -82,14 +88,16 @@ export const InsightThresholdTypeApi = {
 
 export interface InsightThresholdApi {
     bounds?: InsightsThresholdBoundsApi | null
+    /** Whether bounds are compared as absolute values or as percentage change from the previous interval. */
     type: InsightThresholdTypeApi
 }
 
 export interface ThresholdApi {
     readonly id: string
     readonly created_at: string
-    /** @maxLength 255 */
+    /** Optional name for the threshold. */
     name?: string
+    /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). */
     configuration: InsightThresholdApi
 }
 
@@ -111,9 +119,9 @@ export interface AlertConditionApi {
  * `Errored` - Errored
  * `Snoozed` - Snoozed
  */
-export type State66aEnumApi = (typeof State66aEnumApi)[keyof typeof State66aEnumApi]
+export type AlertCheckStateEnumApi = (typeof AlertCheckStateEnumApi)[keyof typeof AlertCheckStateEnumApi]
 
-export const State66aEnumApi = {
+export const AlertCheckStateEnumApi = {
     Firing: 'Firing',
     NotFiring: 'Not firing',
     Errored: 'Errored',
@@ -125,7 +133,7 @@ export interface AlertCheckApi {
     readonly created_at: string
     /** @nullable */
     readonly calculated_value: number | null
-    readonly state: State66aEnumApi
+    readonly state: AlertCheckStateEnumApi
     readonly targets_notified: boolean
 }
 
@@ -136,8 +144,12 @@ export const TrendsAlertConfigApiType = {
 } as const
 
 export interface TrendsAlertConfigApi {
-    /** @nullable */
+    /**
+     * When true, evaluate the current (still incomplete) time interval in addition to completed ones.
+     * @nullable
+     */
     check_ongoing_interval?: boolean | null
+    /** Zero-based index of the series in the insight's query to monitor. */
     series_index: number
     type?: TrendsAlertConfigApiType
 }
@@ -163,13 +175,17 @@ export interface AlertApi {
     readonly created_at: string
     /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
     insight: number
-    /** @maxLength 255 */
+    /** Human-readable name for the alert. */
     name?: string
     /** User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object. */
     subscribed_users: number[]
+    /** Threshold configuration with bounds and type for evaluating the alert. */
     threshold: ThresholdApi
+    /** Alert condition type. Determines how the value is evaluated: absolute_value, relative_increase, or relative_decrease. */
     condition?: AlertConditionApi | null
-    readonly state: State66aEnumApi
+    /** Current alert state: Firing, Not firing, Errored, or Snoozed. */
+    readonly state: string
+    /** Whether the alert is actively being evaluated. */
     enabled?: boolean
     /** @nullable */
     readonly last_notified_at: string | null
@@ -177,14 +193,31 @@ export interface AlertApi {
     readonly last_checked_at: string | null
     /** @nullable */
     readonly next_check_at: string | null
+    /** The last 5 alert check results (only populated on retrieve). */
     readonly checks: readonly AlertCheckApi[]
+    /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
     config?: TrendsAlertConfigApi | null
-    calculation_interval?: CalculationIntervalEnumApi | BlankEnumApi | NullEnumApi | null
-    /** @nullable */
+    /** How often the alert is checked: hourly, daily, weekly, or monthly.
+
+* `hourly` - hourly
+* `daily` - daily
+* `weekly` - weekly
+* `monthly` - monthly */
+    calculation_interval?: CalculationIntervalEnumApi | NullEnumApi | null
+    /**
+     * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
+     * @nullable
+     */
     snoozed_until?: string | null
-    /** @nullable */
+    /**
+     * Skip alert evaluation on weekends (Saturday and Sunday).
+     * @nullable
+     */
     skip_weekend?: boolean | null
-    /** @nullable */
+    /**
+     * The last calculated value from the most recent alert check.
+     * @nullable
+     */
     readonly last_value: number | null
 }
 
@@ -203,13 +236,17 @@ export interface PatchedAlertApi {
     readonly created_at?: string
     /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
     insight?: number
-    /** @maxLength 255 */
+    /** Human-readable name for the alert. */
     name?: string
     /** User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object. */
     subscribed_users?: number[]
+    /** Threshold configuration with bounds and type for evaluating the alert. */
     threshold?: ThresholdApi
+    /** Alert condition type. Determines how the value is evaluated: absolute_value, relative_increase, or relative_decrease. */
     condition?: AlertConditionApi | null
-    readonly state?: State66aEnumApi
+    /** Current alert state: Firing, Not firing, Errored, or Snoozed. */
+    readonly state?: string
+    /** Whether the alert is actively being evaluated. */
     enabled?: boolean
     /** @nullable */
     readonly last_notified_at?: string | null
@@ -217,14 +254,31 @@ export interface PatchedAlertApi {
     readonly last_checked_at?: string | null
     /** @nullable */
     readonly next_check_at?: string | null
+    /** The last 5 alert check results (only populated on retrieve). */
     readonly checks?: readonly AlertCheckApi[]
+    /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
     config?: TrendsAlertConfigApi | null
-    calculation_interval?: CalculationIntervalEnumApi | BlankEnumApi | NullEnumApi | null
-    /** @nullable */
+    /** How often the alert is checked: hourly, daily, weekly, or monthly.
+
+* `hourly` - hourly
+* `daily` - daily
+* `weekly` - weekly
+* `monthly` - monthly */
+    calculation_interval?: CalculationIntervalEnumApi | NullEnumApi | null
+    /**
+     * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
+     * @nullable
+     */
     snoozed_until?: string | null
-    /** @nullable */
+    /**
+     * Skip alert evaluation on weekends (Saturday and Sunday).
+     * @nullable
+     */
     skip_weekend?: boolean | null
-    /** @nullable */
+    /**
+     * The last calculated value from the most recent alert check.
+     * @nullable
+     */
     readonly last_value?: number | null
 }
 

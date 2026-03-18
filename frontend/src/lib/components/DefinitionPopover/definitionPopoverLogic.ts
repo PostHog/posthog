@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { getSingularType } from 'lib/components/DefinitionPopover/utils'
+import { getDataWarehouseItemWithFieldDefaults } from 'lib/components/TaxonomicFilter/dataWarehouseItemUtils'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -125,55 +126,10 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
             {
                 setDefinition: (_, { item, isDataWarehouse, selectedItemMeta }) => {
                     if (isDataWarehouse && 'fields' in item) {
-                        // Pre-populate the data warehouse table settings for insights
-                        const warehouseItem = item as DataWarehouseTableForInsight
-                        const isMatchingSelectedItem =
-                            selectedItemMeta &&
-                            (selectedItemMeta.table_name === warehouseItem.name ||
-                                selectedItemMeta.id === warehouseItem.name ||
-                                selectedItemMeta.name === warehouseItem.name)
-                        const hydratedWarehouseItem = isMatchingSelectedItem
-                            ? ({ ...warehouseItem, ...selectedItemMeta } as DataWarehouseTableForInsight)
-                            : { ...warehouseItem }
-
-                        if (hydratedWarehouseItem.id_field == null) {
-                            const idField = Object.values(hydratedWarehouseItem.fields).find((n) => n.name === 'id')
-                            if (idField) {
-                                hydratedWarehouseItem.id_field = idField.name
-                            }
-                        }
-
-                        if (hydratedWarehouseItem.distinct_id_field == null) {
-                            const distinctIdField =
-                                Object.values(hydratedWarehouseItem.fields).find((n) => n.name === 'distinct_id') ??
-                                Object.values(hydratedWarehouseItem.fields).find((n) => n.name === 'id')
-                            if (distinctIdField) {
-                                hydratedWarehouseItem.distinct_id_field = distinctIdField.name
-                            }
-                        }
-
-                        if (hydratedWarehouseItem.timestamp_field == null) {
-                            const timestampKeys = [
-                                'created',
-                                'created_at',
-                                'createdAt',
-                                'updated',
-                                'updated_at',
-                                'updatedAt',
-                            ]
-                            const timestampNameField = Object.values(hydratedWarehouseItem.fields).find((n) =>
-                                timestampKeys.includes(n.name)
-                            )
-                            const timestampTypeField = Object.values(hydratedWarehouseItem.fields).find(
-                                (n) => n.type == 'datetime' || n.type == 'date'
-                            )
-                            if (timestampNameField || timestampTypeField) {
-                                hydratedWarehouseItem.timestamp_field =
-                                    timestampNameField?.name || timestampTypeField?.name
-                            }
-                        }
-
-                        return hydratedWarehouseItem
+                        return getDataWarehouseItemWithFieldDefaults(
+                            item as DataWarehouseTableForInsight,
+                            selectedItemMeta
+                        )
                     }
 
                     return item
