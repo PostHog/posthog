@@ -1,4 +1,8 @@
 from enum import Enum
+from typing import Union
+
+from posthog.rbac.user_access_control import ACCESS_CONTROL_RESOURCES
+from posthog.scopes import APIScopeObject
 
 
 class NotificationType(str, Enum):
@@ -22,30 +26,16 @@ class TargetType(str, Enum):
     ROLE = "role"
 
 
-class NotificationResourceType(str, Enum):
-    DASHBOARD = "dashboard"
-    EXPERIMENT = "experiment"
-    FEATURE_FLAG = "feature_flag"
-    INSIGHT = "insight"
-    NOTEBOOK = "notebook"
-    SESSION_RECORDING = "session_recording"
-    SURVEY = "survey"
-    ERROR_TRACKING = "error_tracking"
-    LOGS = "logs"
+class NotificationOnlyResourceType(str, Enum):
+    """Resource types that only exist in the notification system (no AC counterpart)."""
+
     PIPELINE = "pipeline"
-    ALERT = "alert"
     APPROVAL = "approval"
     COMMENT = "comment"
 
 
-AC_RESOURCE_TYPES = {
-    NotificationResourceType.DASHBOARD,
-    NotificationResourceType.EXPERIMENT,
-    NotificationResourceType.FEATURE_FLAG,
-    NotificationResourceType.INSIGHT,
-    NotificationResourceType.NOTEBOOK,
-    NotificationResourceType.SESSION_RECORDING,
-    NotificationResourceType.SURVEY,
-    NotificationResourceType.ERROR_TRACKING,
-    NotificationResourceType.LOGS,
-}
+# Derived from APIScopeObject (used by ACCESS_CONTROL_RESOURCES) — keep in sync
+# if ACCESS_CONTROL_RESOURCES changes its element type
+type NotificationResourceType = Union[APIScopeObject, NotificationOnlyResourceType]
+
+AC_RESOURCE_TYPES: set[str] = set(ACCESS_CONTROL_RESOURCES)
