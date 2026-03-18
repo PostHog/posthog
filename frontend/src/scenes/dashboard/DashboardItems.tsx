@@ -3,7 +3,7 @@ import './DashboardItems.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { RefObject, useCallback, useEffect, useRef, useState } from 'react'
+import { RefObject, useEffect, useRef, useState } from 'react'
 import { Layout, Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
 import { GridBackground } from 'react-grid-layout/extras'
 
@@ -153,26 +153,6 @@ export function DashboardItems(): JSX.Element {
     const spacingFactor = effectiveZoom < 1 ? 0.9 : 1
     const margin = BASE_MARGIN.map((m) => m * spacingFactor) as [number, number]
 
-    // Memoize callbacks that appear in react-grid-layout's useEffect dependency arrays.
-    // Inline functions create new references every render, causing the grid's effects to
-    // re-run and dispatch actions on each resize event, leading to render cascades.
-    const dashboardModeRef = useRef(dashboardMode)
-    dashboardModeRef.current = dashboardMode
-    const handleLayoutChange = useCallback(
-        (_: Layout[], newLayouts: Record<string, Layout[]>) => {
-            if (dashboardModeRef.current === DashboardMode.Edit) {
-                updateLayouts(newLayouts)
-            }
-        },
-        [updateLayouts]
-    )
-    const handleWidthChange = useCallback(
-        (containerWidth: number, _margin: number[], newCols: number) => {
-            updateContainerWidth(containerWidth, newCols)
-        },
-        [updateContainerWidth]
-    )
-
     return (
         <div className="dashboard-items-wrapper" ref={containerRef as RefObject<HTMLDivElement>}>
             {dashboardMode === DashboardMode.Edit && isMobileView && (
@@ -213,8 +193,14 @@ export function DashboardItems(): JSX.Element {
                         rowHeight={rowHeight}
                         margin={margin}
                         containerPadding={[0, 0]}
-                        onLayoutChange={handleLayoutChange}
-                        onWidthChange={handleWidthChange}
+                        onLayoutChange={(_, newLayouts) => {
+                            if (dashboardMode === DashboardMode.Edit) {
+                                updateLayouts(newLayouts)
+                            }
+                        }}
+                        onWidthChange={(containerWidth, _, newCols) => {
+                            updateContainerWidth(containerWidth, newCols)
+                        }}
                         breakpoints={BREAKPOINTS}
                         cols={BREAKPOINT_COLUMN_COUNTS}
                         onResize={(_layout: any, _oldItem: any, newItem: any) => {
