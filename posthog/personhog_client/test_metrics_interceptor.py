@@ -101,14 +101,12 @@ class TestMetricsInterceptorTimeoutTracking:
         interceptor = MetricsInterceptor("test-client")
         details = _make_call_details()
 
-        try:
+        with pytest.raises(grpc.RpcError):
             interceptor.intercept_unary_unary(
                 _make_raising_continuation(grpc.StatusCode.DEADLINE_EXCEEDED),
                 details,
                 request=b"",
             )
-        except grpc.RpcError:
-            pass
 
         mock_timeout_counter.labels.assert_called_with(method="GetPerson", client_name="test-client")
         mock_timeout_counter.labels.return_value.inc.assert_called_once()
