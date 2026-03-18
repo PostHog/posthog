@@ -1896,6 +1896,7 @@ impl FeatureFlagMatcher {
         // Get static cohort IDs
         // NOTE: relies on `is_static` and `uses_realtime_membership()` being mutually exclusive
         // (a cohort with is_static=true should never have CohortType::Realtime/Behavioral).
+        debug_assert!(!cohorts.iter().any(|c| c.is_static && c.uses_realtime_membership()), "Cohort cannot be both static and realtime");
         let static_cohort_ids: Vec<CohortId> = cohorts
             .iter()
             .filter(|c| c.is_static)
