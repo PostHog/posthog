@@ -233,7 +233,7 @@ impl PersonHogReplica for PersonHogReplicaService {
     ) -> Result<Response<GetDistinctIdsForPersonResponse>, Status> {
         let req = request.into_inner();
         let consistency = to_storage_consistency(&req.read_options);
-        let limit = req.limit_per_person.filter(|&l| l > 0);
+        let limit = req.limit.filter(|&l| l > 0);
 
         let distinct_ids = self
             .storage

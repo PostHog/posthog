@@ -104,7 +104,7 @@ message GetDistinctIdsForPersonRequest {
   int64 team_id = 1;
   int64 person_id = 2;
   ReadOptions read_options = 3;
-  optional int64 limit_per_person = 4;  // Max distinct IDs returned. 0 or absent = no limit.
+  optional int64 limit = 4;  // Max distinct IDs returned. 0 or absent = no limit.
 }
 
 message GetDistinctIdsForPersonResponse {

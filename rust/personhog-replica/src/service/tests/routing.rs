@@ -290,7 +290,7 @@ async fn test_get_distinct_ids_for_person_accepts_strong_consistency() {
             team_id: 1,
             person_id: 1,
             read_options: strong_consistency(),
-            limit_per_person: None,
+            limit: None,
         }))
         .await;
 
@@ -461,7 +461,7 @@ async fn test_get_distinct_ids_for_person_routes_strong_to_primary() {
             team_id: 1,
             person_id: 1,
             read_options: strong_consistency(),
-            limit_per_person: None,
+            limit: None,
         }))
         .await
         .expect("RPC should succeed");
@@ -482,7 +482,7 @@ async fn test_get_distinct_ids_for_person_routes_eventual_to_replica() {
             team_id: 1,
             person_id: 1,
             read_options: eventual_consistency(),
-            limit_per_person: None,
+            limit: None,
         }))
         .await
         .expect("RPC should succeed");
@@ -503,7 +503,7 @@ async fn test_get_distinct_ids_for_person_routes_unspecified_to_replica() {
             team_id: 1,
             person_id: 1,
             read_options: None,
-            limit_per_person: None,
+            limit: None,
         }))
         .await
         .expect("RPC should succeed");
