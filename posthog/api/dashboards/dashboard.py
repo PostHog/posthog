@@ -637,7 +637,23 @@ class DashboardSerializer(DashboardMetadataSerializer):
         user = cast(User, self.context["request"].user)
         tiles = initial_data.pop("tiles", [])
         for tile_data in tiles:
-            self._update_tiles(instance, tile_data, user)
+            tile_type, created = self._update_tiles(instance, tile_data, user)
+            # Text and button tiles are always added via PATCH (never during initial dashboard
+            # creation), so this update() method is the right place to fire the "tile added"
+            # event. The `created` flag from update_or_create ensures we only fire on first
+            # insertion, not on subsequent edits to an existing tile.
+            if created and tile_type and "request" in self.context:
+                report_user_action(
+                    user,
+                    "dashboard tile added",
+                    {
+                        "tile_type": tile_type,
+                        "insight_type": None,
+                        "dashboard_id": instance.id,
+                    },
+                    team=instance.team,
+                    request=self.context["request"],
+                )
 
         duplicate_tiles = initial_data.pop("duplicate_tiles", [])
         for tile_data in duplicate_tiles:
@@ -659,7 +675,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
         return instance
 
     @staticmethod
-    def _update_tiles(instance: Dashboard, tile_data: dict, user: User) -> None:
+    def _update_tiles(instance: Dashboard, tile_data: dict, user: User) -> tuple[str | None, bool]:
+        """Returns (tile_type, created) for new tile creation, or (None, False) for updates."""
         tile_data.pop("is_cached", None)  # read only field
         tile_data.pop("order", None)  # read only field
 
@@ -693,11 +710,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 id=text_json.get("id", None), team_id=instance.team_id, defaults=validated_data
             )
             # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
-            DashboardTile.objects.update_or_create(
+            _, created = DashboardTile.objects.update_or_create(
                 id=tile_data.get("id", None),
                 dashboard=instance,
                 defaults={**tile_data, "text": text, "dashboard": instance},
             )
+            return "text", created
         elif tile_data.get("button_tile", None):
             button_tile_json: dict = tile_data.get("button_tile", {})
             created_by_json = button_tile_json.get("created_by", None)
@@ -728,11 +746,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 id=button_tile_json.get("id", None), team_id=instance.team_id, defaults=validated_data
             )
             # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
-            DashboardTile.objects.update_or_create(
+            _, created = DashboardTile.objects.update_or_create(
                 id=tile_data.get("id", None),
                 dashboard=instance,
                 defaults={**tile_data, "button_tile": button_tile, "dashboard": instance},
             )
+            return "button", created
         elif (
             "deleted" in tile_data
             or "color" in tile_data
@@ -749,6 +768,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 dashboard=instance,
                 defaults={**tile_data, "dashboard": instance},
             )
+
+        return None, False
 
     @staticmethod
     def _delete_related_tiles(instance: Dashboard, delete_related_insights: bool) -> None:
