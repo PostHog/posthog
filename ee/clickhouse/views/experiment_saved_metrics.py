@@ -81,8 +81,7 @@ class ExperimentSavedMetricSerializer(
             if metric_query.get("kind") in ["ExperimentTrendsQuery", "ExperimentFunnelsQuery"]:
                 raise ValidationError(
                     "Legacy metric kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are no longer supported "
-                    "for new saved metrics. Please use ExperimentMetric format. "
-                    "See: https://posthog.com/docs/experiments/new-experimentation-engine"
+                    "for new saved metrics."
                 )
             raise ValidationError("Metric query kind must be 'ExperimentMetric'")
 

@@ -127,8 +127,7 @@ class ExperimentService:
                 if kind in {"ExperimentTrendsQuery", "ExperimentFunnelsQuery"}:
                     raise ValidationError(
                         f"Invalid metric at index {i}: legacy metric kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) "
-                        "are no longer supported for new experiments. Please use ExperimentMetric format. "
-                        "See: https://posthog.com/docs/experiments/new-experimentation-engine"
+                        "are no longer supported for new experiments."
                     )
                 raise ValidationError(f"Invalid metric at index {i}: unknown kind '{kind}'")
 
