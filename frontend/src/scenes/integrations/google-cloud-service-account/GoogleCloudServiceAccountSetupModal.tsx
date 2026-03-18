@@ -26,7 +26,7 @@ export const GoogleCloudServiceAccountSetupModal = (
             isOpen={props.isOpen}
             title={
                 <div className="flex items-center gap-2">
-                    <IconGoogleCloud />
+                    <img src={IconGoogleCloud} alt="Google Cloud" className="w-6 h-6" />
                     <span>Configure Google Cloud ServiceAccount</span>
                 </div>
             }
