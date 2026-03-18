@@ -33,7 +33,7 @@ describe('CDP Person Updates Consumer', () => {
         hub = await createHub({
             SITE_URL: 'http://localhost:8000',
         })
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
 
         processor = new CdpPersonUpdatesConsumer(hub, hub)
         await processor.start()
