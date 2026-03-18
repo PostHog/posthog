@@ -20,7 +20,7 @@ class TestFunnelStepBuilderIntegration(BaseTest):
 
     def test_boolean_columns_integration(self):
         """Test that boolean columns are generated correctly for integration."""
-        series = [
+        series: list[EventsNode | ActionsNode | ExperimentDataWarehouseNode] = [
             EventsNode(event="pageview"),
             EventsNode(event="purchase"),
         ]
@@ -41,7 +41,7 @@ class TestFunnelStepBuilderIntegration(BaseTest):
 
     def test_constant_columns_integration(self):
         """Test that constant columns are generated correctly for UNION ALL queries."""
-        series = [
+        series: list[EventsNode | ActionsNode | ExperimentDataWarehouseNode] = [
             EventsNode(event="pageview"),
             ExperimentDataWarehouseNode(
                 table_name="revenue",
@@ -56,15 +56,21 @@ class TestFunnelStepBuilderIntegration(BaseTest):
         # Generate constant columns for exposure step
         exposure_columns = builder.build_constant_columns(active_step_index=0)
         assert len(exposure_columns) == 3
+        assert isinstance(exposure_columns[0].expr, ast.Constant)
         assert exposure_columns[0].expr.value == 1  # step_0 active
+        assert isinstance(exposure_columns[1].expr, ast.Constant)
         assert exposure_columns[1].expr.value == 0
+        assert isinstance(exposure_columns[2].expr, ast.Constant)
         assert exposure_columns[2].expr.value == 0
 
         # Generate constant columns for DW step (step 2)
         dw_columns = builder.build_constant_columns(active_step_index=2)
         assert len(dw_columns) == 3
+        assert isinstance(dw_columns[0].expr, ast.Constant)
         assert dw_columns[0].expr.value == 0
+        assert isinstance(dw_columns[1].expr, ast.Constant)
         assert dw_columns[1].expr.value == 0
+        assert isinstance(dw_columns[2].expr, ast.Constant)
         assert dw_columns[2].expr.value == 1  # step_2 active
 
     def test_mixed_node_types_integration(self):
@@ -72,7 +78,7 @@ class TestFunnelStepBuilderIntegration(BaseTest):
         # Create an action first
         action = self.team.action_set.create(name="Test Action")
 
-        series = [
+        series: list[EventsNode | ActionsNode | ExperimentDataWarehouseNode] = [
             EventsNode(event="pageview"),
             ActionsNode(id=action.id),
             EventsNode(event="purchase"),
@@ -112,7 +118,7 @@ class TestFunnelStepBuilderIntegration(BaseTest):
 
     def test_datawarehouse_node_rejected_in_boolean_mode(self):
         """Verify DW nodes are properly rejected when building boolean columns."""
-        series = [
+        series: list[EventsNode | ActionsNode | ExperimentDataWarehouseNode] = [
             EventsNode(event="pageview"),
             ExperimentDataWarehouseNode(
                 table_name="revenue",

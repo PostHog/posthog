@@ -71,8 +71,9 @@ class TestFunnelStepBuilder(BaseTest):
 
         # Each metric step should be wrapped in if() call
         for i in range(1, 4):
-            assert isinstance(columns[i].expr, ast.Call)
-            assert columns[i].expr.name == "if"
+            expr = columns[i].expr
+            assert isinstance(expr, ast.Call)
+            assert expr.name == "if"
 
     def test_boolean_columns_action_step(self):
         """Boolean columns work with ActionsNode."""
