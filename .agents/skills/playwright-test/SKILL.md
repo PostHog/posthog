@@ -4,13 +4,13 @@ description: Write a playwright test, make sure it runs, and is not flaky.
 allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Agent, mcp__playwright__*
 ---
 
+Read @playwright/README.md for best practices, gotchas, and how to run tests.
+
 ## Rules
 
-- Don't use any locators with css selectors, prefer getting elements via accessibility roles or data-testids, add data-attr if required.
-- Write fewer longer tests that do multiple things, split up by test.steps into logical steps
-- Use page object models for common tasks and accessing common elements
+- Follow the best practices in the README strictly
 - After UI interactions, always assert on UI changes, do not assert on network requests resolving
-- Never put an if statement in a test
+- **Keep looping until all tests pass.** Do not give up or ask the user for help. You must resolve every failure yourself.
 
 ## Instructions
 
@@ -27,7 +27,6 @@ After your exploration, present the plan to me for confirmation or any changes.
 - Write the tests, making sure to use common patterns used in neighbouring files.
 - Run the tests with `BASE_URL='http://localhost:8010' pnpm --filter=@posthog/playwright exec playwright test <file name> --retries 0 --workers 3`
 - Debug any failures. Look at screen shots, if needed launch the playwright mcp skills to interact with the browser. Go back to step 1 after attempting a fix.
-- **Keep looping until all tests pass.** Do not give up or ask the user for help. You must resolve every failure yourself.
 
 ### Step 3: Ensure no flaky tests
 

@@ -2,6 +2,7 @@ import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import { resetKafka } from '~/tests/helpers/kafka'
 
+import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import { buildInlineFiltersForCohorts, createCohort, getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS } from '../../config/kafka-topics'
 import { Hub, RawClickHouseEvent, Team } from '../../types'
@@ -162,7 +163,7 @@ describe('CdpPrecalculatedFiltersConsumer', () => {
         hub = await createHub()
         team = await getFirstTeam(hub.postgres)
 
-        processor = new CdpPrecalculatedFiltersConsumer(hub, hub)
+        processor = new CdpPrecalculatedFiltersConsumer(hub, createCdpConsumerDeps(hub))
         await processor.start()
     })
 

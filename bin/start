@@ -5,6 +5,10 @@ set -e
 export REPOSITORY_ROOT=$(realpath "$(dirname "$0")/..")
 export LOCK_FILE="$REPOSITORY_ROOT/bin/start.lock"
 
+cleanup_lock() {
+    rm -f "$LOCK_FILE"
+}
+
 # Acquire exclusive lock using flock (atomic, no race condition)
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
@@ -12,6 +16,8 @@ if ! flock -n 9; then
     echo "   To skip this check, delete the lock file: rm $LOCK_FILE"
     exit 1
 fi
+
+trap cleanup_lock EXIT INT TERM
 
 export SESSION_RECORDING_V2_S3_ENDPOINT=${SESSION_RECORDING_V2_S3_ENDPOINT:-http://localhost:8333}
 
@@ -136,7 +142,7 @@ if [[ "$*" == *"--custom"* ]]; then
         echo "Error: --custom requires a config path"
         exit 1
     fi
-    exec "$PROCESS_MANAGER" --config "$config_path"
+    "$PROCESS_MANAGER" --config "$config_path"
 else
     GENERATED_CONFIG="$REPOSITORY_ROOT/.posthog/.generated/mprocs.yaml"
 
@@ -146,9 +152,9 @@ else
     fi
 
     if [[ -f "$GENERATED_CONFIG" ]]; then
-        exec "$PROCESS_MANAGER" --config "$GENERATED_CONFIG"
+        "$PROCESS_MANAGER" --config "$GENERATED_CONFIG"
     else
         # Fallback if hogli not available
-        exec "$PROCESS_MANAGER" --config "$REPOSITORY_ROOT/bin/mprocs.yaml"
+        "$PROCESS_MANAGER" --config "$REPOSITORY_ROOT/bin/mprocs.yaml"
     fi
 fi

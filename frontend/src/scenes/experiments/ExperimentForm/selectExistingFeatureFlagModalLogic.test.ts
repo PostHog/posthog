@@ -238,9 +238,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
         it('debounces and loads feature flags after setFilters', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setFilters({ search: 'test' })
-            })
-                .delay(350)
-                .toDispatchActions(['setFilters', 'loadFeatureFlags'])
+            }).toDispatchActions(['setFilters', 'loadFeatureFlags', 'loadFeatureFlagsSuccess'])
         })
     })
 
@@ -262,7 +260,6 @@ describe('selectExistingFeatureFlagModalLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setFilters({ search: 'flag-1' })
             })
-                .delay(350)
                 .toDispatchActions(['setFilters', 'loadFeatureFlags', 'loadFeatureFlagsSuccess'])
                 .toMatchValues({
                     featureFlags: {
@@ -364,8 +361,9 @@ describe('selectExistingFeatureFlagModalLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setFilters({ page: 2 })
+                logic.actions.loadFeatureFlags()
             })
-                .delay(350)
+                .toDispatchActions(['loadFeatureFlagsSuccess'])
                 .toMatchValues({
                     pagination: {
                         controlled: true,
@@ -400,7 +398,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
             await expectLogic(logic, () => {
                 pagination.onForward?.()
             })
-                .delay(350)
+                .toDispatchActions(['setFilters', 'loadFeatureFlags', 'loadFeatureFlagsSuccess'])
                 .toMatchValues({
                     filters: expect.objectContaining({
                         page: 2,
@@ -423,16 +421,14 @@ describe('selectExistingFeatureFlagModalLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setFilters({ page: 3 })
-            })
-                .delay(350)
-                .toDispatchActions(['loadFeatureFlagsSuccess'])
+            }).toDispatchActions(['setFilters', 'loadFeatureFlags', 'loadFeatureFlagsSuccess'])
 
             const { pagination } = logic.values
 
             await expectLogic(logic, () => {
                 pagination.onBackward?.()
             })
-                .delay(350)
+                .toDispatchActions(['setFilters', 'loadFeatureFlags', 'loadFeatureFlagsSuccess'])
                 .toMatchValues({
                     filters: expect.objectContaining({
                         page: 2,
@@ -455,9 +451,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setFilters({ page: 1 })
-            })
-                .delay(350)
-                .toDispatchActions(['loadFeatureFlagsSuccess'])
+            }).toDispatchActions(['setFilters', 'loadFeatureFlags', 'loadFeatureFlagsSuccess'])
 
             const { pagination } = logic.values
             expect(pagination.onBackward).toBeUndefined()

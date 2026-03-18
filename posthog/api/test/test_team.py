@@ -702,6 +702,59 @@ def team_api_test_factory():
                 response = self.client.delete(f"/api/environments/{team.id}")
                 assert response.status_code == 204
 
+        @patch("posthog.temporal.common.schedule.delete_schedule")
+        @patch("posthog.models.team.util.sync_connect")
+        def test_delete_data_modeling_schedules(self, mock_sync_connect, mock_delete_schedule):
+            from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+
+            saved_query = DataWarehouseSavedQuery.objects.create(
+                team=team,
+                name="test_scheduled_query",
+                query={"kind": "HogQLQuery", "query": "SELECT 1"},
+                sync_frequency_interval=timedelta(hours=1),
+            )
+
+            mock_temporal = MagicMock()
+            mock_sync_connect.return_value = mock_temporal
+
+            response = self.client.delete(f"/api/environments/{team.id}")
+            assert response.status_code == 204
+
+            mock_delete_schedule.assert_called_once_with(mock_temporal, schedule_id=str(saved_query.id))
+
+        @patch("posthog.temporal.common.schedule.delete_schedule")
+        @patch("posthog.models.team.util.sync_connect")
+        def test_delete_data_modeling_schedules_handles_not_found(self, mock_sync_connect, mock_delete_schedule):
+            import temporalio.service
+
+            from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+
+            DataWarehouseSavedQuery.objects.create(
+                team=team,
+                name="test_missing_schedule",
+                query={"kind": "HogQLQuery", "query": "SELECT 1"},
+                sync_frequency_interval=timedelta(hours=1),
+            )
+
+            mock_temporal = MagicMock()
+            mock_sync_connect.return_value = mock_temporal
+
+            rpc_error = temporalio.service.RPCError("not found", temporalio.service.RPCStatusCode.NOT_FOUND, b"")
+            mock_delete_schedule.side_effect = rpc_error
+
+            response = self.client.delete(f"/api/environments/{team.id}")
+            assert response.status_code == 204
+
         @freeze_time("2022-02-08")
         def test_reset_token(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN

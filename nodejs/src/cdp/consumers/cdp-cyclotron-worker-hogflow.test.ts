@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { HogFlow } from '~/schema/hogflow'
+import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { PostgresUse } from '~/utils/db/postgres'
 import { UUIDT } from '~/utils/utils'
@@ -72,7 +73,7 @@ describe('CdpCyclotronWorkerHogFlow', () => {
         const team2Id = await createTeam(hub.postgres, team.organization_id)
         team2 = (await getTeam(hub.postgres, team2Id))!
 
-        processor = new CdpCyclotronWorkerHogFlow(hub, hub)
+        processor = new CdpCyclotronWorkerHogFlow(hub, createCdpConsumerDeps(hub))
 
         hogFlows = []
         hogFlows.push(
