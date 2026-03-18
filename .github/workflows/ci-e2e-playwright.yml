@@ -458,6 +458,14 @@ jobs:
                     fi
                   fi
 
+            - name: Verify changed Playwright tests are stable
+              if: success() && github.event_name == 'pull_request'
+              shell: bash
+              run: |
+                  BASE_SHA="${{ github.event.pull_request.base.sha }}"
+                  git fetch --no-tags --prune --depth=50 origin "$BASE_SHA"
+                  .github/scripts/verify-playwright-new-tests-and-snapshots.sh "$BASE_SHA" 10
+
             # Create git patch for aggregation (handles A/M/D including binary files)
             # Only run in UPDATE mode - CHECK mode doesn't update snapshots
             # Run even if tests failed, as long as snapshots may have been updated
