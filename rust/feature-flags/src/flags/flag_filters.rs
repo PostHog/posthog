@@ -146,6 +146,7 @@ mod tests {
             )]),
             variant: Some("holdout-1".to_string()),
             rollout_percentage: Some(10.0),
+            ..Default::default()
         }]);
 
         assert!(!filters.requires_cohort_filters());
@@ -211,6 +212,7 @@ mod tests {
             ]),
             variant: Some("holdout-1".to_string()),
             rollout_percentage: Some(10.0),
+            ..Default::default()
         }]);
 
         // Holdout groups don't require DB properties.

@@ -27,6 +27,11 @@ pub struct FlagPropertyGroup {
     pub rollout_percentage: Option<f64>,
     #[serde(default)]
     pub variant: Option<String>,
+    /// Per-condition-set aggregation group type index. When present, this condition
+    /// set uses the specified group type for hashing and property evaluation. When
+    /// absent/null, the condition set uses person-level aggregation (distinct_id).
+    #[serde(default)]
+    pub aggregation_group_type_index: Option<i32>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
