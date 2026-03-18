@@ -1,6 +1,4 @@
 from django.db.models.functions import Lower
-from django.db.models.signals import pre_delete
-from django.dispatch import receiver
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
@@ -8,9 +6,7 @@ from rest_framework import serializers, viewsets
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
-from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
-from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
@@ -102,38 +98,3 @@ class ExperimentSavedMetricViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetM
     def perform_destroy(self, instance: ExperimentSavedMetric) -> None:
         service = ExperimentSavedMetricService(team=self.team, user=self.request.user)
         service.delete_saved_metric(instance)
-
-
-@mutable_receiver(model_activity_signal, sender=ExperimentSavedMetric)
-def handle_experiment_saved_metric_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
-    log_activity(
-        organization_id=after_update.team.organization_id,
-        team_id=after_update.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=after_update.id,
-        scope="Experiment",  # log under Experiment scope so it appears in experiment activity log
-        activity=activity,
-        detail=Detail(
-            # need to use ExperimentSavedMetric here for field exclusions..
-            changes=changes_between("ExperimentSavedMetric", previous=before_update, current=after_update),
-            name=after_update.name,
-            type="shared_metric",
-        ),
-    )
-
-
-@receiver(pre_delete, sender=ExperimentSavedMetric)
-def handle_experiment_saved_metric_delete(sender, instance, **kwargs):
-    log_activity(
-        organization_id=instance.team.organization_id,
-        team_id=instance.team_id,
-        user=getattr(instance, "last_modified_by", instance.created_by),
-        was_impersonated=False,
-        item_id=instance.id,
-        scope="Experiment",  # log under Experiment scope so it appears in experiment activity log
-        activity="deleted",
-        detail=Detail(name=instance.name, type="shared_metric"),
-    )
