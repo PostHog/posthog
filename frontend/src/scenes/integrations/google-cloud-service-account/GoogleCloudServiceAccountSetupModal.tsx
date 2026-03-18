@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, Link, LemonFileInput, LemonInput, LemonSegmentedButton, LemonModal } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTabs, LemonButton, Link, LemonFileInput, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -38,29 +38,35 @@ export const GoogleCloudServiceAccountSetupModal = (
                 formKey="googleCloudServiceAccountIntegration"
             >
                 <div className="gap-4 flex flex-col">
-                    <LemonSegmentedButton
-                        value={serviceAccountMode}
+                    <LemonTabs
+                        activeKey={serviceAccountMode}
                         onChange={setServiceAccountMode}
-                        options={[
+                        tabs={[
                             {
-                                value: 'impersonated',
+                                key: 'impersonated',
                                 label: 'Impersonate service account',
                             },
                             {
-                                value: 'key_file',
-                                label: 'Upload service account JSON key file (not recommended)',
+                                key: 'key_file',
+                                label: 'Upload service account JSON key file',
                             },
                         ]}
-                        fullWidth
                     />
                     {serviceAccountMode === 'key_file' ? (
-                        <LemonField
-                            name="jsonKeyFile"
-                            label="Service account JSON key file"
-                            help="The project ID and service account information will be extracted automatically."
-                        >
-                            <LemonFileInput accept=".json" multiple={false} />
-                        </LemonField>
+                        <>
+                            <LemonBanner type="warning">
+                                A service account JSON key file contains long-lived credentials. It is preferable to let
+                                PostHog impersonate your service account to avoid creating, exchanging, and storing
+                                long-lived credentials.
+                            </LemonBanner>
+                            <LemonField
+                                name="jsonKeyFile"
+                                label="Service account JSON key file"
+                                help="The project ID and service account information will be extracted automatically."
+                            >
+                                <LemonFileInput accept=".json" multiple={false} />
+                            </LemonField>
+                        </>
                     ) : (
                         <>
                             <LemonField
@@ -80,19 +86,29 @@ export const GoogleCloudServiceAccountSetupModal = (
                                 <LemonInput placeholder="service-account@my-google-cloud-project.iam.gserviceaccount.com" />
                             </LemonField>
 
-                            <div className="text-sm text-primary">
-                                <p>
-                                    PostHog will impersonate this service account with one of our own:{' '}
-                                    <code>posthog-batch-exports@posthog-external.iam.gserviceaccount.com</code>. You
-                                    must grant our service account the <code>roles/iam.serviceAccountTokenCreator</code>{' '}
-                                    role to allow impersonation.
-                                </p>
-                                <p>
-                                    In order to identify you as the owner of this service account, you must include{' '}
-                                    <code>posthog:{currentOrganization?.id}</code> as part of the service account's{' '}
-                                    description, and grant our service account the <code>iam.serviceAccounts.get</code>{' '}
-                                    permission to allow us to check it.
-                                </p>
+                            <div className="border border-border rounded p-4 bg-bg-light flex flex-col gap-3 text-sm">
+                                <p className="font-semibold m-0">Requirements</p>
+                                <div className="flex gap-3 items-start">
+                                    <span className="bg-primary-highlight text-primary-alt rounded-full w-5 h-5 flex items-center justify-center text-xs font-semibold shrink-0 mt-0.5">
+                                        1
+                                    </span>
+                                    <p className="m-0 text-secondary">
+                                        Grant <code>roles/iam.serviceAccountTokenCreator</code> to PostHog's service
+                                        account:{' '}
+                                        <code>posthog-batch-exports@posthog-external.iam.gserviceaccount.com</code>{' '}
+                                        to allow impersonation.
+                                    </p>
+                                </div>
+                                <div className="flex gap-3 items-start">
+                                    <span className="bg-primary-highlight text-primary-alt rounded-full w-5 h-5 flex items-center justify-center text-xs font-semibold shrink-0 mt-0.5">
+                                        2
+                                    </span>
+                                    <p className="m-0 text-secondary">
+                                        Add <code>posthog:{currentOrganization?.id}</code> to your service account's
+                                        description, then grant <code>iam.serviceAccounts.get</code> to verify
+                                        ownership.
+                                    </p>
+                                </div>
                             </div>
                         </>
                     )}
