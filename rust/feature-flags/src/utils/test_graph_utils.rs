@@ -2754,47 +2754,6 @@ mod precomputed_dependency_graph_tests {
     }
 
     #[test]
-    fn test_precomputed_filter_stages_works() {
-        // A(1)->B(2)->C(3), D(4) independent
-        let feature_flags = FeatureFlagList {
-            flags: vec![
-                create_flag(1, "flag_a", HashSet::from([2]), true),
-                create_flag(2, "flag_b", HashSet::from([3]), true),
-                create_flag(3, "flag_c", HashSet::new(), true),
-                create_flag(4, "flag_d", HashSet::new(), true),
-            ],
-            evaluation_metadata: Some(EvaluationMetadata {
-                dependency_stages: vec![vec![3, 4], vec![2], vec![1]],
-                flags_with_missing_deps: vec![],
-                transitive_deps: HashMap::from([
-                    (1, HashSet::from([2, 3])),
-                    (2, HashSet::from([3])),
-                    (3, HashSet::new()),
-                    (4, HashSet::new()),
-                ]),
-            }),
-            ..Default::default()
-        };
-
-        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1, None).unwrap();
-        let result = precomputed.filter_stages_by_keys(&["flag_a".to_string()]);
-
-        let all_keys: HashSet<String> = result
-            .evaluation_stages
-            .iter()
-            .flat_map(|s| s.iter().map(|f| f.key.clone()))
-            .collect();
-
-        assert!(all_keys.contains("flag_a"));
-        assert!(all_keys.contains("flag_b"));
-        assert!(all_keys.contains("flag_c"));
-        assert!(
-            !all_keys.contains("flag_d"),
-            "flag_d is independent, should be excluded"
-        );
-    }
-
-    #[test]
     fn test_precomputed_path_handles_cycles_via_missing_deps() {
         // Simulate Django output for A(1)->B(2)->A(1) cycle plus independent C(3)
         let feature_flags = FeatureFlagList {
@@ -3210,26 +3169,31 @@ mod precomputed_dependency_graph_tests {
                 (5, HashSet::new()),
             ]),
         };
-        let make_flags = || FeatureFlagList {
-            flags: vec![
-                create_flag(1, "flag_a", HashSet::from([2, 3]), true),
-                create_flag(2, "flag_b", HashSet::from([4]), true),
-                create_flag(3, "flag_c", HashSet::from([4]), true),
-                create_flag(4, "flag_d", HashSet::new(), true),
-                create_flag(5, "flag_e", HashSet::new(), true),
-            ],
+        let make_flags = || vec![
+            create_flag(1, "flag_a", HashSet::from([2, 3]), true),
+            create_flag(2, "flag_b", HashSet::from([4]), true),
+            create_flag(3, "flag_c", HashSet::from([4]), true),
+            create_flag(4, "flag_d", HashSet::new(), true),
+            create_flag(5, "flag_e", HashSet::new(), true),
+        ];
+        let requested_keys = vec!["flag_a".to_string()];
+
+        // Path 1: graph fallback (no evaluation_metadata), then filter_stages_by_keys
+        let fallback_flags = FeatureFlagList {
+            flags: make_flags(),
+            ..Default::default()
+        };
+        let full = PrecomputedDependencyGraph::build(&fallback_flags, 1, None).unwrap();
+        let filtered = full.filter_stages_by_keys(&requested_keys);
+
+        // Path 2: precomputed path with flag_keys=Some directly
+        let precomputed_flags = FeatureFlagList {
+            flags: make_flags(),
             evaluation_metadata: Some(deps.clone()),
             ..Default::default()
         };
-        let requested_keys = vec!["flag_a".to_string()];
-
-        // Path 1: build with flag_keys=None, then filter_stages_by_keys
-        let full = PrecomputedDependencyGraph::build(&make_flags(), 1, None).unwrap();
-        let filtered = full.filter_stages_by_keys(&requested_keys);
-
-        // Path 2: build with flag_keys=Some directly
         let direct =
-            PrecomputedDependencyGraph::build(&make_flags(), 1, Some(&requested_keys)).unwrap();
+            PrecomputedDependencyGraph::build(&precomputed_flags, 1, Some(&requested_keys)).unwrap();
 
         assert_eq!(
             stage_keys(&direct.evaluation_stages),
