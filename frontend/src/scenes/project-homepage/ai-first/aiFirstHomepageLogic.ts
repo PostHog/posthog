@@ -19,12 +19,13 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
     path(['scenes', 'project-homepage', 'ai-first', 'aiFirstHomepageLogic']),
 
     connect(() => ({
-        values: [maxLogic({ tabId: HOMEPAGE_TAB_ID }), ['threadLogicKey']],
-        actions: [maxLogic({ tabId: HOMEPAGE_TAB_ID }), ['openConversation', 'startNewConversation']],
+        values: [maxLogic({ tabId: HOMEPAGE_TAB_ID }), ['threadLogicKey', 'conversationId']],
+        actions: [maxLogic({ tabId: HOMEPAGE_TAB_ID }), ['openConversation', 'startNewConversation', 'setQuestion']],
     })),
 
     actions({
         submitQuery: (mode: 'search' | 'ai') => ({ mode }),
+        enterAiMode: (trigger: string) => ({ trigger }),
         setQuery: (query: string) => ({ query }),
         setAnimationPhase: (phase: AnimationPhase) => ({ phase }),
         setHoveredSuggestion: (suggestion: string | null) => ({ suggestion }),
@@ -43,6 +44,12 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
                     }
                     return { mode, animationPhase: 'moving' }
                 },
+                enterAiMode: (state): LayoutState => {
+                    if (state.mode === 'ai') {
+                        return state
+                    }
+                    return { mode: 'ai', animationPhase: 'moving' }
+                },
                 setAnimationPhase: (state, { phase }): LayoutState => ({
                     ...state,
                     animationPhase: phase,
@@ -55,6 +62,13 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             {
                 setQuery: (_, { query }) => query,
                 returnToIdle: () => '',
+            },
+        ],
+        threadStarted: [
+            false,
+            {
+                submitQuery: (_, { mode }) => mode === 'ai',
+                returnToIdle: () => false,
             },
         ],
         hoveredSuggestion: [
@@ -76,7 +90,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
 
     listeners(({ actions, values }) => ({
         submitQuery: async ({ mode }, breakpoint) => {
-            if (mode === 'ai') {
+            if (mode === 'ai' && !values.conversationId) {
                 actions.startNewConversation()
             }
 
@@ -90,6 +104,19 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
 
             await breakpoint(200)
             actions.setAnimationPhase('content')
+        },
+        enterAiMode: async ({ trigger }, breakpoint) => {
+            // Animate into AI mode without starting a conversation
+            await breakpoint(300)
+            actions.setAnimationPhase('separator')
+
+            await breakpoint(200)
+            actions.setAnimationPhase('content')
+
+            // Set the trigger character after animation so the slash menu doesn't appear mid-transition
+            if (trigger) {
+                actions.setQuestion(trigger)
+            }
         },
     })),
 
@@ -106,8 +133,8 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             }
             return [urls.projectHomepage(), { mode, q: query || undefined }, undefined, { replace: false }]
         },
-        returnToIdle: () => {
-            return [urls.projectHomepage(), {}, undefined, { replace: true }]
+        enterAiMode: () => {
+            return [urls.projectHomepage(), { mode: 'ai' }, undefined, { replace: false }]
         },
     })),
 
@@ -122,8 +149,10 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             } else if (urlMode === 'ai' && values.mode !== 'ai') {
                 if (urlChat) {
                     actions.openConversation(urlChat)
+                    actions.submitQuery('ai')
+                } else {
+                    actions.enterAiMode('')
                 }
-                actions.submitQuery('ai')
             } else if (urlMode === 'search' && values.mode !== 'search') {
                 actions.setQuery(urlQuery)
                 actions.submitQuery('search')
@@ -142,8 +171,10 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
         if (urlMode === 'ai') {
             if (urlChat) {
                 actions.openConversation(urlChat)
+                actions.submitQuery('ai')
+            } else {
+                actions.enterAiMode('')
             }
-            actions.submitQuery('ai')
         } else if (urlMode === 'search' && urlQuery) {
             actions.setQuery(urlQuery)
             actions.submitQuery('search')

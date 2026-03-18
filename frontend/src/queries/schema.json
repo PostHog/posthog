@@ -367,7 +367,8 @@
                 "onboarding",
                 "research",
                 "flags",
-                "llm_analytics"
+                "llm_analytics",
+                "sandbox"
             ],
             "type": "string"
         },
@@ -613,6 +614,19 @@
                 }
             ]
         },
+        "AnyDataWarehouseNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/DataWarehouseNode"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsDataWarehouseNode"
+                },
+                {
+                    "$ref": "#/definitions/LifecycleDataWarehouseNode"
+                }
+            ]
+        },
         "AnyEntityNode": {
             "anyOf": [
                 {
@@ -623,6 +637,45 @@
                 },
                 {
                     "$ref": "#/definitions/DataWarehouseNode"
+                }
+            ]
+        },
+        "AnyEntityNode<DataWarehouseNode>": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/DataWarehouseNode"
+                }
+            ]
+        },
+        "AnyEntityNode<FunnelsDataWarehouseNode>": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsDataWarehouseNode"
+                }
+            ]
+        },
+        "AnyEntityNode<LifecycleDataWarehouseNode>": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/LifecycleDataWarehouseNode"
                 }
             ]
         },
@@ -979,7 +1032,7 @@
             "type": "string"
         },
         "AssistantEventType": {
-            "enum": ["status", "message", "conversation", "notebook", "update", "approval"],
+            "enum": ["status", "message", "conversation", "notebook", "update", "approval", "sandbox"],
             "type": "string"
         },
         "AssistantForm": {
@@ -2544,6 +2597,12 @@
                 },
                 "p75": {
                     "type": "number"
+                },
+                "series_index": {
+                    "$ref": "#/definitions/integer"
+                },
+                "series_label": {
+                    "type": "string"
                 }
             },
             "required": ["day", "label", "min", "p25", "median", "p75", "max", "mean"],
@@ -3818,6 +3877,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "nextCursor": {
+                    "description": "Cursor for fetching the next page of results",
+                    "type": "string"
+                },
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
@@ -4096,6 +4159,10 @@
                     "type": "array"
                 },
                 "is_cached": {
+                    "type": "boolean"
+                },
+                "is_precomputed": {
+                    "description": "Whether exposures were served from the precomputation system",
                     "type": "boolean"
                 },
                 "kind": {
@@ -5282,6 +5349,10 @@
                 "is_cached": {
                     "type": "boolean"
                 },
+                "is_precomputed": {
+                    "description": "Whether exposures were served from the precomputation system",
+                    "type": "boolean"
+                },
                 "last_refresh": {
                     "format": "date-time",
                     "type": "string"
@@ -6342,6 +6413,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "nextCursor": {
+                    "description": "Cursor for fetching the next page of results",
+                    "type": "string"
+                },
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
@@ -6732,6 +6807,9 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "hasMore": {
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -6743,6 +6821,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
@@ -6750,6 +6831,9 @@
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
                 },
                 "query_metadata": {
                     "type": "object"
@@ -8216,6 +8300,9 @@
                 "showLegend": {
                     "type": "boolean"
                 },
+                "showNullsAsZero": {
+                    "type": "boolean"
+                },
                 "showTotalRow": {
                     "type": "boolean"
                 },
@@ -9213,6 +9300,10 @@
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
                                     "description": "Modifiers used when performing the query"
+                                },
+                                "nextCursor": {
+                                    "description": "Cursor for fetching the next page of results",
+                                    "type": "string"
                                 },
                                 "offset": {
                                     "$ref": "#/definitions/integer"
@@ -11373,6 +11464,10 @@
         "DatabaseSchemaQuery": {
             "additionalProperties": false,
             "properties": {
+                "connectionId": {
+                    "description": "Optional direct external data source id for schema introspection",
+                    "type": "string"
+                },
                 "kind": {
                     "const": "DatabaseSchemaQuery",
                     "type": "string"
@@ -11442,6 +11537,9 @@
         "DatabaseSchemaSource": {
             "additionalProperties": false,
             "properties": {
+                "access_method": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -13144,6 +13242,10 @@
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
                 },
+                "useQueryV2": {
+                    "description": "Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries)",
+                    "type": "boolean"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -13927,6 +14029,10 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "nextCursor": {
+                    "description": "Cursor for fetching the next page of results",
+                    "type": "string"
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
@@ -14867,6 +14973,10 @@
                         "type": "object"
                     },
                     "type": "array"
+                },
+                "is_precomputed": {
+                    "description": "Whether exposures were served from the precomputation system",
+                    "type": "boolean"
                 },
                 "kind": {
                     "const": "ExperimentQuery",
@@ -15865,6 +15975,8 @@
                 "link",
                 "live_debugger",
                 "logs",
+                "tracing",
+                "metrics",
                 "workflows",
                 "notebook",
                 "action",
@@ -15924,6 +16036,10 @@
                 },
                 "created_at": {
                     "description": "Timestamp when file was added. Used to check persistence",
+                    "type": "string"
+                },
+                "displayLabel": {
+                    "description": "Display label override — when set, shown in the nav instead of the last segment of `path`",
                     "type": "string"
                 },
                 "flag": {
@@ -16586,6 +16702,87 @@
             "required": ["kind", "source"],
             "type": "object"
         },
+        "FunnelsDataWarehouseNode": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation_target_field": {
+                    "type": "string"
+                },
+                "custom_name": {
+                    "type": "string"
+                },
+                "dw_source_type": {
+                    "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "id_field": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "FunnelsDataWarehouseNode",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/MathType"
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_hogql": {
+                    "type": "string"
+                },
+                "math_multiplier": {
+                    "type": "number"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
+                },
+                "math_property_type": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "optionalInFunnel": {
+                    "type": "boolean"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "table_name": {
+                    "type": "string"
+                },
+                "timestamp_field": {
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["aggregation_target_field", "id", "id_field", "kind", "table_name", "timestamp_field"],
+            "type": "object"
+        },
         "FunnelsFilter": {
             "additionalProperties": false,
             "properties": {
@@ -16602,6 +16799,10 @@
                 "breakdownSorting": {
                     "description": "Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)",
                     "type": "string"
+                },
+                "customAggregationTarget": {
+                    "description": "For data warehouse based funnel insights when the aggregation target can't be mapped to persons or groups.",
+                    "type": "boolean"
                 },
                 "exclusions": {
                     "default": [],
@@ -16814,7 +17015,7 @@
                     "items": {
                         "anyOf": [
                             {
-                                "$ref": "#/definitions/AnyEntityNode"
+                                "$ref": "#/definitions/AnyEntityNode%3CFunnelsDataWarehouseNode%3E"
                             },
                             {
                                 "$ref": "#/definitions/GroupNode"
@@ -17067,7 +17268,7 @@
                 "nodes": {
                     "description": "Entities to combine in this group",
                     "items": {
-                        "$ref": "#/definitions/AnyEntityNode"
+                        "$ref": "#/definitions/AnyEntityNode%3CDataWarehouseNode%3E"
                     },
                     "type": "array"
                 },
@@ -17106,6 +17307,12 @@
         "GroupPropertyFilter": {
             "additionalProperties": false,
             "properties": {
+                "group_key_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
                 "group_type_index": {
                     "anyOf": [
                         {
@@ -17369,6 +17576,10 @@
         "HogQLAutocomplete": {
             "additionalProperties": false,
             "properties": {
+                "connectionId": {
+                    "description": "Optional direct external data source id for running against a specific source",
+                    "type": "string"
+                },
                 "endPosition": {
                     "$ref": "#/definitions/integer",
                     "description": "End position of the editor word"
@@ -17472,6 +17683,10 @@
         "HogQLMetadata": {
             "additionalProperties": false,
             "properties": {
+                "connectionId": {
+                    "description": "Optional direct external data source id for running against a specific source",
+                    "type": "string"
+                },
                 "debug": {
                     "description": "Enable more verbose output, usually run from the /debug page",
                     "type": "boolean"
@@ -17613,6 +17828,10 @@
         "HogQLQuery": {
             "additionalProperties": false,
             "properties": {
+                "connectionId": {
+                    "description": "Optional direct external data source id for running against a specific source",
+                    "type": "string"
+                },
                 "explain": {
                     "deprecated": "use modifiers.debug instead",
                     "type": "boolean"
@@ -18283,7 +18502,8 @@
                     "$ref": "#/definitions/InsightsThresholdBounds"
                 },
                 "type": {
-                    "$ref": "#/definitions/InsightThresholdType"
+                    "$ref": "#/definitions/InsightThresholdType",
+                    "description": "Whether bounds are compared as absolute values or as percentage change from the previous interval."
                 }
             },
             "required": ["type"],
@@ -18770,9 +18990,11 @@
             "additionalProperties": false,
             "properties": {
                 "lower": {
+                    "description": "Alert fires when the value drops below this number.",
                     "type": "number"
                 },
                 "upper": {
+                    "description": "Alert fires when the value exceeds this number.",
                     "type": "number"
                 }
             },
@@ -18794,7 +19016,7 @@
         "IntegrationKind": {
             "enum": [
                 "slack",
-                "slack-twig",
+                "slack-posthog-code",
                 "salesforce",
                 "hubspot",
                 "google-pubsub",
@@ -19011,6 +19233,84 @@
             ],
             "type": "object"
         },
+        "LifecycleDataWarehouseNode": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation_target_field": {
+                    "type": "string"
+                },
+                "created_at_field": {
+                    "type": "string"
+                },
+                "custom_name": {
+                    "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "LifecycleDataWarehouseNode",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/MathType"
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_hogql": {
+                    "type": "string"
+                },
+                "math_multiplier": {
+                    "type": "number"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
+                },
+                "math_property_type": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "optionalInFunnel": {
+                    "type": "boolean"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "table_name": {
+                    "type": "string"
+                },
+                "timestamp_field": {
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["aggregation_target_field", "created_at_field", "id", "kind", "table_name", "timestamp_field"],
+            "type": "object"
+        },
         "LifecycleFilter": {
             "additionalProperties": false,
             "properties": {
@@ -19067,6 +19367,10 @@
                     ],
                     "description": "Groups aggregation"
                 },
+                "customAggregationTarget": {
+                    "description": "For data warehouse based lifecycle insights when the aggregation target can't be mapped to persons or groups.",
+                    "type": "boolean"
+                },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
                     "type": ["number", "null"]
@@ -19122,7 +19426,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "$ref": "#/definitions/AnyEntityNode"
+                        "$ref": "#/definitions/AnyEntityNode%3CLifecycleDataWarehouseNode%3E"
                     },
                     "type": "array"
                 },
@@ -19273,7 +19577,7 @@
             "type": "string"
         },
         "LinkedinAdsTableKeywords": {
-            "enum": ["campaigns"],
+            "enum": ["campaign_groups"],
             "type": "string"
         },
         "LlmEvalSignalExtra": {
@@ -19856,6 +20160,10 @@
                     "$ref": "#/definitions/ConversionGoalFilter",
                     "description": "Draft conversion goal that can be set in the UI without saving"
                 },
+                "drillDownLevel": {
+                    "$ref": "#/definitions/MarketingAnalyticsDrillDownLevel",
+                    "description": "Drill-down hierarchy level: channel, source, or campaign (default)"
+                },
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
@@ -20045,6 +20353,26 @@
             "enum": ["Goal", "Cost per", "const:"],
             "type": "string"
         },
+        "MarketingAnalyticsDrillDownConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "columnAlias": {
+                    "type": "string"
+                },
+                "excludedBaseColumns": {
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsBaseColumns"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["columnAlias", "excludedBaseColumns"],
+            "type": "object"
+        },
+        "MarketingAnalyticsDrillDownLevel": {
+            "enum": ["channel", "source", "campaign"],
+            "type": "string"
+        },
         "MarketingAnalyticsItem": {
             "additionalProperties": false,
             "properties": {
@@ -20158,6 +20486,10 @@
                         }
                     ],
                     "description": "Draft conversion goal that can be set in the UI without saving"
+                },
+                "drillDownLevel": {
+                    "$ref": "#/definitions/MarketingAnalyticsDrillDownLevel",
+                    "description": "Drill-down hierarchy level: channel, source, or campaign (default)"
                 },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
@@ -20409,7 +20741,7 @@
                     "additionalProperties": false,
                     "properties": {
                         "campaignTableName": {
-                            "const": "campaigns",
+                            "const": "campaign_groups",
                             "type": "string"
                         },
                         "defaultSources": {
@@ -20444,7 +20776,7 @@
                             "type": "string"
                         },
                         "statsTableName": {
-                            "const": "campaign_stats",
+                            "const": "campaign_group_stats",
                             "type": "string"
                         },
                         "tableExclusions": {
@@ -20458,7 +20790,7 @@
                         },
                         "tableKeywords": {
                             "items": {
-                                "const": "campaigns",
+                                "const": "campaign_groups",
                                 "type": "string"
                             },
                             "maxItems": 1,
@@ -20496,23 +20828,7 @@
                                             "type": "string"
                                         },
                                         {
-                                            "const": "offsite_conversion.fb_pixel_purchase",
-                                            "type": "string"
-                                        },
-                                        {
-                                            "const": "app_custom_event.fb_mobile_purchase",
-                                            "type": "string"
-                                        },
-                                        {
                                             "const": "lead",
-                                            "type": "string"
-                                        },
-                                        {
-                                            "const": "offsite_conversion.fb_pixel_lead",
-                                            "type": "string"
-                                        },
-                                        {
-                                            "const": "onsite_conversion.lead_grouped",
                                             "type": "string"
                                         },
                                         {
@@ -20520,36 +20836,16 @@
                                             "type": "string"
                                         },
                                         {
-                                            "const": "offsite_conversion.fb_pixel_complete_registration",
-                                            "type": "string"
-                                        },
-                                        {
-                                            "const": "app_custom_event.fb_mobile_complete_registration",
-                                            "type": "string"
-                                        },
-                                        {
-                                            "const": "offsite_complete_registration_add_meta_leads",
-                                            "type": "string"
-                                        },
-                                        {
                                             "const": "app_install",
-                                            "type": "string"
-                                        },
-                                        {
-                                            "const": "mobile_app_install",
                                             "type": "string"
                                         },
                                         {
                                             "const": "subscribe",
                                             "type": "string"
-                                        },
-                                        {
-                                            "const": "offsite_conversion.fb_pixel_subscribe",
-                                            "type": "string"
                                         }
                                     ],
-                                    "maxItems": 14,
-                                    "minItems": 14,
+                                    "maxItems": 5,
+                                    "minItems": 5,
                                     "type": "array"
                                 },
                                 "omni": {
@@ -20578,9 +20874,52 @@
                                     "maxItems": 5,
                                     "minItems": 5,
                                     "type": "array"
+                                },
+                                "specific": {
+                                    "items": [
+                                        {
+                                            "const": "offsite_conversion.fb_pixel_purchase",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "app_custom_event.fb_mobile_purchase",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_conversion.fb_pixel_lead",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "onsite_conversion.lead_grouped",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_conversion.fb_pixel_complete_registration",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "app_custom_event.fb_mobile_complete_registration",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_complete_registration_add_meta_leads",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "mobile_app_install",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_conversion.fb_pixel_subscribe",
+                                            "type": "string"
+                                        }
+                                    ],
+                                    "maxItems": 9,
+                                    "minItems": 9,
+                                    "type": "array"
                                 }
                             },
-                            "required": ["omni", "fallback"],
+                            "required": ["omni", "fallback", "specific"],
                             "type": "object"
                         },
                         "defaultSources": {
@@ -20994,6 +21333,74 @@
                         "primarySource",
                         "conversionFields",
                         "conversionValueFields"
+                    ],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "campaignTableName": {
+                            "const": "campaigns",
+                            "type": "string"
+                        },
+                        "defaultSources": {
+                            "items": {
+                                "const": "pinterest",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        },
+                        "idField": {
+                            "const": "id",
+                            "type": "string"
+                        },
+                        "nameField": {
+                            "const": "name",
+                            "type": "string"
+                        },
+                        "primarySource": {
+                            "const": "pinterest",
+                            "type": "string"
+                        },
+                        "sourceType": {
+                            "const": "PinterestAds",
+                            "type": "string"
+                        },
+                        "statsTableName": {
+                            "const": "campaign_analytics",
+                            "type": "string"
+                        },
+                        "tableExclusions": {
+                            "items": {
+                                "const": "analytics",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        },
+                        "tableKeywords": {
+                            "items": {
+                                "const": "campaigns",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        }
+                    },
+                    "required": [
+                        "sourceType",
+                        "nameField",
+                        "idField",
+                        "campaignTableName",
+                        "statsTableName",
+                        "tableKeywords",
+                        "tableExclusions",
+                        "defaultSources",
+                        "primarySource"
                     ],
                     "type": "object"
                 }
@@ -21811,6 +22218,23 @@
             "required": ["type", "id", "query"],
             "type": "object"
         },
+        "MaxNotebookContext": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "type": {
+                    "const": "notebook",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "id"],
+            "type": "object"
+        },
         "MaxOuterUniversalFiltersGroup": {
             "additionalProperties": false,
             "properties": {
@@ -21987,6 +22411,12 @@
                         "$ref": "#/definitions/MaxInsightContext"
                     },
                     "type": "array"
+                },
+                "notebooks": {
+                    "items": {
+                        "$ref": "#/definitions/MaxNotebookContext"
+                    },
+                    "type": "array"
                 }
             },
             "type": "object"
@@ -22014,26 +22444,25 @@
             ]
         },
         "MetaAdsConversionFallbackActionTypes": {
-            "enum": [
-                "purchase",
-                "offsite_conversion.fb_pixel_purchase",
-                "app_custom_event.fb_mobile_purchase",
-                "lead",
-                "offsite_conversion.fb_pixel_lead",
-                "onsite_conversion.lead_grouped",
-                "complete_registration",
-                "offsite_conversion.fb_pixel_complete_registration",
-                "app_custom_event.fb_mobile_complete_registration",
-                "offsite_complete_registration_add_meta_leads",
-                "app_install",
-                "mobile_app_install",
-                "subscribe",
-                "offsite_conversion.fb_pixel_subscribe"
-            ],
+            "enum": ["purchase", "lead", "complete_registration", "app_install", "subscribe"],
             "type": "string"
         },
         "MetaAdsConversionOmniActionTypes": {
             "enum": ["omni_purchase", "omni_lead", "omni_complete_registration", "omni_app_install", "omni_subscribe"],
+            "type": "string"
+        },
+        "MetaAdsConversionSpecificActionTypes": {
+            "enum": [
+                "offsite_conversion.fb_pixel_purchase",
+                "app_custom_event.fb_mobile_purchase",
+                "offsite_conversion.fb_pixel_lead",
+                "onsite_conversion.lead_grouped",
+                "offsite_conversion.fb_pixel_complete_registration",
+                "app_custom_event.fb_mobile_complete_registration",
+                "offsite_complete_registration_add_meta_leads",
+                "mobile_app_install",
+                "offsite_conversion.fb_pixel_subscribe"
+            ],
             "type": "string"
         },
         "MetaAdsDefaultSources": {
@@ -22124,23 +22553,91 @@
         },
         "MultiQuestionFormAnswers": {
             "additionalProperties": {
-                "type": "string"
+                "anyOf": [
+                    {
+                        "type": "string"
+                    },
+                    {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
+                    }
+                ]
             },
             "type": "object"
+        },
+        "MultiQuestionFormField": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "description": "Unique identifier for this field, used as the answer key",
+                    "type": "string"
+                },
+                "label": {
+                    "description": "Label displayed above/beside the field",
+                    "type": "string"
+                },
+                "max": {
+                    "description": "Maximum value (for number and slider types)",
+                    "type": "number"
+                },
+                "min": {
+                    "description": "Minimum value (for number and slider types)",
+                    "type": "number"
+                },
+                "optional": {
+                    "description": "Whether this field can be left empty (default: false)",
+                    "type": "boolean"
+                },
+                "options": {
+                    "description": "Available answer options (required for dropdown)",
+                    "items": {
+                        "$ref": "#/definitions/MultiQuestionFormQuestionOption"
+                    },
+                    "type": "array"
+                },
+                "placeholder": {
+                    "description": "Placeholder text (for text and number types)",
+                    "type": "string"
+                },
+                "step": {
+                    "description": "Step size (for number and slider types)",
+                    "type": "number"
+                },
+                "type": {
+                    "$ref": "#/definitions/MultiQuestionFormFieldType",
+                    "description": "Field type (required, no default)"
+                }
+            },
+            "required": ["id", "type", "label"],
+            "type": "object"
+        },
+        "MultiQuestionFormFieldType": {
+            "description": "Field types allowed inside a multi_field composite question",
+            "enum": ["text", "number", "slider", "dropdown", "toggle"],
+            "type": "string"
         },
         "MultiQuestionFormQuestion": {
             "additionalProperties": false,
             "properties": {
                 "allow_custom_answer": {
-                    "description": "Whether to show a \"Type your answer\" option (default: true)",
+                    "description": "Whether to show a \"Type your answer\" option (default: true). Only used for select type.",
                     "type": "boolean"
+                },
+                "fields": {
+                    "description": "Fields for multi_field type questions, grouped with a shared submit button",
+                    "items": {
+                        "$ref": "#/definitions/MultiQuestionFormField"
+                    },
+                    "type": "array"
                 },
                 "id": {
                     "description": "Unique identifier for this question",
                     "type": "string"
                 },
                 "options": {
-                    "description": "Available answer options",
+                    "description": "Available answer options (required for select and multi_select)",
                     "items": {
                         "$ref": "#/definitions/MultiQuestionFormQuestionOption"
                     },
@@ -22153,9 +22650,14 @@
                 "title": {
                     "description": "One word title for the question e.g. \"Use case\", \"Team size\", \"Experience\"",
                     "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/MultiQuestionFormQuestionType",
+                    "default": "select",
+                    "description": "Question type. Use 'multi_field' with fields array for composite questions."
                 }
             },
-            "required": ["id", "title", "question", "options"],
+            "required": ["id", "title", "question"],
             "type": "object"
         },
         "MultiQuestionFormQuestionOption": {
@@ -22172,6 +22674,11 @@
             },
             "required": ["value"],
             "type": "object"
+        },
+        "MultiQuestionFormQuestionType": {
+            "description": "Question types: select/multi_select for standalone, multi_field for composite",
+            "enum": ["select", "multi_select", "multi_field"],
+            "type": "string"
         },
         "MultiVisualizationMessage": {
             "additionalProperties": false,
@@ -22217,7 +22724,16 @@
             "type": "string"
         },
         "NativeMarketingSource": {
-            "enum": ["GoogleAds", "LinkedinAds", "MetaAds", "TikTokAds", "RedditAds", "BingAds", "SnapchatAds"],
+            "enum": [
+                "GoogleAds",
+                "LinkedinAds",
+                "MetaAds",
+                "TikTokAds",
+                "RedditAds",
+                "BingAds",
+                "SnapchatAds",
+                "PinterestAds"
+            ],
             "type": "string"
         },
         "NewExperimentQueryResponse": {
@@ -22237,6 +22753,10 @@
                 },
                 "hogql": {
                     "type": "string"
+                },
+                "is_precomputed": {
+                    "description": "Whether exposures were served from the precomputation system",
+                    "type": "boolean"
                 },
                 "variant_results": {
                     "anyOf": [
@@ -22265,6 +22785,8 @@
                 "GroupNode",
                 "ActionsNode",
                 "DataWarehouseNode",
+                "FunnelsDataWarehouseNode",
+                "LifecycleDataWarehouseNode",
                 "EventsQuery",
                 "SessionsQuery",
                 "PersonsNode",
@@ -22548,6 +23070,10 @@
                     "const": "notebook",
                     "description": "Notebook",
                     "type": "string"
+                },
+                "is_saved": {
+                    "description": "Whether this notebook has been saved to the database (not stored, set during enrichment)",
+                    "type": "boolean"
                 },
                 "title": {
                     "description": "Title for the notebook",
@@ -23057,6 +23583,18 @@
             "required": ["kind"],
             "type": "object"
         },
+        "PinterestAdsDefaultSources": {
+            "enum": ["pinterest"],
+            "type": "string"
+        },
+        "PinterestAdsTableExclusions": {
+            "enum": ["analytics"],
+            "type": "string"
+        },
+        "PinterestAdsTableKeywords": {
+            "enum": ["campaigns"],
+            "type": "string"
+        },
         "PlanningMessage": {
             "additionalProperties": false,
             "properties": {
@@ -23282,6 +23820,8 @@
                 "tasks",
                 "teams",
                 "toolbar",
+                "tracing",
+                "metrics",
                 "user_interviews",
                 "visual_review",
                 "web_analytics",
@@ -23674,6 +24214,10 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "nextCursor": {
+                            "description": "Cursor for fetching the next page of results",
+                            "type": "string"
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
@@ -24752,6 +25296,10 @@
                             },
                             "type": "array"
                         },
+                        "is_precomputed": {
+                            "description": "Whether exposures were served from the precomputation system",
+                            "type": "boolean"
+                        },
                         "kind": {
                             "const": "ExperimentQuery",
                             "type": "string"
@@ -25635,6 +26183,10 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "nextCursor": {
+                            "description": "Cursor for fetching the next page of results",
+                            "type": "string"
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
@@ -27572,13 +28124,22 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
                         },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -28097,6 +28658,12 @@
                     "$ref": "#/definitions/DataWarehouseNode"
                 },
                 {
+                    "$ref": "#/definitions/FunnelsDataWarehouseNode"
+                },
+                {
+                    "$ref": "#/definitions/LifecycleDataWarehouseNode"
+                },
+                {
                     "$ref": "#/definitions/EventsQuery"
                 },
                 {
@@ -28421,7 +28988,7 @@
             "type": "object"
         },
         "QuickFilterContext": {
-            "enum": ["error-tracking-issue-filters", "logs-filters"],
+            "enum": ["dashboards", "error-tracking-issue-filters", "logs-filters"],
             "type": "string"
         },
         "QuickFilterType": {
@@ -30578,6 +31145,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "nextCursor": {
+                    "description": "Cursor for fetching the next page of results",
+                    "type": "string"
+                },
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
@@ -32498,9 +33069,17 @@
                     "const": "TeamTaxonomyQuery",
                     "type": "string"
                 },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of rows to return"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of rows to skip before returning rows"
                 },
                 "response": {
                     "$ref": "#/definitions/TeamTaxonomyQueryResponse"
@@ -32523,13 +33102,22 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "hasMore": {
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
                 },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -33037,10 +33625,12 @@
             "additionalProperties": false,
             "properties": {
                 "check_ongoing_interval": {
+                    "description": "When true, evaluate the current (still incomplete) time interval in addition to completed ones.",
                     "type": "boolean"
                 },
                 "series_index": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/integer",
+                    "description": "Zero-based index of the series in the insight's query to monitor."
                 },
                 "type": {
                     "const": "TrendsAlertConfig",
@@ -34790,6 +35380,7 @@
                 "ScreenName",
                 "InitialChannelType",
                 "InitialReferringDomain",
+                "InitialReferringURL",
                 "InitialUTMSource",
                 "InitialUTMCampaign",
                 "InitialUTMMedium",
@@ -34856,6 +35447,9 @@
                     "type": "boolean"
                 },
                 "includeBounceRate": {
+                    "type": "boolean"
+                },
+                "includeHost": {
                     "type": "boolean"
                 },
                 "includeRevenue": {

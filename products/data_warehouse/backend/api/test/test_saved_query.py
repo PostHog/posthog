@@ -1356,3 +1356,41 @@ class TestSavedQuery(APIBaseTest):
         self.assertIn("Failed", returned_statuses)
         self.assertIn("Running", returned_statuses)
         self.assertIn("Cancelled", returned_statuses)
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_materialize_and_revert_are_rate_limited(self, _rate_limit_enabled_mock):
+        api_key = self.create_personal_api_key_with_scopes(["warehouse_view:write"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="rate_limit_test_view",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            created_by=self.user,
+        )
+
+        with (
+            patch("products.data_warehouse.backend.data_load.saved_query_service.sync_saved_query_workflow"),
+            patch(
+                "products.data_warehouse.backend.data_load.saved_query_service.saved_query_workflow_exists",
+                return_value=False,
+            ),
+        ):
+            for action in ("materialize", "revert_materialization"):
+                # First 5 requests should succeed (rate is 5/hour)
+                for i in range(5):
+                    response = self.client.post(
+                        f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/{action}",
+                    )
+                    assert response.status_code == 200, f"{action} request {i + 1} returned {response.status_code}"
+
+                # 6th request should be throttled
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/{action}",
+                )
+                assert response.status_code == 429, f"{action} should be throttled but got {response.status_code}"
+
+                # Clear the throttle cache so the next action starts fresh
+                from django.core.cache import cache
+
+                cache.clear()

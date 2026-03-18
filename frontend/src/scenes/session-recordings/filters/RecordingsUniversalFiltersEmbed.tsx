@@ -417,6 +417,7 @@ const ReplayFiltersTab = ({
         TaxonomicFilterGroupType.EventProperties,
         TaxonomicFilterGroupType.Actions,
         TaxonomicFilterGroupType.Cohorts,
+        TaxonomicFilterGroupType.EventFeatureFlags,
         TaxonomicFilterGroupType.PersonProperties,
         TaxonomicFilterGroupType.SessionProperties,
         ...groupsTaxonomicTypes,

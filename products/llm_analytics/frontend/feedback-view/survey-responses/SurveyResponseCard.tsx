@@ -13,7 +13,7 @@ import { GroupedResponse } from './utils'
 
 function QuestionResponse({ question, value }: { question: SurveyQuestion; value: unknown }): JSX.Element {
     if (isThumbQuestion(question)) {
-        return <ThumbsResponse isPositive={value === '1'} question={question} />
+        return <ThumbsResponse isPositive={String(value) === '1'} question={question} />
     }
 
     if (question.type === SurveyQuestionType.Rating) {

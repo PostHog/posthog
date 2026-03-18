@@ -69,8 +69,10 @@ class TikTokAdsSource(SimpleSource[TikTokAdsSourceConfig], OAuthMixin):
             capture_exception(e)
             return False, f"Failed to validate TikTok Ads credentials: {str(e)}"
 
-    def get_schemas(self, config: TikTokAdsSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
-        return [
+    def get_schemas(
+        self, config: TikTokAdsSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
+        schemas = [
             SourceSchema(
                 name=str(endpoint_config.resource["name"]),
                 supports_incremental=endpoint_config.incremental_fields is not None,
@@ -79,6 +81,10 @@ class TikTokAdsSource(SimpleSource[TikTokAdsSourceConfig], OAuthMixin):
             )
             for endpoint_config in TIKTOK_ADS_CONFIG.values()
         ]
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+        return schemas
 
     def source_for_pipeline(self, config: TikTokAdsSourceConfig, inputs: SourceInputs) -> SourceResponse:
         integration = self.get_oauth_integration(config.tiktok_integration_id, inputs.team_id)

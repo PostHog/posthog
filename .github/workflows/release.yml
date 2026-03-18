@@ -75,8 +75,10 @@ jobs:
             # (PRs run on the *source* but secrets are usually on the *target* -- that's *good*
             # but also really annoying to build CI around when it needs secrets to work right.)
             - id: plan
+              env:
+                  DIST_COMMAND: ${{ (!github.event.pull_request && format('host --steps=create --tag={0}', github.ref_name)) || 'plan' }}
               run: |
-                  dist ${{ (!github.event.pull_request && format('host --steps=create --tag={0}', github.ref_name)) || 'plan' }} --output-format=json > plan-dist-manifest.json
+                  dist $DIST_COMMAND --output-format=json > plan-dist-manifest.json
                   echo "dist ran successfully"
                   cat plan-dist-manifest.json
                   echo "manifest=$(jq -c "." plan-dist-manifest.json)" >> "$GITHUB_OUTPUT"
@@ -92,7 +94,7 @@ jobs:
         # Let the initial task tell us to not run (currently very blunt)
         needs:
             - plan
-        if: ${{ fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix.include != null && (needs.plan.outputs.publishing == 'true' || fromJson(needs.plan.outputs.val).ci.github.pr_run_mode == 'upload') }}
+        if: ${{ fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix.include != null && (needs.plan.outputs.publishing == 'true' || fromJson(needs.plan.outputs.val).ci.github.pr_run_mode == 'upload') && (!github.event.pull_request || github.event.pull_request.head.repo.full_name == github.repository) }}
         strategy:
             fail-fast: false
             # Target platforms/runners are computed by dist in create-release.
@@ -314,18 +316,3 @@ jobs:
               env:
                   NPM_CONFIG_PROVENANCE: true
                   NODE_AUTH_TOKEN: ''
-
-    announce:
-        needs:
-            - plan
-            - host
-            - publish-npm
-        # use "always() && ..." to allow us to wait for all publish jobs while
-        # still allowing individual publish jobs to skip themselves (for prereleases).
-        # "host" however must run to completion, no skipping allowed!
-        if: ${{ always() && needs.host.result == 'success' && (needs.publish-npm.result == 'skipped' || needs.publish-npm.result == 'success') }}
-        runs-on: 'ubuntu-22.04'
-        steps:
-            - uses: actions/checkout@v6
-              with:
-                  submodules: recursive

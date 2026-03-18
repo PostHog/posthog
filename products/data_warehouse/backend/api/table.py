@@ -5,6 +5,7 @@ from django.conf import settings
 
 import boto3
 import posthoganalytics
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import filters, parsers, request, response, serializers, status, viewsets
 
 from posthog.schema import DatabaseSerializedFieldType
@@ -21,6 +22,7 @@ from posthog.tasks.warehouse import validate_data_warehouse_table_columns
 
 from products.data_warehouse.backend.api.external_data_source import SimpleExternalDataSourceSerializers
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.models.table import (
     CLICKHOUSE_HOGQL_MAPPING,
     SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
@@ -68,6 +70,7 @@ class TableSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_by", "created_at", "columns", "external_data_source", "external_schema"]
 
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
         database = self.context.get("database", None)
         if not database:
@@ -99,6 +102,7 @@ class TableSerializer(serializers.ModelSerializer):
             for field in serializes_fields
         ]
 
+    @extend_schema_field(serializers.DictField(allow_null=True))
     def get_external_schema(self, instance: DataWarehouseTable):
         from products.data_warehouse.backend.api.external_data_schema import SimpleExternalDataSchemaSerializer
 
@@ -229,6 +233,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return (
             queryset.filter(team_id=self.team_id)
             .exclude(deleted=True)
+            .exclude(external_data_source__access_method=ExternalDataSource.AccessMethod.DIRECT)
             .prefetch_related("created_by", "externaldataschema_set")
             .order_by(self.ordering)
         )

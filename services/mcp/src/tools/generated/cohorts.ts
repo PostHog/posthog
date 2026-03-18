@@ -1,4 +1,4 @@
-// AUTO-GENERATED from definitions/cohorts.yaml + OpenAPI — do not edit
+// AUTO-GENERATED from products/cohorts/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
@@ -40,14 +40,14 @@ const cohortsList = (): ToolBase<typeof CohortsListSchema, unknown> => ({
             _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/cohorts`,
         }
     },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/cohort-list.html',
+        },
+    },
 })
 
-const CohortsCreateSchema = CohortsCreateBody.omit({
-    groups: true,
-    deleted: true,
-    _create_in_folder: true,
-    _create_static_person_ids: true,
-})
+const CohortsCreateSchema = CohortsCreateBody.omit({ _create_in_folder: true, _create_static_person_ids: true })
 
 const cohortsCreate = (): ToolBase<typeof CohortsCreateSchema, Schemas.Cohort & { _posthogUrl: string }> => ({
     name: 'cohorts-create',
@@ -83,6 +83,11 @@ const cohortsCreate = (): ToolBase<typeof CohortsCreateSchema, Schemas.Cohort & 
             _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
         }
     },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/cohort.html',
+        },
+    },
 })
 
 const CohortsRetrieveSchema = CohortsRetrieveParams.omit({ project_id: true })
@@ -101,10 +106,15 @@ const cohortsRetrieve = (): ToolBase<typeof CohortsRetrieveSchema, Schemas.Cohor
             _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
         }
     },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/cohort.html',
+        },
+    },
 })
 
 const CohortsPartialUpdateSchema = CohortsPartialUpdateParams.omit({ project_id: true }).extend(
-    CohortsPartialUpdateBody.omit({ groups: true, _create_in_folder: true, _create_static_person_ids: true }).shape
+    CohortsPartialUpdateBody.omit({ _create_in_folder: true, _create_static_person_ids: true }).shape
 )
 
 const cohortsPartialUpdate = (): ToolBase<
@@ -147,6 +157,11 @@ const cohortsPartialUpdate = (): ToolBase<
             _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
         }
     },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/cohort.html',
+        },
+    },
 })
 
 const CohortsAddPersonsToStaticCohortPartialUpdateSchema = CohortsAddPersonsToStaticCohortPartialUpdateParams.omit({
@@ -177,21 +192,17 @@ const cohortsAddPersonsToStaticCohortPartialUpdate = (): ToolBase<
     },
 })
 
-const CohortsRemovePersonFromStaticCohortPartialUpdateSchema =
-    CohortsRemovePersonFromStaticCohortPartialUpdateParams.omit({ project_id: true }).extend(
-        CohortsRemovePersonFromStaticCohortPartialUpdateBody.shape
-    )
+const CohortsRmPersonFromStaticCohortPartialUpdateSchema = CohortsRemovePersonFromStaticCohortPartialUpdateParams.omit({
+    project_id: true,
+}).extend(CohortsRemovePersonFromStaticCohortPartialUpdateBody.shape)
 
-const cohortsRemovePersonFromStaticCohortPartialUpdate = (): ToolBase<
-    typeof CohortsRemovePersonFromStaticCohortPartialUpdateSchema,
+const cohortsRmPersonFromStaticCohortPartialUpdate = (): ToolBase<
+    typeof CohortsRmPersonFromStaticCohortPartialUpdateSchema,
     unknown
 > => ({
-    name: 'cohorts-remove-person-from-static-cohort-partial-update',
-    schema: CohortsRemovePersonFromStaticCohortPartialUpdateSchema,
-    handler: async (
-        context: Context,
-        params: z.infer<typeof CohortsRemovePersonFromStaticCohortPartialUpdateSchema>
-    ) => {
+    name: 'cohorts-rm-person-from-static-cohort-partial-update',
+    schema: CohortsRmPersonFromStaticCohortPartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof CohortsRmPersonFromStaticCohortPartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.person_id !== undefined) {
@@ -215,5 +226,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'cohorts-retrieve': cohortsRetrieve,
     'cohorts-partial-update': cohortsPartialUpdate,
     'cohorts-add-persons-to-static-cohort-partial-update': cohortsAddPersonsToStaticCohortPartialUpdate,
-    'cohorts-remove-person-from-static-cohort-partial-update': cohortsRemovePersonFromStaticCohortPartialUpdate,
+    'cohorts-rm-person-from-static-cohort-partial-update': cohortsRmPersonFromStaticCohortPartialUpdate,
 }

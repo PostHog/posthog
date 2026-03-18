@@ -7,6 +7,8 @@ import { ProductAnalyticsInsightNodeKind } from '~/queries/nodes/InsightQuery/de
 import {
     ActionsNode,
     ActorsQuery,
+    AnyDataWarehouseNode,
+    AnyEntityNode,
     BreakdownFilter,
     CompareFilter,
     DataTableNode,
@@ -24,6 +26,7 @@ import {
     ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentTrendsQuery,
+    FunnelsDataWarehouseNode,
     FunnelsQuery,
     GoalLine,
     GroupNode,
@@ -36,6 +39,7 @@ import {
     InsightFilterProperty,
     InsightQueryNode,
     InsightVizNode,
+    LifecycleDataWarehouseNode,
     LifecycleQuery,
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
@@ -73,7 +77,7 @@ import {
     WebVitalsPathBreakdownQuery,
     WebVitalsQuery,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, IntervalType } from '~/types'
+import { BaseMathType, ChartDisplayType, GroupTypeIndex, IntervalType } from '~/types'
 
 import { LATEST_VERSIONS } from './latest-versions'
 
@@ -119,6 +123,18 @@ export function isActionsNode(node?: Record<string, any> | null): node is Action
 
 export function isDataWarehouseNode(node?: Record<string, any> | null): node is DataWarehouseNode {
     return node?.kind === NodeKind.DataWarehouseNode
+}
+
+export function isFunnelsDataWarehouseNode(node?: Record<string, any> | null): node is FunnelsDataWarehouseNode {
+    return node?.kind === NodeKind.FunnelsDataWarehouseNode
+}
+
+export function isLifecycleDataWarehouseNode(node?: Record<string, any> | null): node is LifecycleDataWarehouseNode {
+    return node?.kind === NodeKind.LifecycleDataWarehouseNode
+}
+
+export function isAnyDataWarehouseNode(node?: Record<string, any> | null): node is AnyDataWarehouseNode {
+    return isDataWarehouseNode(node) || isFunnelsDataWarehouseNode(node) || isLifecycleDataWarehouseNode(node)
 }
 
 /** @deprecated `ActorsQuery` is now used instead of `PersonsNode`. */
@@ -338,11 +354,15 @@ export function isLifecycleQuery(node?: Record<string, any> | null): node is Lif
     return node?.kind === NodeKind.LifecycleQuery
 }
 
-export function isInsightQueryWithDisplay(node?: Record<string, any> | null): node is TrendsQuery | StickinessQuery {
-    return isTrendsQuery(node) || isStickinessQuery(node)
+export function isInsightQueryWithDisplay(
+    node?: Record<string, any> | null
+): node is TrendsQuery | RetentionQuery | StickinessQuery {
+    return isTrendsQuery(node) || isStickinessQuery(node) || isRetentionQuery(node)
 }
 
-export function isInsightQueryWithBreakdown(node?: Record<string, any> | null): node is TrendsQuery | FunnelsQuery {
+export function isInsightQueryWithBreakdown(
+    node?: Record<string, any> | null
+): node is TrendsQuery | FunnelsQuery | RetentionQuery {
     return isTrendsQuery(node) || isFunnelsQuery(node) || isRetentionQuery(node)
 }
 
@@ -467,9 +487,7 @@ export const getFormulaNodes = (query: InsightQueryNode | null): TrendsFormulaNo
     return undefined
 }
 
-export const getSeries = (
-    query: InsightQueryNode
-): (EventsNode | ActionsNode | DataWarehouseNode | GroupNode)[] | undefined => {
+export const getSeries = (query: InsightQueryNode): (AnyEntityNode<AnyDataWarehouseNode> | GroupNode)[] | undefined => {
     if (isInsightQueryWithSeries(query)) {
         return query.series
     }
@@ -486,6 +504,13 @@ export const getBreakdown = (query: InsightQueryNode): BreakdownFilter | undefin
 export const getCompareFilter = (query: InsightQueryNode): CompareFilter | undefined => {
     if (isInsightQueryWithCompare(query)) {
         return query.compareFilter
+    }
+    return undefined
+}
+
+export const getAggregationGroupTypeIndex = (query: InsightQueryNode): GroupTypeIndex | null | undefined => {
+    if (!isStickinessQuery(query)) {
+        return query.aggregation_group_type_index as GroupTypeIndex | null | undefined
     }
     return undefined
 }
@@ -798,7 +823,12 @@ export function isValidBreakdown(breakdownFilter?: BreakdownFilter | null): brea
 }
 
 export function isValidQueryForExperiment(query: Node): boolean {
-    return isNodeWithSource(query) && isFunnelsQuery(query.source) && query.source.series.length >= 2
+    if (!isNodeWithSource(query) || !isFunnelsQuery(query.source)) {
+        return false
+    }
+
+    const { series } = query.source
+    return series.length >= 2 && !series?.some((node) => isDataWarehouseNode(node))
 }
 
 export function isGroupsQuery(node?: Record<string, any> | null): node is GroupsQuery {

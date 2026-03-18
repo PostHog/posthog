@@ -20,6 +20,7 @@ from posthog.temporal.common.schedule import describe_schedule
 from posthog.temporal.data_imports.sources.stripe.source import StripeSource
 
 from products.data_warehouse.backend.api.test.utils import create_external_data_source_ok
+from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.models import DataWarehouseTable
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
@@ -455,6 +456,169 @@ class TestUpdateExternalDataSchema:
         )
 
         assert response.status_code == 400
+
+    def test_update_schema_exposes_direct_postgres_table_without_sync_type(
+        self, team, user, client: HttpClient, temporal
+    ):
+        client.force_login(user)
+        source = ExternalDataSource.objects.create(
+            team=team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            status=ExternalDataSource.Status.RUNNING,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={},
+        )
+        schema = ExternalDataSchema.objects.create(
+            team=team,
+            source=source,
+            name="accounts",
+            should_sync=False,
+            sync_type=None,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [{"name": "id", "data_type": "integer", "is_nullable": False}],
+                    "foreign_keys": [],
+                }
+            },
+        )
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists"
+            ) as mock_external_data_workflow_exists,
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow"
+            ) as mock_sync_external_data_job_workflow,
+        ):
+            response = client.patch(
+                f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+                data={
+                    "id": str(schema.id),
+                    "name": schema.name,
+                    "should_sync": True,
+                    "incremental": False,
+                    "status": "Completed",
+                    "sync_type": None,
+                    "incremental_field": None,
+                    "incremental_field_type": None,
+                    "sync_frequency": "6hour",
+                    "sync_time_of_day": "00:00:00",
+                },
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            schema.refresh_from_db()
+            assert schema.should_sync is True
+            assert schema.table is not None
+            assert schema.table.deleted is False
+            assert schema.table.url_pattern == DIRECT_POSTGRES_URL_PATTERN
+            mock_external_data_workflow_exists.assert_not_called()
+            mock_sync_external_data_job_workflow.assert_not_called()
+
+    def test_update_schema_hides_direct_postgres_table_when_disabled(self, team, user, client: HttpClient, temporal):
+        client.force_login(user)
+        source = ExternalDataSource.objects.create(
+            team=team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            status=ExternalDataSource.Status.RUNNING,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="accounts",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=team,
+            url_pattern=DIRECT_POSTGRES_URL_PATTERN,
+            external_data_source=source,
+            columns={"id": {"clickhouse": "Int32", "hogql": "integer", "valid": True}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            team=team,
+            source=source,
+            name="accounts",
+            should_sync=True,
+            sync_type=None,
+            table=table,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [{"name": "id", "data_type": "integer", "is_nullable": False}],
+                    "foreign_keys": [],
+                }
+            },
+        )
+
+        with mock.patch("products.data_warehouse.backend.api.external_data_schema.Database.create_for"):
+            response = client.patch(
+                f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+                data={
+                    "id": str(schema.id),
+                    "name": schema.name,
+                    "should_sync": False,
+                    "incremental": False,
+                    "status": "Completed",
+                    "sync_type": None,
+                    "incremental_field": None,
+                    "incremental_field_type": None,
+                    "sync_frequency": "6hour",
+                    "sync_time_of_day": "00:00:00",
+                },
+                content_type="application/json",
+            )
+
+        assert response.status_code == 200
+        schema.refresh_from_db()
+        assert schema.should_sync is False
+        assert DataWarehouseTable.raw_objects.get(pk=table.pk).deleted is True
+
+    def test_delete_data_hides_direct_postgres_table(self, team, user, client: HttpClient, temporal):
+        client.force_login(user)
+        source = ExternalDataSource.objects.create(
+            team=team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            status=ExternalDataSource.Status.RUNNING,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="accounts",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=team,
+            url_pattern=DIRECT_POSTGRES_URL_PATTERN,
+            external_data_source=source,
+            columns={"id": {"clickhouse": "Int32", "hogql": "integer", "valid": True}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            team=team,
+            source=source,
+            name="accounts",
+            should_sync=True,
+            sync_type=None,
+            table=table,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [{"name": "id", "data_type": "integer", "is_nullable": False}],
+                    "foreign_keys": [],
+                }
+            },
+        )
+
+        response = client.delete(f"/api/environments/{team.pk}/external_data_schemas/{schema.id}/delete_data")
+
+        assert response.status_code == 200
+        schema.refresh_from_db()
+        assert schema.should_sync is False
+        assert schema.table_id == table.id
+        assert DataWarehouseTable.raw_objects.get(pk=table.pk).deleted is True
 
     def test_update_schema_change_sync_type_with_invalid_type(self, team, user, client: HttpClient, temporal):
         client.force_login(user)

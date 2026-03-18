@@ -6,7 +6,7 @@ export const template: HogFunctionTemplate = {
     type: 'destination',
     id: 'template-posthog-update-ticket',
     name: 'Update conversation ticket',
-    description: 'Update the status, priority, SLA, or assignee of a conversation ticket',
+    description: 'Update the status, priority, SLA, assignee, or tags of a conversation ticket',
     icon_url: '/static/posthog-icon.svg',
     category: ['Custom'],
     code_language: 'hog',
@@ -40,6 +40,10 @@ if (inputs.sla_amount == 'clear') {
 
 if (not empty(inputs.assignee)) {
   updates.assignee := inputs.assignee
+}
+
+if (not empty(inputs.tags)) {
+  updates.tags := inputs.tags
 }
 
 let response := postHogUpdateTicket({
@@ -120,6 +124,14 @@ return response.body
             secret: false,
             required: false,
             description: 'Assign ticket to a user or role. Leave empty to keep current assignment.',
+        },
+        {
+            key: 'tags',
+            type: 'posthog_ticket_tags',
+            label: 'Tags',
+            secret: false,
+            required: false,
+            description: 'Set tags on the ticket. Leave empty to keep current tags.',
         },
     ],
 }

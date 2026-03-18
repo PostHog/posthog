@@ -102,6 +102,10 @@ export function PersonsModal({
     const { startExport } = useActions(exportsLogic)
 
     const totalActorsCount = missingActorsCount + actors.length
+    type ActorsQuery = NonNullable<typeof query>
+
+    const asLemonSelectValue = (value: unknown): string | number | boolean | null =>
+        typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? value : null
 
     const getTitle = useCallback(() => {
         if (typeof title === 'function') {
@@ -138,21 +142,20 @@ export function PersonsModal({
                         <MissingPersonsAlert actorLabel={actorLabel} missingActorsCount={missingActorsCount} />
                     )}
 
-                    {/* TODO: Support search for sessions */}
-                    {!hasSessions && (
-                        <LemonInput
-                            type="search"
-                            placeholder={
-                                hasGroups
-                                    ? 'Search for groups by name or ID'
-                                    : 'Search for persons by email, name, or ID'
-                            }
-                            fullWidth
-                            value={searchTerm}
-                            onChange={setSearchTerm}
-                            className="my-2"
-                        />
-                    )}
+                    <LemonInput
+                        type="search"
+                        placeholder={
+                            hasGroups
+                                ? 'Search for groups by name or ID'
+                                : hasSessions
+                                  ? 'Search for sessions by person email or name'
+                                  : 'Search for persons by email, name, or ID'
+                        }
+                        fullWidth
+                        value={searchTerm}
+                        onChange={setSearchTerm}
+                        className="my-2"
+                    />
 
                     {urls ? (
                         <LemonSelect
@@ -179,12 +182,15 @@ export function PersonsModal({
                                           <LemonSelect
                                               fullWidth
                                               className="mb-2"
-                                              value={query?.breakdown?.[index] ?? null}
+                                              value={Array.isArray(query.breakdown) ? query.breakdown[index] : null}
                                               onChange={(v) => {
+                                                  if (!v) {
+                                                      return
+                                                  }
                                                   const breakdown = Array.isArray(query.breakdown)
                                                       ? [...query.breakdown]
                                                       : []
-                                                  breakdown[index] = v
+                                                  breakdown[index] = v.toString()
                                                   updateActorsQuery({ breakdown })
                                               }}
                                               options={values}
@@ -196,7 +202,7 @@ export function PersonsModal({
                                           <LemonSelect
                                               fullWidth
                                               className="mb-2"
-                                              value={query?.[key] ?? null}
+                                              value={asLemonSelectValue(query[key as keyof ActorsQuery])}
                                               onChange={(v) => updateActorsQuery({ [key]: v })}
                                               options={options}
                                           />
@@ -248,8 +254,13 @@ export function PersonsModal({
                                     <ActorRow
                                         key={actor.id}
                                         actor={actor}
+                                        // created_at is null for actors without a PostgreSQL Person record
+                                        // (personless mode, merged, or deleted persons) — skip the
+                                        // timeline which would 404, and show static properties instead.
                                         propertiesTimelineFilter={
-                                            actor.type == 'person' && currentTeam?.person_on_events_querying_enabled
+                                            actor.type == 'person' &&
+                                            actor.created_at &&
+                                            currentTeam?.person_on_events_querying_enabled
                                                 ? propertiesTimelineFilterFromUrl
                                                 : undefined
                                         }

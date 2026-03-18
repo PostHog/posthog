@@ -143,7 +143,7 @@ class TestOauthIntegrationModel(BaseTest):
                 == "https://accounts.google.com/o/oauth2/v2/auth?client_id=google-client-id&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fadwords+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email&redirect_uri=https%3A%2F%2Flocalhost%3A8010%2Fintegrations%2Fgoogle-ads%2Fcallback&response_type=code&state=next%3D%252Fprojects%252Ftest%26token%3Dstate_token&access_type=offline&prompt=consent"
             )
 
-    @patch("posthog.models.integration.external_requests.post")
+    @patch("posthog.models.integration.requests.post")
     def test_integration_from_oauth_response(self, mock_post):
         with self.settings(**self.mock_settings):
             mock_post.return_value.status_code = 200
@@ -179,7 +179,7 @@ class TestOauthIntegrationModel(BaseTest):
                 "id_token": None,
             }
 
-    @patch("posthog.models.integration.external_requests.post")
+    @patch("posthog.models.integration.requests.post")
     def test_integration_errors_if_id_cannot_be_generated(self, mock_post):
         with self.settings(**self.mock_settings):
             mock_post.return_value.status_code = 200
@@ -201,8 +201,8 @@ class TestOauthIntegrationModel(BaseTest):
                     },
                 )
 
-    @patch("posthog.models.integration.external_requests.post")
-    @patch("posthog.models.integration.external_requests.get")
+    @patch("posthog.models.integration.requests.post")
+    @patch("posthog.models.integration.requests.get")
     def test_integration_fetches_info_from_token_info_url(self, mock_get, mock_post):
         with self.settings(**self.mock_settings):
             mock_post.return_value.status_code = 200
@@ -254,7 +254,7 @@ class TestOauthIntegrationModel(BaseTest):
                 "id_token": None,
             }
 
-    @patch("posthog.models.integration.external_requests.post")
+    @patch("posthog.models.integration.requests.post")
     def test_linkedin_integration_extracts_user_info_from_id_token(self, mock_post):
         """
         LinkedIn's /v2/userinfo endpoint has intermittent REVOKED_ACCESS_TOKEN errors,
@@ -324,7 +324,7 @@ class TestOauthIntegrationModel(BaseTest):
             assert OauthIntegration(integration).access_token_expired()
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
-    @patch("posthog.models.integration.external_requests.post")
+    @patch("posthog.models.integration.requests.post")
     def test_refresh_access_token(self, mock_post, mock_reload):
         mock_post.return_value.status_code = 200
         mock_post.return_value.json.return_value = {
@@ -369,7 +369,7 @@ class TestOauthIntegrationModel(BaseTest):
         ]
     )
     @patch("posthog.models.integration.reload_integrations_on_workers")
-    @patch("posthog.models.integration.external_requests.post")
+    @patch("posthog.models.integration.requests.post")
     def test_refresh_access_token_refresh_token_handling(
         self, _name, token_response, expected_refresh_token, mock_post, mock_reload
     ):
@@ -386,7 +386,7 @@ class TestOauthIntegrationModel(BaseTest):
         assert integration.sensitive_config["refresh_token"] == expected_refresh_token
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
-    @patch("posthog.models.integration.external_requests.post")
+    @patch("posthog.models.integration.requests.post")
     def test_refresh_access_token_handles_errors(self, mock_post, mock_reload):
         mock_post.return_value.status_code = 401
         mock_post.return_value.json.return_value = {"error": "BROKEN"}
@@ -404,7 +404,7 @@ class TestOauthIntegrationModel(BaseTest):
         mock_reload.assert_not_called()
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
-    @patch("posthog.models.integration.external_requests.post")
+    @patch("posthog.models.integration.requests.post")
     def test_refresh_access_token_resets_errors(self, mock_post, mock_reload):
         """Test that errors field is reset to empty string after successful refresh_access_token"""
         mock_post.return_value.status_code = 200
@@ -424,7 +424,7 @@ class TestOauthIntegrationModel(BaseTest):
         integration.refresh_from_db()
         assert integration.errors == ""
 
-    @patch("posthog.models.integration.external_requests.post")
+    @patch("posthog.models.integration.requests.post")
     def test_salesforce_integration_without_expires_in_initial_response(self, mock_post):
         """Test that Salesforce integrations without expires_in get default 1 hour expiry"""
         with self.settings(**self.mock_settings):
@@ -495,7 +495,7 @@ class TestOauthIntegrationModel(BaseTest):
             assert not oauth_integration.access_token_expired()
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
-    @patch("posthog.models.integration.external_requests.post")
+    @patch("posthog.models.integration.requests.post")
     def test_salesforce_refresh_access_token_without_expires_in_response(self, mock_post, mock_reload):
         """Test that Salesforce refresh without expires_in in response gets 1 hour default"""
         mock_post.return_value.status_code = 200
@@ -518,7 +518,7 @@ class TestOauthIntegrationModel(BaseTest):
         mock_reload.assert_called_once_with(self.team.id, [integration.id])
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
-    @patch("posthog.models.integration.external_requests.post")
+    @patch("posthog.models.integration.requests.post")
     def test_non_salesforce_refresh_access_token_preserves_none_expires_in(self, mock_post, mock_reload):
         """Test that non-Salesforce integrations preserve None expires_in from refresh response"""
         mock_post.return_value.status_code = 200
@@ -734,7 +734,7 @@ class TestGitHubIntegrationModel(BaseTest):
         integration.refresh_from_db()
         assert integration.errors == ""
 
-    @patch("posthog.models.integration.external_requests.get")
+    @patch("posthog.models.integration.requests.get")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
     def test_list_repositories_retries_transient_non_json_response(self, _mock_expired, mock_get):
         integration = self.create_integration(
@@ -765,7 +765,7 @@ class TestGitHubIntegrationModel(BaseTest):
         ]
         assert mock_get.call_count == 2
 
-    @patch("posthog.models.integration.external_requests.get")
+    @patch("posthog.models.integration.requests.get")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
     def test_list_repositories_returns_empty_after_repeated_transient_non_json(self, _mock_expired, mock_get):
         integration = self.create_integration(
@@ -903,7 +903,7 @@ class TestEmailIntegrationDomainValidation(BaseTest):
 class TestGitLabIntegrationSSRFProtection:
     """Test SSRF protections in GitLabIntegration."""
 
-    @patch("posthog.models.integration.external_requests.get")
+    @patch("posthog.models.integration.requests.get")
     @patch("posthog.models.integration.is_url_allowed")
     def test_get_uses_allow_redirects_false(self, mock_is_url_allowed, mock_get):
         """GET requests must use allow_redirects=False to prevent redirect-based SSRF bypass."""
@@ -918,7 +918,7 @@ class TestGitLabIntegrationSSRFProtection:
         call_kwargs = mock_get.call_args.kwargs
         assert call_kwargs.get("allow_redirects") is False, "GET must use allow_redirects=False for SSRF protection"
 
-    @patch("posthog.models.integration.external_requests.post")
+    @patch("posthog.models.integration.requests.post")
     @patch("posthog.models.integration.is_url_allowed")
     def test_post_uses_allow_redirects_false(self, mock_is_url_allowed, mock_post):
         """POST requests must use allow_redirects=False to prevent redirect-based SSRF bypass."""
@@ -933,7 +933,7 @@ class TestGitLabIntegrationSSRFProtection:
         call_kwargs = mock_post.call_args.kwargs
         assert call_kwargs.get("allow_redirects") is False, "POST must use allow_redirects=False for SSRF protection"
 
-    @patch("posthog.models.integration.external_requests.get")
+    @patch("posthog.models.integration.requests.get")
     @patch("posthog.models.integration.is_url_allowed")
     def test_get_validates_url_before_request(self, mock_is_url_allowed, mock_get):
         """URL validation must happen before the request is made."""
@@ -946,7 +946,7 @@ class TestGitLabIntegrationSSRFProtection:
 
         mock_get.assert_not_called()
 
-    @patch("posthog.models.integration.external_requests.post")
+    @patch("posthog.models.integration.requests.post")
     @patch("posthog.models.integration.is_url_allowed")
     def test_post_validates_url_before_request(self, mock_is_url_allowed, mock_post):
         """URL validation must happen before the request is made."""

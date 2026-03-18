@@ -1,4 +1,3 @@
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -28,15 +27,5 @@ export const manifest: ProductManifest = {
             sceneKeys: ['WebAnalytics'],
         },
     ],
-    treeItemsMetadata: [
-        {
-            path: 'Marketing settings',
-            category: 'Unreleased',
-            iconType: 'marketing_settings',
-            href: urls.marketingAnalytics(),
-            flag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
-            sceneKey: 'WebAnalyticsMarketing',
-            sceneKeys: ['WebAnalyticsMarketing'],
-        },
-    ],
+    treeItemsMetadata: [],
 }

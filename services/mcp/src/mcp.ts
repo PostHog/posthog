@@ -5,7 +5,7 @@ import { McpAgent } from 'agents/mcp'
 import type { z } from 'zod'
 
 import { ApiClient } from '@/api/client'
-import { AnalyticsEvent, getPostHogClient } from '@/lib/analytics'
+import { AnalyticsEvent, generateId, getPostHogClient } from '@/lib/analytics'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
 import {
     CUSTOM_API_BASE_URL,
@@ -24,7 +24,6 @@ import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
 import INSTRUCTIONS_TEMPLATE_V1 from '@/templates/instructions-v1.md'
 import INSTRUCTIONS_TEMPLATE_V2 from '@/templates/instructions-v2.md'
-import { getToolsFromContext } from '@/tools'
 import type { CloudRegion, Context, State, Tool } from '@/tools/types'
 import type { AnalyticsMetadata, WithAnalytics } from '@/ui-apps/types'
 
@@ -42,6 +41,8 @@ export type RequestProperties = {
     organizationId?: string
     projectId?: string
     clientUserAgent?: string
+    readOnly?: boolean
+    transport?: 'streamable-http' | 'sse'
 }
 
 export class MCP extends McpAgent<Env> {
@@ -54,6 +55,8 @@ export class MCP extends McpAgent<Env> {
         region: undefined,
         apiKey: undefined,
         clientName: undefined,
+        aiConsentGiven: undefined,
+        aiConsentFetchedAt: undefined,
     }
 
     _cache: DurableObjectCache<State> | undefined
@@ -204,9 +207,11 @@ export class MCP extends McpAgent<Env> {
         try {
             const distinctId = await this.getDistinctId()
 
-            const client = getPostHogClient()
+            const client = getPostHogClient(!!CUSTOM_API_BASE_URL)
 
             await this.resolveClientInfo()
+
+            const clientName = await this.cache.get('clientName')
 
             client.capture({
                 distinctId,
@@ -217,9 +222,11 @@ export class MCP extends McpAgent<Env> {
                               $session_id: await this.sessionManager.getSessionUuid(this.requestProperties.sessionId),
                           }
                         : {}),
+                    ...(clientName ? { mcp_oauth_client_name: clientName } : {}),
                     ...(this._mcpClientName ? { mcp_client_name: this._mcpClientName } : {}),
                     ...(this._mcpClientVersion ? { mcp_client_version: this._mcpClientVersion } : {}),
                     ...(this._mcpProtocolVersion ? { mcp_protocol_version: this._mcpProtocolVersion } : {}),
+                    ...(this.requestProperties.transport ? { mcp_transport: this.requestProperties.transport } : {}),
                     ...properties,
                 },
             })
@@ -233,6 +240,11 @@ export class MCP extends McpAgent<Env> {
         handler: (params: z.infer<TSchema>) => Promise<any>
     ): void {
         const wrappedHandler = async (params: z.infer<TSchema>): Promise<any> => {
+            const traceId = generateId()
+            const spanId = generateId()
+            const spanName = `mcp/${tool.name}`
+            const startTime = performance.now()
+            const inputState = params
             const validation = tool.schema.safeParse(params)
 
             if (!validation.success) {
@@ -241,10 +253,31 @@ export class MCP extends McpAgent<Env> {
                     valid_input: false,
                     input: params,
                 })
+                const latency = (performance.now() - startTime) / 1000
+                const errorOutput = `Invalid input: ${validation.error.message}`
+                const outputState = { error: errorOutput }
+                await this.trackEvent(AnalyticsEvent.AI_TRACE, {
+                    $ai_trace_id: traceId,
+                    $ai_span_name: spanName,
+                    $ai_latency: latency,
+                    $ai_is_error: true,
+                    ai_product: 'mcp',
+                })
+                await this.trackEvent(AnalyticsEvent.AI_SPAN, {
+                    $ai_trace_id: traceId,
+                    $ai_span_id: spanId,
+                    $ai_parent_id: traceId,
+                    $ai_span_name: spanName,
+                    $ai_input_state: inputState,
+                    $ai_output_state: outputState,
+                    $ai_latency: latency,
+                    $ai_is_error: true,
+                    ai_product: 'mcp',
+                })
                 return [
                     {
                         type: 'text',
-                        text: `Invalid input: ${validation.error.message}`,
+                        text: errorOutput,
                     },
                 ]
             }
@@ -256,8 +289,27 @@ export class MCP extends McpAgent<Env> {
 
             try {
                 const result = await handler(params)
+                const latency = (performance.now() - startTime) / 1000
+                const outputState = result
+
                 await this.trackEvent(AnalyticsEvent.MCP_TOOL_RESPONSE, {
                     tool: tool.name,
+                })
+                await this.trackEvent(AnalyticsEvent.AI_TRACE, {
+                    $ai_trace_id: traceId,
+                    $ai_span_name: spanName,
+                    $ai_latency: latency,
+                    ai_product: 'mcp',
+                })
+                await this.trackEvent(AnalyticsEvent.AI_SPAN, {
+                    $ai_trace_id: traceId,
+                    $ai_span_id: spanId,
+                    $ai_parent_id: traceId,
+                    $ai_span_name: spanName,
+                    $ai_input_state: inputState,
+                    $ai_output_state: outputState,
+                    $ai_latency: latency,
+                    ai_product: 'mcp',
                 })
 
                 // For tools with UI resources, include structuredContent for better UI rendering
@@ -290,6 +342,27 @@ export class MCP extends McpAgent<Env> {
                     ...(hasUiResource ? { structuredContent } : {}),
                 }
             } catch (error: any) {
+                const latency = (performance.now() - startTime) / 1000
+                const errorMessage = error instanceof Error ? error.message : String(error)
+                const outputState = { error: errorMessage }
+                await this.trackEvent(AnalyticsEvent.AI_TRACE, {
+                    $ai_trace_id: traceId,
+                    $ai_span_name: spanName,
+                    $ai_latency: latency,
+                    $ai_is_error: true,
+                    ai_product: 'mcp',
+                })
+                await this.trackEvent(AnalyticsEvent.AI_SPAN, {
+                    $ai_trace_id: traceId,
+                    $ai_span_id: spanId,
+                    $ai_parent_id: traceId,
+                    $ai_span_name: spanName,
+                    $ai_input_state: inputState,
+                    $ai_output_state: outputState,
+                    $ai_latency: latency,
+                    $ai_is_error: true,
+                    ai_product: 'mcp',
+                })
                 const distinctId = await this.getDistinctId()
                 return handleToolError(
                     error,
@@ -337,7 +410,7 @@ export class MCP extends McpAgent<Env> {
     }
 
     async init(): Promise<void> {
-        const { features, version, organizationId, projectId } = this.requestProperties
+        const { features, version, organizationId, projectId, readOnly } = this.requestProperties
         const instructions = version === 2 ? INSTRUCTIONS_V2 : INSTRUCTIONS_TEMPLATE_V1
         this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
 
@@ -366,11 +439,20 @@ export class MCP extends McpAgent<Env> {
         await registerUiAppResources(this.server, context)
 
         // Register tools
+        const { getToolsFromContext } = await import('@/tools')
         const allTools = await getToolsFromContext(context, {
             features,
             version,
             excludeTools,
+            readOnly,
         })
+
+        // OAuth introspection has now run (triggered by getToolsFromContext → getApiKey),
+        // so update the ApiClient with the verified OAuth client name for header forwarding.
+        const oauthClientName = (await this.cache.get('clientName')) || undefined
+        if (oauthClientName && this._api) {
+            this._api.config.oauthClientName = oauthClientName
+        }
 
         for (const tool of allTools) {
             const typedTool = tool as Tool<z.ZodObject>

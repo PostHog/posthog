@@ -8,9 +8,15 @@ export interface TicketTagsProps {
     tags: string[]
     onChange: (tags: string[]) => void
     saving?: boolean
+    className?: string
 }
 
-export function TicketTags({ tags, onChange, saving = false }: TicketTagsProps): JSX.Element {
+export function TicketTags({
+    tags,
+    onChange,
+    saving = false,
+    className = 'justify-end p-2',
+}: TicketTagsProps): JSX.Element {
     const { tags: tagsAvailable, tagsLoading } = useValues(tagsModel)
 
     return (
@@ -19,8 +25,9 @@ export function TicketTags({ tags, onChange, saving = false }: TicketTagsProps):
             onChange={onChange}
             saving={saving || tagsLoading}
             tagsAvailable={tagsAvailable}
-            className="justify-end p-2"
+            className={className}
             data-attr="ticket-tags"
+            actionButtonSize="medium"
         />
     )
 }

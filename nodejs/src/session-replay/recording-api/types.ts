@@ -4,7 +4,8 @@
  * Re-exports shared encryption types from session-replay/types.ts and adds
  * Recording API-specific types.
  */
-import { PluginsServerConfig } from '../../types'
+import { CommonConfig } from '../../common/config'
+import { SessionRecordingApiConfig, SessionRecordingConfig } from '../../session-recording/config'
 
 // Re-export all shared encryption types so existing recording-api imports still work
 export {
@@ -25,18 +26,36 @@ export {
  * Postgres is passed as an explicit constructor param, not included here.
  */
 export type RecordingApiConfig = Pick<
-    PluginsServerConfig,
-    | 'KAFKA_CLIENT_RACK'
-    | 'REDIS_POOL_MIN_SIZE'
-    | 'REDIS_POOL_MAX_SIZE'
-    | 'SESSION_RECORDING_API_REDIS_HOST'
-    | 'SESSION_RECORDING_API_REDIS_PORT'
-    | 'SESSION_RECORDING_V2_S3_REGION'
-    | 'SESSION_RECORDING_V2_S3_ENDPOINT'
-    | 'SESSION_RECORDING_V2_S3_ACCESS_KEY_ID'
-    | 'SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY'
-    | 'SESSION_RECORDING_V2_S3_BUCKET'
-    | 'SESSION_RECORDING_V2_S3_PREFIX'
-    | 'SESSION_RECORDING_KMS_ENDPOINT'
-    | 'SESSION_RECORDING_DYNAMODB_ENDPOINT'
->
+    CommonConfig,
+    'SITE_URL' | 'KAFKA_CLIENT_RACK' | 'REDIS_POOL_MIN_SIZE' | 'REDIS_POOL_MAX_SIZE'
+> &
+    Pick<
+        SessionRecordingApiConfig,
+        | 'SESSION_RECORDING_API_REDIS_HOST'
+        | 'SESSION_RECORDING_API_REDIS_PORT'
+        | 'SESSION_RECORDING_KMS_ENDPOINT'
+        | 'SESSION_RECORDING_DYNAMODB_ENDPOINT'
+        | 'CLICKHOUSE_HOST'
+        | 'CLICKHOUSE_DATABASE'
+        | 'CLICKHOUSE_USER'
+        | 'CLICKHOUSE_PASSWORD'
+        | 'CLICKHOUSE_SECURE'
+        | 'CLICKHOUSE_CA'
+    > &
+    Pick<
+        SessionRecordingConfig,
+        | 'SESSION_RECORDING_V2_S3_REGION'
+        | 'SESSION_RECORDING_V2_S3_ENDPOINT'
+        | 'SESSION_RECORDING_V2_S3_ACCESS_KEY_ID'
+        | 'SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY'
+        | 'SESSION_RECORDING_V2_S3_BUCKET'
+        | 'SESSION_RECORDING_V2_S3_PREFIX'
+    >
+
+export interface RecordingBlock {
+    key: string
+    start_byte: number
+    end_byte: number
+    start_timestamp: string
+    end_timestamp: string
+}

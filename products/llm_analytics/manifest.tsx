@@ -132,11 +132,13 @@ export const manifest: ProductManifest = {
     routes: {
         '/llm-analytics/dashboard': ['LLMAnalytics', 'llmAnalyticsDashboard'],
         '/llm-analytics/generations': ['LLMAnalytics', 'llmAnalyticsGenerations'],
+        '/llm-analytics/reviews': ['LLMAnalytics', 'llmAnalyticsReviews'],
         '/llm-analytics/traces': ['LLMAnalytics', 'llmAnalyticsTraces'],
         '/llm-analytics/traces/:id': ['LLMAnalyticsTrace', 'llmAnalytics'],
         '/llm-analytics/users': ['LLMAnalytics', 'llmAnalyticsUsers'],
         '/llm-analytics/errors': ['LLMAnalytics', 'llmAnalyticsErrors'],
         '/llm-analytics/tools': ['LLMAnalytics', 'llmAnalyticsTools'],
+        '/llm-analytics/sentiment': ['LLMAnalytics', 'llmAnalyticsSentiment'],
         '/llm-analytics/sessions': ['LLMAnalytics', 'llmAnalyticsSessions'],
         '/llm-analytics/sessions/:id': ['LLMAnalyticsSession', 'llmAnalytics'],
         '/llm-analytics/playground': ['LLMAnalyticsPlayground', 'llmAnalyticsPlayground'],
@@ -167,6 +169,8 @@ export const manifest: ProductManifest = {
             combineUrl(`/llm-analytics/dashboard`, searchParams, hashParams).url,
         '/llm-observability/generations': (_params, searchParams, hashParams) =>
             combineUrl(`/llm-analytics/generations`, searchParams, hashParams).url,
+        '/llm-observability/reviews': (_params, searchParams, hashParams) =>
+            combineUrl(`/llm-analytics/reviews`, searchParams, hashParams).url,
         '/llm-observability/traces': (_params, searchParams, hashParams) =>
             combineUrl(`/llm-analytics/traces`, searchParams, hashParams).url,
         '/llm-observability/traces/:id': (params, searchParams, hashParams) =>
@@ -181,6 +185,7 @@ export const manifest: ProductManifest = {
     urls: {
         llmAnalyticsDashboard: (): string => '/llm-analytics/dashboard',
         llmAnalyticsGenerations: (): string => '/llm-analytics/generations',
+        llmAnalyticsReviews: (): string => '/llm-analytics/reviews',
         llmAnalyticsTraces: (): string => '/llm-analytics/traces',
         llmAnalyticsTrace: (
             id: string,
@@ -190,6 +195,7 @@ export const manifest: ProductManifest = {
                 exception_ts?: string
                 search?: string
                 tab?: string
+                msg?: string
             }
         ): string => {
             const queryParams = new URLSearchParams(params)
@@ -199,6 +205,7 @@ export const manifest: ProductManifest = {
         llmAnalyticsUsers: (): string => '/llm-analytics/users',
         llmAnalyticsErrors: (): string => '/llm-analytics/errors',
         llmAnalyticsTools: (): string => '/llm-analytics/tools',
+        llmAnalyticsSentiment: (): string => '/llm-analytics/sentiment',
         llmAnalyticsSessions: (): string => '/llm-analytics/sessions',
         llmAnalyticsSession: (
             id: string,
@@ -255,7 +262,6 @@ export const manifest: ProductManifest = {
             iconType: 'llm_playground' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
             href: urls.llmAnalyticsPlayground(),
-            tags: ['beta'],
             sceneKey: 'LLMAnalyticsPlayground',
         },
         {
@@ -266,8 +272,6 @@ export const manifest: ProductManifest = {
             iconType: 'llm_clusters' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-clusters-light)'] as FileSystemIconColor,
             href: urls.llmAnalyticsClusters(),
-            flag: FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB,
-            tags: ['beta'],
             sceneKey: 'LLMAnalyticsClusters',
         },
         {
@@ -303,7 +307,7 @@ export const manifest: ProductManifest = {
             iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
             href: urls.llmAnalyticsPrompts(),
             flag: FEATURE_FLAGS.PROMPT_MANAGEMENT,
-            tags: ['alpha'],
+            tags: ['beta'],
             sceneKey: 'LLMAnalyticsPrompts',
         },
     ],

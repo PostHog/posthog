@@ -1,6 +1,7 @@
 import datetime as dt
 from typing import Any, Literal
 
+import s3fs
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
@@ -160,43 +161,53 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
     The batch data (S3 read, partitioning, Delta Lake write) was already handled when
     the batch was first processed with is_final_batch=False. We only need to run
     post-load operations (compaction, S3 queryable folder prep, schema validation).
+
+    All async operations are run within a single async_to_sync call to avoid
+    event loop lifecycle issues with aiohttp/s3fs clients.
     """
-    job = ExternalDataJob.objects.prefetch_related("schema", "schema__source", "schema__table").get(
-        id=export_signal.job_id
-    )
-    schema = job.schema
-    if schema is None:
-        raise ValueError(f"ExternalDataJob {export_signal.job_id} has no schema")
+    # Clear cached S3FileSystem instances to avoid reusing sessions bound to a
+    # previously closed event loop (async_to_sync creates/destroys loops).
+    s3fs.S3FileSystem.clear_instance_cache()
 
-    delta_table_helper = DeltaTableHelper(
-        resource_name=export_signal.resource_name,
-        job=job,
-        logger=logger,
-    )
+    async def _run() -> None:
+        job = await ExternalDataJob.objects.prefetch_related("schema", "schema__source", "schema__table").aget(
+            id=export_signal.job_id
+        )
+        schema = job.schema
+        if schema is None:
+            raise ValueError(f"ExternalDataJob {export_signal.job_id} has no schema")
 
-    delta_table = async_to_sync(delta_table_helper.get_delta_table)()
-    if delta_table is None:
-        logger.warning("no_delta_table_for_post_load", job_id=export_signal.job_id)
-        return
+        delta_table_helper = DeltaTableHelper(
+            resource_name=export_signal.resource_name,
+            job=job,
+            logger=logger,
+        )
 
-    pa_table = read_parquet(export_signal.s3_path)
-    internal_schema = HogQLSchema()
-    internal_schema.add_pyarrow_table(pa_table)
-    table_schema_dict = internal_schema.to_hogql_types()
+        delta_table = await delta_table_helper.get_delta_table()
+        if delta_table is None:
+            logger.warning("no_delta_table_for_post_load", job_id=export_signal.job_id)
+            return
 
-    async_to_sync(run_post_load_operations)(
-        job=job,
-        schema=schema,
-        source=schema.source,
-        delta_table_helper=delta_table_helper,
-        row_count=export_signal.total_rows or 0,
-        file_uris=delta_table.file_uris(),
-        table_schema_dict=table_schema_dict,
-        resource_name=export_signal.resource_name,
-        logger=logger,
-    )
+        pa_table = read_parquet(export_signal.s3_path)
+        internal_schema = HogQLSchema()
+        internal_schema.add_pyarrow_table(pa_table)
+        table_schema_dict = internal_schema.to_hogql_types()
 
-    logger.debug("post_load_operations_complete_for_already_processed_batch")
+        await run_post_load_operations(
+            job=job,
+            schema=schema,
+            source=schema.source,
+            delta_table_helper=delta_table_helper,
+            row_count=export_signal.total_rows or 0,
+            file_uris=delta_table.file_uris(),
+            table_schema_dict=table_schema_dict,
+            resource_name=export_signal.resource_name,
+            logger=logger,
+        )
+
+        logger.debug("post_load_operations_complete_for_already_processed_batch")
+
+    async_to_sync(_run)()
 
 
 def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
@@ -240,6 +251,10 @@ def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> No
 
 def process_message(message: Any) -> None:
     export_signal = ExportSignalMessage.from_dict(message)
+
+    # Clear cached S3FileSystem instances to avoid reusing sessions bound to a
+    # previously closed event loop (async_to_sync creates/destroys loops).
+    s3fs.S3FileSystem.clear_instance_cache()
 
     try:
         team_id_str = str(export_signal.team_id)

@@ -362,6 +362,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         <AIConsentPopoverWrapper
                             placement="bottom-end"
                             showArrow
+                            ignoreDismissal
                             onApprove={() => askMax(pendingPrompt || question)}
                             onDismiss={() => completeThreadGeneration()}
                             middleware={[

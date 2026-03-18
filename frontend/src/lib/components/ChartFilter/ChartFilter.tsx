@@ -87,7 +87,7 @@ export function ChartFilter(): JSX.Element {
                               value: ChartDisplayType.BoxPlot,
                               icon: <IconGraph />,
                               label: 'Box plot',
-                              disabledReason: trendsOnlyDisabledReason || singleSeriesOnlyDisabledReason,
+                              disabledReason: trendsOnlyDisabledReason,
                               labelInMenu: (
                                   <ChartFilterOptionLabel
                                       label="Box plot"

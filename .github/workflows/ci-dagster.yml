@@ -41,6 +41,7 @@ jobs:
         # Set job outputs to values from filter step
         outputs:
             dagster: ${{ steps.filter.outputs.dagster || 'true' }}
+            oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -68,20 +69,9 @@ jobs:
                         - docker-compose.dev.yml
                         - frontend/public/email/*
 
-    get_clickhouse_versions:
-        name: Get ClickHouse versions
-        needs: [changes]
-        if: needs.changes.outputs.dagster == 'true'
-        runs-on: ubuntu-latest
-        outputs:
-            oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
-        steps:
-            - uses: actions/checkout@v6
-              with:
-                  sparse-checkout: .github/clickhouse-versions.json
-                  sparse-checkout-cone-mode: false
             - name: Read ClickHouse versions from JSON
               id: read-versions
+              if: github.event_name == 'push' || steps.filter.outputs.dagster == 'true'
               run: |
                   oldest_supported=$(jq -r '.oldest_supported' .github/clickhouse-versions.json)
                   if [ -z "$oldest_supported" ] || [ "$oldest_supported" = "null" ]; then
@@ -92,11 +82,11 @@ jobs:
 
     dagster:
         name: Dagster tests
-        needs: [changes, get_clickhouse_versions]
+        needs: [changes]
         strategy:
             fail-fast: false
             matrix:
-                clickhouse-server-image: ${{ fromJson(needs.get_clickhouse_versions.outputs.oldest_supported) }}
+                clickhouse-server-image: ${{ fromJson(needs.changes.outputs.oldest_supported) }}
         if: needs.changes.outputs.dagster == 'true'
         runs-on: depot-ubuntu-latest
         steps:
@@ -112,13 +102,17 @@ jobs:
               continue-on-error: true
 
             - name: Start stack with Docker Compose
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image }}
               run: |
-                  export CLICKHOUSE_SERVER_IMAGE=${{ matrix.clickhouse-server-image }}
-                  docker compose -f docker-compose.dev.yml down
-                  docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d
+                  bin/ci-wait-for-docker launch --down
 
             - name: Wait for Docker services
-              run: bin/wait-for-docker
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image }}
+              run: bin/ci-wait-for-docker wait
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -131,6 +125,7 @@ jobs:
               with:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
+                  cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install SAML (python3-saml) dependencies
@@ -158,8 +153,7 @@ jobs:
                   save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
-              run: |
-                  cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+              uses: ./.github/actions/setup-sqlx-cli
 
             - name: Add Kafka and ClickHouse to /etc/hosts
               run: sudo echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts

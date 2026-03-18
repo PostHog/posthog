@@ -5,6 +5,7 @@ import asyncio
 import datetime as dt
 import dataclasses
 import collections.abc
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db.models import Sum
@@ -19,20 +20,24 @@ from asgiref.sync import sync_to_async
 from structlog.contextvars import bind_contextvars
 
 from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportRun
-from posthog.batch_exports.service import (
-    BackfillBatchExportInputs,
-    BackfillDetails,
-    acreate_batch_export_backfill,
-    unpause_batch_export,
-    update_batch_export_backfill,
-)
+from posthog.clickhouse import query_tagging
+from posthog.clickhouse.query_tagging import Product
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.clickhouse import get_client
+from posthog.temporal.common.clickhouse import ClickHouseMemoryLimitExceededError, get_client
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.service import (
+    BackfillBatchExportInputs,
+    BackfillDetails,
+    aget_or_create_batch_export_backfill,
+    unpause_batch_export,
+    update_batch_export_backfill,
+)
+from products.batch_exports.backend.temporal.metrics import log_query_duration
+from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import compose_filters_clause
 
 LOGGER = get_write_only_logger(__name__)
@@ -84,7 +89,7 @@ async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillIn
     model instance to represent them in our database.
     """
 
-    backfill = await acreate_batch_export_backfill(
+    backfill = await aget_or_create_batch_export_backfill(
         batch_export_id=uuid.UUID(inputs.batch_export_id),
         start_at=inputs.start_at,
         end_at=inputs.end_at,
@@ -277,14 +282,16 @@ async def _get_backfill_info_for_events(
     exclude_events: list[str],
     filters_str: str,
     extra_query_parameters: dict[str, typing.Any],
+    log_comment: str,
 ) -> tuple[dt.datetime | None, int | None]:
-    """Get adjusted start time and estimated record count for events model.
+    """Get earliest timestamp and estimated record count for events model.
 
     Returns:
-        A tuple of (adjusted_start_at, estimated_records_count).
+        A tuple of (min_timestamp, estimated_records_count).
         If no data exists, returns (None, 0).
     """
     team_id = batch_export.team_id
+    logger = LOGGER.bind()
 
     date_conditions = ""
     if start_at is not None:
@@ -307,17 +314,25 @@ async def _get_backfill_info_for_events(
         {filters_str}
         {date_conditions}
         FORMAT JSONEachRow
+        SETTINGS log_comment=%(log_comment)s
     """
 
     query_parameters = {
         "team_id": team_id,
         "include_events": include_events,
         "exclude_events": exclude_events,
+        "log_comment": log_comment,
         **extra_query_parameters,
     }
 
-    async with get_client(team_id=team_id) as client:
-        result = await client.read_query_as_jsonl(query, query_parameters=query_parameters)
+    query_id = str(uuid.uuid4())
+    with log_query_duration(
+        logger=logger,
+        query_id=query_id,
+        query_type="backfill_info:events",
+    ):
+        async with get_client(team_id=team_id) as client:
+            result = await client.read_query_as_jsonl(query, query_parameters=query_parameters, query_id=query_id)
 
     min_timestamp_str = result[0]["min_timestamp"]
     record_count = int(result[0]["record_count"])
@@ -333,36 +348,37 @@ async def _get_backfill_info_for_events(
     if min_timestamp.year == 1970:
         return None, 0
 
-    # Align to interval boundary considering the batch export's offset and timezone
-    earliest_start = _align_timestamp_to_interval(min_timestamp, batch_export)
-
-    return earliest_start, record_count
+    return min_timestamp, record_count
 
 
 async def _get_backfill_info_for_persons(
     batch_export: BatchExport,
     start_at: dt.datetime | None,
     end_at: dt.datetime | None,
+    log_comment: str,
 ) -> tuple[dt.datetime | None, int | None]:
-    """Get adjusted start time and estimated record count for persons model.
+    """Get earliest timestamp and estimated record count for persons model.
 
     Queries both `person` and `person_distinct_id2` tables. The count uses
     `uniq()` for an approximate count to reduce memory usage on large teams.
 
     Returns:
-        A tuple of (adjusted_start_at, estimated_records_count).
+        A tuple of (min_timestamp, estimated_records_count).
         If no data exists, returns (None, 0).
-        For limited export teams, returns (adjusted_start_at, None) since
+        For limited export teams, returns (min_timestamp, None) since
         the count would not reflect the actual export behavior.
     """
     team_id = batch_export.team_id
+    logger = LOGGER.bind()
     is_limited_export = str(team_id) in settings.BATCH_EXPORTS_PERSONS_LIMITED_EXPORT_TEAM_IDS
 
+    lower_bound_condition = ""
     date_conditions = ""
     having_date_conditions = ""
-    query_parameters: dict[str, typing.Any] = {"team_id": team_id}
+    query_parameters: dict[str, typing.Any] = {"team_id": team_id, "log_comment": log_comment}
 
     if start_at is not None:
+        lower_bound_condition = "AND _timestamp >= %(start_at)s "
         date_conditions += "AND _timestamp >= %(start_at)s "
         having_date_conditions += "AND argMax(_timestamp, version) >= %(start_at)s "
         query_parameters["start_at"] = start_at.astimezone(dt.UTC)
@@ -386,10 +402,19 @@ async def _get_backfill_info_for_persons(
         AND _timestamp > '2000-01-01'
         {date_conditions}
         FORMAT JSONEachRow
+        SETTINGS log_comment=%(log_comment)s
     """
 
-    async with get_client(team_id=team_id) as client:
-        min_timestamp_results = await client.read_query_as_jsonl(min_timestamp_query, query_parameters=query_parameters)
+    min_timestamp_query_id = str(uuid.uuid4())
+    with log_query_duration(
+        logger=logger,
+        query_id=min_timestamp_query_id,
+        query_type="backfill_info:persons_min_timestamp",
+    ):
+        async with get_client(team_id=team_id) as client:
+            min_timestamp_results = await client.read_query_as_jsonl(
+                min_timestamp_query, query_parameters=query_parameters, query_id=min_timestamp_query_id
+            )
 
     # Find the earliest valid timestamp across both tables
     earliest_timestamp: dt.datetime | None = None
@@ -410,16 +435,15 @@ async def _get_backfill_info_for_persons(
     if earliest_timestamp is None:
         return None, 0
 
-    earliest_start = _align_timestamp_to_interval(earliest_timestamp, batch_export)
-
     if is_limited_export:
-        return earliest_start, None
+        return earliest_timestamp, None
 
     count_query = f"""
         WITH new_persons AS (
             SELECT id
             FROM person
             WHERE team_id = %(team_id)s
+            {lower_bound_condition}
             GROUP BY id
             HAVING argMax(_timestamp, version) > '2000-01-01'
                 {having_date_conditions}
@@ -430,6 +454,7 @@ async def _get_backfill_info_for_persons(
             SELECT distinct_id
             FROM person_distinct_id2
             WHERE team_id = %(team_id)s
+            {lower_bound_condition}
             GROUP BY distinct_id
             HAVING argMax(_timestamp, version) > '2000-01-01'
                 {having_date_conditions}
@@ -445,23 +470,53 @@ async def _get_backfill_info_for_persons(
         SELECT uniq(distinct_id) AS record_count
         FROM distinct_ids
         FORMAT JSONEachRow
-        SETTINGS optimize_uniq_to_count = 0
+        SETTINGS optimize_uniq_to_count = 0, log_comment=%(log_comment)s
     """
 
-    async with get_client(team_id=team_id) as client:
-        count_results = await client.read_query_as_jsonl(count_query, query_parameters=query_parameters)
+    count_query_id = str(uuid.uuid4())
+    with log_query_duration(
+        logger=logger,
+        query_id=count_query_id,
+        query_type="backfill_info:persons_count",
+    ):
+        async with get_client(team_id=team_id) as client:
+            count_results = await client.read_query_as_jsonl(
+                count_query, query_parameters=query_parameters, query_id=count_query_id
+            )
 
     record_count = int(count_results[0]["record_count"])
 
-    return earliest_start, record_count
+    return earliest_timestamp, record_count
+
+
+async def _get_backfill_info_for_sessions(
+    batch_export: BatchExport,
+    start_at: dt.datetime | None,
+    end_at: dt.datetime | None,
+    log_comment: str,
+) -> tuple[dt.datetime | None, int | None]:
+    """Get earliest timestamp and estimated record count for sessions model.
+
+    Queries the sessions table via HogQL, filtering by $end_timestamp
+    (this logic is the same as the actual export query, which aliases `$end_timestamp` as `_inserted_at`).
+
+    Returns:
+        A tuple of (min_timestamp, estimated_records_count).
+        If no data exists, returns (None, 0).
+    """
+
+    model = SessionsRecordBatchModel(team_id=batch_export.team_id, batch_export_id=str(batch_export.id))
+    min_timestamp, record_count = await model.get_backfill_info(start_at, end_at, log_comment=log_comment)
+
+    if min_timestamp is None:
+        return None, 0
+
+    return min_timestamp, record_count
 
 
 @temporalio.activity.defn
 async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOutputs:
     """Validate backfill parameters and estimate record count.
-
-    For events model: runs combined query for earliest date + count.
-    For persons/sessions: runs earliest date only (count returns None for now).
 
     If no data exists or range contains no data, returns estimated_records_count=0
     (workflow should complete early rather than raising an error).
@@ -475,6 +530,13 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
     logger = LOGGER.bind()
 
     logger.info("Getting backfill info")
+
+    tags = query_tagging.get_query_tags()
+    tags.team_id = inputs.team_id
+    tags.batch_export_id = uuid.UUID(inputs.batch_export_id)
+    tags.product = Product.BATCH_EXPORT
+    tags.query_type = "backfill_estimate"
+    log_comment = tags.to_json()
 
     batch_export = await BatchExport.objects.select_related("destination").aget(id=inputs.batch_export_id)
 
@@ -499,26 +561,45 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
 
     interval_seconds = batch_export.interval_time_delta.total_seconds()
 
-    if model == "events":
-        adjusted_start_at, record_count = await _get_backfill_info_for_events(
-            batch_export=batch_export,
-            start_at=start_at,
-            end_at=end_at,
-            include_events=include_events,
-            exclude_events=exclude_events,
-            filters_str=filters_str,
-            extra_query_parameters=extra_query_parameters,
-        )
-    elif model == "persons":
-        adjusted_start_at, record_count = await _get_backfill_info_for_persons(
-            batch_export=batch_export,
-            start_at=start_at,
-            end_at=end_at,
-        )
-    else:
-        # For sessions and other models, proceed without estimation
-        logger.info(
-            "Backfill info not yet implemented for model, skipping estimation",
+    try:
+        if model == "events":
+            min_timestamp, record_count = await _get_backfill_info_for_events(
+                batch_export=batch_export,
+                start_at=start_at,
+                end_at=end_at,
+                include_events=include_events,
+                exclude_events=exclude_events,
+                filters_str=filters_str,
+                extra_query_parameters=extra_query_parameters,
+                log_comment=log_comment,
+            )
+        elif model == "persons":
+            min_timestamp, record_count = await _get_backfill_info_for_persons(
+                batch_export=batch_export,
+                start_at=start_at,
+                end_at=end_at,
+                log_comment=log_comment,
+            )
+        elif model == "sessions":
+            min_timestamp, record_count = await _get_backfill_info_for_sessions(
+                batch_export=batch_export,
+                start_at=start_at,
+                end_at=end_at,
+                log_comment=log_comment,
+            )
+        else:
+            logger.info(
+                "Backfill info not yet implemented for model, skipping estimation",
+                model=model,
+            )
+            return GetBackfillInfoOutputs(
+                adjusted_start_at=inputs.start_at,
+                total_records_count=None,
+                interval_seconds=interval_seconds,
+            )
+    except ClickHouseMemoryLimitExceededError:
+        logger.warning(
+            "Backfill estimation query exceeded memory limit, proceeding without estimate",
             model=model,
         )
         return GetBackfillInfoOutputs(
@@ -527,7 +608,7 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
             interval_seconds=interval_seconds,
         )
 
-    if adjusted_start_at is None:
+    if min_timestamp is None:
         logger.info(
             "No data exists for backfill",
             team_id=inputs.team_id,
@@ -539,6 +620,8 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
             total_records_count=0,
             interval_seconds=interval_seconds,
         )
+
+    adjusted_start_at = _align_timestamp_to_interval(min_timestamp, batch_export)
 
     adjusted_start_at_str = inputs.start_at
     if start_at is not None and adjusted_start_at != start_at:
@@ -656,7 +739,8 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
 
         frequency = dt.timedelta(seconds=inputs.frequency_seconds)
 
-        full_backfill_range = backfill_range(start_at, end_at, frequency)
+        timezone = description.schedule.spec.time_zone_name or None
+        full_backfill_range = backfill_range(start_at=start_at, end_at=end_at, step=frequency, timezone=timezone)
 
         for _, backfill_end_at in full_backfill_range:
             if await check_temporal_schedule_exists(client, description.id) is False:
@@ -751,9 +835,21 @@ async def check_temporal_schedule_exists(client: temporalio.client.Client, sched
 
 
 def backfill_range(
-    start_at: dt.datetime | None, end_at: dt.datetime | None, step: dt.timedelta
+    start_at: dt.datetime | None,
+    end_at: dt.datetime | None,
+    step: dt.timedelta,
+    timezone: str | None = None,
 ) -> typing.Generator[tuple[dt.datetime | None, dt.datetime], None, None]:
-    """Generate range of dates between start_at and end_at."""
+    """Generate range of dates between start_at and end_at.
+
+    Args:
+        start_at: Start of the backfill range (UTC). None means backfill from earliest data.
+        end_at: End of the backfill range (UTC). None means backfill until now.
+        step: The interval duration to step by.
+        timezone: IANA timezone name (e.g. "US/Eastern"). When provided and step >= 1 day,
+            stepping is done in local time so that DST transitions produce correct
+            interval lengths (23h or 25h for daily) instead of fixed 24h.
+    """
     if start_at is None:
         if end_at is None:
             now = get_utcnow()
@@ -765,18 +861,19 @@ def backfill_range(
 
         return
 
-    current = start_at
+    tz = ZoneInfo(timezone) if timezone and step >= dt.timedelta(days=1) else dt.UTC
+    current = start_at.astimezone(tz)
+    local_end = end_at.astimezone(tz) if end_at else None
 
-    while end_at is None or current < end_at:
+    while local_end is None or current < local_end:
         current_end = current + step
 
-        if end_at and current_end > end_at:
+        if local_end and current_end > local_end:
             # Do not yield a range that is less than step.
             # Same as built-in range.
             break
 
-        yield current, current_end
-
+        yield current.astimezone(dt.UTC), current_end.astimezone(dt.UTC)
         current = current_end
 
 

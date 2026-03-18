@@ -4,6 +4,7 @@ from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     ExpressionField,
     FieldOrTable,
+    FloatDatabaseField,
     IntegerDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
@@ -28,6 +29,29 @@ class IngestionWarningsTable(Table):
     def to_printed_hogql(self):
         return "ingestion_warnings"
 
+
+alerts: PostgresTable = PostgresTable(
+    name="alerts",
+    postgres_table_name="posthog_alertconfiguration",
+    access_scope="alert",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "insight_id": IntegerDatabaseField(name="insight_id"),
+        "enabled": BooleanDatabaseField(name="enabled"),
+        "state": StringDatabaseField(name="state"),
+        "calculation_interval": StringDatabaseField(name="calculation_interval"),
+        "condition": StringJSONDatabaseField(name="condition"),
+        "config": StringJSONDatabaseField(name="config"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "last_notified_at": DateTimeDatabaseField(name="last_notified_at"),
+        "last_checked_at": DateTimeDatabaseField(name="last_checked_at"),
+        "next_check_at": DateTimeDatabaseField(name="next_check_at"),
+        "snoozed_until": DateTimeDatabaseField(name="snoozed_until"),
+        "skip_weekend": BooleanDatabaseField(name="skip_weekend"),
+    },
+)
 
 cohort_calculation_history: PostgresTable = PostgresTable(
     name="cohort_calculation_history",
@@ -146,6 +170,29 @@ data_warehouse_sources: PostgresTable = PostgresTable(
     },
 )
 
+data_modeling_views: PostgresTable = PostgresTable(
+    name="data_modeling_views",
+    postgres_table_name="posthog_datawarehousesavedquery",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "status": StringDatabaseField(name="status"),
+        "columns": StringJSONDatabaseField(name="columns"),
+        "query": StringJSONDatabaseField(name="query"),
+        "last_run_at": DateTimeDatabaseField(name="last_run_at"),
+        "_is_materialized": BooleanDatabaseField(name="is_materialized", hidden=True),
+        "is_materialized": ExpressionField(
+            name="is_materialized", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_is_materialized"])])
+        ),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "deleted_at": DateTimeDatabaseField(name="deleted_at"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
 data_warehouse_tables: PostgresTable = PostgresTable(
     name="data_warehouse_tables",
     postgres_table_name="posthog_datawarehousetable",
@@ -161,6 +208,48 @@ data_warehouse_tables: PostgresTable = PostgresTable(
         "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
         "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
         "deleted_at": DateTimeDatabaseField(name="deleted_at"),
+    },
+)
+
+source_schemas: PostgresTable = PostgresTable(
+    name="source_schemas",
+    postgres_table_name="posthog_externaldataschema",
+    access_scope="external_data_source",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "source_id": StringDatabaseField(name="source_id"),
+        "table_id": StringDatabaseField(name="table_id"),
+        "should_sync": BooleanDatabaseField(name="should_sync"),
+        "status": StringDatabaseField(name="status"),
+        "sync_type": StringDatabaseField(name="sync_type"),
+        "last_synced_at": DateTimeDatabaseField(name="last_synced_at"),
+        "latest_error": StringDatabaseField(name="latest_error"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "deleted_at": DateTimeDatabaseField(name="deleted_at"),
+    },
+)
+
+source_sync_jobs: PostgresTable = PostgresTable(
+    name="source_sync_jobs",
+    postgres_table_name="posthog_externaldatajob",
+    access_scope="external_data_source",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "pipeline_id": StringDatabaseField(name="pipeline_id"),
+        "schema_id": StringDatabaseField(name="schema_id"),
+        "status": StringDatabaseField(name="status"),
+        "rows_synced": IntegerDatabaseField(name="rows_synced"),
+        "billable": BooleanDatabaseField(name="billable"),
+        "latest_error": StringDatabaseField(name="latest_error"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "finished_at": DateTimeDatabaseField(name="finished_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
     },
 )
 
@@ -280,6 +369,27 @@ actions: PostgresTable = PostgresTable(
     },
 )
 
+annotations: PostgresTable = PostgresTable(
+    name="annotations",
+    postgres_table_name="posthog_annotation",
+    access_scope="annotation",
+    fields={
+        "id": IntegerDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "content": StringDatabaseField(name="content", nullable=True),
+        "scope": StringDatabaseField(name="scope"),
+        "creation_type": StringDatabaseField(name="creation_type"),
+        "date_marker": DateTimeDatabaseField(name="date_marker", nullable=True),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "dashboard_item_id": IntegerDatabaseField(name="dashboard_item_id", nullable=True),
+        "dashboard_id": IntegerDatabaseField(name="dashboard_id", nullable=True),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at", nullable=True),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
 hog_flows: PostgresTable = PostgresTable(
     name="hog_flows",
     postgres_table_name="posthog_hogflow",
@@ -295,6 +405,30 @@ hog_flows: PostgresTable = PostgresTable(
         "trigger": StringJSONDatabaseField(name="trigger"),
         "edges": StringJSONDatabaseField(name="edges"),
         "actions": StringJSONDatabaseField(name="actions"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
+hog_functions: PostgresTable = PostgresTable(
+    name="hog_functions",
+    postgres_table_name="posthog_hogfunction",
+    access_scope="hog_function",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "description": StringDatabaseField(name="description"),
+        "type": StringDatabaseField(name="type"),
+        "_enabled": BooleanDatabaseField(name="enabled", hidden=True),
+        "enabled": ExpressionField(name="enabled", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_enabled"])])),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "icon_url": StringDatabaseField(name="icon_url"),
+        "template_id": StringDatabaseField(name="template_id"),
+        "execution_order": IntegerDatabaseField(name="execution_order"),
+        "inputs_schema": StringJSONDatabaseField(name="inputs_schema"),
+        "filters": StringJSONDatabaseField(name="filters"),
         "created_at": DateTimeDatabaseField(name="created_at"),
         "updated_at": DateTimeDatabaseField(name="updated_at"),
     },
@@ -320,6 +454,24 @@ notebooks: PostgresTable = PostgresTable(
     },
 )
 
+data_modeling_jobs: PostgresTable = PostgresTable(
+    name="data_modeling_jobs",
+    postgres_table_name="posthog_datamodelingjob",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "data_modeling_view_id": StringDatabaseField(name="saved_query_id"),
+        "status": StringDatabaseField(name="status"),
+        "rows_materialized": IntegerDatabaseField(name="rows_materialized"),
+        "rows_expected": IntegerDatabaseField(name="rows_expected"),
+        "error": StringDatabaseField(name="error"),
+        "storage_delta_mib": FloatDatabaseField(name="storage_delta_mib"),
+        "last_run_at": DateTimeDatabaseField(name="last_run_at"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
 error_tracking_issues: PostgresTable = PostgresTable(
     name="error_tracking_issues",
     postgres_table_name="posthog_errortrackingissue",
@@ -334,16 +486,52 @@ error_tracking_issues: PostgresTable = PostgresTable(
     },
 )
 
+error_tracking_issue_assignments: PostgresTable = PostgresTable(
+    name="error_tracking_issue_assignments",
+    postgres_table_name="posthog_errortrackingissueassignment",
+    access_scope="error_tracking",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "issue_id": StringDatabaseField(name="issue_id"),
+        "user_id": IntegerDatabaseField(name="user_id"),
+        "role_id": StringDatabaseField(name="role_id"),
+    },
+)
+
+error_tracking_issue_fingerprints: PostgresTable = PostgresTable(
+    name="error_tracking_issue_fingerprints",
+    postgres_table_name="posthog_errortrackingissuefingerprintv2",
+    access_scope="error_tracking",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "issue_id": StringDatabaseField(name="issue_id"),
+        "fingerprint": StringDatabaseField(name="fingerprint"),
+        "first_seen": DateTimeDatabaseField(name="first_seen"),
+    },
+)
+
 
 class SystemTables(TableNode):
     name: str = "system"
     children: dict[str, TableNode] = {
         "actions": TableNode(name="actions", table=actions),
+        "alerts": TableNode(name="alerts", table=alerts),
+        "annotations": TableNode(name="annotations", table=annotations),
         "cohort_calculation_history": TableNode(name="cohort_calculation_history", table=cohort_calculation_history),
         "cohorts": TableNode(name="cohorts", table=cohorts),
         "dashboards": TableNode(name="dashboards", table=dashboards),
+        "data_modeling_jobs": TableNode(name="data_modeling_jobs", table=data_modeling_jobs),
+        "data_modeling_views": TableNode(name="data_modeling_views", table=data_modeling_views),
         "data_warehouse_sources": TableNode(name="data_warehouse_sources", table=data_warehouse_sources),
         "data_warehouse_tables": TableNode(name="data_warehouse_tables", table=data_warehouse_tables),
+        "error_tracking_issue_assignments": TableNode(
+            name="error_tracking_issue_assignments", table=error_tracking_issue_assignments
+        ),
+        "error_tracking_issue_fingerprints": TableNode(
+            name="error_tracking_issue_fingerprints", table=error_tracking_issue_fingerprints
+        ),
         "error_tracking_issues": TableNode(name="error_tracking_issues", table=error_tracking_issues),
         "experiments": TableNode(name="experiments", table=experiments),
         "exports": TableNode(name="exports", table=exports),
@@ -351,10 +539,13 @@ class SystemTables(TableNode):
         "groups": TableNode(name="groups", table=groups),
         "group_type_mappings": TableNode(name="group_type_mappings", table=group_type_mappings),
         "hog_flows": TableNode(name="hog_flows", table=hog_flows),
+        "hog_functions": TableNode(name="hog_functions", table=hog_functions),
         "ingestion_warnings": TableNode(name="ingestion_warnings", table=IngestionWarningsTable()),
         "insight_variables": TableNode(name="insight_variables", table=insight_variables),
         "insights": TableNode(name="insights", table=insights),
         "notebooks": TableNode(name="notebooks", table=notebooks),
+        "source_schemas": TableNode(name="source_schemas", table=source_schemas),
+        "source_sync_jobs": TableNode(name="source_sync_jobs", table=source_sync_jobs),
         "surveys": TableNode(name="surveys", table=surveys),
         "teams": TableNode(name="teams", table=teams),
     }

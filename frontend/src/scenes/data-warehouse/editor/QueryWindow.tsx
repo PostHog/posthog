@@ -3,15 +3,18 @@ import { useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
 import { memo, useMemo } from 'react'
 
-import { IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import { IconGear, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { cn } from 'lib/utils/css-classes'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
@@ -22,6 +25,7 @@ import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitleSect
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 import { FixErrorButton } from './components/FixErrorButton'
+import { ConnectionSelector } from './ConnectionSelector'
 import { editorSizingLogic } from './editorSizingLogic'
 import { OutputPane } from './OutputPane'
 import { QueryPane } from './QueryPane'
@@ -44,8 +48,10 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId, mode }: QueryWindowPr
     const { setSuggestedQueryInput, reportAIQueryPromptOpen } = useActions(sqlEditorLogic)
     const vimModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_VIM_MODE')
     const { editorVimModeEnabled } = useValues(userPreferencesLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { setEditorVimModeEnabled } = useActions(userPreferencesLogic)
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
+    const isDirectQueryEnabled = !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
 
     return (
         <div className="flex grow flex-col overflow-hidden">
@@ -58,6 +64,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId, mode }: QueryWindowPr
                 <div className="flex items-center gap-2">
                     <ExpandDatabaseTreeButton />
                     <RunButton />
+                    <CollapsedConnectionSelector mode={mode} isDirectQueryEnabled={isDirectQueryEnabled} />
                     <LemonDivider vertical />
                     <QueryVariablesMenu
                         disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
@@ -66,16 +73,37 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId, mode }: QueryWindowPr
 
                 <div className="ml-auto flex items-center gap-2">
                     <FixErrorButton type="secondary" size="small" source="action-bar" />
-                    {vimModeFeatureEnabled && (
-                        <LemonSwitch
-                            checked={editorVimModeEnabled}
-                            onChange={setEditorVimModeEnabled}
-                            label="Vim"
-                            size="small"
-                            bordered
-                            data-attr="sql-editor-vim-toggle"
-                        />
-                    )}
+                    {vimModeFeatureEnabled ? (
+                        <LemonMenu
+                            items={[
+                                {
+                                    custom: true,
+                                    label: () => (
+                                        <div className="">
+                                            <LemonSwitch
+                                                checked={editorVimModeEnabled}
+                                                onChange={setEditorVimModeEnabled}
+                                                label="Vim mode"
+                                                size="small"
+                                                fullWidth
+                                                data-attr="sql-editor-vim-toggle"
+                                            />
+                                        </div>
+                                    ),
+                                },
+                            ]}
+                            closeOnClickInside={false}
+                            placement="bottom-end"
+                        >
+                            <LemonButton
+                                icon={<IconGear />}
+                                type="secondary"
+                                size="small"
+                                tooltip="Editor settings"
+                                data-attr="sql-editor-settings-toggle"
+                            />
+                        </LemonMenu>
+                    ) : null}
                     {mode === SQLEditorMode.Embedded && (
                         <SceneTitlePanelButton
                             buttonClassName="size-[26px]"
@@ -224,3 +252,19 @@ const InternalQueryWindow = memo(function InternalQueryWindow({ tabId }: { tabId
 
     return <OutputPane tabId={tabId} />
 })
+
+function CollapsedConnectionSelector({
+    mode,
+    isDirectQueryEnabled,
+}: {
+    mode?: SQLEditorMode
+    isDirectQueryEnabled: boolean
+}): JSX.Element | null {
+    const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
+
+    if (!isDirectQueryEnabled || !isDatabaseTreeCollapsed || (mode && mode !== SQLEditorMode.FullScene)) {
+        return null
+    }
+
+    return <ConnectionSelector />
+}

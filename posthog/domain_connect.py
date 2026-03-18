@@ -24,8 +24,6 @@ from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 
 from posthog.schema import DomainConnectProviderName
 
-from posthog.security.outbound_proxy import external_requests
-
 logger = logging.getLogger(__name__)
 
 # Maps _domainconnect TXT record values (provider endpoints) to display names.
@@ -351,7 +349,7 @@ def _fetch_provider_settings(endpoint: str, domain: str) -> dict | None:
 
     url = f"https://{endpoint}/v2/{domain}/settings"
     try:
-        resp = external_requests.get(url, timeout=10)
+        resp = requests.get(url, timeout=10)
         resp.raise_for_status()
         data = resp.json()
         if "urlSyncUX" not in data:

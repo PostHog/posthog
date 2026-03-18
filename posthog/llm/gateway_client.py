@@ -6,7 +6,7 @@ from openai import AsyncOpenAI, OpenAI
 
 Product = Literal[
     "llm_gateway",
-    "twig",
+    "posthog_code",
     "background_agents",
     "wizard",
     "django",
@@ -14,7 +14,7 @@ Product = Literal[
     "llma_translation",
     "llma_summarization",
     "llma_eval_summary",
-    "slack-twig",
+    "slack-posthog-code",
 ]  # If you add a product here, make sure it's also in services/llm-gateway/src/llm_gateway/products/config.py
 
 
@@ -22,13 +22,13 @@ def get_llm_client(product: Product = "django") -> OpenAI:
     """
     Get an OpenAI-compatible client for the LLM gateway.
 
-    The gateway supports all OpenAI, Anthropic and Gemini chat models through a unified interface.
+    The gateway supports all OpenAI, Anthropic, Gemini, OpenRouter, and Fireworks AI chat models through a unified interface.
 
     If you want the user to be tracked by LLM A and rate limited correctly, you should supply the distinct_id as a `user` argument when making the LLM call. For example:
 
     client = get_llm_client()
     response = client.chat.completions.create(
-        model="claude-opus-4-5",  # or any supported OpenAI, Anthropic or Gemini model
+        model="claude-opus-4-5",  # or any supported OpenAI, Anthropic, Gemini, OpenRouter, or Fireworks AI model
         messages=[...],
         user=request.user.distinct_id,  # user for analytics and rate limiting
     )

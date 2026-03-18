@@ -14,7 +14,6 @@ import { CdpApi } from './cdp/cdp-api'
 import { CdpConsumerBaseDeps } from './cdp/consumers/cdp-base.consumer'
 import { CdpBatchHogFlowRequestsConsumer } from './cdp/consumers/cdp-batch-hogflow.consumer'
 import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
-import { CdpCyclotronShadowWorker } from './cdp/consumers/cdp-cyclotron-shadow-worker.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpDatawarehouseEventsConsumer } from './cdp/consumers/cdp-data-warehouse-events.consumer'
@@ -27,6 +26,7 @@ import {
     HogTransformerServiceDeps,
     createHogTransformerService,
 } from './cdp/hog-transformations/hog-transformer.service'
+import { CyclotronV2JanitorService } from './cdp/services/cyclotron-v2'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { defaultConfig } from './config/config'
 import {
@@ -34,12 +34,19 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from './config/kafka-topics'
+import {
+    createCookielessRedisConnectionConfig,
+    createIngestionRedisConnectionConfig,
+    createPosthogRedisConnectionConfig,
+} from './config/redis-pools'
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
 import { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { IngestionConsumer, IngestionConsumerDeps } from './ingestion/ingestion-consumer'
+import { IngestionTestingConsumer } from './ingestion/ingestion-testing-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { onShutdown } from './lifecycle'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
+import { TracesIngestionConsumer } from './logs-ingestion/traces-ingestion-consumer'
 import { SessionRecordingIngester } from './session-recording/consumer'
 import { RecordingApi } from './session-replay/recording-api/recording-api'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
@@ -73,6 +80,7 @@ export class PluginServer {
     expressApp: express.Application
     nodeInstrumentation: NodeInstrumentation
     private podTerminationTimer?: NodeJS.Timeout
+    private processListeners: Map<string, (...args: any[]) => void> = new Map()
 
     // Infrastructure resources (tracked for shutdown cleanup)
     private kafkaProducer?: KafkaProducerWrapper
@@ -95,7 +103,7 @@ export class PluginServer {
         }
 
         this.expressApp = setupExpressApp({ internalApiSecret: this.config.INTERNAL_API_SECRET })
-        this.nodeInstrumentation = new NodeInstrumentation(this.config)
+        this.nodeInstrumentation = new NodeInstrumentation(this.config.INSTRUMENT_THREAD_PERFORMANCE)
         this.setupContinuousProfiling()
     }
 
@@ -120,11 +128,12 @@ export class PluginServer {
         const startupTimer = new Date()
         this.setupListeners()
         this.nodeInstrumentation.setupThreadPerformanceInterval()
-        initializePrometheusLabels(this.config)
+        initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
 
         const capabilities = getPluginServerCapabilities(this.config)
 
         const needsIngestion = !!(capabilities.ingestionV2Combined || capabilities.ingestionV2)
+
         const needsCdp = !!(
             capabilities.cdpProcessedEvents ||
             capabilities.cdpDataWarehouseEvents ||
@@ -133,13 +142,13 @@ export class PluginServer {
             capabilities.cdpLegacyOnEvent ||
             capabilities.cdpApi ||
             capabilities.cdpCyclotronWorker ||
-            capabilities.cdpCyclotronShadowWorker ||
             capabilities.cdpCyclotronWorkerHogFlow ||
             capabilities.cdpPrecalculatedFilters ||
             capabilities.cdpCohortMembership ||
             capabilities.cdpBatchHogFlow
         )
         const needsLogs = !!capabilities.logsIngestion
+        const needsTraces = !!capabilities.tracesIngestion
 
         try {
             // 1. Shared infrastructure (always needed)
@@ -159,7 +168,7 @@ export class PluginServer {
 
             // 4. CDP + Logs services (posthog redis, quota limiting)
             let cdpLogsServices: ReturnType<typeof this.createCdpLogsServices> | undefined
-            if (needsCdp || needsLogs) {
+            if (needsCdp || needsLogs || needsTraces) {
                 cdpLogsServices = this.createCdpLogsServices(teamManager)
             }
 
@@ -253,6 +262,23 @@ export class PluginServer {
 
                 serviceLoaders.push(async () => {
                     const consumer = new IngestionConsumer(this.config, ingestionDeps)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
+            if (capabilities.ingestionV2Testing) {
+                serviceLoaders.push(async () => {
+                    // All output (events, overflow, DLQ) writes to WarpStream
+                    const kafkaWarpStreamProducer = await KafkaProducerWrapper.create(
+                        this.config.KAFKA_CLIENT_RACK,
+                        'WARPSTREAM_PRODUCER'
+                    )
+
+                    const consumer = new IngestionTestingConsumer(this.config, {
+                        kafkaProducer: kafkaWarpStreamProducer,
+                        teamManager,
+                    })
                     await consumer.start()
                     return consumer.service
                 })
@@ -366,22 +392,28 @@ export class PluginServer {
                 })
             }
 
-            if (capabilities.cdpCyclotronShadowWorker) {
-                // Only start the shadow worker if CYCLOTRON_SHADOW_DATABASE_URL is explicitly configured
-                // (not just using the default value). This prevents crashes in hobby/dev deployments
-                // that don't have the shadow database set up.
-                if (process.env.CYCLOTRON_SHADOW_DATABASE_URL) {
-                    serviceLoaders.push(async () => {
-                        const worker = new CdpCyclotronShadowWorker(this.config, cdpDeps!)
-                        await worker.start()
-                        return worker.service
-                    })
-                } else {
-                    logger.info(
-                        '⏭️',
-                        'Skipping CdpCyclotronShadowWorker - CYCLOTRON_SHADOW_DATABASE_URL not configured'
+            if (capabilities.cdpCyclotronV2Janitor) {
+                if (!this.config.CYCLOTRON_NODE_DATABASE_URL) {
+                    throw new Error(
+                        'CYCLOTRON_NODE_DATABASE_URL not configured but required for CyclotronV2JanitorService'
                     )
                 }
+                serviceLoaders.push(async () => {
+                    const janitor = new CyclotronV2JanitorService({
+                        pool: {
+                            dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL!,
+                            maxConnections: this.config.CYCLOTRON_NODE_MAX_CONNECTIONS,
+                            idleTimeoutMs: this.config.CYCLOTRON_NODE_IDLE_TIMEOUT_MS,
+                        },
+                        cleanupBatchSize: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_BATCH_SIZE,
+                        cleanupIntervalMs: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS,
+                        stallTimeoutMs: this.config.CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS,
+                        maxTouchCount: this.config.CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT,
+                        cleanupGraceMs: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS,
+                    })
+                    await janitor.start()
+                    return janitor.service
+                })
             }
 
             if (capabilities.cdpCyclotronWorkerHogFlow) {
@@ -418,6 +450,17 @@ export class PluginServer {
             if (capabilities.logsIngestion) {
                 serviceLoaders.push(async () => {
                     const consumer = new LogsIngestionConsumer(this.config, {
+                        teamManager,
+                        quotaLimiting: cdpLogsServices!.quotaLimiting,
+                    })
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
+            if (capabilities.tracesIngestion) {
+                serviceLoaders.push(async () => {
+                    const consumer = new TracesIngestionConsumer(this.config, {
                         teamManager,
                         quotaLimiting: cdpLogsServices!.quotaLimiting,
                     })
@@ -487,22 +530,7 @@ export class PluginServer {
 
         logger.info('🤔', 'Connecting to ingestion Redis...')
         this.redisPool = createRedisPoolFromConfig({
-            connection: this.config.INGESTION_REDIS_HOST
-                ? {
-                      url: this.config.INGESTION_REDIS_HOST,
-                      options: { port: this.config.INGESTION_REDIS_PORT },
-                      name: 'ingestion-redis',
-                  }
-                : this.config.POSTHOG_REDIS_HOST
-                  ? {
-                        url: this.config.POSTHOG_REDIS_HOST,
-                        options: {
-                            port: this.config.POSTHOG_REDIS_PORT,
-                            password: this.config.POSTHOG_REDIS_PASSWORD,
-                        },
-                        name: 'ingestion-redis',
-                    }
-                  : { url: this.config.REDIS_URL, name: 'ingestion-redis' },
+            connection: createIngestionRedisConnectionConfig(this.config),
             poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
             poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
         })
@@ -524,7 +552,7 @@ export class PluginServer {
         integrationManager: IntegrationManagerService
         internalCaptureService: InternalCaptureService
     }> {
-        const geoipService = new GeoIPService(this.config)
+        const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
         await geoipService.get()
 
         const personRepository = new PostgresPersonRepository(this.postgres!, {
@@ -554,13 +582,7 @@ export class PluginServer {
     } {
         logger.info('🤔', 'Connecting to cookieless Redis...')
         this.cookielessRedisPool = createRedisPoolFromConfig({
-            connection: this.config.COOKIELESS_REDIS_HOST
-                ? {
-                      url: this.config.COOKIELESS_REDIS_HOST,
-                      options: { port: this.config.COOKIELESS_REDIS_PORT ?? 6379 },
-                      name: 'cookieless-redis',
-                  }
-                : { url: this.config.REDIS_URL, name: 'cookieless-redis' },
+            connection: createCookielessRedisConnectionConfig(this.config),
             poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
             poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
         })
@@ -576,16 +598,7 @@ export class PluginServer {
     private createCdpLogsServices(teamManager: TeamManager): { quotaLimiting: QuotaLimiting } {
         logger.info('🤔', 'Connecting to PostHog Redis...')
         this.posthogRedisPool = createRedisPoolFromConfig({
-            connection: this.config.POSTHOG_REDIS_HOST
-                ? {
-                      url: this.config.POSTHOG_REDIS_HOST,
-                      options: {
-                          port: this.config.POSTHOG_REDIS_PORT,
-                          password: this.config.POSTHOG_REDIS_PASSWORD,
-                      },
-                      name: 'posthog-redis',
-                  }
-                : { url: this.config.REDIS_URL, name: 'posthog-redis' },
+            connection: createPosthogRedisConnectionConfig(this.config),
             poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
             poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
         })
@@ -602,14 +615,16 @@ export class PluginServer {
 
     private setupListeners(): void {
         for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-            process.on(signal, async () => {
+            const handler = async () => {
                 // This makes async exit possible with the process waiting until jobs are closed
                 logger.info('👋', `process handling ${signal} event. Stopping...`)
                 await this.stop()
-            })
+            }
+            this.processListeners.set(signal, handler)
+            process.on(signal, handler)
         }
 
-        process.on('unhandledRejection', (error: Error | any) => {
+        const rejectionHandler = (error: Error | any) => {
             logger.error('🤮', `Unhandled Promise Rejection`, { error: String(error) })
 
             captureException(error, {
@@ -617,14 +632,24 @@ export class PluginServer {
             })
 
             void this.stop(error)
-        })
+        }
+        this.processListeners.set('unhandledRejection', rejectionHandler)
+        process.on('unhandledRejection', rejectionHandler)
 
-        process.on('uncaughtException', async (error: Error) => {
+        const exceptionHandler = async (error: Error) => {
             await this.stop(error)
-        })
+        }
+        this.processListeners.set('uncaughtException', exceptionHandler)
+        process.on('uncaughtException', exceptionHandler)
     }
 
     async stop(error?: Error): Promise<void> {
+        // Remove process listeners to prevent accumulation across test runs
+        for (const [event, handler] of this.processListeners) {
+            process.removeListener(event, handler)
+        }
+        this.processListeners.clear()
+
         if (error) {
             logger.error('🤮', `Shutting down due to error`, { error: error.stack })
         }

@@ -44,7 +44,7 @@ describe('createProcessPersonsStep', () => {
         hub = await createHub()
         const organizationId = await createOrganization(hub.postgres)
         teamId = await createTeam(hub.postgres, organizationId)
-        team = (await getTeam(hub, teamId))!
+        team = (await getTeam(hub.postgres, teamId))!
 
         personRepository = new PostgresPersonRepository(hub.postgres)
         personsStore = new BatchWritingPersonsStore(personRepository, hub.kafkaProducer)
@@ -264,6 +264,79 @@ describe('createProcessPersonsStep', () => {
         if (isDlqResult(result)) {
             expect(result.reason).toBe('Merge limit exceeded')
         }
+    })
+
+    it('does not update last_seen_at when person_last_seen_at_enabled is not set', async () => {
+        await createPersonWithDistinctIds('my_id')
+
+        const personsBefore = await fetchPostgresPersons(hub.postgres, teamId)
+        const initialLastSeenAt = personsBefore[0].last_seen_at
+
+        const futureTimestamp = DateTime.utc().plus({ hours: 2 }).toISO()!
+        const laterEvent: PluginEvent = {
+            ...pluginEvent,
+            timestamp: futureTimestamp,
+            now: futureTimestamp,
+            uuid: new UUIDT().toString(),
+        }
+
+        const step = createProcessPersonsStep(options, hub.kafkaProducer, personsStore)
+        const result = await step(
+            createInput({
+                normalizedEvent: laterEvent,
+                timestamp: DateTime.fromISO(laterEvent.timestamp!),
+            })
+        )
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        await personsStore.flush()
+        const persons = await fetchPostgresPersons(hub.postgres, teamId)
+        expect(persons).toHaveLength(1)
+        expect(persons[0].last_seen_at).toEqual(initialLastSeenAt)
+    })
+
+    it('updates last_seen_at when person_last_seen_at_enabled is true', async () => {
+        const organizationId = await createOrganization(hub.postgres)
+        const enabledTeamId = await createTeam(hub.postgres, organizationId, undefined, {
+            extra_settings: JSON.stringify({ person_last_seen_at_enabled: true }),
+        })
+        const enabledTeam = (await getTeam(hub.postgres, enabledTeamId))!
+
+        await personRepository.createPerson(
+            DateTime.utc(),
+            {},
+            {},
+            {},
+            enabledTeamId,
+            null,
+            false,
+            new UUIDT().toString(),
+            { distinctId: 'my_id' }
+        )
+
+        const futureTimestamp = DateTime.utc().plus({ hours: 2 })
+        const laterEvent: PluginEvent = {
+            ...pluginEvent,
+            team_id: enabledTeamId,
+            timestamp: futureTimestamp.toISO()!,
+            now: futureTimestamp.toISO()!,
+            uuid: new UUIDT().toString(),
+        }
+
+        const step = createProcessPersonsStep(options, hub.kafkaProducer, personsStore)
+        const result = await step(
+            createInput({
+                normalizedEvent: laterEvent,
+                team: enabledTeam,
+                timestamp: DateTime.fromISO(laterEvent.timestamp!),
+            })
+        )
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        await personsStore.flush()
+        const persons = await fetchPostgresPersons(hub.postgres, enabledTeamId)
+        expect(persons).toHaveLength(1)
+        expect(persons[0].last_seen_at).toEqual(futureTimestamp.startOf('hour'))
     })
 
     it('returns redirect result when merge limit is exceeded in ASYNC mode', async () => {

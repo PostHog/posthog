@@ -15,11 +15,12 @@ from posthog.schema import DataWarehouseSavedQueryOrigin, HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import FieldOrTable, SavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDTModel
+from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
 from posthog.sync import database_sync_to_async
 
 from products.data_warehouse.backend.models.util import (
@@ -51,7 +52,7 @@ def validate_saved_query_name(value):
         )
 
 
-class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
+class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, DeletedMetaFields):
     class Status(models.TextChoices):
         """Possible states of this SavedQuery."""
 
@@ -198,7 +199,16 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         from posthog.api.services.query import process_query_dict
         from posthog.hogql_queries.query_runner import ExecutionMode
 
-        response = process_query_dict(self.team, self.query, execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        query = self.query or {}
+        if not isinstance(query, dict):
+            raise Exception("Saved query is missing a query definition")
+
+        # Saved queries store {"query": "SELECT ..."} without a kind discriminator.
+        # process_query_dict requires a valid QuerySchemaRoot, so wrap as HogQLQuery.
+        if "kind" not in query and "query" in query:
+            query = {"kind": "HogQLQuery", **query}
+
+        response = process_query_dict(self.team, query, execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         result = getattr(response, "types", [])
 
         if result is None or isinstance(result, int):
@@ -216,10 +226,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         return columns
 
     def get_clickhouse_column_type(self, column_name: str) -> Optional[str]:
-        clickhouse_type = self.columns.get(column_name, None)
+        columns = self.columns or {}
+        clickhouse_type = columns.get(column_name, None)
 
-        if isinstance(clickhouse_type, dict) and self.columns[column_name].get("clickhouse"):
-            clickhouse_type = self.columns[column_name].get("clickhouse")
+        if isinstance(clickhouse_type, dict) and columns[column_name].get("clickhouse"):
+            clickhouse_type = columns[column_name].get("clickhouse")
 
             if clickhouse_type.startswith("Nullable("):
                 clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
@@ -244,7 +255,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
             database=Database.create_for(self.team.pk),
         )
 
-        node = parse_select(self.query["query"])
+        query = self.query or {}
+        if not isinstance(query, dict) or "query" not in query:
+            raise Exception("Saved query is missing a query definition")
+
+        node = parse_select(query["query"])
         resolved_node = resolve_types(node, context, dialect="clickhouse")
 
         table_collector = S3TableVisitor()
@@ -272,9 +287,13 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
 
     def hogql_definition(
         self, modifiers: Optional[HogQLQueryModifiers] = None
-    ) -> Union[SavedQuery, HogQLDataWarehouseTable]:
+    ) -> Union[SavedQuery, HogQLDataWarehouseTable, DirectPostgresTable]:
         if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:
             return self.table.hogql_definition(modifiers)
+
+        query = self.query or {}
+        if not isinstance(query, dict) or "query" not in query:
+            raise Exception("Saved query is missing a query definition")
 
         columns = self.columns or {}
         fields: dict[str, FieldOrTable] = {}
@@ -311,7 +330,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         return SavedQuery(
             id=str(self.id),
             name=self.name,
-            query=self.query["query"],
+            query=query["query"],
             fields=fields,
             # Currently only storing metadata related to the managed viewset, but we can expand this in the future
             # This is basically just a bag of props that can be used by other methods to properly identify this query

@@ -64,6 +64,7 @@ export interface Query {
     execution_time: number
     path: string
     logComment: Record<string, unknown>
+    profile_events: Record<string, number>
 }
 
 export interface DebugResponse {

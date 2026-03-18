@@ -4,17 +4,11 @@ import { Gauge } from 'prom-client'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
+import { CommonConfig } from '../common/config'
 import { KAFKA_CLICKHOUSE_TOPHOG } from '../config/kafka-topics'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
-import {
-    HealthCheckResult,
-    HealthCheckResultError,
-    IngestionConsumerConfig,
-    PluginServerService,
-    PluginsServerConfig,
-    RedisPool,
-} from '../types'
+import { HealthCheckResult, HealthCheckResultError, PluginServerService, RedisPool } from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
 import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '../utils/event-schema-enforcement-manager'
@@ -35,6 +29,7 @@ import {
     JoinedIngestionPipelineInput,
     createJoinedIngestionPipeline,
 } from './analytics'
+import { IngestionConsumerConfig } from './config'
 import { CookielessManager } from './cookieless/cookieless-manager'
 import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT, IngestionOutputs } from './event-processing/ingestion-outputs'
 import { parseSplitAiEventsConfig } from './event-processing/split-ai-events-step'
@@ -49,7 +44,7 @@ import { OverflowRedirectService } from './utils/overflow-redirect/overflow-redi
 import { RedisOverflowRepository } from './utils/overflow-redirect/overflow-redis-repository'
 
 export type IngestionConsumerFullConfig = IngestionConsumerConfig &
-    Pick<PluginsServerConfig, 'KAFKA_CLIENT_RACK' | 'CDP_HOG_WATCHER_SAMPLE_RATE' | 'INGESTION_PIPELINE'>
+    Pick<CommonConfig, 'KAFKA_CLIENT_RACK' | 'CDP_HOG_WATCHER_SAMPLE_RATE'>
 
 export interface IngestionConsumerDeps {
     postgres: PostgresRouter
@@ -65,7 +60,7 @@ export interface IngestionConsumerDeps {
     hogTransformer: HogTransformerService
 }
 
-const latestOffsetTimestampGauge = new Gauge({
+export const latestOffsetTimestampGauge = new Gauge({
     name: 'latest_processed_timestamp_ms',
     help: 'Timestamp of the latest offset that has been committed.',
     labelNames: ['topic', 'partition', 'groupId'],
@@ -107,7 +102,7 @@ export class IngestionConsumer {
         private deps: IngestionConsumerDeps,
         overrides: Partial<
             Pick<
-                PluginsServerConfig,
+                IngestionConsumerConfig,
                 | 'INGESTION_CONSUMER_GROUP_ID'
                 | 'INGESTION_CONSUMER_CONSUME_TOPIC'
                 | 'INGESTION_CONSUMER_OVERFLOW_TOPIC'
@@ -268,7 +263,7 @@ export class IngestionConsumer {
             teamManager: this.deps.teamManager,
             cookielessManager: this.deps.cookielessManager,
             groupTypeManager: this.deps.groupTypeManager,
-            topHog: this.topHog,
+            topHog: this.topHog!,
         }
         this.joinedPipeline = createJoinedIngestionPipeline(
             newBatchPipelineBuilder<JoinedIngestionPipelineInput, JoinedIngestionPipelineContext>(),

@@ -73,7 +73,11 @@ class OrganizationFeatureFlagView(
 
         # Fetch the flag to copy
         try:
-            flag_to_copy = FeatureFlag.objects.get(key=feature_flag_key, team__project_id=from_project)
+            flag_to_copy = FeatureFlag.objects.get(
+                key=feature_flag_key,
+                team__project_id=from_project,
+                team__organization_id=self.organization_id,
+            )
         except FeatureFlag.DoesNotExist:
             return Response({"error": "Feature flag to copy does not exist."}, status=status.HTTP_400_BAD_REQUEST)
 

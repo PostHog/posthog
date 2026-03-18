@@ -15,6 +15,7 @@ from posthog.views import api_key_search_view, redis_edit_ttl_view, redis_values
 from ee.admin.loginas_views import loginas_user, upgrade_impersonation
 from ee.admin.oauth_views import admin_auth_check, admin_oauth_success
 from ee.api import integration
+from ee.api.agentic_provisioning import views as agentic_provisioning_views
 from ee.api.vercel import vercel_connect, vercel_sso, vercel_webhooks
 from ee.middleware import admin_oauth2_callback
 from ee.support_sidebar_max.views import MaxChatViewSet
@@ -109,6 +110,11 @@ if settings.ADMIN_PORTAL_ENABLED:
     )
     from posthog.admin.admins.distinct_id_usage_admin import distinct_id_usage_view
     from posthog.admin.admins.email_mfa_bypass_admin import EmailMFABypassViewSet, email_mfa_bypass_view
+    from posthog.admin.admins.health_check_admin import (
+        health_check_list_view,
+        health_check_runs_fragment_view,
+        health_check_trigger_view,
+    )
     from posthog.admin.admins.radar_bypass_admin import RadarBypassViewSet, radar_bypass_view
     from posthog.admin.admins.realtime_cohort_calculation_admin import analyze_realtime_cohort_calculation_view
     from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
@@ -177,6 +183,21 @@ if settings.ADMIN_PORTAL_ENABLED:
             name="tophog-dashboard",
         ),
         path(
+            "admin/health-checks/",
+            admin.site.admin_view(health_check_list_view),
+            name="health-checks",
+        ),
+        path(
+            "admin/health-checks/<str:kind>/",
+            admin.site.admin_view(health_check_trigger_view),
+            name="health-check-trigger",
+        ),
+        path(
+            "admin/health-checks/<str:kind>/runs/",
+            admin.site.admin_view(health_check_runs_fragment_view),
+            name="health-check-runs",
+        ),
+        path(
             "admin/logout/",
             impersonated_session_logout,
             name="loginas-logout",
@@ -232,5 +253,61 @@ urlpatterns: list[Any] = [
         name="scim_resource_types",
     ),
     path("scim/v2/<uuid:domain_id>/Schemas", csrf_exempt(scim_views.SCIMSchemasView.as_view()), name="scim_schemas"),
+    # Stripe Agentic Provisioning Protocol (APP 0.1d)
+    path(
+        "api/agentic/provisioning/health",
+        csrf_exempt(agentic_provisioning_views.provisioning_health),
+        name="agentic_provisioning_health",
+    ),
+    path(
+        "api/agentic/provisioning/services",
+        csrf_exempt(agentic_provisioning_views.provisioning_services),
+        name="agentic_provisioning_services",
+    ),
+    path(
+        "api/agentic/provisioning/account_requests",
+        csrf_exempt(agentic_provisioning_views.account_requests),
+        name="agentic_provisioning_account_requests",
+    ),
+    path(
+        "api/agentic/authorize",
+        agentic_provisioning_views.agentic_authorize,
+        name="agentic_authorize",
+    ),
+    path(
+        "api/agentic/authorize/confirm/",
+        agentic_provisioning_views.agentic_authorize_confirm,
+        name="agentic_authorize_confirm",
+    ),
+    path(
+        "api/agentic/oauth/token",
+        csrf_exempt(agentic_provisioning_views.oauth_token),
+        name="agentic_provisioning_oauth_token",
+    ),
+    path(
+        "api/agentic/provisioning/resources",
+        csrf_exempt(agentic_provisioning_views.provisioning_resources_create),
+        name="agentic_provisioning_resources_create",
+    ),
+    path(
+        "api/agentic/provisioning/resources/<str:resource_id>/rotate_credentials",
+        csrf_exempt(agentic_provisioning_views.provisioning_rotate_credentials),
+        name="agentic_provisioning_rotate_credentials",
+    ),
+    path(
+        "api/agentic/provisioning/resources/<str:resource_id>",
+        csrf_exempt(agentic_provisioning_views.provisioning_resource_detail),
+        name="agentic_provisioning_resource_detail",
+    ),
+    path(
+        "api/agentic/provisioning/deep_links",
+        csrf_exempt(agentic_provisioning_views.deep_links),
+        name="agentic_provisioning_deep_links",
+    ),
+    path(
+        "agentic/login",
+        agentic_provisioning_views.agentic_login,
+        name="agentic_login",
+    ),
     *admin_urlpatterns,
 ]

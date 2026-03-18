@@ -3,7 +3,7 @@ from typing import Any, cast
 
 from django.db.models import Count
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema, extend_schema_field
 from rest_framework import request, serializers, viewsets
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -24,22 +24,100 @@ from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from .documentation import (
+    ArrayPropertyFilterSerializer,
+    DatePropertyFilterSerializer,
+    ExistencePropertyFilterSerializer,
+    NumericPropertyFilterSerializer,
+    StringPropertyFilterSerializer,
+)
 from .forbid_destroy_model import ForbidDestroyModel
 from .tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 
+_PropertyFilterUnion = PolymorphicProxySerializer(
+    component_name="ActionStepPropertyFilter",
+    serializers=[
+        StringPropertyFilterSerializer,
+        NumericPropertyFilterSerializer,
+        ArrayPropertyFilterSerializer,
+        DatePropertyFilterSerializer,
+        ExistencePropertyFilterSerializer,
+    ],
+    resource_type_field_name=None,
+)
+
+
+@extend_schema_field(serializers.ListSerializer(child=_PropertyFilterUnion))
+class _ActionStepPropertiesField(serializers.ListField):
+    """ListField annotated with a typed OpenAPI schema via a oneOf property filter union.
+
+    Runtime validation remains a simple ListField(child=DictField()) — the
+    @extend_schema_field decorator only affects the generated OpenAPI spec.
+    """
+
+    pass
+
 
 class ActionStepJSONSerializer(serializers.Serializer):
-    event = serializers.CharField(required=False, allow_null=True, trim_whitespace=False)
-    properties = serializers.ListField(child=serializers.DictField(), required=False, allow_null=True)
-    selector = serializers.CharField(required=False, allow_null=True)
+    event = serializers.CharField(
+        required=False,
+        allow_null=True,
+        trim_whitespace=False,
+        help_text="Event name to match (e.g. '$pageview', '$autocapture', or a custom event name).",
+    )
+    properties = _ActionStepPropertiesField(
+        child=serializers.DictField(),
+        required=False,
+        allow_null=True,
+        help_text="Event or person property filters. Each item should have 'key' (string), 'value' (string, number, boolean, or array), optional 'operator' (exact, is_not, is_set, is_not_set, icontains, not_icontains, regex, not_regex, gt, gte, lt, lte), and optional 'type' (event, person).",
+    )
+    selector = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="CSS selector to match the target element (e.g. 'div > button.cta').",
+    )
     selector_regex = serializers.SerializerMethodField()
-    tag_name = serializers.CharField(required=False, allow_null=True, trim_whitespace=False)
-    text = serializers.CharField(required=False, allow_null=True, trim_whitespace=False)
-    text_matching = serializers.ChoiceField(choices=ACTION_STEP_MATCHING_OPTIONS, required=False, allow_null=True)
-    href = serializers.CharField(required=False, allow_null=True, trim_whitespace=False)
-    href_matching = serializers.ChoiceField(choices=ACTION_STEP_MATCHING_OPTIONS, required=False, allow_null=True)
-    url = serializers.CharField(required=False, allow_null=True)
-    url_matching = serializers.ChoiceField(choices=ACTION_STEP_MATCHING_OPTIONS, required=False, allow_null=True)
+    tag_name = serializers.CharField(
+        required=False,
+        allow_null=True,
+        trim_whitespace=False,
+        help_text='HTML tag name to match (e.g. "button", "a", "input").',
+    )
+    text = serializers.CharField(
+        required=False,
+        allow_null=True,
+        trim_whitespace=False,
+        help_text="Element text content to match.",
+    )
+    text_matching = serializers.ChoiceField(
+        choices=ACTION_STEP_MATCHING_OPTIONS,
+        required=False,
+        allow_null=True,
+        help_text="How to match the text value. Defaults to exact.",
+    )
+    href = serializers.CharField(
+        required=False,
+        allow_null=True,
+        trim_whitespace=False,
+        help_text="Link href attribute to match.",
+    )
+    href_matching = serializers.ChoiceField(
+        choices=ACTION_STEP_MATCHING_OPTIONS,
+        required=False,
+        allow_null=True,
+        help_text="How to match the href value. Defaults to exact.",
+    )
+    url = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Page URL to match.",
+    )
+    url_matching = serializers.ChoiceField(
+        choices=ACTION_STEP_MATCHING_OPTIONS,
+        required=False,
+        allow_null=True,
+        help_text="How to match the URL value. Defaults to contains.",
+    )
 
     def get_selector_regex(self, obj) -> str | None:
         selector_str = obj.get("selector") if isinstance(obj, dict) else getattr(obj, "selector", None)
@@ -55,7 +133,11 @@ class ActionStepJSONSerializer(serializers.Serializer):
 class ActionSerializer(
     TaggedItemSerializerMixin, UserAccessControlSerializerMixin, serializers.HyperlinkedModelSerializer
 ):
-    steps = ActionStepJSONSerializer(many=True, required=False)
+    steps = ActionStepJSONSerializer(
+        many=True,
+        required=False,
+        help_text="Action steps defining trigger conditions. Each step matches events by name, properties, URL, or element attributes. Multiple steps are OR-ed together.",
+    )
     created_by = UserBasicSerializer(read_only=True)
     is_calculating = serializers.SerializerMethodField()
     is_action = serializers.BooleanField(read_only=True, default=True)
@@ -89,11 +171,24 @@ class ActionSerializer(
             "team_id",
             "bytecode_error",
         ]
-        extra_kwargs = {"team_id": {"read_only": True}}
+        extra_kwargs = {
+            "team_id": {"read_only": True},
+            "name": {"help_text": "Name of the action (must be unique within the project)."},
+            "description": {"help_text": "Human-readable description of what this action represents."},
+            "tags": {"help_text": "Tags for organizing and filtering actions."},
+            "post_to_slack": {"help_text": "Whether to post a notification to Slack when this action is triggered."},
+            "slack_message_format": {
+                "help_text": "Custom Slack message format. Supports templates with event properties."
+            },
+            "pinned_at": {
+                "help_text": "ISO 8601 timestamp when the action was pinned, or null if not pinned. Set any value to pin, null to unpin."
+            },
+        }
 
     def get_is_calculating(self, action: Action) -> bool:
         return False
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_creation_context(self, obj):
         return None
 

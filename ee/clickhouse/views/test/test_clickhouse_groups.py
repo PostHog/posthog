@@ -1582,6 +1582,60 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         self.assertIsNone(cache.get(cache_key))
         self.assertIsNone(cache.get(stale_cache_key))
 
+    def test_update_metadata_non_admin_cannot_modify_protected_fields(self):
+        from posthog.constants import AvailableFeature
+        from posthog.models.organization import OrganizationMembership
+
+        from ee.models.rbac.access_control import AccessControl
+
+        group_type = GroupTypeMapping.objects.create(
+            team=self.team, project=self.project, group_type="organization", group_type_index=0
+        )
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+        ]
+        self.organization.save()
+        # Grant member-level (not admin) project access so the request reaches the serializer
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="member",
+        )
+
+        response = self.client.patch(
+            self.url + "/update_metadata",
+            [{"group_type_index": group_type.group_type_index, "name_singular": "Org", "name_plural": "Orgs"}],
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        group_type.refresh_from_db()
+        self.assertIsNone(group_type.name_singular)
+        self.assertIsNone(group_type.name_plural)
+
+    def test_update_metadata_admin_can_modify_protected_fields(self):
+        from posthog.models.organization import OrganizationMembership
+
+        group_type = GroupTypeMapping.objects.create(
+            team=self.team, project=self.project, group_type="organization", group_type_index=0
+        )
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.patch(
+            self.url + "/update_metadata",
+            [{"group_type_index": group_type.group_type_index, "name_singular": "Org", "name_plural": "Orgs"}],
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        group_type.refresh_from_db()
+        self.assertEqual(group_type.name_singular, "Org")
+        self.assertEqual(group_type.name_plural, "Orgs")
+
 
 class GroupUsageMetricViewSetTestCase(APIBaseTest):
     def setUp(self):
@@ -1769,6 +1823,48 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
         self.assertEqual(response.json(), self.permission_denied_response("You don't have access to the project."))
 
         self.assertTrue(GroupUsageMetric.objects.filter(id=other_metric.id).exists())
+
+    def test_non_admin_cannot_update_metric(self):
+        from posthog.constants import AvailableFeature
+        from posthog.models.organization import OrganizationMembership
+
+        from ee.models.rbac.access_control import AccessControl
+
+        metric = self._create_metric()
+        url = f"{self.url}/{metric.id}"
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+        ]
+        self.organization.save()
+        # Grant member-level (not admin) project access so the request reaches the serializer
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="member",
+        )
+
+        response = self.client.patch(url, {"name": "Should not update"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        metric.refresh_from_db()
+        self.assertEqual(metric.name, "Events")
+
+    def test_admin_can_update_metric(self):
+        from posthog.models.organization import OrganizationMembership
+
+        metric = self._create_metric()
+        url = f"{self.url}/{metric.id}"
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.patch(url, {"name": "Updated by admin"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        metric.refresh_from_db()
+        self.assertEqual(metric.name, "Updated by admin")
 
 
 class GroupPropertyDefinitionsTestCase(ClickhouseTestMixin, APIBaseTest):

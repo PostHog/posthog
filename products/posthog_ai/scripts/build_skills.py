@@ -450,6 +450,105 @@ class SkillBuilder:
         skill_file.write_text(content)
         return skill_file
 
+    # ------------------------------------------------------------------
+    # Sync / unsync: copy built skills to .agents/skills/ for local testing
+    # ------------------------------------------------------------------
+
+    _SYNCED_SKILLS_MARKER = "# Synced product skills (managed by hogli sync:skill)"
+
+    def sync_skill(self, skill_name: str) -> Path:
+        """Build a skill and copy it to .agents/skills/ for local Claude Code testing.
+
+        Returns the path to the synced skill directory.
+        """
+        skills = self.discoverer.discover()
+        match = next((s for s in skills if s.name == skill_name), None)
+        if match is None:
+            available = ", ".join(s.name for s in skills)
+            raise ValueError(f"Skill '{skill_name}' not found. Available: {available}")
+
+        manifest = self.build_all()
+
+        # Find the built resource — build order matches discovery order
+        resource = next((r for s, r in zip(skills, manifest.resources) if s.name == skill_name), None)
+        if resource is None:
+            raise ValueError(f"Skill '{skill_name}' was discovered but not built")
+
+        agents_skills_dir = self.repo_root / ".agents" / "skills"
+        target_dir = agents_skills_dir / resource.name
+
+        if target_dir.exists():
+            shutil.rmtree(target_dir)
+
+        source_dir = self.skills_dist_dir / resource.name
+        shutil.copytree(source_dir, target_dir)
+
+        self._ensure_gitignored(resource.name)
+        return target_dir
+
+    def unsync_skill(self, skill_name: str) -> None:
+        """Remove a previously synced skill from .agents/skills/."""
+        agents_skills_dir = self.repo_root / ".agents" / "skills"
+
+        # Try the name directly, and also resolve via discovery for frontmatter name
+        names_to_try = [skill_name]
+        skills = self.discoverer.discover()
+        match = next((s for s in skills if s.name == skill_name), None)
+        if match is not None and match.source_file.suffix != ".j2":
+            try:
+                metadata, _ = parse_frontmatter(match.source_file.read_text())
+                fm_name = metadata.get("name", skill_name)
+                if fm_name != skill_name and fm_name not in names_to_try:
+                    names_to_try.append(fm_name)
+            except Exception:
+                pass
+
+        for name in names_to_try:
+            target_dir = agents_skills_dir / name
+            if target_dir.exists():
+                shutil.rmtree(target_dir)
+                self._remove_gitignore_entry(name)
+                print(f"Removed synced skill: .agents/skills/{name}")
+                return
+
+        print(f"No synced skill found for '{skill_name}'", file=sys.stderr)
+        sys.exit(1)
+
+    def _ensure_gitignored(self, skill_name: str) -> None:
+        """Add skill to .agents/skills/.gitignore if not already present."""
+        gitignore_path = self.repo_root / ".agents" / "skills" / ".gitignore"
+        entry = f"/{skill_name}"
+
+        if gitignore_path.exists():
+            content = gitignore_path.read_text()
+            if entry in content.splitlines():
+                return
+        else:
+            content = ""
+
+        if not content:
+            content = f"{self._SYNCED_SKILLS_MARKER}\n"
+
+        if not content.endswith("\n"):
+            content += "\n"
+
+        content += f"{entry}\n"
+        gitignore_path.write_text(content)
+
+    def _remove_gitignore_entry(self, skill_name: str) -> None:
+        """Remove skill from .agents/skills/.gitignore."""
+        gitignore_path = self.repo_root / ".agents" / "skills" / ".gitignore"
+        if not gitignore_path.exists():
+            return
+        entry = f"/{skill_name}"
+        lines = gitignore_path.read_text().splitlines()
+        lines = [line for line in lines if line != entry]
+        remaining = [line for line in lines if line.strip() and not line.startswith("#")]
+        if not remaining:
+            gitignore_path.unlink()
+        else:
+            gitignore_path.write_text("\n".join(lines) + "\n")
+
     def list_skills(self) -> None:
         """List all discovered product skills."""
         skills = self.discoverer.discover()
@@ -529,6 +628,16 @@ def main() -> None:
         action="store_true",
         help="Create SKILL.md.j2 instead of SKILL.md (use with --init)",
     )
+    parser.add_argument(
+        "--sync",
+        action="store_true",
+        help="Build a skill and sync it to .agents/skills/ for local testing",
+    )
+    parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Remove a previously synced skill from .agents/skills/ (use with --sync)",
+    )
     args = parser.parse_args()
 
     products_dir = REPO_ROOT / "products"
@@ -548,6 +657,24 @@ def main() -> None:
 
     if args.lint:
         if not builder.lint_all():
+            sys.exit(1)
+        return
+
+    if args.sync:
+        if not args.name:
+            builder.list_skills()
+            print("\nUsage: hogli sync:skill -- --name <skill-name>")
+            return
+        if args.clean:
+            builder.unsync_skill(args.name)
+            return
+        _setup_django()
+        try:
+            target = builder.sync_skill(args.name)
+            print(f"Synced skill to {target.relative_to(REPO_ROOT)}")
+            print(f"  Available via .claude/skills/{target.name}/ for Claude Code")
+        except ValueError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
             sys.exit(1)
         return
 

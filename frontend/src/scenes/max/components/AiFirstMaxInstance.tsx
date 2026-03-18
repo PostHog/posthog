@@ -3,8 +3,10 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { IconOpenSidebar, IconShare } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { cn } from 'lib/utils/css-classes'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
@@ -20,15 +22,31 @@ import { SidebarQuestionInputWithSuggestions } from './SidebarQuestionInputWithS
 import { ThreadAutoScroller } from './ThreadAutoScroller'
 
 /* Sits above the chat area */
-export function ChatHeader({ conversationId, tabId }: { conversationId: string | null; tabId?: string }): JSX.Element {
+export function ChatHeader({
+    conversationId,
+    tabId,
+    children,
+    hideBorder,
+}: {
+    conversationId: string | null
+    tabId?: string
+    children?: React.ReactNode
+    hideBorder?: boolean
+}): JSX.Element {
     const { openSidePanelMax } = useActions(maxGlobalLogic)
     const { chatTitle } = useValues(maxLogic)
     const { closeTabId } = useActions(sceneLogic)
     const isTitleLoading = chatTitle === 'New chat'
 
     return (
-        <div className="flex w-full gap-2 py-2 border-b border-primary items-center justify-between px-2">
+        <div
+            className={cn(
+                'flex w-full gap-2 py-2 border-b border-primary items-center justify-between px-2',
+                hideBorder && 'border-b-0'
+            )}
+        >
             <div className="flex items-center gap-2 pl-2 text-sm font-medium truncate min-w-0 flex-1">
+                {children}
                 {chatTitle === null ? null : isTitleLoading ? (
                     <div className="w-100">
                         <SceneName name="New chat" isLoading />
@@ -78,6 +96,7 @@ interface AiFirstMaxInstanceProps {
 export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Element {
     const { threadVisible, threadLogicKey, conversation, conversationId } = useValues(maxLogic({ tabId }))
     const { startNewConversation } = useActions(maxLogic({ tabId }))
+    const isAIFirst = useFeatureFlag('AI_FIRST')
 
     const threadProps: MaxThreadLogicProps = {
         tabId,
@@ -87,7 +106,7 @@ export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Elem
 
     return (
         <div className="flex grow overflow-hidden h-full">
-            <ChatHistoryPanel tabId={tabId} />
+            {!isAIFirst && <ChatHistoryPanel tabId={tabId} />}
             <BindLogic logic={maxLogic} props={{ tabId }}>
                 <BindLogic logic={maxThreadLogic} props={threadProps}>
                     <div className="flex flex-col grow overflow-hidden">

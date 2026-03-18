@@ -1,6 +1,16 @@
-import { IconCode, IconDatabase, IconPulse, IconWarning } from '@posthog/icons'
+import { IconCode, IconDatabase, IconPulse, IconTrending, IconWarning } from '@posthog/icons'
 
-export type HealthIssueCategory = 'ingestion' | 'sdk' | 'pipelines' | 'other'
+export type HealthIssueCategory = 'ingestion' | 'sdk' | 'web_analytics' | 'pipelines' | 'other'
+
+export type HealthIssueKind =
+    | 'no_live_events'
+    | 'no_pageleave_events'
+    | 'scroll_depth'
+    | 'authorized_urls'
+    | 'reverse_proxy'
+    | 'web_vitals'
+    | 'ingestion_lag'
+    | 'sdk_outdated'
 
 interface CategoryConfig {
     label: string
@@ -25,6 +35,13 @@ export const HEALTH_CATEGORY_CONFIG: Record<HealthIssueCategory, CategoryConfig>
         icon: <IconCode className="size-5" />,
         showInSummary: true,
     },
+    web_analytics: {
+        label: 'Web analytics',
+        description: 'Web analytics setup and configuration',
+        healthyDescription: 'Setup looks good',
+        icon: <IconTrending className="size-5" />,
+        showInSummary: true,
+    },
     pipelines: {
         label: 'Pipelines',
         description: 'Data pipelines and transformations',
@@ -40,23 +57,35 @@ export const HEALTH_CATEGORY_CONFIG: Record<HealthIssueCategory, CategoryConfig>
     },
 }
 
-const KIND_TO_CATEGORY: Record<string, HealthIssueCategory> = {
+const KIND_TO_CATEGORY: Record<HealthIssueKind, HealthIssueCategory> = {
     // Ingestion
-    no_live_events: 'ingestion',
     ingestion_lag: 'ingestion',
 
     // SDKs
     sdk_outdated: 'sdk',
+
+    // Web analytics
+    no_live_events: 'web_analytics',
+    no_pageleave_events: 'web_analytics',
+    scroll_depth: 'web_analytics',
+    authorized_urls: 'web_analytics',
+    reverse_proxy: 'web_analytics',
+    web_vitals: 'web_analytics',
 }
 
-export const KIND_LABELS: Record<string, string> = {
+export const KIND_LABELS: Record<HealthIssueKind, string> = {
     no_live_events: 'No live events',
+    no_pageleave_events: 'No pageleave events',
+    scroll_depth: 'No scroll depth tracking',
+    authorized_urls: 'No authorized URLs',
+    reverse_proxy: 'No reverse proxy',
+    web_vitals: 'No web vitals',
     ingestion_lag: 'Ingestion lag',
     sdk_outdated: 'SDK outdated',
 }
 
 export const categoryForKind = (kind: string): HealthIssueCategory => {
-    return KIND_TO_CATEGORY[kind] ?? 'other'
+    return KIND_TO_CATEGORY[kind as HealthIssueKind] ?? 'other'
 }
 
-export const CATEGORY_ORDER: HealthIssueCategory[] = ['ingestion', 'sdk', 'pipelines', 'other']
+export const CATEGORY_ORDER: HealthIssueCategory[] = ['ingestion', 'sdk', 'web_analytics', 'pipelines', 'other']

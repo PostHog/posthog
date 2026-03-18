@@ -163,8 +163,8 @@ export function ActionFilterGroup({
                                         mathAvailability={mathAvailability}
                                         trendsDisplayCategory={trendsDisplayCategory}
                                     />
-                                    {(mathDefinitions as Record<string, any>)[filter.math || BaseMathType.TotalCount]
-                                        ?.category === MathCategory.PropertyValue && (
+                                    {mathDefinitions[filter.math || BaseMathType.TotalCount]?.category ===
+                                        MathCategory.PropertyValue && (
                                         <TaxonomicStringPopover
                                             size="small"
                                             groupType={
@@ -189,9 +189,7 @@ export function ActionFilterGroup({
                                                         currentValue === '$session_duration' ? (
                                                             <>
                                                                 Calculate{' '}
-                                                                {(mathDefinitions as Record<string, any>)[
-                                                                    filter.math ?? ''
-                                                                ].name.toLowerCase()}{' '}
+                                                                {mathDefinitions[filter.math ?? '']?.name.toLowerCase()}{' '}
                                                                 of the session duration. This is based on the{' '}
                                                                 <code>$session_id</code> property associated with
                                                                 events. The duration is derived from the time difference
@@ -201,9 +199,7 @@ export function ActionFilterGroup({
                                                         ) : (
                                                             <>
                                                                 Calculate{' '}
-                                                                {(mathDefinitions as Record<string, any>)[
-                                                                    filter.math ?? ''
-                                                                ].name.toLowerCase()}{' '}
+                                                                {mathDefinitions[filter.math ?? '']?.name.toLowerCase()}{' '}
                                                                 from property <code>{currentValue}</code>. Note that
                                                                 only event occurrences where <code>{currentValue}</code>{' '}
                                                                 is set with a numeric value will be taken into account.
@@ -222,8 +218,8 @@ export function ActionFilterGroup({
                                         />
                                     )}
                                     {/* HogQL expression selector */}
-                                    {(mathDefinitions as Record<string, any>)[filter.math || BaseMathType.TotalCount]
-                                        ?.category === MathCategory.HogQLExpression && (
+                                    {mathDefinitions[filter.math || BaseMathType.TotalCount]?.category ===
+                                        MathCategory.HogQLExpression && (
                                         <LemonDropdown
                                             visible={isHogQLDropdownVisible}
                                             closeOnClickInside={false}

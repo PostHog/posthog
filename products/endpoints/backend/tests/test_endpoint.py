@@ -32,8 +32,10 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             user=self.user,
             label="Test API Key",
             secure_value=hash_key_value(self.api_key),
+            scopes=["*"],
         )
         self.sample_hogql_query = {
+            "connectionId": None,
             "explain": None,
             "filters": None,
             "kind": "HogQLQuery",
@@ -329,6 +331,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual("Updated description", response_data["description"])
         self.assertFalse(response_data["is_active"])
         want_query = {
+            "connectionId": None,
             "explain": None,
             "filters": None,
             "kind": "HogQLQuery",

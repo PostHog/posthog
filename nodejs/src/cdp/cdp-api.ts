@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 import express from 'ultimate-express'
 
 import { ModifiedRequest } from '~/api/router'
-import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS, KAFKA_WAREHOUSE_SOURCE_WEBHOOKS } from '~/config/kafka-topics'
+import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS } from '~/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/kafka/producer'
 import { PluginEvent } from '~/plugin-scaffold'
 
@@ -85,7 +85,8 @@ export class CdpApi {
         this.emailTrackingService = new EmailTrackingService(
             this.hogFunctionManager,
             this.hogFlowManager,
-            this.hogFunctionMonitoringService
+            this.hogFunctionMonitoringService,
+            services.recipientsManager
         )
         this.batchExportHogFunctionService = new BatchExportHogFunctionService(
             config.SITE_URL,
@@ -111,6 +112,7 @@ export class CdpApi {
             this.config.KAFKA_CLIENT_RACK,
             'WAREHOUSE_PRODUCER'
         )
+        this.hogFunctionMonitoringService.setWarehouseKafkaProducer(this.cdpWarehouseKafkaProducer)
         await this.cdpSourceWebhooksConsumer.start()
     }
 
@@ -578,9 +580,16 @@ export class CdpApi {
             if (typeof result.execResult === 'object' && result.execResult && 'httpResponse' in result.execResult) {
                 const httpResponse = result.execResult.httpResponse as HogFunctionWebhookResult
                 if (typeof httpResponse.body === 'string') {
+                    if (httpResponse.isBase64Encoded) {
+                        const buffer = Buffer.from(httpResponse.body, 'base64')
+                        return res
+                            .status(httpResponse.status)
+                            .type(httpResponse.contentType ?? 'application/octet-stream')
+                            .send(buffer)
+                    }
                     return res
                         .status(httpResponse.status)
-                        .set('Content-Type', httpResponse.contentType ?? 'text/plain')
+                        .type(httpResponse.contentType ?? 'text/plain')
                         .send(httpResponse.body)
                 } else if (typeof httpResponse.body === 'object') {
                     return res.status(httpResponse.status).json(httpResponse.body)
@@ -617,31 +626,13 @@ export class CdpApi {
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             const { webhook_id } = req.params
-            return this.processAndRespondToWebhook(webhook_id, req, res, async (result) => {
+            return this.processAndRespondToWebhook(webhook_id, req, res, (result) => {
                 if (result.error) {
                     return res.status(500).json({ error: 'Internal error' })
                 }
-                if (!result.execResult || typeof result.execResult !== 'object') {
-                    return res.status(500).json({ error: 'Template did not return a payload' })
+                if (!result.finished) {
+                    return res.status(201).json({ status: 'queued' })
                 }
-
-                const hogFunction = result.invocation.hogFunction
-                const schemaId = hogFunction.inputs?.schema_id?.value
-                if (!schemaId) {
-                    return res.status(500).json({ error: 'Missing schema_id on hog function' })
-                }
-
-                const kafkaProducer = this.cdpWarehouseKafkaProducer
-                if (!kafkaProducer) {
-                    return res.status(500).json({ error: 'Kafka producer not available' })
-                }
-
-                await kafkaProducer.produce({
-                    topic: KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
-                    key: `${hogFunction.team_id}:${schemaId}`,
-                    value: Buffer.from(JSON.stringify(result.execResult)),
-                })
-
                 return res.status(200).json({ status: 'ok' })
             })
         }

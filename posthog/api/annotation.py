@@ -11,6 +11,7 @@ from rest_framework import filters, pagination, serializers, viewsets
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import Annotation, Dashboard, Insight
@@ -32,9 +33,7 @@ class AnnotationContext(ActivityContextBase):
 class AnnotationSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     dashboard_id = serializers.IntegerField(required=False, allow_null=True)
-    dashboard_item = serializers.PrimaryKeyRelatedField(
-        queryset=Insight.objects.none(), required=False, allow_null=True
-    )
+    dashboard_item = TeamScopedPrimaryKeyRelatedField(queryset=Insight.objects.all(), required=False, allow_null=True)
 
     class Meta:
         model = Annotation
@@ -65,13 +64,32 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-
-    def get_fields(self):
-        fields = super().get_fields()
-        team_id = self.context.get("team_id")
-        if team_id:
-            fields["dashboard_item"].queryset = Insight.objects.filter(team_id=team_id)
-        return fields
+        extra_kwargs = {
+            "content": {
+                "help_text": "Annotation text shown on charts to describe the change, release, or incident.",
+            },
+            "date_marker": {
+                "help_text": "When this annotation happened (ISO 8601 timestamp). Used to position it on charts.",
+            },
+            "creation_type": {
+                "help_text": "Who created this annotation. Use `USR` for user-created notes and `GIT` for bot/deployment notes.",
+            },
+            "dashboard_id": {
+                "help_text": "Optional dashboard ID to attach this annotation to. Must belong to the current project.",
+            },
+            "dashboard_item": {
+                "help_text": "Optional insight ID to attach this annotation to. Must belong to the current project.",
+            },
+            "deleted": {
+                "help_text": "Soft-delete flag. Set to true to hide the annotation, or false to restore it.",
+            },
+            "scope": {
+                "help_text": (
+                    "Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. "
+                    "`recording` is deprecated and rejected."
+                ),
+            },
+        }
 
     def update(self, instance: Annotation, validated_data: dict[str, Any]) -> Annotation:
         instance.team_id = self.context["team_id"]

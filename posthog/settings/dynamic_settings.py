@@ -185,6 +185,11 @@ CONSTANCE_CONFIG = {
         "ClickHouse overload protection. Values: 'off', 'light' (reduce resources, shed background work), 'full' (aggressive caps on everything).",
         str,
     ),
+    "CLICKHOUSE_HEDGED_APP_QUERIES": (
+        get_from_env("CLICKHOUSE_HEDGED_APP_QUERIES", False, type_cast=str_to_bool),
+        "Enable hedged requests for online APP queries to ClickHouse.",
+        bool,
+    ),
     "RATE_LIMITING_ALLOW_LIST_TEAMS": (
         get_from_env("RATE_LIMITING_ALLOW_LIST_TEAMS", ""),
         "Whether teams are on an allow list to bypass rate limiting. Comma separated list of team-ids",
@@ -208,6 +213,11 @@ CONSTANCE_CONFIG = {
     "WEB_ANALYTICS_WARMING_TEAMS_TO_WARM": (
         get_from_env("WEB_ANALYTICS_WARMING_TEAMS_TO_WARM", default=[2], type_cast=list[int]),
         "Teams that will have web analytics cache warming enabled",
+        list[int],
+    ),
+    "CLICKHOUSE_ENABLE_ANALYZER_TEAMS": (
+        get_from_env("CLICKHOUSE_ENABLE_ANALYZER_TEAMS", default=[], type_cast=list[int]),
+        "Comma-separated list of team IDs for which ClickHouse allow_experimental_analyzer is enabled",
         list[int],
     ),
 }
@@ -247,6 +257,8 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "RATE_LIMIT_ENABLED",
     "RATE_LIMITING_ALLOW_LIST_TEAMS",
     "CLICKHOUSE_KILL_SWITCH",
+    "CLICKHOUSE_HEDGED_APP_QUERIES",
+    "CLICKHOUSE_ENABLE_ANALYZER_TEAMS",
     "REDIRECT_APP_TO_US",
     "WEB_ANALYTICS_WARMING_DAYS",
     "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT",

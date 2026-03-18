@@ -128,7 +128,7 @@ class ArtifactManager(
 
         # Use handler for enrichment (generic for all types)
         handler = get_handler_for_content_class(type(stored_content))
-        context = EnrichmentContext(team=self._team)
+        context = EnrichmentContext(team=self._team, artifact_id=artifact_id)
         content: ArtifactContent = await handler.aenrich(stored_content, context)
 
         if expected_type is not None and not isinstance(content, expected_type):
@@ -208,7 +208,7 @@ class ArtifactManager(
             stored_content = handler.validate(artifact.data)
 
             # Use handler for enrichment (generic for all types)
-            context = EnrichmentContext(team=self._team)
+            context = EnrichmentContext(team=self._team, artifact_id=artifact.short_id)
             content: ArtifactContent = await handler.aenrich(stored_content, context)
 
             result.append(
@@ -294,7 +294,6 @@ class ArtifactManager(
 
         # Fetch and enrich using handlers
         result: dict[str, ArtifactContent] = {}
-        context = EnrichmentContext(team=self._team, state_messages=messages)
 
         for content_type, artifact_ids in ids_by_content_type.items():
             handler = get_handler_for_content_type(content_type)
@@ -306,7 +305,8 @@ class ArtifactManager(
             for artifact_id, fetch_result in zip(artifact_ids, fetch_results):
                 if fetch_result is None:
                     continue
-                enriched: ArtifactContent = await handler.aenrich(fetch_result.content, context)
+                enrich_ctx = EnrichmentContext(team=self._team, state_messages=messages, artifact_id=artifact_id)
+                enriched: ArtifactContent = await handler.aenrich(fetch_result.content, enrich_ctx)
                 agg_id = aggregation_map.get(artifact_id)
                 if agg_id is not None:
                     result[agg_id] = enriched

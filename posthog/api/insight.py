@@ -44,6 +44,7 @@ from posthog.api.insight_suggestions import generate_insight_name, get_insight_a
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.query import process_query_model
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
@@ -55,7 +56,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import INSIGHT, INSIGHT_FUNNELS, INSIGHT_STICKINESS, TRENDS_STICKINESS, FunnelVizType
 from posthog.decorators import cached_by_filters
 from posthog.errors import ExposedCHQueryError
-from posthog.event_usage import report_user_action
+from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.hogql_queries.apply_dashboard_filters import (
     WRAPPER_NODE_KINDS,
@@ -207,7 +208,7 @@ def capture_legacy_api_call(request: request.Request, team: Team) -> None:
         }
 
         report_user_action(
-            cast(User, request.user),
+            request.user,
             "legacy insight endpoint called",
             properties,
             team=team,
@@ -288,6 +289,7 @@ class InsightBasicSerializer(
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Any:
         raise NotImplementedError()
 
+    @extend_schema_field(serializers.DateTimeField(allow_null=True))
     def get_last_viewed_at(self, instance: Insight):
         """Get the last viewed timestamp for this insight by any user in the team."""
         return getattr(instance, "last_viewed_at", None)
@@ -371,7 +373,7 @@ class InsightSerializer(InsightBasicSerializer):
     effective_privilege_level = serializers.SerializerMethodField()
     timezone = serializers.SerializerMethodField(help_text="The timezone this chart is displayed in.")
     last_viewed_at = serializers.SerializerMethodField(read_only=True)
-    dashboards = serializers.PrimaryKeyRelatedField(
+    dashboards = TeamScopedPrimaryKeyRelatedField(
         help_text="""
         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
         A dashboard ID for each of the dashboards that this insight is displayed on.
@@ -641,15 +643,19 @@ class InsightSerializer(InsightBasicSerializer):
 
         self.context["after_dashboard_changes"] = [describe_change(d) for d in dashboards if not d.deleted]
 
+    @extend_schema_field(OpenApiTypes.ANY)
     def get_result(self, insight: Insight):
         return self.insight_result(insight).result
 
+    @extend_schema_field(serializers.BooleanField(allow_null=True))
     def get_hasMore(self, insight: Insight):
         return self.insight_result(insight).has_more
 
+    @extend_schema_field(serializers.ListField(child=serializers.CharField(), allow_null=True))
     def get_columns(self, insight: Insight):
         return self.insight_result(insight).columns
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_timezone(self, insight: Insight):
         # :TODO: This doesn't work properly as background cache updates don't set timezone in the response.
         # This should get refactored.
@@ -658,18 +664,23 @@ class InsightSerializer(InsightBasicSerializer):
 
         return self.insight_result(insight).timezone
 
+    @extend_schema_field(serializers.DateTimeField(allow_null=True))
     def get_last_refresh(self, insight: Insight):
         return self.insight_result(insight).last_refresh
 
+    @extend_schema_field(serializers.DateTimeField(allow_null=True))
     def get_cache_target_age(self, insight: Insight):
         return self.insight_result(insight).cache_target_age
 
+    @extend_schema_field(serializers.DateTimeField(allow_null=True))
     def get_next_allowed_client_refresh(self, insight: Insight):
         return self.insight_result(insight).next_allowed_client_refresh
 
+    @extend_schema_field(serializers.BooleanField())
     def get_is_cached(self, insight: Insight):
         return self.insight_result(insight).is_cached
 
+    @extend_schema_field(OpenApiTypes.ANY)
     def get_query_status(self, insight: Insight):
         return self.insight_result(insight).query_status
 
@@ -686,15 +697,28 @@ class InsightSerializer(InsightBasicSerializer):
 
         return query
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_hogql(self, insight: Insight):
         return self.insight_result(insight).hogql
 
+    @extend_schema_field(serializers.ListField(allow_null=True))
     def get_types(self, insight: Insight):
         return self.insight_result(insight).types
 
+    @extend_schema_field(
+        {
+            "type": "object",
+            "nullable": True,
+            "properties": {
+                "date_from": {"type": "string", "format": "date-time"},
+                "date_to": {"type": "string", "format": "date-time"},
+            },
+        }
+    )
     def get_resolved_date_range(self, insight: Insight):
         return self.insight_result(insight).resolved_date_range
 
+    @extend_schema_field(serializers.ListField())
     def get_alerts(self, insight: Insight):
         if not insight.are_alerts_supported:
             return []
@@ -863,6 +887,7 @@ class InsightSerializer(InsightBasicSerializer):
                     filters_override=filters_override,
                     variables_override=variables_override,
                     tile_filters_override=tile_filters_override,
+                    analytics_props=get_request_analytics_properties(self.context["request"]),
                 )
             except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
                 raise ValidationError(str(e), getattr(e, "code_name", None))
@@ -1084,10 +1109,14 @@ class InsightViewSet(
             InsightViewed.objects.filter(team=self.team, user=cast(User, request.user))
             .select_related("insight")
             .exclude(insight__deleted=True)
-            .only("insight")
+            .only("insight", "last_viewed_at")
         )
 
-        recently_viewed = [rv.insight for rv in (insight_queryset.order_by("-last_viewed_at")[:5])]
+        recently_viewed = []
+        for rv in insight_queryset.order_by("-last_viewed_at")[:5]:
+            insight = rv.insight
+            insight.last_viewed_at = rv.last_viewed_at  # type: ignore
+            recently_viewed.append(insight)
 
         response = InsightBasicSerializer(recently_viewed, many=True)
         return Response(data=response.data, status=status.HTTP_200_OK)
@@ -1366,7 +1395,7 @@ When set, the specified dashboard's filters and date range override will be appl
                 query,
                 execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
                 user=request.user if request.user.is_authenticated else None,
-                request=request,
+                analytics_props=get_request_analytics_properties(request),
             )
             if isinstance(result_ctx, BaseModel):
                 result = result_ctx.model_dump()
@@ -1410,7 +1439,7 @@ When set, the specified dashboard's filters and date range override will be appl
                 query,
                 execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
                 user=request.user if request.user.is_authenticated else None,
-                request=request,
+                analytics_props=get_request_analytics_properties(request),
             )
             if isinstance(result_ctx, BaseModel):
                 result = result_ctx.model_dump()
@@ -1538,7 +1567,10 @@ When set, the specified dashboard's filters and date range override will be appl
         query_runner = get_query_runner(query, team, limit_context=None)
 
         # we use the legacy caching mechanism (@cached_by_filters decorator), no need to cache in the query runner
-        result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        result = query_runner.run(
+            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            analytics_props=get_request_analytics_properties(request),
+        )
         assert (
             isinstance(result, schema.CachedTrendsQueryResponse)
             or isinstance(result, schema.CachedStickinessQueryResponse)
@@ -1603,7 +1635,10 @@ When set, the specified dashboard's filters and date range override will be appl
         query_runner = get_query_runner(query, team, limit_context=None)
 
         # we use the legacy caching mechanism (@cached_by_filters decorator), no need to cache in the query runner
-        result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        result = query_runner.run(
+            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            analytics_props=get_request_analytics_properties(request),
+        )
         assert isinstance(result, schema.CachedFunnelsQueryResponse)
 
         return {"result": result.results, "timezone": team.timezone}

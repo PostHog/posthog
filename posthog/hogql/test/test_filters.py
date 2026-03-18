@@ -324,3 +324,12 @@ class TestFilters(BaseTest):
             "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions, logs or groups table.",
         ):
             replace_filters(select, HogQLFilters(dateRange=DateRange(date_from="2020-02-02")), self.team)
+
+    def test_raises_for_unsupported_filters_placeholder(self):
+        select = self._parse_select("SELECT dateTrunc({filters.interval}, timestamp) FROM events WHERE {filters}")
+
+        with self.assertRaisesMessage(
+            QueryError,
+            "Unsupported filters placeholder `{filters.interval}`",
+        ):
+            replace_filters(select, HogQLFilters(), self.team)

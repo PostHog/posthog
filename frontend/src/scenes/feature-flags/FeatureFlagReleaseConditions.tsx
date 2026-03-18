@@ -710,9 +710,25 @@ export function FeatureFlagReleaseConditions({
                             },
                             {
                                 value: 'device',
-                                label: 'Device',
-                                description:
-                                    'Stable assignment per device. Good fit for experiments on anonymous users.',
+                                label: (
+                                    <span>
+                                        Device{' '}
+                                        <LemonTag type="warning" size="small">
+                                            BETA
+                                        </LemonTag>
+                                    </span>
+                                ),
+                                description: (
+                                    <span>
+                                        Stable assignment per device. Good fit for experiments on anonymous users.{' '}
+                                        <Link
+                                            to="https://posthog.com/docs/feature-flags/device-bucketing"
+                                            target="_blank"
+                                        >
+                                            Learn more
+                                        </Link>
+                                    </span>
+                                ),
                             },
                             {
                                 value: 'group',

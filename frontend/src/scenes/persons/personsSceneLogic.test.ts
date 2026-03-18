@@ -93,10 +93,12 @@ describe('personsSceneLogic', () => {
         ])('$field starts false and toggles via $action', ({ action, field }) => {
             expectLogic(logic).toMatchValues({ [field]: false })
 
-            logic.actions[action](true)
+            const act = logic.actions[action as 'setShowDisplayNameNudge' | 'setIsBannerLoading']
+
+            act(true)
             expectLogic(logic).toMatchValues({ [field]: true })
 
-            logic.actions[action](false)
+            act(false)
             expectLogic(logic).toMatchValues({ [field]: false })
         })
     })

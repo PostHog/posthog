@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
-import { IconChevronDown, IconExternal, IconTrending, IconWarning } from '@posthog/icons'
+import { IconChevronDown, IconExternal, IconTrending, IconUndo, IconWarning } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
@@ -30,8 +30,12 @@ import { userLogic } from 'scenes/userLogic'
 import {
     BREAKDOWN_NULL_DISPLAY,
     BREAKDOWN_REFERRER_PREFIX,
+    DEVICE_DRILL_DOWN_MAP,
+    GEOGRAPHY_DRILL_DOWN_MAP,
     GeographyTab,
     ProductTab,
+    SOURCE_DRILL_DOWN_MAP,
+    SourceTab,
     TileId,
     faviconUrl,
     webStatsBreakdownToPropertyName,
@@ -55,7 +59,7 @@ import {
     WebVitalsPathBreakdownQuery,
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
-import { ChartDisplayType, InsightLogicProps, PropertyFilterType } from '~/types'
+import { ChartDisplayType, InsightLogicProps, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { NewActionButton } from 'products/actions/frontend/components/NewActionButton'
 
@@ -94,13 +98,23 @@ const PAGE_LIKE_BREAKDOWNS = new Set([
     WebStatsBreakdown.FrustrationMetrics,
 ])
 
-const buildOpenUrl = (breakdownBy: WebStatsBreakdown, value: string, effectiveDomain: string | null): string | null => {
+const buildOpenUrl = (
+    breakdownBy: WebStatsBreakdown,
+    value: string,
+    effectiveDomain: string | null,
+    includeHost?: boolean
+): string | null => {
     if (!value || !PAGE_LIKE_BREAKDOWNS.has(breakdownBy)) {
         return null
     }
 
     // For ExitClick, the value is already a full URL
     if (breakdownBy === WebStatsBreakdown.ExitClick) {
+        return value.startsWith('http') ? value : `https://${value}`
+    }
+
+    // When includeHost is true, the value already contains host+path (e.g. example.com/about)
+    if (includeHost) {
         return value.startsWith('http') ? value : `https://${value}`
     }
 
@@ -123,14 +137,16 @@ const PathValueWithHoverLink = ({
     children,
     breakdownBy,
     value,
+    includeHost,
 }: {
     children: React.ReactNode
     breakdownBy: WebStatsBreakdown
     value: string
+    includeHost?: boolean
 }): JSX.Element => {
     const { effectiveDomain } = useValues(webAnalyticsFilterLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const url = buildOpenUrl(breakdownBy, value, effectiveDomain)
+    const url = buildOpenUrl(breakdownBy, value, effectiveDomain, includeHost)
 
     if (!url || !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_URL]) {
         return <>{children}</>
@@ -240,14 +256,14 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
     if (source.kind !== NodeKind.WebStatsTableQuery) {
         return null
     }
-    const { breakdownBy } = source
+    const { breakdownBy, includeHost } = source
     switch (breakdownBy) {
         case WebStatsBreakdown.Page:
-            return <>Path</>
+            return <>{includeHost ? 'Host + path' : 'Path'}</>
         case WebStatsBreakdown.InitialPage:
-            return <>Initial Path</>
+            return <>{includeHost ? 'Host + entry path' : 'Initial Path'}</>
         case WebStatsBreakdown.ExitPage:
-            return <>End Path</>
+            return <>{includeHost ? 'Host + end path' : 'End Path'}</>
         case WebStatsBreakdown.PreviousPage:
             return <>Previous Page</>
         case WebStatsBreakdown.ExitClick:
@@ -258,6 +274,8 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>Channel Type</>
         case WebStatsBreakdown.InitialReferringDomain:
             return <>Referring Domain</>
+        case WebStatsBreakdown.InitialReferringURL:
+            return <>Referring URL</>
         case WebStatsBreakdown.InitialUTMSource:
             return <>UTM Source</>
         case WebStatsBreakdown.InitialUTMCampaign:
@@ -303,7 +321,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
     if (source.kind !== NodeKind.WebStatsTableQuery) {
         return null
     }
-    const { breakdownBy } = source
+    const { breakdownBy, includeHost } = source
 
     switch (breakdownBy) {
         case WebStatsBreakdown.ExitPage:
@@ -316,7 +334,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
             const decoded = tryDecodeURIComponent(value)
             const displayValue = source.doPathCleaning ? parseAliasToReadable(decoded) : decoded
             return (
-                <PathValueWithHoverLink breakdownBy={breakdownBy} value={value}>
+                <PathValueWithHoverLink breakdownBy={breakdownBy} value={value} includeHost={includeHost}>
                     {displayValue}
                 </PathValueWithHoverLink>
             )
@@ -601,11 +619,14 @@ export const WebStatsTrendTile = ({
     insightProps,
     attachTo,
 }: QueryWithInsightProps<InsightVizNode> & { showIntervalTile?: boolean }): JSX.Element => {
-    const { togglePropertyFilter, setDateInterval } = useActions(webAnalyticsLogic)
+    const { togglePropertyFilter, setDateInterval, zoomIntoPeriod, resetZoom } = useActions(webAnalyticsLogic)
     const {
         hasCountryFilter,
         dateFilter: { interval },
+        preZoomDateFilter,
     } = useValues(webAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const isDragToZoomEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DRAG_TO_ZOOM]
     const worldMapPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country)?.key
     const regionPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Region)?.key
 
@@ -644,6 +665,7 @@ export const WebStatsTrendTile = ({
                 query,
             },
             compareFilter: 'compareFilter' in query.source ? query.source.compareFilter : undefined,
+            onDateRangeZoom: isDragToZoomEnabled ? zoomIntoPeriod : undefined,
         }
 
         // World maps need custom click handler for country filtering, trend lines use default persons modal
@@ -683,15 +705,24 @@ export const WebStatsTrendTile = ({
         }
 
         return baseContext
-    }, [onWorldMapClick, onRegionMapClick, insightProps, query])
+    }, [onWorldMapClick, onRegionMapClick, zoomIntoPeriod, insightProps, query])
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
-            {showIntervalTile && (
+            {(showIntervalTile || preZoomDateFilter) && (
                 <div className="flex flex-row items-center justify-end m-2 mr-4">
-                    <div className="flex flex-row items-center">
-                        <span className="mr-2">Group by</span>
-                        <IntervalFilterStandalone interval={interval} onIntervalChange={setDateInterval} />
+                    <div className="flex flex-row items-center gap-2">
+                        {showIntervalTile && (
+                            <>
+                                <span>Group by</span>
+                                <IntervalFilterStandalone interval={interval} onIntervalChange={setDateInterval} />
+                            </>
+                        )}
+                        {preZoomDateFilter && (
+                            <LemonButton type="secondary" size="small" icon={<IconUndo />} onClick={resetZoom}>
+                                Reset zoom
+                            </LemonButton>
+                        )}
                     </div>
                 </div>
             )}
@@ -799,6 +830,7 @@ export const WebStatsTableTile = ({
 }): JSX.Element => {
     const { togglePropertyFilter } = useActions(webAnalyticsLogic)
     const { productTab } = useValues(webAnalyticsLogic)
+    const { rawWebAnalyticsFilters } = useValues(webAnalyticsFilterLogic)
 
     const { key, type } = webStatsBreakdownToPropertyName(breakdownBy) || {}
 
@@ -807,15 +839,60 @@ export const WebStatsTableTile = ({
         breakdownBy === WebStatsBreakdown.Viewport ||
         breakdownBy === WebStatsBreakdown.Timezone
 
+    const includeHost = query.source.kind === NodeKind.WebStatsTableQuery ? query.source.includeHost : false
+
     const utmSource = webStatsBreakdownToPropertyName(WebStatsBreakdown.InitialUTMSource)!
     const utmMedium = webStatsBreakdownToPropertyName(WebStatsBreakdown.InitialUTMMedium)!
     const utmCampaign = webStatsBreakdownToPropertyName(WebStatsBreakdown.InitialUTMCampaign)!
     const referringDomain = webStatsBreakdownToPropertyName(WebStatsBreakdown.InitialReferringDomain)!
 
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const getDrillDownTabChange = useCallback(
+        (
+            filterKey: string,
+            filterValue: string | number | null
+        ): { sourceTab?: string; geographyTab?: string; deviceTab?: string } | undefined => {
+            const sourceDrillDown = SOURCE_DRILL_DOWN_MAP[breakdownBy]
+            // When the referrer URL drilldown flag is off, don't navigate away from referrer domain
+            const sourceTab =
+                !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REFERRER_URL_DRILLDOWN] &&
+                sourceDrillDown === SourceTab.REFERRING_URL
+                    ? undefined
+                    : sourceDrillDown
+            const geographyTab = GEOGRAPHY_DRILL_DOWN_MAP[breakdownBy]
+            const deviceTab = DEVICE_DRILL_DOWN_MAP[breakdownBy]
+            const drillDownTab = sourceTab || geographyTab || deviceTab
+            if (!drillDownTab || filterValue === null) {
+                return undefined
+            }
+            const isAlreadyFiltered = rawWebAnalyticsFilters.some(
+                (f) =>
+                    f.key === filterKey &&
+                    f.operator === PropertyOperator.Exact &&
+                    (Array.isArray(f.value) ? f.value.includes(filterValue) : f.value === filterValue)
+            )
+            if (isAlreadyFiltered) {
+                return undefined
+            }
+            return {
+                ...(sourceTab ? { sourceTab } : {}),
+                ...(geographyTab ? { geographyTab } : {}),
+                ...(deviceTab ? { deviceTab } : {}),
+            }
+        },
+        [breakdownBy, rawWebAnalyticsFilters, featureFlags]
+    )
+
     const onClick = useCallback(
         (breakdownValue: string | null) => {
             if (productTab === ProductTab.PAGE_REPORTS) {
                 lemonToast.info('Filters are not yet supported in this tile')
+                return
+            }
+
+            // When includeHost is active, breakdown value contains host+path which doesn't map to a single property filter
+            if (includeHost) {
                 return
             }
 
@@ -837,7 +914,8 @@ export const WebStatsTableTile = ({
                     togglePropertyFilter(utmMedium.type, utmMedium.key, values[1])
                 }
                 if (values[2] && values[2] !== BREAKDOWN_NULL_DISPLAY) {
-                    togglePropertyFilter(utmCampaign.type, utmCampaign.key, values[2])
+                    const drillDownTabChange = getDrillDownTabChange(utmCampaign.key, values[2])
+                    togglePropertyFilter(utmCampaign.type, utmCampaign.key, values[2], drillDownTabChange)
                 }
                 return
             }
@@ -864,9 +942,21 @@ export const WebStatsTableTile = ({
                 return
             }
 
-            togglePropertyFilter(type, key, breakdownValue)
+            togglePropertyFilter(type, key, breakdownValue, getDrillDownTabChange(key, breakdownValue))
         },
-        [togglePropertyFilter, type, key, productTab, breakdownBy, utmSource, utmMedium, utmCampaign, referringDomain]
+        [
+            togglePropertyFilter,
+            type,
+            key,
+            productTab,
+            includeHost,
+            breakdownBy,
+            utmSource,
+            utmMedium,
+            utmCampaign,
+            referringDomain,
+            getDrillDownTabChange,
+        ]
     )
 
     const context = useMemo((): QueryContext => {

@@ -177,7 +177,10 @@ impl FlagService {
         let flags = FeatureFlagList::parse_hypercache_value(data, team_id)?;
 
         Ok(FlagResult {
-            flag_list: FeatureFlagList { flags },
+            flag_list: FeatureFlagList {
+                flags,
+                ..Default::default()
+            },
             cache_source: source,
         })
     }
@@ -318,12 +321,14 @@ mod tests {
                             }]),
                             rollout_percentage: Some(50.0),
                             variant: None,
+                            ..Default::default()
                         }],
                         multivariate: None,
                         aggregation_group_type_index: None,
                         payloads: None,
                         super_groups: None,
                         holdout_groups: None,
+                        holdout: None,
                     },
                     deleted: false,
                     active: true,
@@ -345,6 +350,7 @@ mod tests {
                         payloads: None,
                         super_groups: None,
                         holdout_groups: None,
+                        holdout: None,
                     },
                     deleted: false,
                     active: false,
@@ -371,12 +377,14 @@ mod tests {
                             }]),
                             rollout_percentage: Some(100.0),
                             variant: None,
+                            ..Default::default()
                         }],
                         multivariate: None,
                         aggregation_group_type_index: None,
                         payloads: None,
                         super_groups: None,
                         holdout_groups: None,
+                        holdout: None,
                     },
                     deleted: false,
                     active: true,
@@ -387,6 +395,7 @@ mod tests {
                     bucketing_identifier: None,
                 },
             ],
+            ..Default::default()
         };
 
         // Write to hypercache (new format: {"flags": [...]})
@@ -493,12 +502,14 @@ mod tests {
                             }]),
                             rollout_percentage: Some(50.0 + i as f64),
                             variant: None,
+                            ..Default::default()
                         }],
                         multivariate: None,
                         aggregation_group_type_index: None,
                         payloads: None,
                         super_groups: None,
                         holdout_groups: None,
+                        holdout: None,
                     },
                     ensure_experience_continuity: Some(false),
                     version: Some(1),
@@ -507,6 +518,7 @@ mod tests {
                     bucketing_identifier: None,
                 })
                 .collect(),
+            ..Default::default()
         };
 
         // Serialize exactly like Django does for large payloads: JSON -> Pickle -> Zstd

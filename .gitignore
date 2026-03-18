@@ -1,6 +1,7 @@
 # Misc stuff, should be categorized/explained in the future
 # This is sorted in ascending order, keep it that way if you wanna please
 # people's OCDs ^_^
+.pr-review-diff.patch
 __emails__
 __pycache__/
 .coverage
@@ -38,6 +39,7 @@ celerybeat.pid
 common/hogvm/typescript/.parcel-cache
 common/hogvm/typescript/dist
 common/plugin_transpiler/dist
+common/replay-headless/dist
 common/storybook/dist
 coverage-*.xml
 debug.log
@@ -122,6 +124,9 @@ frontend/public/Matter*.woff*
 frontend/tmp
 frontend/types/
 
+# Watchman cache
+.watchman-cookie-*
+
 # Dist release target dir
 target/*
 
@@ -148,6 +153,9 @@ bin/hobby-installer-*
 bin/hobby-installer/hobby-installer
 bin/hobby-installer/hobby-installer.log
 
+# phrocs binary
+bin/phrocs
+
 # Debug output of our session summaries product
 .session-summaries
 
@@ -171,10 +179,10 @@ data/seaweedfs/
 agent-os/
 
 # MCP build files
-services/mcp/ui-apps-dist
+services/mcp/public/ui-apps
 
-# Product skills
-.claude/skills/error-tracking
+# Product skills (synced by hogli sync:skill)
+.agents/skills/.gitignore
 
 # Test output
 junit.xml

@@ -4,6 +4,7 @@ from typing import Any, Optional
 
 import structlog
 import temporalio
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -17,7 +18,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.temporal.data_imports.sources import SourceRegistry
-from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 
 from products.data_warehouse.backend.data_load.service import (
     cancel_external_data_workflow,
@@ -27,6 +27,11 @@ from products.data_warehouse.backend.data_load.service import (
     sync_external_data_job_workflow,
     trigger_external_data_workflow,
     unpause_external_data_schedule,
+)
+from products.data_warehouse.backend.direct_postgres import (
+    hide_direct_postgres_table,
+    postgres_schema_metadata_to_dwh_columns,
+    upsert_direct_postgres_table,
 )
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema
 from products.data_warehouse.backend.models.external_data_schema import (
@@ -66,6 +71,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "incremental_field_type",
             "sync_frequency",
             "sync_time_of_day",
+            "description",
         ]
 
         read_only_fields = [
@@ -75,6 +81,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "last_synced_at",
             "latest_error",
             "status",
+            "description",
         ]
 
     def get_status(self, schema: ExternalDataSchema) -> str | None:
@@ -110,9 +117,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         return SimpleTableSerializer(schema.table, context={"database": hogql_context}).data or None
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_sync_frequency(self, schema: ExternalDataSchema):
         return sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval)
 
+    @extend_schema_field(serializers.TimeField(allow_null=True))
     def get_sync_time_of_day(self, schema: ExternalDataSchema):
         return schema.sync_time_of_day
 
@@ -166,6 +175,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         sync_time_of_day = data.get("sync_time_of_day", None)
         was_sync_frequency_updated = False
         was_sync_time_of_day_updated = False
+        source = instance.source
 
         if sync_frequency:
             sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
@@ -191,22 +201,36 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 validated_data["sync_time_of_day"] = None
                 instance.sync_time_of_day = None
 
-        if should_sync is True and sync_type is None and instance.sync_type is None:
-            raise ValidationError("Sync type must be set up first before enabling schema")
+        if source.supports_scheduled_sync:
+            if should_sync is True and sync_type is None and instance.sync_type is None:
+                raise ValidationError("Sync type must be set up first before enabling schema")
 
-        schedule_exists = external_data_workflow_exists(str(instance.id))
+            schedule_exists = external_data_workflow_exists(str(instance.id))
 
-        if schedule_exists:
-            if should_sync is False:
-                pause_external_data_schedule(str(instance.id))
-            elif should_sync is True:
-                unpause_external_data_schedule(str(instance.id))
-        else:
-            if should_sync is True:
-                sync_external_data_job_workflow(instance, create=True, should_sync=should_sync)
+            if schedule_exists:
+                if should_sync is False:
+                    pause_external_data_schedule(str(instance.id))
+                elif should_sync is True:
+                    unpause_external_data_schedule(str(instance.id))
+            else:
+                if should_sync is True:
+                    sync_external_data_job_workflow(instance, create=True, should_sync=should_sync)
 
-        if was_sync_frequency_updated or was_sync_time_of_day_updated:
-            sync_external_data_job_workflow(instance, create=False, should_sync=should_sync)
+            if was_sync_frequency_updated or was_sync_time_of_day_updated:
+                sync_external_data_job_workflow(instance, create=False, should_sync=should_sync)
+
+        if source.is_direct_postgres:
+            # We use "should_sync" to determine if the table should be exposed or hidden.
+            if should_sync is True and instance.should_sync is False:
+                validated_data["table"] = upsert_direct_postgres_table(
+                    instance.table,
+                    schema_name=instance.name,
+                    source=source,
+                    columns=postgres_schema_metadata_to_dwh_columns(instance.schema_metadata),
+                )
+
+            if should_sync is False and instance.should_sync is True:
+                hide_direct_postgres_table(instance.table)
 
         if trigger_refresh:
             instance.sync_type_config.update({"reset_pipeline": True})
@@ -304,6 +328,13 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["DELETE"], detail=True)
     def delete_data(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
+
+        if instance.source.is_direct_postgres:
+            hide_direct_postgres_table(instance.table)
+            instance.should_sync = False
+            instance.save(update_fields=["should_sync", "updated_at"])
+            return Response(status=status.HTTP_200_OK)
+
         instance.delete_table()
 
         return Response(status=status.HTTP_200_OK)
@@ -332,7 +363,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         try:
-            schemas = new_source.get_schemas(config, self.team_id)
+            schemas = new_source.get_schemas(config, self.team_id, names=[instance.name])
         except Exception as e:
             capture_exception(e)
             return Response(
@@ -340,17 +371,12 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": str(e)},
             )
 
-        schema: SourceSchema | None = None
-
-        for s in schemas:
-            if s.name == instance.name:
-                schema = s
-                break
-
-        if schema is None:
+        if not schemas:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST, data={"message": f"Schema with name {instance.name} not found"}
             )
+
+        schema = schemas[0]
 
         data = {
             "incremental_fields": schema.incremental_fields,
