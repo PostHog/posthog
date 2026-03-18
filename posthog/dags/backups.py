@@ -355,7 +355,9 @@ def get_latest_successful_backup(
     for latest_backup in latest_backups:
         context.log.info(f"Checking status of backup: {latest_backup.path}")
 
-        if settings.CLICKHOUSE_BACKUPS_BUCKET and latest_backup.has_lock_file(s3.get_client(), settings.CLICKHOUSE_BACKUPS_BUCKET):
+        if settings.CLICKHOUSE_BACKUPS_BUCKET and latest_backup.has_lock_file(
+            s3.get_client(), settings.CLICKHOUSE_BACKUPS_BUCKET
+        ):
             context.log.warning(
                 f"Backup {latest_backup.path} has a .lock file indicating it crashed mid-write. Skipping."
             )
