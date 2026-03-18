@@ -27,6 +27,7 @@ const PREEXISTING_EXCEPTIONS: Set<string> = new Set(['warehouse-saved-queries-re
 function main(): void {
     const definitions = discoverDefinitions({ definitionsDir: DEFINITIONS_DIR, productsDir: PRODUCTS_DIR })
     const violations: { file: string; tool: string; length: number }[] = []
+    let hasErrors = false
 
     for (const def of definitions) {
         const label = path.relative(REPO_ROOT, def.filePath)
@@ -35,6 +36,7 @@ function main(): void {
         const result = CategoryConfigSchema.safeParse(parsed)
         if (!result.success) {
             process.stderr.write(`Error: ${label} failed schema validation: ${result.error.message}\n`)
+            hasErrors = true
             process.exitCode = 1
             continue
         }
@@ -49,7 +51,9 @@ function main(): void {
     }
 
     if (violations.length === 0) {
-        process.stdout.write(`All enabled tool names are within the ${MAX_TOOL_NAME_LENGTH}-char limit.\n`)
+        if (!hasErrors) {
+            process.stdout.write(`All enabled tool names are within the ${MAX_TOOL_NAME_LENGTH}-char limit.\n`)
+        }
         return
     }
 
