@@ -79,7 +79,7 @@ export interface SessionRecordingTriggerGroup {
     id: string
     name?: string
     sampleRate: number // 0-1
-    minDurationMs?: number // 0-30000
+    order: number
     conditions: SessionRecordingTriggerConditions
 }
 
@@ -87,10 +87,12 @@ export interface SessionRecordingTriggerConditions {
     matchType: 'any' | 'all'
     events?: string[]
     urls?: UrlTriggerConfig[]
-    flag?: string | LinkedFeatureFlag | null
+    flags?: (string | LinkedFeatureFlag)[]
 }
 
 export interface SessionRecordingTriggerGroupsConfig {
     version: 2
     groups: SessionRecordingTriggerGroup[]
+    groupEvaluationMode: 'first_match' | 'highest_priority'
+    fallbackSampleRate?: number // 0-1
 }

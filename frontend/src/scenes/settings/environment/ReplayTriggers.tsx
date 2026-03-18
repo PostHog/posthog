@@ -6,7 +6,10 @@ import IngestionControls from 'lib/components/IngestionControls'
 import { IngestionControlsSummary } from 'lib/components/IngestionControls/Summary'
 import { FeatureFlagTrigger, Trigger, TriggerType } from 'lib/components/IngestionControls/types'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNumeric, pluralize } from 'lib/utils'
+import { TriggerGroupsEditor } from 'scenes/settings/environment/replayTriggers/TriggerGroupsEditor'
 import { ReplayPlatform, replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
 import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 import { teamLogic } from 'scenes/teamLogic'
@@ -290,7 +293,10 @@ export function ReplayTriggers(): JSX.Element {
     const { selectPlatform } = useActions(replayTriggersLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const statuses = useHeaderStatuses(currentTeam)
+
+    const isV2TriggersEnabled = featureFlags[FEATURE_FLAGS.REPLAY_TRIGGERS_V2]
 
     const tabs: LemonTab<'web' | 'mobile'>[] = [
         {
@@ -298,6 +304,26 @@ export function ReplayTriggers(): JSX.Element {
             label: 'Web',
             content: (
                 <div className="flex flex-col gap-y-4">
+                    {isV2TriggersEnabled && (
+                        <>
+                            <div className="border rounded p-4 bg-bg-light">
+                                <div className="mb-4">
+                                    <h3 className="text-sm font-semibold mb-1">🚧 Trigger Groups (V2 - Preview)</h3>
+                                    <p className="text-xs text-muted">
+                                        New interface for managing recording triggers with custom sampling per group.
+                                    </p>
+                                </div>
+                                <TriggerGroupsEditor />
+                            </div>
+
+                            <LemonBanner type="error">
+                                <strong>Legacy triggers will be deprecated.</strong> The current trigger configuration
+                                below will be migrated to V2 Trigger Groups in the near future. Please review the new V2
+                                interface above.
+                            </LemonBanner>
+                        </>
+                    )}
+
                     {currentTeam && (
                         <RecordingTriggersSummary currentTeam={currentTeam} selectedPlatform={selectedPlatform} />
                     )}
