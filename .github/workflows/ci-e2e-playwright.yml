@@ -136,10 +136,15 @@ jobs:
         steps:
             - name: Detect mode
               id: detect
+              env:
+                  HAS_UPDATE_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'update-snapshots') }}
               run: |
                   if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
                     echo "mode=check" >> $GITHUB_OUTPUT
                     echo "Fork detected - running in CHECK mode (no commits allowed)"
+                  elif [ "$HAS_UPDATE_LABEL" == "true" ]; then
+                    echo "mode=update" >> $GITHUB_OUTPUT
+                    echo "::notice::🔄 Running in UPDATE mode - 'update-snapshots' label detected"
                   else
                     AUTHOR="${{ github.actor }}"
                     echo "Workflow triggered by: $AUTHOR"
@@ -159,12 +164,9 @@ jobs:
                     if [[ "$IS_TRUSTED" == "true" ]]; then
                       echo "mode=update" >> $GITHUB_OUTPUT
                       echo "::notice::🔄 Trusted bot '$AUTHOR' - running in UPDATE mode"
-                    elif [[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]; then
-                      echo "mode=check" >> $GITHUB_OUTPUT
-                      echo "::notice::🔍 Running in CHECK mode - snapshots must match exactly"
                     else
-                      echo "mode=update" >> $GITHUB_OUTPUT
-                      echo "::notice::🔄 Running in UPDATE mode - snapshots can be updated"
+                      echo "mode=check" >> $GITHUB_OUTPUT
+                      echo "::notice::🔍 Running in CHECK mode - add 'update-snapshots' label to enable snapshot updates"
                     fi
                   fi
 
@@ -580,10 +582,10 @@ jobs:
                       // comment that may have relevant info from a previous run.
                       let extraLines = '';
                       let resultsRead = false;
+                      let failed = [];
                       try {
                           const results = JSON.parse(fs.readFileSync('playwright/results.json', 'utf8'));
                           resultsRead = true;
-                          const failed = [];
                           const flaky = [];
                           function collect(suites) {
                               for (const suite of suites || []) {
@@ -629,8 +631,12 @@ jobs:
                       }
 
                       const reportLink = reportUrl ? ` · [View test results →](${reportUrl})` : '';
+                      const snapshotMode = '${{ needs.detect-snapshot-mode.outputs.mode }}';
+                      const snapshotHint = (snapshotMode === 'check' && failed.length > 0)
+                          ? '\n\n---\n**If your changes intentionally update screenshots:** add the `update-snapshots` label, then push an empty commit or merge master to trigger a new run. Screenshots will be auto-committed.\n**If you didn\'t change any UI:** this is likely a flaky screenshot — wait for a fix to land on master.'
+                          : '';
                       const footer = '\n\n\n*These issues are not necessarily caused by your changes.*\n*Annoyed by this comment? Help fix flakies and failures and it\'ll disappear!*';
-                      const body = `${marker}\n🎭 Playwright report${reportLink}${extraLines}${footer}`;
+                      const body = `${marker}\n🎭 Playwright report${reportLink}${extraLines}${snapshotHint}${footer}`;
 
                       if (existing) {
                           await github.rest.issues.updateComment({
