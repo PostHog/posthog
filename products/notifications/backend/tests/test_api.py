@@ -30,9 +30,9 @@ class TestNotificationsAPI(BaseTest):
     def test_list_notifications(self):
         resp = self.client.get(f"/api/environments/{self.team.id}/notifications/")
         assert resp.status_code == 200
-        assert len(resp.json()) == 1
-        assert resp.json()[0]["title"] == "Test notification"
-        assert resp.json()[0]["read"] is False
+        assert len(resp.json()["results"]) == 1
+        assert resp.json()["results"][0]["title"] == "Test notification"
+        assert resp.json()["results"][0]["read"] is False
 
     def test_unread_count(self):
         resp = self.client.get(f"/api/environments/{self.team.id}/notifications/unread_count/")
@@ -79,4 +79,4 @@ class TestNotificationsAPI(BaseTest):
             resolved_user_ids=[other_user.id],
         )
         resp = self.client.get(f"/api/environments/{self.team.id}/notifications/")
-        assert len(resp.json()) == 1
+        assert len(resp.json()["results"]) == 1
