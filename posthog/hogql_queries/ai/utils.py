@@ -1,9 +1,54 @@
 from abc import ABC
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
+
+import orjson
 
 from posthog.caching.utils import ThresholdMode, is_stale
 from posthog.models.team.team import Team
+
+# Mapping from ai_events dedicated columns to their original property names.
+# These are stripped from the properties JSON by the MV and stored in dedicated columns.
+HEAVY_COLUMN_TO_PROPERTY: dict[str, str] = {
+    "input": "$ai_input",
+    "output": "$ai_output",
+    "output_choices": "$ai_output_choices",
+    "input_state": "$ai_input_state",
+    "output_state": "$ai_output_state",
+    "tools": "$ai_tools",
+}
+
+# Ordered tuple of heavy column names. Used for unpacking event tuples from ClickHouse.
+# Keep in sync with the SQL tuple in trace_query_runner.py _build_query().
+HEAVY_COLUMN_NAMES: tuple[str, ...] = tuple(HEAVY_COLUMN_TO_PROPERTY.keys())
+
+
+def merge_heavy_properties(
+    properties_json: str,
+    heavy_columns: dict[str, str],
+) -> dict[str, Any]:
+    """Take an ai_events row's properties JSON and heavy column values, return a complete properties dict.
+
+    The ai_events MV strips heavy properties from the JSON blob and stores them
+    in dedicated columns. This function merges them back so consumers get a
+    complete event.
+
+    ``heavy_columns`` maps column name → raw string value (as returned by
+    ClickHouse).  Empty strings are skipped (the column default when the
+    property was absent).
+    """
+    props: dict[str, Any] = orjson.loads(properties_json) if properties_json else {}
+    for column_name, raw_value in heavy_columns.items():
+        if not raw_value:
+            continue
+        prop_key = HEAVY_COLUMN_TO_PROPERTY.get(column_name)
+        if prop_key is None:
+            continue
+        try:
+            props[prop_key] = orjson.loads(raw_value)
+        except (orjson.JSONDecodeError, TypeError):
+            props[prop_key] = raw_value
+    return props
 
 
 class TaxonomyCacheMixin(ABC):
