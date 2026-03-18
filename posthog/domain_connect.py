@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 #
 DOMAIN_CONNECT_PROVIDERS: dict[str, DomainConnectProviderName] = {
     "api.cloudflare.com/client/v4/dns/domainconnect": cast(DomainConnectProviderName, "Cloudflare"),
+    "domainconnect.vercel.com": cast(DomainConnectProviderName, "Vercel"),
 }
 
 # Providers that reject unsigned apply requests.  When a provider is in this
@@ -43,6 +44,7 @@ DOMAIN_CONNECT_PROVIDERS: dict[str, DomainConnectProviderName] = {
 # of silently redirecting the user to a page that will fail at the provider.
 PROVIDERS_REQUIRING_SIGNING: set[str] = {
     "api.cloudflare.com/client/v4/dns/domainconnect",
+    "domainconnect.vercel.com",
 }
 
 

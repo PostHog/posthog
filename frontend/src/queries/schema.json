@@ -11938,7 +11938,7 @@
             "type": "object"
         },
         "DomainConnectProviderName": {
-            "const": "Cloudflare",
+            "enum": ["Cloudflare", "Vercel"],
             "type": "string"
         },
         "DurationType": {
