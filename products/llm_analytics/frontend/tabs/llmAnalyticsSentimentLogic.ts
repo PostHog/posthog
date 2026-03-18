@@ -36,6 +36,16 @@ export interface SentimentCard {
     sentiment: MessageSentiment
 }
 
+/** Multiple cards with the same user message text, collapsed into a single row */
+export interface GroupedSentimentCard {
+    /** Representative card (first/most recent occurrence) */
+    card: SentimentCard
+    /** All cards in the group (including the representative) */
+    allCards: SentimentCard[]
+    /** Number of distinct traces with this same message */
+    traceCount: number
+}
+
 export interface LLMAnalyticsSentimentLogicProps {
     tabId?: string
 }
@@ -43,6 +53,21 @@ export interface LLMAnalyticsSentimentLogicProps {
 const GENERATIONS_PAGE_SIZE = 200
 // Match backend MAX_MESSAGE_CHARS (2000) so training data captures the same text window the model classified
 const SNIPPET_MAX_LENGTH = 2000
+
+/** Extract the full message text from a card for dedup comparison */
+function getCardMessageText(card: SentimentCard): string {
+    try {
+        const parsed =
+            typeof card.generation.aiInput === 'string' ? JSON.parse(card.generation.aiInput) : card.generation.aiInput
+        if (!Array.isArray(parsed)) {
+            return ''
+        }
+        const msg = parsed[card.messageIndex]
+        return extractContentText(msg?.content).trim()
+    } catch {
+        return ''
+    }
+}
 
 function getSnippetFromCard(card: SentimentCard): string {
     try {
@@ -274,6 +299,34 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
                     }
                 }
                 return cards
+            },
+        ],
+        groupedSentimentCards: [
+            (s) => [s.sentimentCards],
+            (cards: SentimentCard[]): GroupedSentimentCard[] => {
+                const groups = new Map<string, GroupedSentimentCard>()
+                const result: GroupedSentimentCard[] = []
+
+                for (const card of cards) {
+                    const text = getCardMessageText(card)
+                    // Empty/unparseable messages get a unique key so they're never grouped
+                    const key = text || `__unique__${card.generation.uuid}:${card.messageIndex}`
+                    const existing = groups.get(key)
+                    if (existing) {
+                        existing.allCards.push(card)
+                        existing.traceCount = new Set(existing.allCards.map((c) => c.generation.traceId)).size
+                    } else {
+                        const grouped: GroupedSentimentCard = {
+                            card,
+                            allCards: [card],
+                            traceCount: 1,
+                        }
+                        groups.set(key, grouped)
+                        result.push(grouped)
+                    }
+                }
+
+                return result
             },
         ],
         stillAnalyzing: [
