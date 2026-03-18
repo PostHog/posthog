@@ -750,11 +750,14 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["name"], "Test Experiment saved metric")
         self.assertEqual(response.json()["description"], "Test description")
+        saved_metric_uuid = response.json()["query"]["uuid"]
+        self.assertTrue(saved_metric_uuid)
         self.assertEqual(
             response.json()["query"],
             {
                 "kind": "ExperimentTrendsQuery",
                 "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                "uuid": saved_metric_uuid,
             },
         )
         self.assertEqual(response.json()["created_by"]["id"], self.user.pk)
@@ -797,6 +800,7 @@ class TestExperimentCRUD(APILicensedTest):
             {
                 "kind": "ExperimentTrendsQuery",
                 "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                "uuid": saved_metric_uuid,
             },
         )
 

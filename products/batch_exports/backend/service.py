@@ -954,7 +954,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
     return batch_export
 
 
-async def acreate_batch_export_backfill(
+async def aget_or_create_batch_export_backfill(
     batch_export_id: UUID,
     team_id: int,
     start_at: str | None,
@@ -962,7 +962,10 @@ async def acreate_batch_export_backfill(
     status: str = BatchExportRun.Status.RUNNING,
     backfill_id: str | None = None,
 ) -> BatchExportBackfill:
-    """Create a BatchExportBackfill.
+    """Create a BatchExportBackfill, or return an existing one if a backfill_id is provided and already exists.
+
+    We use `aget_or_create` to handle the rare case (which we have seen in production) where the Temporal activity
+    retries due to a timeout, but the previous attempt has committed the row to Postgres.
 
     Args:
         batch_export_id: The UUID of the BatchExport the BatchExportBackfill to create belongs to.
@@ -972,17 +975,23 @@ async def acreate_batch_export_backfill(
         status: The initial status for the created BatchExportBackfill.
         backfill_id: Pre-generated UUID for the backfill. If provided, will be used as the model's primary key.
     """
-    kwargs: dict = {
-        "batch_export_id": batch_export_id,
+
+    defaults: dict = {
         "status": status,
         "start_at": dt.datetime.fromisoformat(start_at) if start_at else None,
         "end_at": dt.datetime.fromisoformat(end_at) if end_at else None,
-        "team_id": team_id,
     }
+
     if backfill_id is not None:
-        kwargs["id"] = backfill_id
-    backfill = BatchExportBackfill(**kwargs)
-    await backfill.asave()
+        backfill, _created = await BatchExportBackfill.objects.aget_or_create(
+            id=backfill_id,
+            team_id=team_id,
+            batch_export_id=batch_export_id,
+            defaults=defaults,
+        )
+    else:
+        backfill = BatchExportBackfill(**defaults, team_id=team_id, batch_export_id=batch_export_id)
+        await backfill.asave()
 
     return backfill
 
