@@ -1,4 +1,4 @@
-import { IconCode, IconDatabase, IconPulse, IconTrending, IconWarning } from '@posthog/icons'
+import { IconCode, IconDatabase, IconDecisionTree, IconPulse, IconTrending, IconWarning } from '@posthog/icons'
 
 export type HealthIssueCategory = 'ingestion' | 'sdk' | 'web_analytics' | 'data_modeling' | 'pipelines' | 'other'
 
@@ -54,7 +54,7 @@ export const HEALTH_CATEGORY_CONFIG: Record<HealthIssueCategory, CategoryConfig>
         label: 'Data modeling',
         description: 'Materialized views and data models',
         healthyDescription: 'All healthy',
-        icon: <IconDatabase className="size-5" />,
+        icon: <IconDecisionTree className="size-5" />,
         showInSummary: true,
     },
     other: {
@@ -100,4 +100,11 @@ export const categoryForKind = (kind: string): HealthIssueCategory => {
     return KIND_TO_CATEGORY[kind as HealthIssueKind] ?? 'other'
 }
 
-export const CATEGORY_ORDER: HealthIssueCategory[] = ['ingestion', 'sdk', 'web_analytics', 'data_modeling' , 'pipelines', 'other']
+export const CATEGORY_ORDER: HealthIssueCategory[] = [
+    'ingestion',
+    'sdk',
+    'web_analytics',
+    'data_modeling',
+    'pipelines',
+    'other',
+]
