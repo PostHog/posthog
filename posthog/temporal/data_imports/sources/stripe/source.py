@@ -1,5 +1,10 @@
 from typing import TYPE_CHECKING, Optional, cast
 
+import posthoganalytics
+
+from posthog.exceptions_capture import capture_exception
+from posthog.temporal.data_imports.sources.common.webhook_s3 import WAREHOUSE_WEBHOOK_FLAG, WebhookSourceManager
+
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
@@ -58,6 +63,36 @@ PERMISSIONS = [
     "rak_payment_method_read",
 ]
 STRIPE_API_KEYS_URL = f"{STRIPE_BASE_URL}/apikeys/create?name=PostHog&{'&'.join([f'permissions[{i}]={permission}' for i, permission in enumerate(PERMISSIONS)])}"
+
+
+def _is_webhook_feature_flag_enabled(team_id: int) -> bool:
+    from posthog.models import Team
+
+    try:
+        team = Team.objects.only("uuid", "organization_id").get(id=team_id)
+    except Team.DoesNotExist:
+        return False
+
+    try:
+        enabled = posthoganalytics.feature_enabled(
+            WAREHOUSE_WEBHOOK_FLAG,
+            str(team.uuid),
+            groups={
+                "organization": str(team.organization_id),
+                "project": str(team.id),
+            },
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.id)},
+            },
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
+        return bool(enabled)
+    except Exception as e:
+        capture_exception(e)
+        return False
 
 
 @SourceRegistry.register
@@ -143,17 +178,24 @@ These permissions are automatically pre-filled in the API key creation form if y
             "PermissionError": "Your API key does not have permissions to access endpoint. Please check your API key configuration and permissions in Stripe, then try again.",
         }
 
-    def get_schemas(self, config: StripeSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
-        return [
+    def get_schemas(
+        self, config: StripeSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
+        schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=False,
+                supports_incremental=_is_webhook_feature_flag_enabled(team_id)
+                and STRIPE_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 # nested resources are only full refresh and are not in STRIPE_INCREMENTAL_FIELDS
                 supports_append=STRIPE_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 incremental_fields=STRIPE_INCREMENTAL_FIELDS.get(endpoint, []),
             )
             for endpoint in STRIPE_ENDPOINTS
         ]
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+        return schemas
 
     def validate_credentials(
         self, config: StripeSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -172,12 +214,17 @@ These permissions are automatically pre-filled in the API key creation form if y
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[StripeResumeConfig]:
         return ResumableSourceManager[StripeResumeConfig](inputs, StripeResumeConfig)
 
+    def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
+        return WebhookSourceManager(inputs, inputs.logger)
+
     def source_for_pipeline(
         self,
         config: StripeSourceConfig,
         resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
+        webhook_source_manager = self.get_webhook_source_manager(inputs)
+
         return stripe_source(
             api_key=config.stripe_secret_key,
             account_id=config.stripe_account_id,
@@ -187,4 +234,5 @@ These permissions are automatically pre-filled in the API key creation form if y
             db_incremental_field_earliest_value=inputs.db_incremental_field_earliest_value,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            webhook_source_manager=webhook_source_manager,
         )

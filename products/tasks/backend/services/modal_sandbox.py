@@ -1,18 +1,23 @@
+from __future__ import annotations
+
 import os
-import time
+import json
 import uuid
 import shlex
 import logging
 from collections.abc import Iterable
 from functools import lru_cache
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
 
+if TYPE_CHECKING:
+    from products.tasks.backend.temporal.process_task.utils import McpServerConfig
+
 import modal
+import requests
 
 from posthog.exceptions_capture import capture_exception
-from posthog.security.outbound_proxy import external_requests
 
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.temporal.exceptions import (
@@ -44,7 +49,7 @@ def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
     """
     image_repo = image.replace("ghcr.io/", "")
     try:
-        token_resp = external_requests.get(
+        token_resp = requests.get(
             f"https://ghcr.io/token?service=ghcr.io&scope=repository:{image_repo}:pull",
             timeout=10,
         )
@@ -57,7 +62,7 @@ def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
             logger.warning("GHCR token response missing token field")
             return f"{image}:master"
 
-        manifest_resp = external_requests.get(
+        manifest_resp = requests.get(
             f"https://ghcr.io/v2/{image_repo}/manifests/master",
             headers={
                 "Accept": "application/vnd.oci.image.index.v1+json",
@@ -142,14 +147,21 @@ class ModalSandbox:
         return ModalSandbox._get_default_app()
 
     @staticmethod
-    def create(config: SandboxConfig) -> "ModalSandbox":
+    def create(config: SandboxConfig) -> ModalSandbox:
         try:
             app = ModalSandbox._get_app_for_template(config.template)
             base_image = _get_template_image(config.template)
             image = base_image
             used_snapshot_image = False
 
-            if config.snapshot_id:
+            if config.snapshot_external_id:
+                try:
+                    image = modal.Image.from_id(config.snapshot_external_id)
+                    used_snapshot_image = True
+                except Exception as e:
+                    logger.warning(f"Failed to load resume snapshot image {config.snapshot_external_id}: {e}")
+                    capture_exception(e)
+            elif config.snapshot_id:
                 snapshot = SandboxSnapshot.objects.get(id=config.snapshot_id)
                 if snapshot.status == SandboxSnapshot.Status.COMPLETE:
                     try:
@@ -206,7 +218,7 @@ class ModalSandbox:
             )
 
     @staticmethod
-    def get_by_id(sandbox_id: str) -> "ModalSandbox":
+    def get_by_id(sandbox_id: str) -> ModalSandbox:
         try:
             sb = modal.Sandbox.from_id(sandbox_id)
 
@@ -432,6 +444,7 @@ class ModalSandbox:
         mode: str = "background",
         interaction_origin: str | None = None,
         branch: str | None = None,
+        mcp_configs: list[McpServerConfig] | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -445,13 +458,20 @@ class ModalSandbox:
         org, repo = repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        env_prefix = f"env TWIG_INTERACTION_ORIGIN={shlex.quote(interaction_origin)} " if interaction_origin else ""
+        mcp_servers_arg = ""
+        if mcp_configs:
+            mcp_json = json.dumps([c.to_dict() for c in mcp_configs])
+            mcp_servers_arg = f" --mcpServers {shlex.quote(mcp_json)}"
+
+        env_prefix = (
+            f"env POSTHOG_CODE_INTERACTION_ORIGIN={shlex.quote(interaction_origin)} " if interaction_origin else ""
+        )
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         command = (
             f"cd /scripts && "
-            f"nohup {env_prefix}npx agent-server --port {AGENT_SERVER_PORT} --repositoryPath {shlex.quote(repo_path)} "
+            f"nohup {env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT} --repositoryPath {shlex.quote(repo_path)} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{branch_flag} "
+            f"{branch_flag}{mcp_servers_arg} "
             f"> /tmp/agent-server.log 2>&1 &"
         )
 
@@ -475,16 +495,11 @@ class ModalSandbox:
 
         logger.info(f"Agent-server started in sandbox {self.id}")
 
-    def _wait_for_health_check(self, max_attempts: int = 20, delay_seconds: float = 1.0) -> bool:
-        """Poll health endpoint until server is ready."""
-        health_cmd = f"curl -s -o /dev/null -w '%{{http_code}}' http://localhost:{AGENT_SERVER_PORT}/health"
-        for attempt in range(max_attempts):
-            result = self.execute(health_cmd, timeout_seconds=5)
-            if result.stdout.strip() == "200":
-                logger.info(f"Agent-server health check passed on attempt {attempt + 1}")
-                return True
-            time.sleep(delay_seconds)
-        return False
+    def _wait_for_health_check(self, max_attempts: int = 20, poll_interval: float = 0.3) -> bool:
+        """Poll health endpoint until server is ready (single remote call)."""
+        from products.tasks.backend.services.sandbox import wait_for_health_check
+
+        return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval)
 
     def create_snapshot(self) -> str:
         if not self.is_running():

@@ -23,6 +23,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import DeletedMetaFields, UUIDModel
 from posthog.storage import object_storage
+from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
 
@@ -162,6 +163,8 @@ class Task(DeletedMetaFields, models.Model):
         slack_thread_context: Optional["SlackThreadContext"] = None,
         slack_thread_url: str | None = None,
         start_workflow: bool = True,
+        posthog_mcp_scopes: PosthogMcpScopes = "full",
+        branch: str | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
@@ -190,7 +193,7 @@ class Task(DeletedMetaFields, models.Model):
             if slack_thread_context:
                 extra_state["interaction_origin"] = "slack"
 
-        task_run = task.create_run(mode=mode, extra_state=extra_state)
+        task_run = task.create_run(mode=mode, extra_state=extra_state, branch=branch)
 
         if start_workflow:
             execute_task_processing_workflow(
@@ -200,6 +203,7 @@ class Task(DeletedMetaFields, models.Model):
                 user_id=user_id,
                 create_pr=create_pr,
                 slack_thread_context=slack_thread_context,
+                posthog_mcp_scopes=posthog_mcp_scopes,
             )
 
         return task

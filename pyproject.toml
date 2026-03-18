@@ -39,7 +39,7 @@ dependencies = [
     "dagster-webserver==1.10.18",
     "deltalake[pyarrow]==1.4.0",
     "dj-database-url==0.5.0",
-    "django~=4.2.28",
+    "django~=4.2.29",
     "django-axes[ipware]==8.0.0",
     "django-cors-headers~=4.8.0",
     "django-deprecate-fields==0.1.1",
@@ -92,12 +92,12 @@ dependencies = [
     "numpy~=2.1.0",
     "openai==1.109.1",
     "openpyxl==3.1.2",
-    "orjson==3.11.5",
+    "orjson==3.11.6",
     "pandas~=2.2.2",
     "paramiko==3.4.1",
     "pillow==12.1.1",
     "protobuf~=5.29.6",
-    "posthoganalytics==7.9.0",
+    "posthoganalytics==7.9.12",
     "polars==1.37.1",
     "psycopg2-binary==2.9.10",
     "psycopg[binary]==3.2.4",
@@ -216,7 +216,7 @@ dev = [
     "ty==0.0.4",
     # openapi-spec-validator needed for prance as a validation backend
     "openapi-spec-validator==0.7.1",
-    "orjson==3.11.5",
+    "orjson==3.11.6",
     "packaging==24.1",
     "parameterized==0.9.0",
     "prance==23.6.21.0",
@@ -269,7 +269,7 @@ sentiment = [
 required-version = "~=0.10.2"
 
 [tool.uv.sources]
-infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "9578c79f29635ee2c1d01b7979e89adab8383de2" }
+infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "4e3996becf66bf5c26580aff12a80425d9d56fe5" }
 
 
 [tool.isort]
@@ -325,8 +325,11 @@ select = [
 
 [tool.ruff.lint.per-file-ignores]
 # protoletariat generates .pyi stubs with re-exports (e.g. `from . import person_pb2`)
-# that type checkers need to resolve the package structure
+# that type checkers need to resolve the package structure.
+# protobuf 5.x _pb2.py files have side-effect-only imports that load dependency
+# descriptors into the pool before AddSerializedFile() — ruff must not strip them.
 "posthog/personhog_client/proto/generated/**/*.pyi" = ["F401"]
+"posthog/personhog_client/proto/generated/**/*_pb2.py" = ["F401", "E402"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
@@ -382,7 +385,7 @@ warn_unreachable = true
 strict_equality = true
 ignore_missing_imports = true
 exclude_gitignore = true
-exclude = ["^(bin/.*|gunicorn\\.config\\.py|manage\\.py)$"]
+exclude = ["^(bin/.*|tools/.*|gunicorn\\.config\\.py|manage\\.py)$"]
 
 [[tool.mypy.overrides]]
 module = "bin.*"

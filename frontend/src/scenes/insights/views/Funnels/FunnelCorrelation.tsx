@@ -16,11 +16,14 @@ import { FunnelPropertyCorrelationTable } from './FunnelPropertyCorrelationTable
 
 export const FunnelCorrelation = (): JSX.Element | null => {
     const { insightProps } = useValues(insightLogic)
-    const { steps, funnelsFilter } = useValues(funnelDataLogic(insightProps))
+    const { steps, funnelsFilter, hasDataWarehouseSeries } = useValues(funnelDataLogic(insightProps))
     useMountedLogic(funnelCorrelationUsageLogic(insightProps))
-
     const vizType = funnelsFilter?.funnelVizType
-    if ((vizType !== FunnelVizType.Steps && vizType !== FunnelVizType.Flow) || steps.length <= 1) {
+    if (
+        (vizType !== FunnelVizType.Steps && vizType !== FunnelVizType.Flow) ||
+        steps.length <= 1 ||
+        hasDataWarehouseSeries
+    ) {
         return null
     }
 

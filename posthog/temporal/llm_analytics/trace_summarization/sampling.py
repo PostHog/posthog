@@ -16,6 +16,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -100,20 +101,21 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                 """
             )
 
-            result = execute_hogql_query(
-                query_type="GenerationsForSampling",
-                query=generations_query,
-                placeholders={
-                    "start_ts": ast.Constant(value=start_dt_str),
-                    "end_ts": ast.Constant(value=end_dt_str),
-                    "limit": ast.Constant(value=max_items),
-                    "max_events": ast.Constant(value=MAX_TRACE_EVENTS_LIMIT),
-                    "max_properties_size": ast.Constant(value=MAX_TRACE_PROPERTIES_SIZE),
-                    "trace_filter": trace_filter_expr or ast.Constant(value=True),
-                },
-                team=team,
-                limit_context=LimitContext.QUERY_ASYNC,
-            )
+            with tags_context(product=Product.LLM_ANALYTICS, team_id=team_id):
+                result = execute_hogql_query(
+                    query_type="GenerationsForSampling",
+                    query=generations_query,
+                    placeholders={
+                        "start_ts": ast.Constant(value=start_dt_str),
+                        "end_ts": ast.Constant(value=end_dt_str),
+                        "limit": ast.Constant(value=max_items),
+                        "max_events": ast.Constant(value=MAX_TRACE_EVENTS_LIMIT),
+                        "max_properties_size": ast.Constant(value=MAX_TRACE_PROPERTIES_SIZE),
+                        "trace_filter": trace_filter_expr or ast.Constant(value=True),
+                    },
+                    team=team,
+                    limit_context=LimitContext.QUERY_ASYNC,
+                )
 
             logger.debug(
                 "generation_sampling_result",
@@ -166,20 +168,21 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                 """
             )
 
-            result = execute_hogql_query(
-                query_type="TracesForSampling",
-                query=traces_query,
-                placeholders={
-                    "start_ts": ast.Constant(value=start_dt_str),
-                    "end_ts": ast.Constant(value=end_dt_str),
-                    "limit": ast.Constant(value=max_items),
-                    "max_events": ast.Constant(value=MAX_TRACE_EVENTS_LIMIT),
-                    "max_properties_size": ast.Constant(value=MAX_TRACE_PROPERTIES_SIZE),
-                    "trace_filter": trace_filter_expr or ast.Constant(value=True),
-                },
-                team=team,
-                limit_context=LimitContext.QUERY_ASYNC,
-            )
+            with tags_context(product=Product.LLM_ANALYTICS, team_id=team_id):
+                result = execute_hogql_query(
+                    query_type="TracesForSampling",
+                    query=traces_query,
+                    placeholders={
+                        "start_ts": ast.Constant(value=start_dt_str),
+                        "end_ts": ast.Constant(value=end_dt_str),
+                        "limit": ast.Constant(value=max_items),
+                        "max_events": ast.Constant(value=MAX_TRACE_EVENTS_LIMIT),
+                        "max_properties_size": ast.Constant(value=MAX_TRACE_PROPERTIES_SIZE),
+                        "trace_filter": trace_filter_expr or ast.Constant(value=True),
+                    },
+                    team=team,
+                    limit_context=LimitContext.QUERY_ASYNC,
+                )
 
             logger.debug(
                 "trace_sampling_result",

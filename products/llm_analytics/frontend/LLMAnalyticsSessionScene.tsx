@@ -8,6 +8,7 @@ import { LemonButton, LemonTag, Spinner, SpinnerOverlay, Tooltip } from '@postho
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -25,6 +26,7 @@ import { SentimentBar } from './components/SentimentTag'
 import { TraceSummary, llmAnalyticsSessionDataLogic } from './llmAnalyticsSessionDataLogic'
 import { llmAnalyticsSessionLogic } from './llmAnalyticsSessionLogic'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
+import { SENTIMENT_DATE_WINDOW_DAYS } from './sentimentUtils'
 import { formatLLMCost, getTraceTimestamp, sanitizeTraceUrlSearchParams } from './utils'
 
 const LLMASessionFeedbackDisplay = lazy(() =>
@@ -52,7 +54,7 @@ export function LLMAnalyticsSessionScene({ tabId }: { tabId?: string }): JSX.Ele
     )
 }
 
-function SessionTraceSentimentBar({ traceId }: { traceId: string }): JSX.Element | null {
+function SessionTraceSentimentBar({ traceId, createdAt }: { traceId: string; createdAt?: string }): JSX.Element | null {
     const { sentimentByTraceId, isTraceLoading } = useValues(llmSentimentLazyLoaderLogic)
     const { ensureSentimentLoaded } = useActions(llmSentimentLazyLoaderLogic)
 
@@ -60,7 +62,12 @@ function SessionTraceSentimentBar({ traceId }: { traceId: string }): JSX.Element
     const loading = isTraceLoading(traceId)
 
     if (cached === undefined && !loading) {
-        ensureSentimentLoaded(traceId)
+        ensureSentimentLoaded(
+            traceId,
+            createdAt
+                ? { dateFrom: createdAt, dateTo: dayjs(createdAt).add(SENTIMENT_DATE_WINDOW_DAYS, 'day').toISOString() }
+                : undefined
+        )
     }
 
     if (cached === null) {
@@ -246,7 +253,12 @@ function SessionSceneWrapper(): JSX.Element {
                                                             {formatLLMCost(trace.totalCost)}
                                                         </LemonTag>
                                                     )}
-                                                    {showSentiment && <SessionTraceSentimentBar traceId={trace.id} />}
+                                                    {showSentiment && (
+                                                        <SessionTraceSentimentBar
+                                                            traceId={trace.id}
+                                                            createdAt={trace.createdAt}
+                                                        />
+                                                    )}
                                                     <Link
                                                         to={
                                                             combineUrl(urls.llmAnalyticsTrace(trace.id), {

@@ -92,7 +92,7 @@ export const funnelPathsExpansionLogic = kea<funnelPathsExpansionLogicType>([
                 }
             } catch {
                 breakpoint()
-                lemonToast.error('An error occurres when expanding paths')
+                lemonToast.error('An error occurred when expanding paths')
                 actions.collapsePath()
             }
         },

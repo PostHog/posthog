@@ -19,7 +19,7 @@ import { SessionSummaryContent } from 'scenes/session-recordings/player/player-m
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
-import { OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
+import { GitHubReposResponseApi, OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
     AnyResponseType,
@@ -749,6 +749,11 @@ export class ApiRequest {
 
     public logsExport(projectId?: ProjectType['id']): ApiRequest {
         return this.logs(projectId).addPathComponent('export')
+    }
+
+    // # Tracing
+    public tracingSpans(): ApiRequest {
+        return this.projectsDetail().addPathComponent('tracing').addPathComponent('spans')
     }
 
     // # Data management
@@ -2537,6 +2542,18 @@ const api = {
         },
     },
 
+    tracing: {
+        async listSpans(): Promise<{ results: Record<string, any>[] }> {
+            return new ApiRequest().tracingSpans().get()
+        },
+        async getTrace(traceId: string): Promise<{ results: Record<string, any>[] }> {
+            return new ApiRequest().tracingSpans().withAction(`trace/${traceId}`).get()
+        },
+        async sparkline(): Promise<{ results: Record<string, any>[] }> {
+            return new ApiRequest().tracingSpans().withAction('sparkline').get()
+        },
+    },
+
     exports: {
         determineExportUrl(exportId: number, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): string {
             return new ApiRequest()
@@ -3596,12 +3613,9 @@ const api = {
 
         async split(
             issueId: ErrorTrackingIssue['id'],
-            fingerprints: string[],
-            exclusive: boolean
-        ): Promise<{ content: string }> {
-            return await new ApiRequest()
-                .errorTrackingIssueSplit(issueId)
-                .create({ data: { fingerprints: fingerprints, exclusive } })
+            fingerprints: { fingerprint: string; name?: string; description?: string }[]
+        ): Promise<{ success: boolean; new_issue_ids: string[] }> {
+            return await new ApiRequest().errorTrackingIssueSplit(issueId).create({ data: { fingerprints } })
         },
 
         fingerprints: {
@@ -4046,7 +4060,9 @@ const api = {
                 .get()
         },
         async create(
-            data?: Pick<NotebookType, 'content' | 'text_content' | 'title' | '_create_in_folder'>
+            data?: Pick<NotebookType, 'content' | 'text_content' | 'title' | '_create_in_folder'> & {
+                short_id?: string
+            }
         ): Promise<NotebookType> {
             return await new ApiRequest().notebooks().create({ data })
         },
@@ -4253,7 +4269,9 @@ const api = {
         },
         async update(
             featureId: EarlyAccessFeatureType['id'],
-            data: Pick<EarlyAccessFeatureType, 'name' | 'description' | 'stage' | 'documentation_url'>
+            data: Pick<EarlyAccessFeatureType, 'name' | 'description' | 'stage' | 'documentation_url'> & {
+                rollout_to_all?: boolean
+            }
         ): Promise<EarlyAccessFeatureType> {
             return await new ApiRequest().earlyAccessFeature(featureId).update({ data })
         },
@@ -4646,6 +4664,12 @@ const api = {
         async get(nodeId: DataModelingNode['id']): Promise<DataModelingNode> {
             return await new ApiRequest().dataModelingNode(nodeId).get()
         },
+        async update(
+            nodeId: DataModelingNode['id'],
+            data: Partial<Pick<DataModelingNode, 'description'>>
+        ): Promise<DataModelingNode> {
+            return await new ApiRequest().dataModelingNode(nodeId).update({ data })
+        },
         async run(
             nodeId: DataModelingNode['id'],
             direction: 'upstream' | 'downstream'
@@ -4657,6 +4681,11 @@ const api = {
         },
         async dagIds(): Promise<{ dag_ids: string[] }> {
             return await new ApiRequest().dataModelingNodes().withAction('dag_ids').get()
+        },
+        async lineage(
+            nodeId: DataModelingNode['id']
+        ): Promise<{ nodes: DataModelingNode[]; edges: DataModelingEdge[] }> {
+            return await new ApiRequest().dataModelingNode(nodeId).withAction('lineage').get()
         },
     },
 
@@ -4745,12 +4774,13 @@ const api = {
         async jobs(
             sourceId: ExternalDataSource['id'],
             before: string | null,
-            after: string | null
+            after: string | null,
+            schemas?: string[]
         ): Promise<ExternalDataJob[]> {
             return await new ApiRequest()
                 .externalDataSource(sourceId)
                 .withAction('jobs')
-                .withQueryString({ before, after })
+                .withQueryString(toParams({ before, after, schemas }, true))
                 .get()
         },
         async updateRevenueAnalyticsConfig(
@@ -4794,6 +4824,10 @@ const api = {
                 .withAction('job_stats')
                 .withQueryString({ days: options?.days })
                 .get(options)
+        },
+
+        async dataOpsDashboard(options?: ApiMethodOptions): Promise<{ dashboard_id: number }> {
+            return await new ApiRequest().dataWarehouse().withAction('data_ops_dashboard').get(options)
         },
     },
 
@@ -4962,7 +4996,7 @@ const api = {
         async linearTeams(id: IntegrationType['id']): Promise<{ teams: LinearTeamType[] }> {
             return await new ApiRequest().integrationLinearTeams(id).get()
         },
-        async githubRepositories(id: IntegrationType['id']): Promise<{ repositories: string[] }> {
+        async githubRepositories(id: IntegrationType['id']): Promise<GitHubReposResponseApi> {
             return await new ApiRequest().integrationGitHubRepositories(id).get()
         },
         async jiraProjects(id: IntegrationType['id']): Promise<{ projects: JiraProjectType[] }> {

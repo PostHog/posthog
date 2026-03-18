@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { LemonDialog, LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -21,7 +21,6 @@ import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTa
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { pluralize } from 'lib/utils'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import MaxTool from 'scenes/max/MaxTool'
@@ -39,16 +38,18 @@ import {
     AccessControlResourceType,
     ActivityScope,
     Experiment,
-    ExperimentProgressStatus,
+    ExperimentStatus,
     ExperimentsTabs,
 } from '~/types'
 
 import { DuplicateExperimentModal } from './DuplicateExperimentModal'
+import { canArchiveExperiment, confirmArchiveExperiment, confirmDeleteExperiment } from './experimentActions'
 import {
     EXPERIMENTS_PER_PAGE,
     ExperimentsFilters,
     experimentsLogic,
     getExperimentStatus,
+    isExperimentPaused,
     getShippedVariantKey,
     isSingleVariantShipped,
 } from './experimentsLogic'
@@ -131,15 +132,15 @@ const ExperimentsTableFilters = ({
                                 const { status: _, ...restFilters } = filters
                                 onFiltersChange({ ...restFilters, page: 1 }, true)
                             } else {
-                                onFiltersChange({ status: status as ExperimentProgressStatus, page: 1 })
+                                onFiltersChange({ status: status as ExperimentStatus, page: 1 })
                             }
                         }}
                         options={
                             [
                                 { label: 'All', value: 'all' },
-                                { label: 'Draft', value: ExperimentProgressStatus.Draft },
-                                { label: 'Running / Paused', value: ExperimentProgressStatus.Running },
-                                { label: 'Complete', value: ExperimentProgressStatus.Complete },
+                                { label: 'Draft', value: ExperimentStatus.Draft },
+                                { label: 'Running / Paused', value: ExperimentStatus.Running },
+                                { label: 'Complete', value: ExperimentStatus.Stopped },
                             ] as { label: string; value: string }[]
                         }
                         value={filters.status ?? 'all'}
@@ -311,18 +312,17 @@ const ExperimentsTable = ({
             title: 'Status',
             key: 'status',
             render: function Render(_, experiment: Experiment) {
-                return <StatusTag status={getExperimentStatus(experiment)} />
+                return <StatusTag status={getExperimentStatus(experiment)} isPaused={isExperimentPaused(experiment)} />
             },
             align: 'center',
             sorter: (a, b) => {
                 const statusA = getExperimentStatus(a)
                 const statusB = getExperimentStatus(b)
 
-                const score = {
-                    draft: 1,
-                    paused: 2,
-                    running: 3,
-                    complete: 4,
+                const score: Record<ExperimentStatus, number> = {
+                    [ExperimentStatus.Draft]: 1,
+                    [ExperimentStatus.Running]: 2,
+                    [ExperimentStatus.Stopped]: 3,
                 }
                 return score[statusA] > score[statusB] ? 1 : -1
             },
@@ -351,43 +351,25 @@ const ExperimentsTable = ({
                                         })
                                     }}
                                 />
-                                {!experiment.archived &&
-                                    getExperimentStatus(experiment) === ExperimentProgressStatus.Complete && (
-                                        <AccessControlAction
-                                            resourceType={AccessControlResourceType.Experiment}
-                                            minAccessLevel={AccessControlLevel.Editor}
-                                            userAccessLevel={experiment.user_access_level}
+                                {canArchiveExperiment(experiment) && (
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.Experiment}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={experiment.user_access_level}
+                                    >
+                                        <LemonButton
+                                            onClick={() =>
+                                                confirmArchiveExperiment(() =>
+                                                    archiveExperiment(experiment.id as number)
+                                                )
+                                            }
+                                            data-attr={`experiment-${experiment.id}-dropdown-archive`}
+                                            fullWidth
                                         >
-                                            <LemonButton
-                                                onClick={() => {
-                                                    LemonDialog.open({
-                                                        title: 'Archive this experiment?',
-                                                        content: (
-                                                            <div className="text-sm text-secondary">
-                                                                This action will hide the experiment from the list by
-                                                                default. It can be restored at any time.
-                                                            </div>
-                                                        ),
-                                                        primaryButton: {
-                                                            children: 'Archive',
-                                                            type: 'primary',
-                                                            onClick: () => archiveExperiment(experiment.id as number),
-                                                            size: 'small',
-                                                        },
-                                                        secondaryButton: {
-                                                            children: 'Cancel',
-                                                            type: 'tertiary',
-                                                            size: 'small',
-                                                        },
-                                                    })
-                                                }}
-                                                data-attr={`experiment-${experiment.id}-dropdown-archive`}
-                                                fullWidth
-                                            >
-                                                Archive experiment
-                                            </LemonButton>
-                                        </AccessControlAction>
-                                    )}
+                                            Archive experiment
+                                        </LemonButton>
+                                    </AccessControlAction>
+                                )}
                                 <LemonDivider />
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.Experiment}
@@ -396,36 +378,13 @@ const ExperimentsTable = ({
                                 >
                                     <LemonButton
                                         status="danger"
-                                        onClick={() => {
-                                            LemonDialog.open({
-                                                title: 'Delete this experiment?',
-                                                content: (
-                                                    <div className="text-sm text-secondary">
-                                                        Experiment with its settings will be deleted, but event data
-                                                        will be preserved.
-                                                    </div>
-                                                ),
-                                                primaryButton: {
-                                                    children: 'Delete',
-                                                    type: 'primary',
-                                                    onClick: () => {
-                                                        void deleteWithUndo({
-                                                            endpoint: `projects/${currentProjectId}/experiments`,
-                                                            object: { name: experiment.name, id: experiment.id },
-                                                            callback: () => {
-                                                                loadExperiments()
-                                                            },
-                                                        })
-                                                    },
-                                                    size: 'small',
-                                                },
-                                                secondaryButton: {
-                                                    children: 'Cancel',
-                                                    type: 'tertiary',
-                                                    size: 'small',
-                                                },
+                                        onClick={() =>
+                                            confirmDeleteExperiment({
+                                                projectId: currentProjectId,
+                                                experiment,
+                                                onDelete: () => loadExperiments(),
                                             })
-                                        }}
+                                        }
                                         data-attr={`experiment-${experiment.id}-dropdown-remove`}
                                         fullWidth
                                     >

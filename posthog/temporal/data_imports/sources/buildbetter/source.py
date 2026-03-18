@@ -35,9 +35,9 @@ class BuildBetterSource(SimpleSource[BuildBetterSourceConfig]):
         }
 
     def get_schemas(
-        self, config: BuildBetterSourceConfig, team_id: int, with_counts: bool = False
+        self, config: BuildBetterSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
     ) -> list[SourceSchema]:
-        return [
+        schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
@@ -46,6 +46,10 @@ class BuildBetterSource(SimpleSource[BuildBetterSourceConfig]):
             )
             for endpoint in list(ENDPOINTS)
         ]
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+        return schemas
 
     def validate_credentials(
         self, config: BuildBetterSourceConfig, team_id: int, schema_name: Optional[str] = None

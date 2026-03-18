@@ -12,11 +12,15 @@ import type {
     ExperimentApi,
     ExperimentHoldoutApi,
     ExperimentHoldoutsListParams,
+    ExperimentSavedMetricApi,
+    ExperimentSavedMetricsListParams,
     ExperimentsListParams,
     PaginatedExperimentHoldoutListApi,
     PaginatedExperimentListApi,
+    PaginatedExperimentSavedMetricListApi,
     PatchedExperimentApi,
     PatchedExperimentHoldoutApi,
+    PatchedExperimentSavedMetricApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -141,6 +145,116 @@ export const experimentHoldoutsDestroy = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getExperimentHoldoutsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getExperimentSavedMetricsListUrl = (projectId: string, params?: ExperimentSavedMetricsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/experiment_saved_metrics/?${stringifiedParams}`
+        : `/api/projects/${projectId}/experiment_saved_metrics/`
+}
+
+export const experimentSavedMetricsList = async (
+    projectId: string,
+    params?: ExperimentSavedMetricsListParams,
+    options?: RequestInit
+): Promise<PaginatedExperimentSavedMetricListApi> => {
+    return apiMutator<PaginatedExperimentSavedMetricListApi>(getExperimentSavedMetricsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getExperimentSavedMetricsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/experiment_saved_metrics/`
+}
+
+export const experimentSavedMetricsCreate = async (
+    projectId: string,
+    experimentSavedMetricApi: NonReadonly<ExperimentSavedMetricApi>,
+    options?: RequestInit
+): Promise<ExperimentSavedMetricApi> => {
+    return apiMutator<ExperimentSavedMetricApi>(getExperimentSavedMetricsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(experimentSavedMetricApi),
+    })
+}
+
+export const getExperimentSavedMetricsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiment_saved_metrics/${id}/`
+}
+
+export const experimentSavedMetricsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentSavedMetricApi> => {
+    return apiMutator<ExperimentSavedMetricApi>(getExperimentSavedMetricsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getExperimentSavedMetricsUpdateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiment_saved_metrics/${id}/`
+}
+
+export const experimentSavedMetricsUpdate = async (
+    projectId: string,
+    id: number,
+    experimentSavedMetricApi: NonReadonly<ExperimentSavedMetricApi>,
+    options?: RequestInit
+): Promise<ExperimentSavedMetricApi> => {
+    return apiMutator<ExperimentSavedMetricApi>(getExperimentSavedMetricsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(experimentSavedMetricApi),
+    })
+}
+
+export const getExperimentSavedMetricsPartialUpdateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiment_saved_metrics/${id}/`
+}
+
+export const experimentSavedMetricsPartialUpdate = async (
+    projectId: string,
+    id: number,
+    patchedExperimentSavedMetricApi: NonReadonly<PatchedExperimentSavedMetricApi>,
+    options?: RequestInit
+): Promise<ExperimentSavedMetricApi> => {
+    return apiMutator<ExperimentSavedMetricApi>(getExperimentSavedMetricsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedExperimentSavedMetricApi),
+    })
+}
+
+export const getExperimentSavedMetricsDestroyUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiment_saved_metrics/${id}/`
+}
+
+export const experimentSavedMetricsDestroy = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExperimentSavedMetricsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })
@@ -291,13 +405,6 @@ export const experimentsDuplicateCreate = async (
     })
 }
 
-/**
- * Create a recalculation request for experiment timeseries data.
-
-Request body:
-- metric (required): The full metric object to recalculate
-- fingerprint (required): The fingerprint of the metric configuration
- */
 export const getExperimentsRecalculateTimeseriesCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/recalculate_timeseries/`
 }
@@ -316,14 +423,6 @@ export const experimentsRecalculateTimeseriesCreate = async (
     })
 }
 
-/**
- * Retrieve timeseries results for a specific experiment-metric combination.
-Aggregates daily results into a timeseries format for frontend compatibility.
-
-Query parameters:
-- metric_uuid (required): The UUID of the metric to retrieve results for
-- fingerprint (required): The fingerprint of the metric configuration
- */
 export const getExperimentsTimeseriesResultsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/timeseries_results/`
 }
@@ -384,9 +483,6 @@ export const experimentsRequiresFlagImplementationRetrieve = async (
     })
 }
 
-/**
- * Get experimentation velocity statistics.
- */
 export const getExperimentsStatsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/experiments/stats/`
 }

@@ -56,7 +56,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import INSIGHT, INSIGHT_FUNNELS, INSIGHT_STICKINESS, TRENDS_STICKINESS, FunnelVizType
 from posthog.decorators import cached_by_filters
 from posthog.errors import ExposedCHQueryError
-from posthog.event_usage import report_user_action
+from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.hogql_queries.apply_dashboard_filters import (
     WRAPPER_NODE_KINDS,
@@ -864,6 +864,7 @@ class InsightSerializer(InsightBasicSerializer):
                     filters_override=filters_override,
                     variables_override=variables_override,
                     tile_filters_override=tile_filters_override,
+                    analytics_props=get_request_analytics_properties(self.context["request"]),
                 )
             except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
                 raise ValidationError(str(e), getattr(e, "code_name", None))
@@ -1371,7 +1372,7 @@ When set, the specified dashboard's filters and date range override will be appl
                 query,
                 execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
                 user=request.user if request.user.is_authenticated else None,
-                request=request,
+                analytics_props=get_request_analytics_properties(request),
             )
             if isinstance(result_ctx, BaseModel):
                 result = result_ctx.model_dump()
@@ -1415,7 +1416,7 @@ When set, the specified dashboard's filters and date range override will be appl
                 query,
                 execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
                 user=request.user if request.user.is_authenticated else None,
-                request=request,
+                analytics_props=get_request_analytics_properties(request),
             )
             if isinstance(result_ctx, BaseModel):
                 result = result_ctx.model_dump()
@@ -1543,7 +1544,10 @@ When set, the specified dashboard's filters and date range override will be appl
         query_runner = get_query_runner(query, team, limit_context=None)
 
         # we use the legacy caching mechanism (@cached_by_filters decorator), no need to cache in the query runner
-        result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        result = query_runner.run(
+            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            analytics_props=get_request_analytics_properties(request),
+        )
         assert (
             isinstance(result, schema.CachedTrendsQueryResponse)
             or isinstance(result, schema.CachedStickinessQueryResponse)
@@ -1608,7 +1612,10 @@ When set, the specified dashboard's filters and date range override will be appl
         query_runner = get_query_runner(query, team, limit_context=None)
 
         # we use the legacy caching mechanism (@cached_by_filters decorator), no need to cache in the query runner
-        result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        result = query_runner.run(
+            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            analytics_props=get_request_analytics_properties(request),
+        )
         assert isinstance(result, schema.CachedFunnelsQueryResponse)
 
         return {"result": result.results, "timezone": team.timezone}

@@ -51,9 +51,18 @@ def _render_template(template: str, product_name: str) -> str:
 
 
 def _add_to_tach_toml(product_name: str, *, dry_run: bool) -> None:
-    """Add product module to tach.toml as an isolated product."""
+    """Add product module to tach.toml as an isolated product with enforced boundaries."""
     module_path = f"products.{product_name}"
-    block = f'\n[[modules]]\npath = "{module_path}"\ndepends_on = ["posthog"]\nlayer = "products"\n'
+    block = (
+        f"\n[[modules]]\n"
+        f'path = "{module_path}"\n'
+        f'depends_on = ["posthog"]\n'
+        f'layer = "products"\n'
+        f"interfaces = [\n"
+        f'    "{module_path}.backend.facade",\n'
+        f'    "{module_path}.backend.presentation.views",\n'
+        f"]\n"
+    )
 
     _register_in_file(
         TACH_TOML,
@@ -216,6 +225,23 @@ def _check_file_exists(backend_dir: Path, path: str) -> bool:
     return False
 
 
+def _get_tach_block(tach_content: str, module_path: str) -> str:
+    """Extract the tach.toml block for a given module path."""
+    marker = f'path = "{module_path}"'
+    idx = tach_content.find(marker)
+    if idx == -1:
+        return ""
+    # Find start of [[modules]] block containing this path
+    block_start = tach_content.rfind("[[modules]]", 0, idx)
+    if block_start == -1:
+        block_start = idx
+    # Find end: next [[modules]] or end of file
+    next_block = tach_content.find("[[modules]]", idx)
+    if next_block == -1:
+        return tach_content[block_start:]
+    return tach_content[block_start:next_block]
+
+
 def _is_isolated_product(backend_dir: Path) -> bool:
     contracts_file = backend_dir / "facade" / "contracts.py"
     contracts_folder = backend_dir / "facade" / "contracts"
@@ -280,7 +306,13 @@ def lint_product(name: str, verbose: bool = True) -> list[str]:
         else:
             scripts = {}
 
-        for script in ("backend:test", "backend:contract-check"):
+        # backend:test is required for all products with backend/
+        # backend:contract-check is only required for isolated products (have facade/contracts.py)
+        required_scripts = ["backend:test"]
+        if is_isolated:
+            required_scripts.append("backend:contract-check")
+
+        for script in required_scripts:
             has_script = script in scripts
             if verbose:
                 click.echo(f"  {script} in package.json...")
@@ -349,7 +381,25 @@ def lint_product(name: str, verbose: bool = True) -> list[str]:
 
     issues.extend(conflicts)
 
-    # 5. Isolation progress (informational, not enforced)
+    # 5. Tach interfaces (strict only — isolated products must declare boundaries)
+    if is_isolated:
+        if verbose:
+            click.echo("  tach interfaces...")
+        module_path = f"products.{name}"
+        tach_content = TACH_TOML.read_text() if TACH_TOML.exists() else ""
+        has_interfaces = "interfaces" in _get_tach_block(tach_content, module_path)
+        if not has_interfaces:
+            issues.append(
+                f"Isolated product missing 'interfaces' in tach.toml — "
+                f'add interfaces = ["{module_path}.backend.facade", "{module_path}.backend.presentation.views"] '
+                f"to enforce import boundaries"
+            )
+            if verbose:
+                click.echo("    ✗ missing interfaces declaration")
+        elif verbose:
+            click.echo("    ✓ ok")
+
+    # 6. Isolation progress (informational, not enforced)
     if not is_isolated and verbose and backend_dir.exists():
         click.echo("  isolation progress...")
 
@@ -418,7 +468,7 @@ def _lint_all_products() -> None:
 
     click.echo(f"Linting {len(product_dirs)} products ({len(strict)} strict, {len(lenient)} lenient)")
     click.echo(
-        "Checks: required root files, backend:test, backend:contract-check, misplaced files, file/folder conflicts\n"
+        "Checks: required root files, backend:test, backend:contract-check (isolated only), misplaced files, file/folder conflicts, tach interfaces (isolated only)\n"
     )
 
     failed: list[str] = []

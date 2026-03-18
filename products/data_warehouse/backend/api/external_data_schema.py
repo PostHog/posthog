@@ -17,7 +17,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.temporal.data_imports.sources import SourceRegistry
-from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 
 from products.data_warehouse.backend.data_load.service import (
     cancel_external_data_workflow,
@@ -71,6 +70,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "incremental_field_type",
             "sync_frequency",
             "sync_time_of_day",
+            "description",
         ]
 
         read_only_fields = [
@@ -80,6 +80,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "last_synced_at",
             "latest_error",
             "status",
+            "description",
         ]
 
     def get_status(self, schema: ExternalDataSchema) -> str | None:
@@ -359,7 +360,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         try:
-            schemas = new_source.get_schemas(config, self.team_id)
+            schemas = new_source.get_schemas(config, self.team_id, names=[instance.name])
         except Exception as e:
             capture_exception(e)
             return Response(
@@ -367,17 +368,12 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": str(e)},
             )
 
-        schema: SourceSchema | None = None
-
-        for s in schemas:
-            if s.name == instance.name:
-                schema = s
-                break
-
-        if schema is None:
+        if not schemas:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST, data={"message": f"Schema with name {instance.name} not found"}
             )
+
+        schema = schemas[0]
 
         data = {
             "incremental_fields": schema.incremental_fields,

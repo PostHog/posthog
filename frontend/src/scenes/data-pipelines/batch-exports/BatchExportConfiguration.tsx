@@ -108,6 +108,11 @@ export function BatchExportConfiguration(): JSX.Element {
                                             label: 'Every 5 minutes',
                                             hidden: !highFrequencyBatchExports,
                                         },
+                                        {
+                                            value: 'every 15 minutes',
+                                            label: 'Every 15 minutes',
+                                            hidden: !highFrequencyBatchExports,
+                                        },
                                     ]}
                                 />
                             </LemonField>

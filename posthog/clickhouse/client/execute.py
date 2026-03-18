@@ -110,6 +110,17 @@ def get_kill_switch_level() -> KillSwitchLevel:
     return _get_kill_switch_level(round(time.time() / 60))
 
 
+def get_hedged_app_queries_enabled() -> bool:
+    return _get_hedged_app_queries_enabled(round(time.time() / 60))
+
+
+@lru_cache(maxsize=1)
+def _get_hedged_app_queries_enabled(_ttl: int) -> bool:
+    from posthog.models.instance_setting import get_instance_setting
+
+    return get_instance_setting("CLICKHOUSE_HEDGED_APP_QUERIES")
+
+
 @lru_cache(maxsize=1)
 def _get_kill_switch_level(_ttl: int) -> KillSwitchLevel:
     from posthog.models.instance_setting import get_instance_setting
@@ -321,7 +332,7 @@ def sync_execute(
         if kill_switch_level != KillSwitchLevel.OFF:
             settings["use_hedged_requests"] = "0"
         else:
-            settings["use_hedged_requests"] = "1"
+            settings["use_hedged_requests"] = "1" if get_hedged_app_queries_enabled() else "0"
     start_time = perf_counter()
 
     try:

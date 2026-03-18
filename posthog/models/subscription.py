@@ -73,6 +73,13 @@ class Subscription(models.Model):
         blank=True,
         related_name="subscriptions_dashboard_export",
     )
+    integration = models.ForeignKey(
+        "posthog.Integration",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_index=False,
+    )
 
     # Subscription type (email, slack etc.)
     title = models.CharField(max_length=100, null=True, blank=True)
@@ -100,6 +107,11 @@ class Subscription(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(default=False)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["integration"], name="posthog_sub_integration_idx"),
+        ]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

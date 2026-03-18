@@ -16,6 +16,7 @@ base64 = { workspace = true }
 bytes = { workspace = true }
 envconfig = { workspace = true }
 flate2 = { workspace = true }
+hex = "0.4"
 health = { path = "../common/health" }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
@@ -28,7 +29,9 @@ metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
+opentelemetry-proto = { workspace = true }
 opentelemetry_sdk = { workspace = true }
+prost = { workspace = true }
 rand = { workspace = true }
 rdkafka = { workspace = true }
 redis = { workspace = true }

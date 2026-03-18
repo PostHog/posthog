@@ -839,7 +839,6 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ("p1", "2020-01-11T12:00:05Z", {"idx": 5}),
             ]
         )
-        flush_persons_and_events()
 
         all_results = []
         for offset in (0, 2, 4):
@@ -861,3 +860,181 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         actual_indices = [row[0] for row in all_results]
         self.assertEqual(actual_indices, ["1", "2", "3", "4", "5"])
+
+    def test_cursor_pagination_sets_before(self):
+        query = EventsQuery(
+            kind="EventsQuery",
+            select=["*"],
+            orderBy=["timestamp DESC"],
+            limit=10,
+        )
+        runner = EventsQueryRunner(query=query, team=self.team)
+        runner.apply_pagination_cursor("2020-01-11T12:00:00+00:00")
+
+        self.assertEqual(runner.query.before, "2020-01-11T12:00:00+00:00")
+
+    def test_cursor_pagination_sets_after(self):
+        query = EventsQuery(
+            kind="EventsQuery",
+            select=["*"],
+            orderBy=["timestamp ASC"],
+            limit=10,
+        )
+        runner = EventsQueryRunner(query=query, team=self.team)
+        runner.apply_pagination_cursor("2020-01-11T12:00:00+00:00")
+
+        self.assertEqual(runner.query.after, "2020-01-11T12:00:00+00:00")
+
+    @also_test_with_different_timezones
+    @snapshot_clickhouse_queries
+    def test_cursor_pagination_multi_page_desc(self):
+        self._create_events(
+            data=[
+                ("p1", "2020-01-11T12:00:05Z", {"idx": "5"}),
+                ("p1", "2020-01-11T12:00:04Z", {"idx": "4"}),
+                ("p1", "2020-01-11T12:00:03Z", {"idx": "3"}),
+                ("p1", "2020-01-11T12:00:02Z", {"idx": "2"}),
+                ("p1", "2020-01-11T12:00:01Z", {"idx": "1"}),
+            ]
+        )
+
+        all_results = []
+        cursor = None
+        for _ in range(3):
+            with freeze_time("2020-01-12"):
+                query = EventsQuery(
+                    kind="EventsQuery",
+                    select=["properties.idx", "timestamp"],
+                    after="2020-01-10",
+                    orderBy=["timestamp DESC"],
+                    limit=2,
+                )
+                runner = EventsQueryRunner(query=query, team=self.team)
+                if cursor:
+                    runner.apply_pagination_cursor(cursor)
+                response = runner.run()
+
+            assert isinstance(response, CachedEventsQueryResponse)
+            all_results.extend(response.results)
+
+            if response.nextCursor:
+                cursor = response.nextCursor
+            else:
+                break
+
+        actual_indices = [row[0] for row in all_results]
+        self.assertEqual(actual_indices, ["5", "4", "3", "2", "1"])
+
+    @also_test_with_different_timezones
+    @snapshot_clickhouse_queries
+    def test_cursor_pagination_multi_page_asc(self):
+        self._create_events(
+            data=[
+                ("p1", "2020-01-11T12:00:01Z", {"idx": "1"}),
+                ("p1", "2020-01-11T12:00:02Z", {"idx": "2"}),
+                ("p1", "2020-01-11T12:00:03Z", {"idx": "3"}),
+                ("p1", "2020-01-11T12:00:04Z", {"idx": "4"}),
+                ("p1", "2020-01-11T12:00:05Z", {"idx": "5"}),
+            ]
+        )
+
+        all_results = []
+        cursor = None
+        for _ in range(3):
+            with freeze_time("2020-01-12"):
+                query = EventsQuery(
+                    kind="EventsQuery",
+                    select=["properties.idx", "timestamp"],
+                    after="2020-01-10",
+                    orderBy=["timestamp ASC"],
+                    limit=2,
+                )
+                runner = EventsQueryRunner(query=query, team=self.team)
+                if cursor:
+                    runner.apply_pagination_cursor(cursor)
+                response = runner.run()
+
+            assert isinstance(response, CachedEventsQueryResponse)
+            all_results.extend(response.results)
+
+            if response.nextCursor:
+                cursor = response.nextCursor
+            else:
+                break
+
+        actual_indices = [row[0] for row in all_results]
+        self.assertEqual(actual_indices, ["1", "2", "3", "4", "5"])
+
+    @also_test_with_different_timezones
+    @snapshot_clickhouse_queries
+    def test_cursor_not_returned_for_non_timestamp_order(self):
+        self._create_events(
+            data=[
+                ("p1", "2020-01-11T12:00:01Z", {"idx": "1"}),
+                ("p1", "2020-01-11T12:00:02Z", {"idx": "2"}),
+                ("p1", "2020-01-11T12:00:03Z", {"idx": "3"}),
+            ]
+        )
+
+        with freeze_time("2020-01-12"):
+            query = EventsQuery(
+                kind="EventsQuery",
+                select=["event", "timestamp"],
+                after="2020-01-10",
+                orderBy=["event ASC"],
+                limit=2,
+            )
+            runner = EventsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+        assert isinstance(response, CachedEventsQueryResponse)
+        self.assertIsNone(response.nextCursor)
+
+    @also_test_with_different_timezones
+    @snapshot_clickhouse_queries
+    def test_cursor_not_returned_for_aggregation_query(self):
+        self._create_events(
+            data=[
+                ("p1", "2020-01-11T12:00:01Z", {}),
+                ("p2", "2020-01-11T12:00:02Z", {}),
+            ]
+        )
+
+        with freeze_time("2020-01-12"):
+            query = EventsQuery(
+                kind="EventsQuery",
+                select=["count()", "timestamp"],
+                after="2020-01-10",
+                limit=2,
+            )
+            runner = EventsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+        assert isinstance(response, CachedEventsQueryResponse)
+        self.assertIsNone(response.nextCursor)
+
+    @also_test_with_different_timezones
+    @snapshot_clickhouse_queries
+    def test_cursor_with_star_select(self):
+        self._create_events(
+            data=[
+                ("p1", "2020-01-11T12:00:03Z", {}),
+                ("p1", "2020-01-11T12:00:02Z", {}),
+                ("p1", "2020-01-11T12:00:01Z", {}),
+            ]
+        )
+
+        with freeze_time("2020-01-12"):
+            query = EventsQuery(
+                kind="EventsQuery",
+                select=["*"],
+                after="2020-01-10",
+                orderBy=["timestamp DESC"],
+                limit=2,
+            )
+            runner = EventsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert response.nextCursor is not None
+        self.assertEqual(datetime.fromisoformat(response.nextCursor), datetime.fromisoformat("2020-01-11T12:00:02Z"))

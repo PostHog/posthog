@@ -80,9 +80,13 @@ class PinterestAdsSource(SimpleSource[PinterestAdsSourceConfig], OAuthMixin):
             return False, f"Failed to validate Pinterest Ads credentials: {str(e)}"
 
     def get_schemas(
-        self, config: PinterestAdsSourceConfig, team_id: int, with_counts: bool = False
+        self,
+        config: PinterestAdsSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
     ) -> list[SourceSchema]:
-        return [
+        schemas = [
             SourceSchema(
                 name=endpoint_config.name,
                 supports_incremental=endpoint_config.incremental_fields is not None,
@@ -91,6 +95,12 @@ class PinterestAdsSource(SimpleSource[PinterestAdsSourceConfig], OAuthMixin):
             )
             for endpoint_config in PINTEREST_ADS_CONFIG.values()
         ]
+
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+
+        return schemas
 
     def source_for_pipeline(self, config: PinterestAdsSourceConfig, inputs: SourceInputs) -> SourceResponse:
         integration = self.get_oauth_integration(config.pinterest_ads_integration_id, inputs.team_id)

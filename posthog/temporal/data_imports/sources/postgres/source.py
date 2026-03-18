@@ -146,7 +146,9 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             "No space left on device": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
         }
 
-    def get_schemas(self, config: PostgresSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: PostgresSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
         schemas = []
 
         with self.with_ssh_tunnel(config) as (host, port):
@@ -157,6 +159,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                 password=config.password,
                 database=config.database,
                 schema=config.schema,
+                names=names,
             )
             db_foreign_keys = get_postgres_foreign_keys(
                 host=host,
@@ -165,6 +168,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                 password=config.password,
                 database=config.database,
                 schema=config.schema,
+                names=names,
             )
 
             if with_counts:
@@ -175,6 +179,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     password=config.password,
                     database=config.database,
                     schema=config.schema,
+                    names=names,
                 )
             else:
                 row_counts = {}
@@ -220,7 +225,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             return valid_host, host_errors
 
         try:
-            self.get_schemas(config, team_id)
+            self.get_schemas(config, team_id, names=[schema_name] if schema_name else None)
         except SSLRequiredError as e:
             return False, str(e)
         except OperationalError as e:

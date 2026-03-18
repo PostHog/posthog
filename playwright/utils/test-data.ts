@@ -119,6 +119,7 @@ export const customEventsWithBreakdown = {
         firefoxAmountSum: '-15',
     },
 }
+
 /**
  * Stickiness-specific pageview data: 10 users with known day-activity patterns.
  *
@@ -205,5 +206,95 @@ export const stickinessWithBreakdown = {
         day1: { users: 3, percent: 60 },
         day2: { users: 0, percent: 0 },
         day3: { users: 2, percent: 40 },
+    },
+}
+
+/**
+ * Pageview events with different URLs to produce paths data.
+ * 8 users land on /, all 8 go to /docs, 5 continue to /pricing, 3 to /signup.
+ * Each step is offset by 1 minute so the paths query sees sequential events.
+ */
+const pathUser = (n: number): string => `path-user-${n}`
+
+function minutesAfterDaysAgo(days: number, minutes: number): string {
+    const date = new Date()
+    date.setUTCDate(date.getUTCDate() - days)
+    date.setUTCHours(0, minutes, 0, 0)
+    return date.toISOString()
+}
+
+/**
+ * Sequential pageviews across 4 URLs with decreasing user counts:
+ * / (8) → /docs (8) → /pricing (5) → /signup (3).
+ * Each step is offset by 1 minute so queries see sequential events.
+ */
+export const sequentialPageviews = {
+    events: [
+        ...createEvent({
+            event: '$pageview',
+            user: pathUser,
+            timestamp: () => minutesAfterDaysAgo(2, 0),
+            properties: { $current_url: 'https://example.com/' },
+        }).repeat(8),
+        ...createEvent({
+            event: '$pageview',
+            user: pathUser,
+            timestamp: () => minutesAfterDaysAgo(2, 1),
+            properties: { $current_url: 'https://example.com/docs' },
+        }).repeat(8),
+        ...createEvent({
+            event: '$pageview',
+            user: pathUser,
+            timestamp: () => minutesAfterDaysAgo(2, 2),
+            properties: { $current_url: 'https://example.com/pricing' },
+        }).repeat(5),
+        ...createEvent({
+            event: '$pageview',
+            user: pathUser,
+            timestamp: () => minutesAfterDaysAgo(2, 3),
+            properties: { $current_url: 'https://example.com/signup' },
+        }).repeat(3),
+    ],
+    expected: {
+        nodes: [
+            { name: 'example.com/', count: 8 },
+            { name: '/docs', count: 8 },
+            { name: '/pricing', count: 5 },
+            { name: '/signup', count: 3 },
+        ],
+    },
+}
+
+const ceUser = (n: number): string => `ce-user-${n}`
+
+/**
+ * Sequential custom events with decreasing user counts:
+ * button_click (7) → form_submit (7) → checkout (4).
+ * Uses separate users (ce-user-*) so pageview data doesn't interfere.
+ */
+export const sequentialCustomEvents = {
+    events: [
+        ...createEvent({
+            event: 'button_click',
+            user: ceUser,
+            timestamp: () => minutesAfterDaysAgo(2, 10),
+        }).repeat(7),
+        ...createEvent({
+            event: 'form_submit',
+            user: ceUser,
+            timestamp: () => minutesAfterDaysAgo(2, 11),
+        }).repeat(7),
+        ...createEvent({
+            event: 'checkout',
+            user: ceUser,
+            timestamp: () => minutesAfterDaysAgo(2, 12),
+        }).repeat(4),
+    ],
+    expected: {
+        nodes: [
+            { name: 'button_click', count: 7 },
+            { name: 'form_submit', count: 7 },
+            { name: 'checkout', count: 4 },
+        ],
     },
 }

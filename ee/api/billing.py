@@ -5,6 +5,7 @@ from django.contrib.auth.models import AbstractUser
 from django.http import HttpResponse
 from django.shortcuts import redirect
 
+import requests
 import structlog
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
@@ -20,7 +21,6 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationIntegration, Team
 from posthog.models.organization import OrganizationMembership
-from posthog.security.outbound_proxy import external_requests
 from posthog.utils import relative_date_parse
 
 from ee.billing.billing_manager import BillingManager
@@ -375,7 +375,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         license = License(key=serializer.validated_data["license"])
-        res = external_requests.get(
+        res = requests.get(
             f"{BILLING_SERVICE_URL}/api/billing",
             headers=BillingManager(license).get_auth_headers(organization),
         )
@@ -577,6 +577,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return {}
 
     def _get_org(self) -> Optional[Organization]:
+        # root-router viewset with param_derived_from_user_current_team — no URL-scoped org to mismatch
+        # nosemgrep: cross-org-bypass-user-organization
         org = None if self.request.user.is_anonymous else self.request.user.organization
 
         return org

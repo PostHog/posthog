@@ -117,6 +117,24 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     def get_feature_flag_key(self):
         return self.feature_flag.key
 
+    def get_analytics_metadata(self) -> dict[str, Any]:
+        variants = (self.parameters or {}).get("feature_flag_variants")
+        if not variants:
+            variants = self.feature_flag.filters.get("multivariate", {}).get("variants", [])
+
+        return {
+            "experiment_id": self.id,
+            "experiment_name": self.name,
+            "feature_flag_key": self.get_feature_flag_key(),
+            "type": self.type,
+            "status": self.status or Experiment.compute_status(self.start_date, self.end_date),
+            "metrics_count": len(self.metrics or []),
+            "secondary_metrics_count": len(self.metrics_secondary or []),
+            "has_description": bool(self.description),
+            "variant_count": len(variants),
+            "created_at": self.created_at,
+        }
+
     def get_stats_config(self, key: str):
         return self.stats_config.get(key) if self.stats_config else None
 
@@ -142,6 +160,16 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
             },
             should_delete=False,  # always keep in FileSystem
         )
+
+
+def holdout_filters_for_flag(holdout_id: int | None, filters: list | None) -> dict:
+    """Return both legacy `holdout_groups` and new `holdout` fields for a feature flag's filters."""
+    if not holdout_id or not filters:
+        return {"holdout_groups": None, "holdout": None}
+    return {
+        "holdout_groups": filters,
+        "holdout": {"id": holdout_id, "exclusion_percentage": filters[0]["rollout_percentage"]},
+    }
 
 
 class ExperimentHoldout(ModelActivityMixin, RootTeamMixin, models.Model):

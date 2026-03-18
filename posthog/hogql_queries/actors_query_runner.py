@@ -4,7 +4,7 @@ from collections.abc import Iterable, Iterator, Sequence
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
-    from rest_framework.request import Request
+    from posthog.event_usage import AnalyticsProps
 
 from posthoganalytics import feature_enabled
 
@@ -72,10 +72,18 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         insight_id: Optional[int] = None,
         dashboard_id: Optional[int] = None,
         cache_age_seconds: Optional[int] = None,
-        request: Optional["Request"] = None,
+        analytics_props: Optional["AnalyticsProps"] = None,
     ):
         self.user = user
-        return super().run(execution_mode, user, query_id, insight_id, dashboard_id, cache_age_seconds, request)
+        return super().run(
+            execution_mode,
+            user,
+            query_id,
+            insight_id,
+            dashboard_id,
+            cache_age_seconds,
+            analytics_props=analytics_props,
+        )
 
     @property
     def group_type_index(self) -> int | None:
