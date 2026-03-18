@@ -40,8 +40,6 @@ export interface SentimentCard {
 export interface GroupedSentimentCard {
     /** Representative card (first/most recent occurrence) */
     card: SentimentCard
-    /** All cards in the group (including the representative) */
-    allCards: SentimentCard[]
     /** Number of distinct traces with this same message */
     traceCount: number
 }
@@ -54,34 +52,25 @@ const GENERATIONS_PAGE_SIZE = 200
 // Match backend MAX_MESSAGE_CHARS (2000) so training data captures the same text window the model classified
 const SNIPPET_MAX_LENGTH = 2000
 
-/** Extract the full message text from a card for dedup comparison */
-function getCardMessageText(card: SentimentCard): string {
+/** Parse aiInput and return the raw content text for the message at the given index, or '' on failure */
+function getRawMessageText(aiInput: unknown, messageIndex: number): string {
     try {
-        const parsed =
-            typeof card.generation.aiInput === 'string' ? JSON.parse(card.generation.aiInput) : card.generation.aiInput
+        const parsed = typeof aiInput === 'string' ? JSON.parse(aiInput) : aiInput
         if (!Array.isArray(parsed)) {
             return ''
         }
-        const msg = parsed[card.messageIndex]
-        return extractContentText(msg?.content).trim()
+        return extractContentText(parsed[messageIndex]?.content)
     } catch {
         return ''
     }
 }
 
+function getCardMessageText(card: SentimentCard): string {
+    return getRawMessageText(card.generation.aiInput, card.messageIndex).trim()
+}
+
 function getSnippetFromCard(card: SentimentCard): string {
-    try {
-        const parsed =
-            typeof card.generation.aiInput === 'string' ? JSON.parse(card.generation.aiInput) : card.generation.aiInput
-        if (!Array.isArray(parsed)) {
-            return ''
-        }
-        const msg = parsed[card.messageIndex]
-        const text = extractContentText(msg?.content)
-        return text.slice(-SNIPPET_MAX_LENGTH)
-    } catch {
-        return ''
-    }
+    return getRawMessageText(card.generation.aiInput, card.messageIndex).slice(-SNIPPET_MAX_LENGTH)
 }
 
 interface GenerationsQueryValues {
@@ -304,7 +293,7 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
         groupedSentimentCards: [
             (s) => [s.sentimentCards],
             (cards: SentimentCard[]): GroupedSentimentCard[] => {
-                const groups = new Map<string, GroupedSentimentCard>()
+                const groups = new Map<string, { grouped: GroupedSentimentCard; traceIds: Set<string> }>()
                 const result: GroupedSentimentCard[] = []
 
                 for (const card of cards) {
@@ -313,15 +302,14 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
                     const key = text || `__unique__${card.generation.uuid}:${card.messageIndex}`
                     const existing = groups.get(key)
                     if (existing) {
-                        existing.allCards.push(card)
-                        existing.traceCount = new Set(existing.allCards.map((c) => c.generation.traceId)).size
+                        existing.traceIds.add(card.generation.traceId)
+                        existing.grouped.traceCount = existing.traceIds.size
                     } else {
                         const grouped: GroupedSentimentCard = {
                             card,
-                            allCards: [card],
                             traceCount: 1,
                         }
-                        groups.set(key, grouped)
+                        groups.set(key, { grouped, traceIds: new Set([card.generation.traceId]) })
                         result.push(grouped)
                     }
                 }
