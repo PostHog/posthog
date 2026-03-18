@@ -237,7 +237,8 @@ export class IngestionConsumer {
             outputs,
             splitAiEventsConfig: parseSplitAiEventsConfig(
                 this.config.INGESTION_AI_EVENT_SPLITTING_ENABLED,
-                this.config.INGESTION_AI_EVENT_SPLITTING_TEAMS
+                this.config.INGESTION_AI_EVENT_SPLITTING_TEAMS,
+                this.config.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY
             ),
             perDistinctIdOptions: {
                 CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: this.config.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,

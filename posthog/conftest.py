@@ -76,6 +76,7 @@ def reset_clickhouse_tables():
     from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
     from posthog.heatmaps.sql import TRUNCATE_HEATMAPS_TABLE_SQL
     from posthog.models.ai.pg_embeddings import TRUNCATE_PG_EMBEDDINGS_TABLE_SQL
+    from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
     from posthog.models.app_metrics.sql import TRUNCATE_APP_METRICS_TABLE_SQL
     from posthog.models.channel_type.sql import TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL
     from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
@@ -121,6 +122,7 @@ def reset_clickhouse_tables():
         TRUNCATE_RAW_SESSIONS_TABLE_SQL(),
         TRUNCATE_HEATMAPS_TABLE_SQL(),
         TRUNCATE_PG_EMBEDDINGS_TABLE_SQL(),
+        TRUNCATE_AI_EVENTS_TABLE_SQL(),
     ]
 
     # Drop created Kafka tables because some tests don't expect it.

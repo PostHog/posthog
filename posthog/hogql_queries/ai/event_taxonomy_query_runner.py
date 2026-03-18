@@ -198,7 +198,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                         WHERE {filter}
                     )
                     ARRAY JOIN kv.1 AS key, kv.2 AS value
-                    WHERE value != ''
+                    WHERE value IS NOT NULL AND value != ''
                     GROUP BY key, value
                     ORDER BY count DESC
                 """,

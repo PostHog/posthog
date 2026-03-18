@@ -102,7 +102,7 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
         kafkaProducer: {
             queueMessages: jest.fn().mockResolvedValue(undefined),
         } as any,
-        splitAiEventsConfig: { enabled: false, enabledTeams: '*' },
+        splitAiEventsConfig: { enabled: false, enabledTeams: '*', stripHeavyProperties: false },
         groupId: 'test-group',
         topHog: (step) => step,
         ...configOverrides,

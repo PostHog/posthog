@@ -869,6 +869,7 @@ describe('IngestionConsumer', () => {
             await ingester.stop()
             hub.INGESTION_AI_EVENT_SPLITTING_ENABLED = true
             hub.INGESTION_AI_EVENT_SPLITTING_TEAMS = '*'
+            hub.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY = true
             ingester = await createIngestionConsumer(hub)
 
             const events = [

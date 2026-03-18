@@ -606,6 +606,11 @@ class FieldType(Type):
     def get_child(self, name: str | int, context: HogQLContext) -> Type:
         database_field = self.resolve_database_field(context)
         if database_field is None:
+            # For non-BaseTableType (e.g. subquery aliases), check the constant type
+            # to determine if this field supports property access (JSON / array).
+            constant_type = self.resolve_constant_type(context)
+            if isinstance(constant_type, (StringJSONType, StringArrayType)):
+                return PropertyType(chain=[name], field_type=self)
             raise ResolutionError(f'Can not access property "{name}" on field "{self.name}".')
         if isinstance(database_field, StringJSONDatabaseField):
             return PropertyType(chain=[name], field_type=self)
