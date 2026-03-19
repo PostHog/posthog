@@ -1,3 +1,5 @@
+import '../CardMeta.scss'
+
 import clsx from 'clsx'
 import { useActions } from 'kea'
 import { router } from 'kea-router'
