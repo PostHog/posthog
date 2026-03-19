@@ -10,7 +10,11 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import (
+    MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+    FieldType,
+    SimpleSource,
+)
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
@@ -102,11 +106,11 @@ class MetaAdsSource(SimpleSource[MetaAdsSourceConfig]):
             suggestedTables=[
                 SuggestedTable(
                     table="campaigns",
-                    tooltip="Required for Marketing analytics to work with this source.",
+                    tooltip=MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
                 ),
                 SuggestedTable(
                     table="campaign_stats",
-                    tooltip="Required for Marketing analytics to work with this source.",
+                    tooltip=MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
                 ),
             ],
         )
