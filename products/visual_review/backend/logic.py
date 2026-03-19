@@ -23,6 +23,10 @@ from .storage import ArtifactStorage
 
 logger = structlog.get_logger(__name__)
 
+# Database alias for transactional writes — must match the route in db_routing.yaml.
+# Used with transaction.atomic(using=...) and transaction.on_commit(..., using=...).
+WRITER_DB = "visual_review_db_writer"
+
 
 class RepoNotFoundError(Exception):
     pass
@@ -272,7 +276,7 @@ def _verify_baseline_hashes(repo: Repo, raw_hashes: dict[str, str]) -> dict[str,
     return verified
 
 
-@transaction.atomic
+@transaction.atomic(using=WRITER_DB)
 def create_run(
     repo_id: UUID,
     team_id: int,
@@ -398,7 +402,9 @@ def create_run(
             )
 
     # Post pending status after transaction commits
-    transaction.on_commit(lambda: _post_commit_status(run, repo, "pending", "Visual review in progress"))
+    transaction.on_commit(
+        lambda: _post_commit_status(run, repo, "pending", "Visual review in progress"), using=WRITER_DB
+    )
 
     return run, uploads
 
@@ -909,7 +915,7 @@ def auto_approve_run(run_id: UUID, user_id: int) -> tuple[Run, str]:
     return run, baseline_content
 
 
-@transaction.atomic
+@transaction.atomic(using=WRITER_DB)
 def approve_run(run_id: UUID, user_id: int, approved_snapshots: list[dict], commit_to_github: bool = True) -> Run:
     """
     Approve visual changes for a run.
