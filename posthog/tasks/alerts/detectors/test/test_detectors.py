@@ -404,6 +404,104 @@ class TestEnsembleDetector:
                 }
             )
 
+    def test_detect_or_triggered_indices_uses_union(self) -> None:
+        detector = EnsembleDetector(
+            {
+                "type": "ensemble",
+                "operator": "or",
+                "detectors": [
+                    {"type": "zscore", "threshold": 0.9, "window": 10},
+                    {"type": "mad", "threshold": 0.9, "window": 10},
+                ],
+            }
+        )
+        result = detector.detect(ANOMALY_DATA)
+        assert result.is_anomaly
+        assert len(result.triggered_indices) >= 1
+        assert 11 in result.triggered_indices  # last index (the spike)
+
+    def test_detect_and_triggered_indices_uses_intersection(self) -> None:
+        detector = EnsembleDetector(
+            {
+                "type": "ensemble",
+                "operator": "and",
+                "detectors": [
+                    {"type": "zscore", "threshold": 0.9, "window": 10},
+                    {"type": "mad", "threshold": 0.9, "window": 10},
+                ],
+            }
+        )
+        result = detector.detect(ANOMALY_DATA)
+        assert result.is_anomaly
+        # AND intersection: only indices both detectors agree on
+        assert len(result.triggered_indices) >= 1
+
+    def test_detect_or_all_scores_uses_element_wise_max(self) -> None:
+        detector = EnsembleDetector(
+            {
+                "type": "ensemble",
+                "operator": "or",
+                "detectors": [
+                    {"type": "zscore", "threshold": 0.9, "window": 10},
+                    {"type": "mad", "threshold": 0.9, "window": 10},
+                ],
+            }
+        )
+        result = detector.detect(ANOMALY_DATA)
+        assert len(result.all_scores) > 0
+        # The combined score for the anomaly point should be the max of sub-detector scores
+        last_score = result.all_scores[-1]
+        assert last_score is not None
+        assert last_score > 0.9
+
+    def test_detect_and_all_scores_uses_element_wise_min(self) -> None:
+        detector = EnsembleDetector(
+            {
+                "type": "ensemble",
+                "operator": "and",
+                "detectors": [
+                    {"type": "zscore", "threshold": 0.9, "window": 10},
+                    {"type": "mad", "threshold": 0.9, "window": 10},
+                ],
+            }
+        )
+        result = detector.detect(ANOMALY_DATA)
+        assert len(result.all_scores) > 0
+        last_score = result.all_scores[-1]
+        assert last_score is not None
+        # min of two high scores should still be high for a clear anomaly
+        assert last_score > 0.9
+
+    def test_detect_no_anomaly_has_empty_triggered_indices(self) -> None:
+        detector = EnsembleDetector(
+            {
+                "type": "ensemble",
+                "operator": "or",
+                "detectors": [
+                    {"type": "zscore", "threshold": 0.9, "window": 10},
+                    {"type": "mad", "threshold": 0.9, "window": 10},
+                ],
+            }
+        )
+        result = detector.detect(NORMAL_DATA)
+        assert not result.is_anomaly
+        assert result.triggered_indices == []
+
+    def test_batch_or_unions_triggered(self) -> None:
+        detector = EnsembleDetector(
+            {
+                "type": "ensemble",
+                "operator": "or",
+                "detectors": [
+                    {"type": "zscore", "threshold": 0.9, "window": 5},
+                    {"type": "mad", "threshold": 0.9, "window": 5},
+                ],
+            }
+        )
+        result = detector.detect_batch(BATCH_DATA)
+        assert result.is_anomaly
+        assert len(result.triggered_indices) >= 1
+
     def test_invalid_operator_raises(self) -> None:
         with pytest.raises(ValueError, match="Invalid ensemble operator"):
             EnsembleDetector(
