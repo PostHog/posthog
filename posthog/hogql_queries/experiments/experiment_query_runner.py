@@ -48,13 +48,13 @@ from posthog.hogql_queries.experiments.utils import (
 )
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.experiment import Experiment
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
     ensure_precomputed,
 )
+from products.experiments.backend.models.experiment import Experiment
 
 logger = structlog.get_logger(__name__)
 
@@ -255,7 +255,7 @@ class ExperimentQueryRunner(QueryRunner):
             modifiers=create_default_modifiers_for_team(self.team),
             settings=HogQLGlobalSettings(
                 max_execution_time=self.max_execution_time,
-                allow_experimental_analyzer=True,
+                enable_analyzer=True,
                 max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
             ),
             workload=self.workload,

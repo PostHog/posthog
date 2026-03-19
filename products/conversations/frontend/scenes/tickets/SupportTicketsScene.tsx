@@ -22,6 +22,7 @@ import { newInternalTab } from 'lib/utils/newInternalTab'
 import { stripMarkdown } from 'lib/utils/stripMarkdown'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -37,6 +38,7 @@ import {
     AssigneeSelect,
 } from '../../components/Assignee'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
+import { ConversationsDisabledBanner } from '../../components/ConversationsDisabledBanner'
 import { ScenesTabs } from '../../components/ScenesTabs'
 import { SlaDisplay } from '../../components/SlaDisplay'
 import {
@@ -494,6 +496,9 @@ export function SupportTicketsTableFilters(): JSX.Element {
 }
 
 export function SupportTicketsScene(): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+    const conversationsDisabled = !!currentTeam && !currentTeam.conversations_enabled
+
     return (
         <SceneContent className="pb-4">
             <SceneTitleSection
@@ -504,6 +509,7 @@ export function SupportTicketsScene(): JSX.Element {
                 }}
             />
             <ScenesTabs />
+            {conversationsDisabled ? <ConversationsDisabledBanner /> : null}
             <SupportTicketsTableFilters />
             <SupportTicketsTable />
         </SceneContent>

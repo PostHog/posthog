@@ -708,7 +708,7 @@ class HogFunctionViewSet(
             "filters": hog_function.filters.get("events", []) if hog_function.filters else [],
             "destination": {
                 "type": "Workflows",
-                "config": {},
+                "config": {"hog_function_id": str(hog_function.id)},
             },
         }
 

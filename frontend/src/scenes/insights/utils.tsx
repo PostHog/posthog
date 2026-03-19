@@ -99,10 +99,10 @@ export const getDisplayNameFromEntityFilter = (
 ): string | null => {
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(filter?.custom_name)
+
     let name = ensureStringIsNotBlank(filter?.name)
-    if (name && name in CORE_FILTER_DEFINITIONS_BY_GROUP.events) {
-        name = CORE_FILTER_DEFINITIONS_BY_GROUP.events[name].label
-    }
+    name = formatEventName(name) ?? name
+
     if (isAllEventsEntityFilter(filter)) {
         name = 'All events'
     }

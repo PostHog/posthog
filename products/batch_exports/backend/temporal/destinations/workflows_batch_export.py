@@ -110,10 +110,11 @@ class WorkflowsConsumer(Consumer):
 
         parsed = urllib.parse.urlparse(url)
         if not all((parsed.scheme, parsed.netloc)):
-            raise ValueError("Invalid URL")
+            raise ValueError(f"Invalid URL: {url}")
 
         self.url = urllib.parse.urljoin(url, path)
         self.session = session
+        self.internal_api_secret = settings.INTERNAL_API_SECRET
 
     async def consume_chunk(self, data: bytes):
         post = make_retryable_with_exponential_backoff(
@@ -126,12 +127,16 @@ class WorkflowsConsumer(Consumer):
             self.url,
             # Data is already JSON encoded, so we can't use json=data.
             data=b'{"clickhouse_event":' + data + b"}",
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "X-Internal-Api-Secret": self.internal_api_secret,
+            },
         ) as response:
             try:
                 response.raise_for_status()
             except aiohttp.ClientResponseError as err:
-                self.logger.exception("Request failed", status=err.status)
+                response_body = await response.text()
+                self.logger.exception("Request failed", status=err.status, response_body=response_body)
 
                 match err.status:
                     case 404:
@@ -218,6 +223,8 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
                 consumer=consumer,
                 producer_task=producer_task,
                 transformer=transformer,
+                # the CDP API expects the JSON columns to be strings
+                json_columns=(),
             )
 
         return result

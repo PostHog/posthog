@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { getTabSceneParams, updateTabUrl } from 'lib/logic/scenes/tabSceneUtils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -262,14 +263,14 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             ],
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         loadEndpointSuccess: async ({ endpoint }: { endpoint: EndpointVersionType | null; payload?: string }) => {
             const initialPayload = generateInitialPayloadJson(endpoint)
             actions.setPayloadJson(initialPayload)
             actions.setCacheAge(endpoint?.cache_age_seconds ?? null)
             actions.setSyncFrequency(endpoint?.materialization?.sync_frequency ?? null)
 
-            const { searchParams } = router.values
+            const { searchParams, hashParams } = getTabSceneParams(props.tabId)
 
             // Load versions if on versions tab
             if (searchParams.tab === EndpointTab.VERSIONS && endpoint?.name) {
@@ -285,7 +286,8 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                         actions.setViewingVersion(versionData)
                     } catch {
                         // Version not found, clear the param
-                        router.actions.replace(urls.endpoint(endpoint.name), { ...searchParams, version: undefined })
+                        const { version: _, ...nextSearchParams } = searchParams
+                        updateTabUrl(props.tabId, urls.endpoint(endpoint.name), nextSearchParams, hashParams)
                         actions.setViewingVersion(null)
                     }
                 } else {
@@ -329,17 +331,22 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             }
 
             // Update URL when viewing version changes
-            const { searchParams } = router.values
+            const { searchParams, hashParams } = getTabSceneParams(props.tabId)
             if (values.endpoint?.name) {
+                const { version: _, ...nextSearchParams } = searchParams
                 if (version && version.version !== values.endpoint.current_version) {
-                    router.actions.replace(urls.endpoint(values.endpoint.name), {
-                        ...searchParams,
-                        version: version.version,
-                    })
+                    updateTabUrl(
+                        props.tabId,
+                        urls.endpoint(values.endpoint.name),
+                        {
+                            ...nextSearchParams,
+                            version: version.version,
+                        },
+                        hashParams
+                    )
                 } else {
                     // Clear version param when going back to current version
-                    const { version: _, ...rest } = searchParams
-                    router.actions.replace(urls.endpoint(values.endpoint.name), rest)
+                    updateTabUrl(props.tabId, urls.endpoint(values.endpoint.name), nextSearchParams, hashParams)
                 }
             }
         },
@@ -361,7 +368,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             }
         },
     })),
-    tabAwareUrlToAction(({ actions, values }) => ({
+    tabAwareUrlToAction(({ actions, values, props }) => ({
         [urls.endpoint(':name')]: ({ name }: { name?: string }, _, __, currentLocation, previousLocation) => {
             const { searchParams } = router.values
             const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
@@ -396,7 +403,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                             .get(name, versionParam)
                             .then((versionData) => {
                                 // Only apply if this is still the requested version
-                                const currentParam = router.values.searchParams.version
+                                const currentParam = getTabSceneParams(props.tabId).searchParams.version
                                 if (currentParam && parseInt(currentParam, 10) === requestedVersion) {
                                     actions.setViewingVersion(versionData)
                                 }
