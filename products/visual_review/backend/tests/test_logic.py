@@ -370,7 +370,7 @@ class TestCommitStatusChecks:
     @pytest.fixture
     def github_repo(self, team, mock_github_integration):
         return Repo.objects.create(
-            team=team,
+            team_id=team.id,
             repo_external_id=55555,
             repo_full_name="test-org/test-repo",
             baseline_file_paths={"storybook": ".snapshots.yml"},
@@ -497,7 +497,7 @@ class TestCommitStatusChecks:
     def test_no_status_without_repo_full_name(self, team, mock_github_integration, mock_github_api):
         """Status checks are silently skipped when repo has no repo_full_name."""
         repo = Repo.objects.create(
-            team=team,
+            team_id=team.id,
             repo_external_id=88888,
             repo_full_name="",
         )
@@ -524,7 +524,7 @@ class TestRunSupersession:
 
     @pytest.fixture
     def repo(self, team):
-        return Repo.objects.create(team=team, repo_external_id=66666, repo_full_name="org/test-repo")
+        return Repo.objects.create(team_id=team.id, repo_external_id=66666, repo_full_name="org/test-repo")
 
     def _create_run(self, repo, *, branch="feat/x", run_type=RunType.STORYBOOK, commit_sha="abc"):
         run, _ = logic.create_run(

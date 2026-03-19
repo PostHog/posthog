@@ -166,6 +166,54 @@ bin/hogli product:lint your_product_name
   - Move all operations into `state_operations = []` and keep the `database_operations = []` empty in both migrations.
   - Run and test this a few times before merging. Data loss is irreversible.
 
+## Separate product databases
+
+Products can opt into their own Postgres database for isolation — a product's DB issues (locks, migrations, traffic spikes) won't affect core PostHog or other products.
+
+### How it works
+
+Add a route in `products/db_routing.yaml`:
+
+```yaml
+routes:
+  - app_label: visual_review
+    database: visual_review
+```
+
+This automatically:
+
+- Registers `visual_review_db_writer` and `visual_review_db_reader` as Django database aliases
+- Routes all reads/writes for the `visual_review` app through `ProductDBRouter`
+- Runs migrations via `bin/migrate` (calls `migrate_product_databases` management command)
+- Creates the database in local Docker via the Postgres init script
+
+### Env vars (prod)
+
+Set `PRODUCT_DB_VISUAL_REVIEW_WRITER_URL` (and optionally `PRODUCT_DB_VISUAL_REVIEW_READER_URL`).
+If neither is set, the route is silently skipped and everything stays on `default`.
+
+Locally (`DEBUG=1`), it auto-connects to `posthog_visual_review` on localhost.
+
+### Cross-database foreign keys
+
+Postgres doesn't support foreign keys across databases. Models on a product database **must not** use `ForeignKey` to models in the main database (Team, User, etc.). Use plain integer fields instead:
+
+```python
+# Do this
+team_id = models.BigIntegerField(db_index=True)
+
+# Not this
+team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+```
+
+ForeignKeys between models **within the same product database** are fine.
+
+Consequences of no cross-DB FKs:
+
+- No `select_related`/`prefetch_related` across databases — use manual batch fetching
+- No `ON DELETE CASCADE` from the main DB — handle cleanup in application code
+- No `transaction.atomic()` spanning both databases
+
 ## Running tests with Turbo
 
 Products use Turborepo for selective testing. Only tests affected by your changes run.

@@ -276,7 +276,7 @@ def mock_github_integration(team, mocker):
 def vr_project_with_github(team, mock_github_integration):
     """Create a visual review repo configured for GitHub."""
     return Repo.objects.create(
-        team=team,
+        team_id=team.id,
         repo_external_id=12345,
         repo_full_name="test-org/test-repo",
         baseline_file_paths={"storybook": ".snapshots.yml"},
@@ -598,7 +598,7 @@ class TestGitHubIntegrationErrors:
     def test_missing_github_integration(self, team, user):
         """Should raise error if team has no GitHub integration."""
         repo = Repo.objects.create(
-            team=team,
+            team_id=team.id,
             repo_external_id=99999,
             repo_full_name="org/repo",
             baseline_file_paths={"storybook": ".snapshots.yml"},
