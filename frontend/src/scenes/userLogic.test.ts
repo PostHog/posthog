@@ -28,6 +28,9 @@ describe('userLogic', () => {
         })
 
         beforeEach(async () => {
+            // Without this, toDispatchActions(['loadUserSuccess']) can match an unrelated or stale success
+            // (e.g. from mount / other logics); toMatchValues then reads that action's afterState — wrong user.
+            await expectLogic().clearHistory()
             await expectLogic(userLogic, () => {
                 userLogic.actions.loadUser()
             })
