@@ -94,6 +94,9 @@ limitAndOffsetClause
 offsetOnlyClause: OFFSET columnExpr;
 settingsClause: SETTINGS settingExprList;
 
+valuesClause: VALUES valuesRow (COMMA valuesRow)*;
+valuesRow: LPAREN columnExpr (COMMA columnExpr)* RPAREN;
+
 joinExpr
     : joinExpr joinOp? JOIN joinExpr joinConstraintClause  # JoinExprOp
     | joinExpr joinOpCross joinExpr                                          # JoinExprCrossOp
@@ -264,13 +267,15 @@ withExprColumnNameList: LPAREN identifier (COMMA identifier)* RPAREN;
 columnIdentifier: placeholder | ((tableIdentifier DOT)? nestedIdentifier);
 nestedIdentifier: identifier (DOT identifier)*;
 tableExpr
-    : tableIdentifier                    # TableExprIdentifier
-    | tableFunctionExpr                  # TableExprFunction
-    | LPAREN selectSetStmt RPAREN      # TableExprSubquery
-    | tableExpr (alias | AS identifier)  # TableExprAlias
-    | hogqlxTagElement                   # TableExprTag
-    | placeholder                        # TableExprPlaceholder
+    : tableIdentifier                                                   # TableExprIdentifier
+    | tableFunctionExpr                                                 # TableExprFunction
+    | LPAREN selectSetStmt RPAREN                                       # TableExprSubquery
+    | LPAREN valuesClause RPAREN                                        # TableExprValues
+    | tableExpr (alias | AS identifier tableAliasColumnNameList?)       # TableExprAlias
+    | hogqlxTagElement                                                  # TableExprTag
+    | placeholder                                                       # TableExprPlaceholder
     ;
+tableAliasColumnNameList: LPAREN identifier (COMMA identifier)* RPAREN;
 tableFunctionExpr: identifier LPAREN tableArgList? RPAREN;
 tableIdentifier: (databaseIdentifier DOT)? nestedIdentifier;
 tableArgList: columnExpr (COMMA columnExpr)* COMMA?;
@@ -305,7 +310,7 @@ keyword
     | PRECEDING | PREWHERE | RANGE | RECURSIVE | RETURN | RIGHT | ROLLUP | ROW
     | ROWS | SAMPLE | SELECT | SEMI | SETTINGS | SUBSTRING
     | THEN | TIES | TIMESTAMP | TOTALS | TRAILING | TRIM | TRUNCATE | TO | TOP
-    | UNBOUNDED | UNION | USING | WHEN | WHERE | WINDOW | WITH
+    | UNBOUNDED | UNION | USING | VALUES | WHEN | WHERE | WINDOW | WITH
     ;
 keywordForAlias
     : DATE | FIRST | ID | KEY

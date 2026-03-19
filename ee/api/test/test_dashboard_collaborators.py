@@ -1,16 +1,32 @@
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models import Dashboard, OrganizationMembership, User
 
 from ee.api.test.base import APILicensedTest
 from ee.models.dashboard_privilege import DashboardPrivilege
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestDashboardCollaboratorsAPI(APILicensedTest):
+    CONFIG_FORCE_ADVANCED_PERMISSIONS_ON_SETUP = True
     test_dashboard: Dashboard
 
     def setUp(self):
         super().setUp()
+
+        if not self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
+            self.skipTest("Dashboard collaborators tests require advanced permissions")
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="member",
+        )
+
         self.test_dashboard = Dashboard.objects.create(team=self.team, name="Test Insights 9001", created_by=self.user)
 
     def test_list_collaborators_as_person_without_edit_access(self):
@@ -105,6 +121,7 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
         self.assertEqual(
             response_data,
             self.validation_error_response(
@@ -152,6 +169,7 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
         self.assertEqual(
             response_data,
             self.validation_error_response("Cannot add collaborators that have no access to the project."),

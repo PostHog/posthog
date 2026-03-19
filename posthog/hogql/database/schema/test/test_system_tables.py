@@ -14,7 +14,6 @@ from posthog.models import (
     Annotation,
     Cohort,
     Dashboard,
-    Experiment,
     ExportedAsset,
     FeatureFlag,
     Group,
@@ -38,6 +37,7 @@ from products.data_warehouse.backend.models.external_data_schema import External
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.models.table import DataWarehouseTable as DataWarehouseTableModel
 from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.experiments.backend.models.experiment import Experiment
 from products.notebooks.backend.models import Notebook
 
 ALL_SYSTEM_TABLE_NAMES = sorted(SystemTables().children.keys())

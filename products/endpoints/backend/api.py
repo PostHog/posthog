@@ -568,7 +568,10 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 derived_from_insight=data.derived_from_insight,
             )
 
-            columns = EndpointVersion.extract_columns(query_dict, team_id=self.team.pk)
+            try:
+                columns: list[dict] | None = EndpointVersion.extract_columns(query_dict, team_id=self.team.pk)
+            except Exception:
+                columns = None
             EndpointVersion.objects.create(
                 endpoint=endpoint,
                 version=1,
@@ -1785,13 +1788,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         # Check if we should use materialization for this version
         use_materialized = self._should_use_materialized_table(endpoint, data, version_obj)
-
-        logger.info(
-            "Endpoint run decision",
-            endpoint_name=endpoint.name,
-            use_materialized=use_materialized,
-            version=version_obj.version if version_obj else None,
-        )
 
         debug = data.debug or False
 

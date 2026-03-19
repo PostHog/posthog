@@ -49,18 +49,7 @@ from posthog.constants import PAGEVIEW_EVENT
 from posthog.demo.matrix.matrix import Cluster, Matrix
 from posthog.demo.matrix.randomization import Industry
 from posthog.exceptions_capture import capture_exception
-from posthog.models import (
-    Action,
-    Cohort,
-    Dashboard,
-    DashboardTile,
-    Experiment,
-    ExperimentSavedMetric,
-    ExperimentToSavedMetric,
-    FeatureFlag,
-    Insight,
-    InsightViewed,
-)
+from posthog.models import Action, Cohort, Dashboard, DashboardTile, FeatureFlag, Insight, InsightViewed
 from posthog.models.oauth import OAuthApplication
 from posthog.storage import object_storage
 
@@ -74,6 +63,7 @@ from products.event_definitions.backend.models.schema import (
     SchemaPropertyGroup,
     SchemaPropertyGroupProperty,
 )
+from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 
 from .models import HedgeboxAccount, HedgeboxPerson
 from .taxonomy import (
@@ -1064,6 +1054,7 @@ class HedgeboxMatrix(Matrix):
                 "recommended_sample_size": int(len(self.clusters) * 0.35),
                 "minimum_detectable_effect": 15,
             },
+            scheduling_config={"timeseries": True},
             start_date=self.onboarding_experiment_start,
             end_date=self.onboarding_experiment_end,
             conclusion="won",
@@ -1225,6 +1216,7 @@ class HedgeboxMatrix(Matrix):
                 "recommended_sample_size": int(len(self.clusters) * 0.40),
                 "minimum_detectable_effect": 10,
             },
+            scheduling_config={"timeseries": True},
             start_date=self.file_engagement_experiment_start,
             end_date=None,
             created_at=file_engagement_flag.created_at,

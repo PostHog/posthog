@@ -1,1 +1,1 @@
-0024_ticket_channel_detail
+0025_email_channel

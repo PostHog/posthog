@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-03-18 10:18:09 UTC
+// Generated at: 2026-03-19 10:13:21 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -65,6 +65,7 @@ export type CanonicalProvider =
     | 'io-net-bf16'
     | 'io-net-fp16'
     | 'io-net-fp8'
+    | 'io-net-int4'
     | 'ionstream-fp8'
     | 'liquid'
     | 'mancer-fp8'
@@ -81,9 +82,11 @@ export type CanonicalProvider =
     | 'morph'
     | 'nebius'
     | 'nebius-base'
+    | 'nebius-bf16'
     | 'nebius-fast'
     | 'nebius-fp4'
     | 'nebius-fp8'
+    | 'nebius-int4'
     | 'nextbit-bf16'
     | 'nextbit-fp4'
     | 'nextbit-fp8'
@@ -115,7 +118,6 @@ export type CanonicalProvider =
     | 'seed-fp8'
     | 'siliconflow-fp8'
     | 'siliconflow-int4'
-    | 'stealth'
     | 'stepfun-fp8'
     | 'streamlake-fp16'
     | 'switchpoint'
