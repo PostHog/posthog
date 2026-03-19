@@ -259,6 +259,13 @@ export const ALL_SDKS: SDK[] = [
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/ollama',
     },
     {
+        name: 'AWS Bedrock',
+        key: SDKKey.AWS_BEDROCK,
+        tags: [SDKTag.MODEL_PROVIDER],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/bedrock_5c06698148.png',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/aws-bedrock',
+    },
+    {
         name: 'Azure OpenAI',
         key: SDKKey.AZURE_OPENAI,
         tags: [SDKTag.MODEL_PROVIDER],
