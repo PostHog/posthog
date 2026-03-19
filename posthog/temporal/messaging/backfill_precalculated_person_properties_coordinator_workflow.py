@@ -120,11 +120,9 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
         """Run the coordinator workflow that spawns child workflows."""
         workflow_logger = temporalio.workflow.logger
         cohort_ids = inputs.cohort_ids
-        total_filters = inputs.total_filters
         workflow_logger.info(
             f"Starting person properties precalculation coordinator for {len(cohort_ids)} cohorts "
-            f"(team {inputs.team_id}, cohorts {cohort_ids}) with parallelism={inputs.parallelism}, "
-            f"processing {total_filters} total filters"
+            f"(team {inputs.team_id}, cohorts {cohort_ids}) with parallelism={inputs.parallelism}"
         )
 
         # Step 1: Get total count of persons for this team
