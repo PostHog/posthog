@@ -14,7 +14,7 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.messaging.backfill_precalculated_person_properties_coordinator_workflow import (
     BackfillPrecalculatedPersonPropertiesCoordinatorInputs,
 )
-from posthog.temporal.messaging.filter_storage import filter_storage
+from posthog.temporal.messaging.filter_storage import store_filters
 from posthog.temporal.messaging.types import PersonPropertyFilter
 
 logger = structlog.get_logger(__name__)
@@ -259,7 +259,7 @@ class Command(BaseCommand):
             client = await async_connect()
 
             # Store filters in Redis and get storage key
-            filter_storage_key = filter_storage.store_filters(filters, team_id)
+            filter_storage_key = store_filters(filters, team_id)
             self.stdout.write(
                 self.style.SUCCESS(f"Stored {len(filters)} filters in Redis with key: {filter_storage_key}")
             )

@@ -44,17 +44,11 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorInputs:
     batch_delay_minutes: int = 5  # Delay between batches in minutes
 
     @property
-    def total_filters(self) -> int:
-        """Total number of unique filters."""
-        return self.filter_count
-
-    @property
     def properties_to_log(self) -> dict[str, Any]:
         return {
             "team_id": self.team_id,
             "cohort_count": len(self.cohort_ids),
             "cohort_ids": self.cohort_ids,
-            "filter_count": self.filter_count,
             "filter_storage_key": self.filter_storage_key,
             "parallelism": self.parallelism,
             "batch_size": self.batch_size,
@@ -152,7 +146,7 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
         )
 
         # Step 2: Use already deduplicated conditions from management command
-        workflow_logger.info(f"Processing {inputs.filter_count} unique conditions across {len(cohort_ids)} cohorts")
+        workflow_logger.info(f"Processing cohorts: {cohort_ids}")
 
         # Step 3: Calculate ranges for each child workflow
         persons_per_workflow = math.ceil(total_persons / inputs.parallelism)

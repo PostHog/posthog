@@ -402,10 +402,9 @@ class BackfillPrecalculatedPersonPropertiesWorkflow(PostHogWorkflow):
         """Run the workflow to backfill precalculated person properties."""
         workflow_logger = temporalio.workflow.logger
         cohort_ids = inputs.cohort_ids
-        total_filters = inputs.total_filters
         workflow_logger.info(
             f"Starting person properties precalculation for {len(cohort_ids)} cohorts {cohort_ids} "
-            f"(team {inputs.team_id}) with {total_filters} total filters"
+            f"(team {inputs.team_id})"
         )
 
         # Process the batch of persons
