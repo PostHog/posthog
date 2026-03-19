@@ -10,8 +10,8 @@ from products.error_tracking.backend.models import ErrorTrackingSpikeEvent
 
 class ErrorTrackingSpikeEventSerializer(serializers.ModelSerializer):
     issue_id = serializers.UUIDField(source="issue.id")
-    issue_name = serializers.CharField(source="issue.name", default=None)
-    issue_description = serializers.CharField(source="issue.description", default=None)
+    issue_name = serializers.CharField(source="issue.name", default=None, allow_null=True)
+    issue_description = serializers.CharField(source="issue.description", default=None, allow_null=True)
 
     class Meta:
         model = ErrorTrackingSpikeEvent
@@ -52,6 +52,13 @@ class ErrorTrackingSpikeEventViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMix
             qs = qs.filter(issue_id__in=ids)
         elif issue_id:
             qs = qs.filter(issue_id=issue_id)
+
+        date_from = self.request.query_params.get("date_from")
+        date_to = self.request.query_params.get("date_to")
+        if date_from:
+            qs = qs.filter(detected_at__gte=date_from)
+        if date_to:
+            qs = qs.filter(detected_at__lte=date_to)
 
         order_by = self.request.query_params.get("order_by")
         if order_by and order_by in self.ALLOWED_ORDER_FIELDS:

@@ -244,7 +244,6 @@ export function Sparkline({
         deps: [labels, adjustedData, withXScale, withYScale, renderLabel, data, maximumIndicator, type],
     })
 
-    // Sync after useChart's effect creates the instance
     useEffect(() => {
         if (chartInstanceRef) {
             chartInstanceRef.current = chartRef.current

@@ -3767,7 +3767,7 @@ const api = {
 
         async getSpikeEvents(
             issueId?: string,
-            params?: { limit?: number; offset?: number; orderBy?: string }
+            params?: { limit?: number; offset?: number; orderBy?: string; dateFrom?: string; dateTo?: string }
         ): Promise<CountedPaginatedResponse<ErrorTrackingSpikeEvent>> {
             const query: Record<string, string | number> = {}
             if (issueId) {
@@ -3781,6 +3781,12 @@ const api = {
             }
             if (params?.orderBy) {
                 query.order_by = params.orderBy
+            }
+            if (params?.dateFrom) {
+                query.date_from = params.dateFrom
+            }
+            if (params?.dateTo) {
+                query.date_to = params.dateTo
             }
             let request = new ApiRequest().errorTrackingSpikeEvents()
             if (Object.keys(query).length > 0) {

@@ -287,7 +287,10 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             [] as ErrorTrackingSpikeEvent[],
             {
                 loadSpikeEvents: async () => {
-                    const response = await api.errorTracking.getSpikeEvents(props.id)
+                    const response = await api.errorTracking.getSpikeEvents(props.id, {
+                        dateFrom: values.dateRange?.date_from ?? undefined,
+                        dateTo: values.dateRange?.date_to ?? undefined,
+                    })
                     return response.results
                 },
             },
@@ -397,7 +400,10 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
 
     listeners(({ props, values, actions }) => {
         return {
-            setDateRange: actions.loadSummary,
+            setDateRange: () => {
+                actions.loadSummary()
+                actions.loadSpikeEvents()
+            },
             setFilterGroup: actions.loadSummary,
             setFilterTestAccounts: actions.loadSummary,
             setSearchQuery: actions.loadSummary,

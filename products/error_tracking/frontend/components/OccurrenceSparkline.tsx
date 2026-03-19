@@ -76,6 +76,35 @@ function createSpikeHoverPattern(): CanvasPattern | null {
     return ctx?.createPattern(sharedHoverPatternCanvas, 'repeat') ?? null
 }
 
+type StripeAnimationCallback = (transform: DOMMatrix) => void
+
+const stripeAnimationSubscribers = new Set<StripeAnimationCallback>()
+let stripeAnimationFrameId: number | null = null
+let stripeAnimationOffset = 0
+const STRIPE_SPEED = STRIPE_SIZE / 110
+
+function stripeAnimationTick(): void {
+    stripeAnimationOffset = (stripeAnimationOffset + STRIPE_SPEED) % STRIPE_SIZE
+    const transform = new DOMMatrix().translateSelf(0, -stripeAnimationOffset)
+    for (const cb of stripeAnimationSubscribers) {
+        cb(transform)
+    }
+    stripeAnimationFrameId = requestAnimationFrame(stripeAnimationTick)
+}
+
+function startStripeAnimationTicker(): void {
+    if (stripeAnimationFrameId === null) {
+        stripeAnimationFrameId = requestAnimationFrame(stripeAnimationTick)
+    }
+}
+
+function stopStripeAnimationTicker(): void {
+    if (stripeAnimationSubscribers.size === 0 && stripeAnimationFrameId !== null) {
+        cancelAnimationFrame(stripeAnimationFrameId)
+        stripeAnimationFrameId = null
+    }
+}
+
 function hasSpikeInBin(datumTime: number, binSizeMs: number, spikeTimestamps: number[]): boolean {
     return spikeTimestamps.some((st) => st >= datumTime && st < datumTime + binSizeMs)
 }
@@ -174,26 +203,23 @@ export function OccurrenceSparkline({
             return
         }
 
-        let frameId: number
-        let offset = 0
-        const speed = STRIPE_SIZE / 110
-
-        const animate = (): void => {
-            offset = (offset + speed) % STRIPE_SIZE
+        const animate: StripeAnimationCallback = (transform) => {
             const pattern = spikePatternRef.current
             const hoverPattern = spikeHoverPatternRef.current
             const chart = chartInstanceRef.current
             if (pattern && chart?.canvas) {
-                const transform = new DOMMatrix().translateSelf(0, -offset)
                 pattern.setTransform(transform)
                 hoverPattern?.setTransform(transform)
                 chart.update('none')
             }
-            frameId = requestAnimationFrame(animate)
         }
 
-        frameId = requestAnimationFrame(animate)
-        return () => cancelAnimationFrame(frameId)
+        stripeAnimationSubscribers.add(animate)
+        startStripeAnimationTicker()
+        return () => {
+            stripeAnimationSubscribers.delete(animate)
+            stopStripeAnimationTicker()
+        }
     }, [hasSpikes])
 
     const withXScale = useCallback(
