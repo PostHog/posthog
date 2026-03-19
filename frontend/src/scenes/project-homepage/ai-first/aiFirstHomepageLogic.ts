@@ -175,7 +175,8 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             const prev = values.previousHomepage
             if (prev) {
                 actions.setHomepage(prev)
-                router.actions.push(prev.pathname || '/')
+                actions.setPreviousHomepage(null)
+                router.actions.push(prev.pathname || '/', prev.search || '', prev.hash || '')
             }
         },
     })),

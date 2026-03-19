@@ -314,7 +314,7 @@ function HomePageOfframp(): JSX.Element {
                     tooltip={`Revert to ${previousHomepage.title || 'previous homepage'}`}
                     className="text-tertiary hover:text-primary"
                 >
-                    Put my {previousHomepage.title.toLocaleLowerCase() || 'previous homepage'} back{' '}
+                    Put my {(previousHomepage.title || 'previous homepage').toLocaleLowerCase()} back{' '}
                     <IconRewind className="size-4" />
                 </ButtonPrimitive>
             )}
