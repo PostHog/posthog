@@ -111,3 +111,6 @@ tools:
     logs-alerts-destroy:
         operation: logs_alerts_destroy
         enabled: false
+    alerts-simulate-create:
+        operation: alerts_simulate_create
+        enabled: false

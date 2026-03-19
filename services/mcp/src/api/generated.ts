@@ -4711,6 +4711,42 @@ export namespace Schemas {
       readonly last_value: number | null;
     }
 
+    export interface AlertSimulate {
+      /** Insight ID to simulate the detector on. */
+      insight: number;
+      /** Detector configuration to simulate. */
+      detector_config: DetectorConfig;
+      /** Zero-based index of the series to analyze. */
+      series_index?: number;
+      /**
+       * Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). If not provided, uses the detector's minimum required samples.
+       * @nullable
+       */
+      date_from?: string | null;
+    }
+
+    export interface AlertSimulateResponse {
+      /** Data values for each point. */
+      data: number[];
+      /** Date labels for each point. */
+      dates: string[];
+      /** Anomaly score for each point (null if insufficient data). */
+      scores: (number | null)[];
+      /** Indices of points flagged as anomalies. */
+      triggered_indices: number[];
+      /** Dates of points flagged as anomalies. */
+      triggered_dates: string[];
+      /**
+       * Interval of the trends query (hour, day, week, month).
+       * @nullable
+       */
+      interval: string | null;
+      /** Total number of data points analyzed. */
+      total_points: number;
+      /** Number of anomalies detected. */
+      anomaly_count: number;
+    }
+
     /**
      * * `trace` - trace
     * `generation` - generation
