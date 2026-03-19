@@ -51,7 +51,7 @@ export const ErrorTrackingIssuesPartialUpdateBody = /* @__PURE__ */ zod.object({
     first_seen: zod.iso.datetime({}).optional(),
     assignee: zod
         .object({
-            id: zod.string().optional(),
+            id: zod.union([zod.number(), zod.string()]).nullish(),
             type: zod.string().optional(),
         })
         .optional(),

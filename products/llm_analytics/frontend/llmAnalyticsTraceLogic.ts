@@ -96,6 +96,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     actions({
         setTraceId: (traceId: string) => ({ traceId }),
         setEventId: (eventId: string | null) => ({ eventId }),
+        setHighlightMessageIndex: (highlightMessageIndex: number | null) => ({ highlightMessageIndex }),
         setLineNumber: (lineNumber: number | null) => ({ lineNumber }),
         setInitialTab: (tab: string | null) => ({ tab }),
         setDateRange: (dateFrom: string | null, dateTo?: string | null) => ({ dateFrom, dateTo }),
@@ -121,6 +122,10 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     reducers({
         traceId: ['' as string, { setTraceId: (_, { traceId }) => traceId }],
         eventId: [null as string | null, { setEventId: (_, { eventId }) => eventId }],
+        highlightMessageIndex: [
+            null as number | null,
+            { setHighlightMessageIndex: (_, { highlightMessageIndex }) => highlightMessageIndex },
+        ],
         lineNumber: [null as number | null, { setLineNumber: (_, { lineNumber }) => lineNumber }],
         initialTab: [null as string | null, { setInitialTab: (_, { tab }) => tab }],
         viewMode: [
@@ -458,10 +463,13 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     })),
 
     tabAwareUrlToAction(({ actions }) => ({
-        [urls.llmAnalyticsTrace(':id')]: ({ id }, { event, timestamp, exception_ts, search, line, tab }) => {
+        [urls.llmAnalyticsTrace(':id')]: ({ id }, { event, timestamp, exception_ts, search, line, tab, msg }) => {
             actions.setTraceId(id ?? '')
             actions.setEventId(event || null)
-            actions.setLineNumber(line ? parseInt(line, 10) : null)
+            const parsedMsg = msg ? parseInt(msg, 10) : NaN
+            actions.setHighlightMessageIndex(!isNaN(parsedMsg) ? parsedMsg : null)
+            const parsedLine = line ? parseInt(line, 10) : NaN
+            actions.setLineNumber(!isNaN(parsedLine) ? parsedLine : null)
             actions.setInitialTab(tab || null)
             if (timestamp) {
                 actions.setDateRange(timestamp || null)
