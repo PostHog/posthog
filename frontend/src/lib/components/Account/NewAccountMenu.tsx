@@ -87,7 +87,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                 </div>
                             }
                         >
-                            {isAuthenticatedTeam(currentTeam) && (
+                            {isAuthenticatedTeam(currentTeam) ? (
                                 <>
                                     {currentOrganization ? (
                                         <UploadedLogo
@@ -108,6 +108,29 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             )}
                                         >
                                             {projectNameWithoutFirstEmoji ?? 'Project'}
+                                        </span>
+                                    )}
+                                </>
+                            ) : (
+                                <>
+                                    {currentOrganization ? (
+                                        <UploadedLogo
+                                            name={currentOrganization.name}
+                                            entityId={currentOrganization.id}
+                                            mediaId={currentOrganization.logo_media_id}
+                                            size="small"
+                                        />
+                                    ) : (
+                                        <UploadedLogo name="?" entityId="" mediaId="" size="xsmall" />
+                                    )}
+                                    {!isLayoutNavCollapsed && (
+                                        <span
+                                            className={cn(
+                                                'truncate',
+                                                isAiFirst && 'text-secondary group-hover:text-primary'
+                                            )}
+                                        >
+                                            Account menu
                                         </span>
                                     )}
                                 </>
