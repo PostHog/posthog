@@ -34,7 +34,7 @@ export const navigationLogic = kea<navigationLogicType>([
             membersLogic,
             ['memberCount'],
             organizationLogic,
-            ['currentOrganization'],
+            ['currentOrganization', 'currentOrganizationId'],
         ],
         actions: [eventUsageLogic, ['reportProjectNoticeDismissed']],
     })),
@@ -47,7 +47,7 @@ export const navigationLogic = kea<navigationLogicType>([
         proxyRecords: {
             __default: null as null | ProxyRecord[],
             loadRecords: async () => {
-                const response = await api.get(`api/organizations/${values.currentOrganization?.id}/proxy_records`)
+                const response = await api.get(`api/organizations/${values.currentOrganizationId}/proxy_records`)
                 return response.results
             },
         },

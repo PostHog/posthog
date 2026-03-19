@@ -1,10 +1,13 @@
 import { useActions, useValues } from 'kea'
 
 import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSelect, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { SupermanHog } from 'lib/components/hedgehogs'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -36,6 +39,9 @@ function SuperpowersContent(): JSX.Element {
     const { user } = useValues(userLogic)
     const { fakeStatusOverride } = useValues(superpowersLogic)
     const { closeSuperpowers, setFakeStatusOverride } = useActions(superpowersLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+    const { updateOrganization } = useActions(organizationLogic)
+    const { isDev } = useValues(preflightLogic)
 
     const clearOnboardingTasks = (): void => {
         updateCurrentTeam({ onboarding_tasks: {} })
@@ -108,6 +114,34 @@ function SuperpowersContent(): JSX.Element {
                     </div>
                 </div>
             </div>
+
+            {isDev && (
+                <>
+                    <LemonDivider />
+
+                    <div>
+                        <h3 className="font-semibold mb-2">
+                            AI <LemonTag size="small">Dev only</LemonTag>
+                        </h3>
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between p-2 border rounded">
+                                <div>
+                                    <div className="font-medium">Enable AI data processing</div>
+                                    <div className="text-sm text-secondary">
+                                        Toggle organization-level AI data processing approval
+                                    </div>
+                                </div>
+                                <LemonSwitch
+                                    checked={dataProcessingAccepted}
+                                    onChange={(checked) =>
+                                        updateOrganization({ is_ai_data_processing_approved: checked })
+                                    }
+                                />
+                            </div>
+                        </div>
+                    </div>
+                </>
+            )}
 
             <LemonDivider />
 

@@ -117,7 +117,7 @@ function EndpointHogQLQuery({
         <div className="flex min-w-0 gap-4">
             <div className="flex min-w-0 flex-1 flex-col gap-2">
                 <ResizableSQLEditorContainer>
-                    <SQLEditor tabId={sqlEditorTabId} mode={SQLEditorMode.Embedded} />
+                    <SQLEditor tabId={sqlEditorTabId} mode={SQLEditorMode.Embedded} defaultShowDatabaseTree={false} />
                 </ResizableSQLEditorContainer>
             </div>
         </div>

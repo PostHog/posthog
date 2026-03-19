@@ -726,6 +726,9 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
                 content: 'Create a beta testing flag for…',
                 requiresUserInput: true,
             },
+            {
+                content: 'Audit my feature flags for issues',
+            },
         ],
     },
     {
@@ -740,6 +743,9 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
             {
                 content: 'Set up an A/B test with a 70/30 split between control and test for…',
                 requiresUserInput: true,
+            },
+            {
+                content: 'Check if my running experiments are set up correctly',
             },
         ],
     },

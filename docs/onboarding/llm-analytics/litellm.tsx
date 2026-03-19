@@ -86,9 +86,9 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 code: dedent`
                                     # config.yaml
                                     model_list:
-                                    - model_name: gpt-4o-mini
+                                    - model_name: gpt-5-mini
                                       litellm_params:
-                                        model: gpt-4o-mini
+                                        model: gpt-5-mini
 
                                     litellm_settings:
                                       success_callback: ["posthog"]
@@ -121,7 +121,7 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 file: 'SDK',
                                 code: dedent`
                                     response = litellm.completion(
-                                        model="gpt-4o-mini",
+                                        model="gpt-5-mini",
                                         messages=[
                                             {"role": "user", "content": "Tell me a fun fact about hedgehogs"}
                                         ],
@@ -145,7 +145,7 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                     curl -X POST http://localhost:4000/chat/completions \
                                       -H "Content-Type: application/json" \
                                       -d '{
-                                        "model": "gpt-4o-mini",
+                                        "model": "gpt-5-mini",
                                         "messages": [
                                           {"role": "user", "content": "Tell me a fun fact about hedgehogs"}
                                         ],
