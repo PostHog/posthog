@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { createMemoryHistory } from 'history'
 import { testUtilsPlugin } from 'kea-test-utils'
@@ -23,10 +23,18 @@ export function initKeaTests(
     projectForWindowContext: ProjectType = MOCK_DEFAULT_PROJECT
 ): void {
     dayjs.tz.setDefault('UTC')
+    const existingAppContext = window.POSTHOG_APP_CONTEXT
     window.POSTHOG_APP_CONTEXT = {
-        ...window.POSTHOG_APP_CONTEXT,
+        ...existingAppContext,
         current_team: teamForWindowContext,
         current_project: projectForWindowContext,
+        // Bootstrap organization synchronously (mirrors production where it's always in the page context).
+        // Preserve any current_user the test may have set before calling initKeaTests.
+        // Use `in` check so explicitly-set `null` (e.g. toolbar shim tests) is preserved as-is.
+        current_user:
+            existingAppContext && 'current_user' in existingAppContext
+                ? existingAppContext.current_user
+                : { organization: MOCK_DEFAULT_ORGANIZATION },
         // Default to $pageview in tests (simulating a team that has pageview events)
         default_event_name: '$pageview',
     } as unknown as AppContext

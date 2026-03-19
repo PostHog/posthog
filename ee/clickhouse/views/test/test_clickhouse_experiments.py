@@ -10,14 +10,16 @@ from dateutil import parser
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Organization, Team, WebExperiment
+from posthog.models import Organization, Team
 from posthog.models.action.action import Action
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort.cohort import Cohort
-from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
 from posthog.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
 from posthog.models.user import User
 from posthog.test.test_journeys import journeys_for
+
+from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
+from products.experiments.backend.models.web_experiment import WebExperiment
 
 from ee.api.test.base import APILicensedTest
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer

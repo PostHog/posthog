@@ -63,11 +63,13 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
     }
 
     host: str = settings.CLICKHOUSE_HOST
+    cluster: str | None = None
 
     def create_resource(self, context: dagster.InitResourceContext) -> ClickhouseCluster:
         return get_cluster(
             context.log,
             host=self.host,
+            cluster=self.cluster,
             client_settings=self.client_settings,
             retry_policy=RetryPolicy(
                 max_attempts=8,

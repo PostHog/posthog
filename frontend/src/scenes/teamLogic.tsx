@@ -258,6 +258,28 @@ export const teamLogic = kea<teamLogicType>([
             (selectors) => [selectors.currentTeam],
             (currentTeam): number | null => (currentTeam ? currentTeam.id : null),
         ],
+        // currentTeamIdStrict is currentTeamId with throwing an error to be consistent with the
+        // newly introduced currentProjectId and currentOrganizationId. To not cause a breaking change
+        // we kept currentTeamId as is for now. Ultimately throwing an error should be migrated to
+        // currentTeamId and so that currentTeamIdStrict can be removed.
+        currentTeamIdStrict: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): number => {
+                if (!currentTeam || !currentTeam.id) {
+                    throw new Error('currentTeamId accessed before team loaded')
+                }
+                return currentTeam.id
+            },
+        ],
+        currentProjectId: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): number => {
+                if (!currentTeam || !currentTeam.project_id) {
+                    throw new Error('currentProjectId accessed before team loaded')
+                }
+                return currentTeam.project_id
+            },
+        ],
         isCurrentTeamUnavailable: [
             (selectors) => [selectors.currentTeam, selectors.currentTeamLoading],
             // If project has been loaded and is still null, it means the user just doesn't have access.

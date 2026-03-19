@@ -23,7 +23,12 @@ from posthog.event_usage import EventSource, report_user_action
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.models.cohort import Cohort
 from posthog.models.evaluation_context import FeatureFlagEvaluationContext
-from posthog.models.experiment import (
+from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.filters.filter import Filter
+from posthog.models.team.team import Team
+from posthog.utils import str_to_bool
+
+from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentHoldout,
     ExperimentMetricResult,
@@ -31,10 +36,6 @@ from posthog.models.experiment import (
     ExperimentTimeseriesRecalculation,
     holdout_filters_for_flag,
 )
-from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.filters.filter import Filter
-from posthog.models.team.team import Team
-from posthog.utils import str_to_bool
 
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 

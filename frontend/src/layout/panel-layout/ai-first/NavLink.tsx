@@ -67,7 +67,7 @@ export function NavLink({ to, label, icon, isCollapsed, 'data-attr': dataAttr, o
             </Link>
             {isHomePage && !isCollapsed && (
                 <ButtonPrimitive
-                    className="opacity-0 group-hover/wrapper:opacity-50 hover:!opacity-100 transition-all duration-50 -outline-offset-2 focus-visible:opacity-100"
+                    className="opacity-50 hover:!opacity-100 transition-all duration-50 -outline-offset-2 focus-visible:opacity-100"
                     iconOnly
                     isSideActionRight
                     onClick={(e) => {
