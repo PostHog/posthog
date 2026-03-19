@@ -813,7 +813,7 @@ pub fn create_test_flag(
             aggregation_group_type_index: None,
             payloads: None,
             super_groups: None,
-            holdout_groups: None,
+
             holdout: None,
         }),
         deleted: deleted.unwrap_or(false),
@@ -885,7 +885,7 @@ pub fn create_test_flag_with_properties(
             aggregation_group_type_index: None,
             payloads: None,
             super_groups: None,
-            holdout_groups: None,
+
             holdout: None,
         }),
         None,

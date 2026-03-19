@@ -54,6 +54,17 @@ type Model struct {
 	containerLogStream *docker.ContainerLogStream
 	composeArgs        docker.ComposeArgs
 
+	// Info mode: replaces the output viewport with process stats
+	infoMode bool
+
+	// Hedgehog mode: animated hedgehog walks across the output pane
+	hedgehogMode  bool
+	hedgehogX     int
+	hedgehogY     int // vertical offset from ground (positive = up)
+	hedgehogVelY  int // vertical velocity (positive = upward, decreases each tick)
+	hedgehogDir   int // +1 right, -1 left
+	hedgehogFrame int
+
 	keys     keyMap
 	help     help.Model
 	spinner  spinner.Model
@@ -124,13 +135,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		cmds = append(cmds, cmd)
+		// Refresh info panel on each spinner tick to keep uptime current
+		if m.infoMode {
+			m.refreshInfoContent()
+		}
 
 	case process.OutputMsg:
 		// Rebuild viewport content only for the active process to keep rendering cheap
 		if m.ready && m.activeProc() != nil && m.activeProc().Name == msg.Name {
 			// In docker mode the viewport shows the status table or container logs,
 			// not the process's combined output
-			if m.isDockerMode() {
+			if m.isDockerMode() || m.infoMode {
 				break
 			}
 			m.viewport.SetContent(m.buildContent())
@@ -191,15 +206,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case hedgehogTickMsg:
+		if m.hedgehogMode {
+			m.advanceHedgehog()
+			cmds = append(cmds, hedgehogTick())
+		}
+
 	case tea.KeyPressMsg:
 		m.dbg("key: %q", msg.String())
+		var handled bool
 		if m.searchMode {
-			return m.handleSearchKey(msg, cmds)
+			m, cmds, handled = m.handleSearchKey(msg, cmds)
+		} else if m.copyMode {
+			m, cmds, handled = m.handleCopyKey(msg, cmds)
+		} else if m.infoMode {
+			m, cmds, handled = m.handleInfoKey(msg, cmds)
+		} else if m.hedgehogMode {
+			m, cmds, handled = m.handleHedgehogKey(msg, cmds)
 		}
-		if m.copyMode {
-			return m.handleCopyKey(msg, cmds)
+		if !handled {
+			return m.handleNormalKey(msg, cmds)
 		}
-		return m.handleNormalKey(msg, cmds)
 
 	case tea.MouseClickMsg:
 		return m.handleMouseClick(msg, cmds)

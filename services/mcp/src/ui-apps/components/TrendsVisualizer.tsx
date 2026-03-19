@@ -1,5 +1,7 @@
 import { type ReactElement, useState } from 'react'
 
+import { EmptyState } from '@posthog/mosaic'
+
 import { BarChart, BigNumber, LineChart, Select, type Series } from './charts'
 import type { TrendsResultItem, TrendsVisualizerProps } from './types'
 import { getDisplayType, getSeriesLabel, isBarChart } from './utils'
@@ -60,17 +62,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
     const { series, labels, maxValue } = prepareChartData(results)
 
     if (!results || results.length === 0 || series.length === 0) {
-        return (
-            <div
-                style={{
-                    padding: '2rem',
-                    textAlign: 'center',
-                    color: 'var(--color-text-secondary, #6b7280)',
-                }}
-            >
-                No data available
-            </div>
-        )
+        return <EmptyState icon="chart" description="No data available" />
     }
 
     if (displayType === 'BoldNumber') {

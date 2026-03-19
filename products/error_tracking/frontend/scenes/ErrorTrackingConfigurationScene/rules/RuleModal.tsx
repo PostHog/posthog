@@ -195,6 +195,7 @@ export function RuleModal({
                         <MatchResultBanner
                             matchResult={matchResult}
                             properties={(rule.filters.values as AnyPropertyFilter[]) ?? []}
+                            filterType={rule.filters.type}
                             dateRange={dateRange}
                             onIncreaseDateRange={increaseDateRange}
                             suffix={suffix}

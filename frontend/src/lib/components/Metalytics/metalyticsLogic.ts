@@ -5,6 +5,7 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { sidePanelContextLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelContextLogic'
 import { SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
@@ -15,7 +16,14 @@ import type { metalyticsLogicType } from './metalyticsLogicType'
 export const metalyticsLogic = kea<metalyticsLogicType>([
     path(['lib', 'components', 'metalytics', 'metalyticsLogic']),
     connect(() => ({
-        values: [sidePanelContextLogic, ['sceneSidePanelContext'], membersLogic, ['members']],
+        values: [
+            sidePanelContextLogic,
+            ['sceneSidePanelContext'],
+            membersLogic,
+            ['members'],
+            teamLogic,
+            ['currentProjectId'],
+        ],
     })),
 
     loaders(({ values }) => ({
@@ -94,13 +102,13 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
         ],
     }),
 
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, values }) => ({
         instanceId: async (instanceId) => {
             if (instanceId) {
                 actions.loadViewCount()
                 actions.loadUsersLast30days()
 
-                await api.create('/api/projects/@current/metalytics/', {
+                await api.create(`/api/projects/${values.currentProjectId}/metalytics/`, {
                     metric_name: 'viewed',
                     instance_id: instanceId,
                 })

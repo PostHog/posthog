@@ -118,6 +118,8 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "slack_channel_id",
             "slack_thread_ts",
             "slack_team_id",
+            "email_subject",
+            "email_from",
             "person",
             "tags",
         ]
@@ -139,6 +141,8 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "slack_channel_id",
             "slack_thread_ts",
             "slack_team_id",
+            "email_subject",
+            "email_from",
             "person",
         ]
 

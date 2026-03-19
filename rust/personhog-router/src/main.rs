@@ -5,7 +5,7 @@ use axum::{routing::get, Router};
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::PrometheusBuilder;
-use personhog_common::GrpcMetricsLayer;
+use personhog_common::grpc::{tracked_tcp_incoming, GrpcMetricsLayer};
 use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogServiceServer;
 use personhog_router::backend::ReplicaBackend;
 use personhog_router::config::Config;
@@ -126,10 +126,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tokio::spawn(async move {
         let _guard = grpc_handle.process_scope();
+        let listener = match tokio::net::TcpListener::bind(grpc_addr).await {
+            Ok(l) => l,
+            Err(e) => {
+                grpc_handle.signal_failure(format!("Failed to bind gRPC port: {e}"));
+                return;
+            }
+        };
+        let incoming = tracked_tcp_incoming(listener);
         if let Err(e) = Server::builder()
             .layer(GrpcMetricsLayer)
             .add_service(PersonHogServiceServer::new(service))
-            .serve_with_shutdown(grpc_addr, grpc_handle.shutdown_signal())
+            .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
             .await
         {
             grpc_handle.signal_failure(format!("gRPC server error: {e}"));

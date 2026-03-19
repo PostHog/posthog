@@ -1,1 +1,1 @@
-1054_add_detector_fields
+1057_personalapikey_scopes_not_null

@@ -1543,6 +1543,186 @@
             "readOnlyHint": false
         }
     },
+    "notebooks-list": {
+        "description": "List all notebooks in the project. Supports filtering by search term, created_by, last_modified_by, date_from, date_to, and contains. Returns title, short_id, and creation/modification metadata.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "List notebooks",
+        "title": "List notebooks",
+        "required_scopes": ["notebook:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "notebooks-create": {
+        "description": "Create a new notebook. Provide a title and content. Content is a JSON object representing the notebook's rich text document structure (ProseMirror-based). Returns the created notebook with its short_id.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Create notebook",
+        "title": "Create notebook",
+        "required_scopes": ["notebook:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "notebooks-retrieve": {
+        "description": "Get a specific notebook by its short_id. Returns the full notebook including title, content, version, and creation/modification metadata.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Get notebook",
+        "title": "Get notebook",
+        "required_scopes": ["notebook:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "notebooks-partial-update": {
+        "description": "Update an existing notebook by short_id. Can update title, content, and deleted status. IMPORTANT: when updating the content field, you must provide the current version number for optimistic concurrency control. Retrieve the notebook first to get the latest version.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Update notebook",
+        "title": "Update notebook",
+        "required_scopes": ["notebook:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "notebooks-destroy": {
+        "description": "Delete a notebook by short_id. The notebook will be soft-deleted and no longer appear in lists.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Delete notebook",
+        "title": "Delete notebook",
+        "required_scopes": ["notebook:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "persons-list": {
+        "description": "List persons in the current project. Supports search by email (full text) or distinct ID (exact match), and filtering by email or distinct_id query parameters. Returns paginated results with person properties and distinct IDs.",
+        "category": "Persons",
+        "feature": "persons",
+        "summary": "List persons",
+        "title": "List persons",
+        "required_scopes": ["person:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "persons-retrieve": {
+        "description": "Retrieve a single person by numeric ID or UUID. Returns the person's properties, distinct IDs, and metadata.",
+        "category": "Persons",
+        "feature": "persons",
+        "summary": "Get person",
+        "title": "Get person",
+        "required_scopes": ["person:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "persons-property-delete": {
+        "description": "Remove a single property from a person by key. The property is deleted asynchronously via the event pipeline ($unset).",
+        "category": "Persons",
+        "feature": "persons",
+        "summary": "Delete person property",
+        "title": "Delete person property",
+        "required_scopes": ["person:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "persons-property-set": {
+        "description": "Set a single property on a person. The property is updated asynchronously via the event pipeline ($set). Returns 202 Accepted.",
+        "category": "Persons",
+        "feature": "persons",
+        "summary": "Set person property",
+        "title": "Set person property",
+        "required_scopes": ["person:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "persons-bulk-delete": {
+        "description": "Delete up to 1000 persons by PostHog person UUIDs or distinct IDs. Optionally delete associated events and recordings. Pass either `ids` (person UUIDs) or `distinct_ids`. Returns 202 Accepted. This operation is irreversible.",
+        "category": "Persons",
+        "feature": "persons",
+        "summary": "Bulk delete persons",
+        "title": "Bulk delete persons",
+        "required_scopes": ["person:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "persons-cohorts-retrieve": {
+        "description": "Get all cohorts that a specific person belongs to. Requires the person_id query parameter.",
+        "category": "Persons",
+        "feature": "persons",
+        "summary": "Get person cohorts",
+        "title": "Get person cohorts",
+        "required_scopes": ["person:read", "cohort:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "persons-values-retrieve": {
+        "description": "Get distinct values for a person property key. Useful for discovering what values exist for properties like 'plan', 'role', or 'company'. Provide the property key and optionally a search value to filter results.",
+        "category": "Persons",
+        "feature": "persons",
+        "summary": "Get person property values",
+        "title": "Get person property values",
+        "required_scopes": ["person:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "prompt-list": {
         "description": "List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt summaries.",
         "category": "Prompts",
