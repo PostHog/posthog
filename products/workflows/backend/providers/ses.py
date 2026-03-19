@@ -211,10 +211,12 @@ class SESProvider:
 
         # DMARC: check via direct DNS lookup since AWS SES doesn't track it
         try:
-            answers = dns.resolver.resolve(f"_dmarc.{domain}", "TXT")
+            resolver = dns.resolver.Resolver()
+            resolver.lifetime = 5  # seconds — keep the request path responsive
+            answers = resolver.resolve(f"_dmarc.{domain}", "TXT")
             for rdata in answers:
                 txt_value = "".join(s.decode("utf-8") if isinstance(s, bytes) else s for s in rdata.strings)
-                if txt_value.startswith("v=DMARC1"):
+                if txt_value.strip().lower().startswith("v=dmarc1"):
                     for r in dns_records:
                         if r["type"] == "dmarc":
                             r["status"] = "success"
