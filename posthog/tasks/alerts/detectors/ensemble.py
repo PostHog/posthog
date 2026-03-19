@@ -50,14 +50,11 @@ class EnsembleDetector(BaseDetector):
         if all_score_arrays:
             max_len = max(len(s) for s in all_score_arrays)
             padded = [s + [None] * (max_len - len(s)) for s in all_score_arrays]
-            if self.operator == "and":
-                combined_scores = [
-                    min((s[i] for s in padded if s[i] is not None), default=None) for i in range(max_len)
-                ]
-            else:
-                combined_scores = [
-                    max((s[i] for s in padded if s[i] is not None), default=None) for i in range(max_len)
-                ]
+            combine = min if self.operator == "and" else max
+            combined_scores: list[float | None] = []
+            for i in range(max_len):
+                vals = [s[i] for s in padded if s[i] is not None]
+                combined_scores.append(combine(vals) if vals else None)  # type: ignore[type-var]
         else:
             combined_scores = []
 
