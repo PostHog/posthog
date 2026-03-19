@@ -128,9 +128,9 @@ class Migration(migrations.Migration):
                 migrations.RunSQL(
                     sql="""
                         ALTER TABLE "posthog_dashboardtile"
-                        ADD CONSTRAINT "dash_tile_exactly_one_related_object"
+                        ADD CONSTRAINT "dash_tile_exactly_one_related_object" -- existing-table-constraint-ignore
                         CHECK ((("insight_id" IS NOT NULL AND "text_id" IS NULL AND "button_tile_id" IS NULL) OR ("insight_id" IS NULL AND "text_id" IS NOT NULL AND "button_tile_id" IS NULL) OR ("insight_id" IS NULL AND "text_id" IS NULL AND "button_tile_id" IS NOT NULL)))
-                        NOT VALID; -- existing-table-constraint-ignore
+                        NOT VALID;
                     """,
                     reverse_sql='ALTER TABLE "posthog_dashboardtile" DROP CONSTRAINT "dash_tile_exactly_one_related_object"',
                 ),
