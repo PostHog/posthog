@@ -1364,8 +1364,7 @@ class FeatureFlagSerializer(
         # Opportunistically strip legacy holdout_groups key (replaced by holdout in Phase 1-4)
         previous_filters = validated_data.get("filters") or instance.filters
         if previous_filters and "holdout_groups" in previous_filters:
-            previous_filters.pop("holdout_groups")
-            validated_data["filters"] = previous_filters
+            validated_data["filters"] = {k: v for k, v in previous_filters.items() if k != "holdout_groups"}
 
         version = request.data.get("version", -1)
 
