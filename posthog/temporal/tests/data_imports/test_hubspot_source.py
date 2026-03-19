@@ -30,7 +30,7 @@ from unittest.mock import patch
 
 import structlog
 
-from posthog.temporal.data_imports.sources.hubspot.hubspot import PROPERTY_LENGTH_LIMIT, _get_properties_str
+from posthog.temporal.data_imports.sources.hubspot.hubspot import PROPERTY_LENGTH_LIMIT, _flatten_result, _get_properties_str, get_rows
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
 
 from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
@@ -204,3 +204,138 @@ def test_hubspot_get_properties_url_length_limit():
             # check that the warning was logged
             mock_warning.assert_called_once()
             assert "Your request to Hubspot is too long to process" in mock_warning.call_args[0][0]
+
+
+def test_flatten_result_backfills_missing_properties():
+    """HubSpot omits properties with null values from the response.
+
+    get_rows() should backfill missing properties with None so that PyArrow
+    preserves all expected columns during schema inference.
+    """
+    # Simulate HubSpot API responses where some records are missing properties
+    hubspot_api_results = [
+        {
+            "id": "1",
+            "properties": {
+                "name": "Acme Corp",
+                "domain": "acme.com",
+                "stripe_subscription_status": "active",
+                "hubspot_owner_id": "123",
+            },
+        },
+        {
+            "id": "2",
+            "properties": {
+                "name": "Beta Inc",
+                "domain": "beta.com",
+                # stripe_subscription_status and hubspot_owner_id omitted (null in HubSpot)
+            },
+        },
+        {
+            "id": "3",
+            "properties": {
+                "name": "Gamma LLC",
+                # domain, stripe_subscription_status, hubspot_owner_id all omitted
+            },
+        },
+    ]
+
+    expected_properties = ["name", "domain", "stripe_subscription_status", "hubspot_owner_id"]
+
+    for result in hubspot_api_results:
+        row = _flatten_result(result)
+        for prop in expected_properties:
+            if prop not in row:
+                row[prop] = None
+
+        # Every row should have all expected properties after backfilling
+        for prop in expected_properties:
+            assert prop in row, f"Property '{prop}' missing from row with id={row.get('id')}"
+
+    # Specifically check that the second row (missing props) got backfilled
+    row2 = _flatten_result(hubspot_api_results[1])
+    for prop in expected_properties:
+        if prop not in row2:
+            row2[prop] = None
+    assert row2["stripe_subscription_status"] is None
+    assert row2["hubspot_owner_id"] is None
+
+    # Check that the third row got domain backfilled too
+    row3 = _flatten_result(hubspot_api_results[2])
+    for prop in expected_properties:
+        if prop not in row3:
+            row3[prop] = None
+    assert row3["domain"] is None
+    assert row3["stripe_subscription_status"] is None
+    assert row3["hubspot_owner_id"] is None
+
+
+def test_get_rows_backfills_missing_properties():
+    """Integration test: get_rows() should produce rows with consistent columns
+    even when HubSpot omits null-valued properties from responses.
+    """
+    from unittest.mock import MagicMock
+
+    mock_resumable_manager = MagicMock()
+    mock_resumable_manager.can_resume.return_value = False
+
+    # Mock the HubSpot API to return results with inconsistent properties
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.ok = True
+    mock_response.json.return_value = {
+        "results": [
+            {
+                "id": "1",
+                "properties": {
+                    "createdate": "2024-01-01",
+                    "domain": "acme.com",
+                    "name": "Acme",
+                    "custom_field": "value1",
+                },
+            },
+            {
+                "id": "2",
+                "properties": {
+                    "createdate": "2024-02-01",
+                    "name": "Beta",
+                    # domain and custom_field omitted by HubSpot (null values)
+                },
+            },
+        ],
+        "paging": {},
+    }
+
+    with (
+        patch("posthog.temporal.data_imports.sources.hubspot.hubspot._get_property_names") as mock_props,
+        patch("posthog.temporal.data_imports.sources.hubspot.hubspot.requests.get") as mock_get,
+    ):
+        mock_props.return_value = ["createdate", "domain", "name", "custom_field"]
+        mock_get.return_value = mock_response
+
+        tables = list(
+            get_rows(
+                api_key="dummy",
+                refresh_token="dummy",
+                endpoint="companies",
+                logger=logger,
+                resumable_source_manager=mock_resumable_manager,
+                include_custom_props=True,
+            )
+        )
+
+        assert len(tables) == 1
+        table = tables[0]
+
+        # Both rows should have all columns, including ones HubSpot omitted
+        assert "domain" in table.column_names
+        assert "custom_field" in table.column_names
+        assert table.num_rows == 2
+
+        # Second row should have None for omitted properties
+        rows = table.to_pylist()
+        assert rows[1]["domain"] is None
+        assert rows[1]["custom_field"] is None
+        # First row should still have its values
+        assert rows[0]["domain"] == "acme.com"
+        assert rows[0]["custom_field"] == "value1"

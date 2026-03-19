@@ -123,6 +123,11 @@ def get_rows(
         logger=logger,
     )
 
+    # Track expected properties so we can backfill missing ones with None.
+    # HubSpot omits properties from the response when they have no value for a record,
+    # which causes PyArrow to drop those columns entirely during schema inference.
+    expected_properties = props_str.split(",") if props_str else []
+
     headers = _get_headers(api_key)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
 
@@ -177,7 +182,11 @@ def get_rows(
         next_url = next_page.get("link") if next_page else None
 
         for result in results:
-            batcher.batch(_flatten_result(result))
+            row = _flatten_result(result)
+            for prop in expected_properties:
+                if prop not in row:
+                    row[prop] = None
+            batcher.batch(row)
 
             if batcher.should_yield():
                 py_table = batcher.get_table()
