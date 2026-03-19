@@ -17,17 +17,18 @@ import type { SentimentLabel } from '../sentimentUtils'
 import type { CompatMessage } from '../types'
 import { normalizeMessages } from '../utils'
 import type { GroupedSentimentCard, SentimentCard, SentimentFeedbackLabel } from './llmAnalyticsSentimentLogic'
-import { llmAnalyticsSentimentLogic, SentimentFilterLabel } from './llmAnalyticsSentimentLogic'
+import { CLASSIFIER_WINDOW, llmAnalyticsSentimentLogic, SentimentFilterLabel } from './llmAnalyticsSentimentLogic'
 
 /**
- * Truncates text to show the tail (last `displayChars` characters), mirroring the backend
- * sentiment classifier which uses the last 2000 chars of each message.
+ * Truncates long text to show start + end with an ellipsis in the middle.
+ * Shows the head and tail so users can identify the message at a glance.
  */
-function truncateToClassifierWindow(text: string, displayChars: number = 200): string {
-    if (text.length <= displayChars) {
+function truncateMiddle(text: string, maxChars: number = 500): string {
+    if (text.length <= maxChars) {
         return text
     }
-    return '…' + text.slice(-displayChars)
+    const half = Math.floor(maxChars / 2)
+    return text.slice(0, half) + ' … ' + text.slice(-half)
 }
 
 /**
@@ -75,7 +76,7 @@ function ContextMessage({ aiInput, index }: { aiInput: unknown; index: number })
     }
     const role = message.role === 'user' ? 'User' : message.role === 'assistant' ? 'Assistant' : message.role
     const fullText = getTextContent(message)
-    const displayText = truncateToClassifierWindow(fullText, 150)
+    const displayText = truncateMiddle(fullText, 150)
     return (
         <div className="flex gap-2 text-xs text-muted py-1.5">
             <span className="shrink-0 font-medium w-16">{role}</span>
@@ -159,7 +160,9 @@ function SentimentCardRow({
 
     const targetMessage = getMessageAtIndex(aiInput, messageIndex)
     const fullText = targetMessage ? getTextContent(targetMessage) : ''
-    const messageText = truncateToClassifierWindow(fullText)
+    // The classifier only sees the last CLASSIFIER_WINDOW chars — show that slice
+    const classifierText = fullText.slice(-CLASSIFIER_WINDOW)
+    const collapsedText = truncateMiddle(classifierText)
     const accentColor = SENTIMENT_BAR_COLOR[sentiment.label as SentimentLabel] ?? 'bg-border'
 
     return (
@@ -177,12 +180,10 @@ function SentimentCardRow({
                     </div>
                 )}
 
-                <div className="flex items-center gap-2">
-                    <Tooltip title={fullText}>
-                        <p className="flex-1 min-w-0 text-sm text-default m-0 break-words leading-relaxed">
-                            {messageText}
-                        </p>
-                    </Tooltip>
+                <div className="flex items-start gap-2">
+                    <p className="flex-1 min-w-0 text-sm text-default m-0 break-words leading-relaxed">
+                        {expanded ? classifierText : collapsedText}
+                    </p>
                     <div className="shrink-0 flex items-center gap-1">
                         {traceCount > 1 && (
                             <Tooltip title={`${traceCount} traces contain this same message`}>
