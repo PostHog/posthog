@@ -30,7 +30,7 @@ export class StepPipeline<TInput, TIntermediate, TOutput, C> implements Pipeline
         }
 
         const end = pipelineStepDurationHistogram.startTimer({ step_name: this.stepName, step_type: 'element' })
-        const currentResult = await instrumentFn({ key: this.stepName, sendException: false }, () =>
+        const currentResult = await instrumentFn({ key: this.stepName, sendException: false, measureTime: false }, () =>
             this.currentStep(previousResult.value)
         )
         end()

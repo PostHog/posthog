@@ -46,7 +46,7 @@ export class BaseBatchPipeline<TInput, TIntermediate, TOutput, CInput, COutput =
         let stepResults: PipelineResult<TOutput>[] = []
         if (successfulValues.length > 0) {
             const end = pipelineStepDurationHistogram.startTimer({ step_name: this.stepName, step_type: 'batch' })
-            stepResults = await instrumentFn({ key: this.stepName, sendException: false }, () =>
+            stepResults = await instrumentFn({ key: this.stepName, sendException: false, measureTime: false }, () =>
                 this.currentStep(successfulValues)
             )
             end()
