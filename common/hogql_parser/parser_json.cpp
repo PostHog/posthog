@@ -1068,6 +1068,8 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
   VISIT(WinOrderByClause) { return visit(ctx->orderExprList()); }
 
+  VISIT(WithinGroupClause) { return visit(ctx->orderByClause()); }
+
   VISIT(WinFrameClause) { return visit(ctx->winFrameExtend()); }
 
   VISIT(FrameStart) { return visit(ctx->winFrameBound()); }
@@ -1750,6 +1752,22 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     json["params"] = params_json;
     json["args"] = args_json;
     json["distinct"] = ctx->DISTINCT() != nullptr;
+    return json;
+  }
+
+  VISIT(ColumnExprFunctionWithinGroup) {
+    string name = visitAsString(ctx->identifier());
+    Json params_json = visitAsJSONOrEmptyArray(ctx->columnExprs);
+    Json within_group_json = visitAsJSON(ctx->withinGroupClause());
+
+    Json json = Json::object();
+    json["node"] = "Call";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["name"] = name;
+    json["params"] = params_json;
+    json["args"] = Json::array();
+    json["distinct"] = false;
+    json["within_group"] = within_group_json;
     return json;
   }
 

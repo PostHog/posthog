@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import boto3
 import dagster
+import botocore.exceptions
 from clickhouse_driver import Client
 from dagster_aws.s3 import S3Resource
 
@@ -25,6 +26,7 @@ from posthog.dags.backups import (
     non_sharded_backup,
     prepare_run_config,
     sharded_backup,
+    wait_for_backup,
 )
 
 
@@ -128,12 +130,14 @@ def test_get_latest_successful_backup_returns_latest_backup():
     backup1.status = MagicMock(  # type: ignore
         return_value=BackupStatus(hostname="test", status="CREATING_BACKUP", event_time_microseconds=datetime.now())
     )
+    backup1.has_lock_file = MagicMock(return_value=False)  # type: ignore
 
     backup2 = Backup(database="posthog", date="20240101075404", incremental=False, table="test")
     backup2.is_done = MagicMock(return_value=True)  # type: ignore
     backup2.status = MagicMock(  # type: ignore
         return_value=BackupStatus(hostname="test", status="BACKUP_CREATED", event_time_microseconds=datetime.now())
     )
+    backup2.has_lock_file = MagicMock(return_value=False)  # type: ignore
 
     def mock_map_hosts(fn, **kwargs):
         mock_result = MagicMock()
@@ -144,11 +148,13 @@ def test_get_latest_successful_backup_returns_latest_backup():
     cluster = MagicMock()
     cluster.map_hosts_by_role.side_effect = mock_map_hosts
 
+    mock_s3 = MagicMock()
     result = get_latest_successful_backup(
         context=dagster.build_op_context(),
         config=config,
         latest_backups=[backup1, backup2],
         cluster=cluster,
+        s3=mock_s3,
     )
 
     assert result == backup2
@@ -160,6 +166,7 @@ def test_get_latest_successful_backup_fails():
     backup1.status = MagicMock(  # type: ignore
         return_value=BackupStatus(hostname="test", status="CREATING_BACKUP", event_time_microseconds=datetime.now())
     )
+    backup1.has_lock_file = MagicMock(return_value=False)  # type: ignore
 
     def mock_map_hosts(fn, **kwargs):
         mock_result = MagicMock()
@@ -170,12 +177,14 @@ def test_get_latest_successful_backup_fails():
     cluster = MagicMock()
     cluster.map_hosts_by_role.side_effect = mock_map_hosts
 
+    mock_s3 = MagicMock()
     with pytest.raises(dagster.Failure):
         get_latest_successful_backup(
             context=dagster.build_op_context(),
             config=config,
             latest_backups=[backup1],
             cluster=cluster,
+            s3=mock_s3,
         )
 
 
@@ -345,7 +354,12 @@ def test_incremental_sharded_backup(cluster: ClickhouseCluster):
 
 
 def _make_s3_mock() -> MagicMock:
-    return MagicMock()
+    mock_s3 = MagicMock()
+    # By default, head_object raises 404 so has_lock_file returns False
+    mock_s3.get_client.return_value.head_object.side_effect = botocore.exceptions.ClientError(
+        {"Error": {"Code": "404", "Message": "Not Found"}}, "HeadObject"
+    )
+    return mock_s3
 
 
 def _make_cluster_mock(status_value: Optional[str]) -> MagicMock:
@@ -644,3 +658,57 @@ def test_cleanup_deletes_failed_recent_backups():
     }
     # Only the failed incremental should be deleted; the verified full should be kept
     assert paginated_prefixes == {f"{prior_backups[0].path}/"}
+
+
+def test_wait_for_backup_raises_on_max_tries_exceeded():
+    config = BackupConfig(database="posthog", table="test", incremental=False)
+    backup = Backup(database="posthog", table="test", date="20240201000000", shard=1)
+
+    mock_cluster = MagicMock()
+
+    # Return CREATING_BACKUP status — this loops for tries < 3, then the
+    # MAX_WAIT_TRIES guard (patched to 2) fires before the creating() fallthrough.
+    def mock_map_hosts(fn, **kwargs):
+        mock_result = MagicMock()
+        status = BackupStatus(hostname="test", status="CREATING_BACKUP", event_time_microseconds=datetime.now())
+        mock_result.result.return_value = {"host1": status}
+        return mock_result
+
+    mock_cluster.map_hosts_in_shard_by_role.side_effect = mock_map_hosts
+
+    with (
+        patch.object(Backup, "wait", return_value=None),
+        patch.object(Backup, "is_done", return_value=True),
+        patch("posthog.dags.backups.MAX_WAIT_TRIES", 2),
+    ):
+        with pytest.raises(dagster.Failure, match="did not complete"):
+            wait_for_backup(
+                context=dagster.build_op_context(),
+                config=config,
+                backup=backup,
+                cluster=mock_cluster,
+            )
+
+
+def test_wait_for_backup_raises_on_none_status_after_retries():
+    config = BackupConfig(database="posthog", table="test", incremental=False)
+    backup = Backup(database="posthog", table="test", date="20240201000000", shard=1)
+
+    mock_cluster = MagicMock()
+
+    # Simulate backup that finishes (is_done=True) but has no status in backup_log
+    def mock_map_hosts(fn, **kwargs):
+        mock_result = MagicMock()
+        mock_result.result.return_value = {"host1": None}
+        return mock_result
+
+    mock_cluster.map_hosts_in_shard_by_role.side_effect = mock_map_hosts
+
+    with patch.object(Backup, "wait", return_value=None), patch.object(Backup, "is_done", return_value=True):
+        with pytest.raises(dagster.Failure, match="no status found"):
+            wait_for_backup(
+                context=dagster.build_op_context(),
+                config=config,
+                backup=backup,
+                cluster=mock_cluster,
+            )
