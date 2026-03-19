@@ -26,11 +26,11 @@ type keyMap struct {
 func defaultKeyMap() keyMap {
 	return keyMap{
 		PrevProc: key.NewBinding(
-			key.WithKeys("j", "up"),
+			key.WithKeys("k", "up"),
 			key.WithHelp("↑:", "prev"),
 		),
 		NextProc: key.NewBinding(
-			key.WithKeys("k", "down"),
+			key.WithKeys("j", "down"),
 			key.WithHelp("↓:", "next"),
 		),
 		ScrollUp: key.NewBinding(
