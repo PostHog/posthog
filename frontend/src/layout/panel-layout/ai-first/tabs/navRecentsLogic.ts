@@ -1,4 +1,4 @@
-import { afterMount, beforeUnmount, kea, path } from 'kea'
+import { afterMount, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -30,15 +30,13 @@ export const navRecentsLogic = kea<navRecentsLogicType>([
     }),
     afterMount(({ actions, cache }) => {
         actions.loadRecentItems({})
-        cache.pollInterval = setInterval(() => {
-            if (document.visibilityState === 'visible') {
-                actions.loadRecentItems({})
-            }
-        }, RECENTS_POLL_INTERVAL_MS)
-    }),
-    beforeUnmount(({ cache }) => {
-        if (cache.pollInterval) {
-            clearInterval(cache.pollInterval)
-        }
+        cache.disposables.add(() => {
+            const pollInterval = setInterval(() => {
+                if (document.visibilityState === 'visible') {
+                    actions.loadRecentItems({})
+                }
+            }, RECENTS_POLL_INTERVAL_MS)
+            return () => clearInterval(pollInterval)
+        }, 'recentsPoll')
     }),
 ])

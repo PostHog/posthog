@@ -18,8 +18,9 @@ from posthog.schema import (
     ExperimentTrendsQuery,
 )
 
-from posthog.models.experiment import ExperimentSavedMetric
 from posthog.models.team.team import Team
+
+from products.experiments.backend.models.experiment import ExperimentSavedMetric
 
 
 class ExperimentSavedMetricService:

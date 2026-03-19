@@ -1,15 +1,20 @@
 import './TextCard.scss'
 
+import { EditorContent } from '@tiptap/react'
 import clsx from 'clsx'
-import React from 'react'
+import React, { useEffect } from 'react'
 
+import 'lib/components/MarkdownEditor/RichMarkdownEditor.scss'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { DashboardResizeHandles } from 'lib/components/Cards/handles'
 import { EditModeEdgeOverlay } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
+import { useRichContentEditor } from 'lib/components/RichContentEditor'
 import { More, MoreProps } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import { DashboardPlacement, DashboardTile, QueryBasedInsightModel } from '~/types'
+
+import { markdownToTextCardDoc, TEXT_CARD_MARKDOWN_READONLY_EXTENSIONS } from './textCardMarkdown'
 
 interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable {
     textTile: DashboardTile<QueryBasedInsightModel>
@@ -30,9 +35,29 @@ interface TextCardBodyProps extends Pick<React.HTMLAttributes<HTMLDivElement>, '
 }
 
 export function TextContent({ text, closeDetails, className }: TextCardBodyProps): JSX.Element {
+    const editor = useRichContentEditor({
+        extensions: TEXT_CARD_MARKDOWN_READONLY_EXTENSIONS,
+        initialContent: markdownToTextCardDoc(text),
+        disabled: true,
+    })
+
+    useEffect(() => {
+        if (!editor) {
+            return
+        }
+
+        editor.commands.setContent(markdownToTextCardDoc(text), { emitUpdate: false })
+    }, [editor, text])
+
     return (
         <div className={clsx('w-full', className)} onClick={() => closeDetails?.()}>
-            <LemonMarkdown className="overflow-auto">{text}</LemonMarkdown>
+            {editor ? (
+                <div className="RichMarkdownEditor overflow-auto">
+                    <EditorContent editor={editor} className="RichMarkdownEditor__content px-0 py-0" />
+                </div>
+            ) : (
+                <LemonMarkdown className="overflow-auto">{text}</LemonMarkdown>
+            )}
         </div>
     )
 }

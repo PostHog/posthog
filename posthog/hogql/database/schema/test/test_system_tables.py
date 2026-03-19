@@ -14,7 +14,6 @@ from posthog.models import (
     Annotation,
     Cohort,
     Dashboard,
-    Experiment,
     ExportedAsset,
     FeatureFlag,
     Group,
@@ -25,6 +24,7 @@ from posthog.models import (
     Survey,
     Team,
 )
+from posthog.models.alert import AlertConfiguration
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.hog_functions.hog_function import HogFunction
@@ -37,6 +37,7 @@ from products.data_warehouse.backend.models.external_data_schema import External
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.models.table import DataWarehouseTable as DataWarehouseTableModel
 from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.experiments.backend.models.experiment import Experiment
 from products.notebooks.backend.models import Notebook
 
 ALL_SYSTEM_TABLE_NAMES = sorted(SystemTables().children.keys())
@@ -81,6 +82,11 @@ class TestSystemTablesTeamScoping(BaseTest):
             f"Add a factory to SYSTEM_TABLE_FACTORIES in test_system_tables.py "
             f"or add to excluded_tables with a reason."
         )
+
+
+def _create_alert(team: Team, label: str) -> AlertConfiguration:
+    insight = Insight.objects.create(team=team, name=f"insight_for_alert_{label}")
+    return AlertConfiguration.objects.create(team=team, insight=insight, name=f"alert_{label}")
 
 
 def _create_action(team: Team, label: str) -> Action:
@@ -243,6 +249,7 @@ def _create_team(team: Team, label: str) -> Team:
 
 SYSTEM_TABLE_FACTORIES = [
     ("actions", _create_action),
+    ("alerts", _create_alert),
     ("annotations", _create_annotation),
     ("cohorts", _create_cohort),
     ("cohort_calculation_history", _create_cohort_calculation_history),

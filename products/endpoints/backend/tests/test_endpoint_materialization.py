@@ -1261,7 +1261,7 @@ class TestEndpointMaterializationTemporal:
         assert saved_query is not None
 
         # Get the schedule that should be created
-        schedule = get_saved_query_schedule(saved_query)
+        schedule = await sync_to_async(get_saved_query_schedule)(saved_query)
 
         # Verify schedule configuration
         from temporalio.client import ScheduleActionStartWorkflow, ScheduleOverlapPolicy
@@ -1270,10 +1270,9 @@ class TestEndpointMaterializationTemporal:
         assert schedule.action.id == str(saved_query.id)
         assert schedule.action.task_queue == DATA_MODELING_TASK_QUEUE
 
-        # Verify schedule interval matches sync_frequency_interval
-        intervals = schedule.spec.intervals
-        assert len(intervals) == 1
-        assert intervals[0].every == timedelta(hours=12)
+        # Verify schedule uses calendar spec (medium interval for 12h)
+        assert len(schedule.spec.calendars) == 1
+        assert schedule.spec.jitter == timedelta(hours=1)
 
         # Verify schedule policy
         assert schedule.policy.overlap == ScheduleOverlapPolicy.SKIP
@@ -1287,20 +1286,20 @@ class TestEndpointMaterializationTemporal:
 
         saved_query = await sync_to_async(get_saved_query)(version)
 
-        # Test 1-hour frequency
+        # Test 1-hour frequency (short interval: calendar with minute buckets, 1min jitter)
         saved_query.sync_frequency_interval = timedelta(hours=1)
-        schedule = get_saved_query_schedule(saved_query)
-        assert schedule.spec.intervals[0].every == timedelta(hours=1)
+        schedule = await sync_to_async(get_saved_query_schedule)(saved_query)
+        assert len(schedule.spec.calendars) == 1
         assert schedule.spec.jitter == timedelta(minutes=1)
 
-        # Test 12-hour frequency
+        # Test 12-hour frequency (medium interval: calendar with hour buckets, 1hr jitter)
         saved_query.sync_frequency_interval = timedelta(hours=12)
-        schedule = get_saved_query_schedule(saved_query)
-        assert schedule.spec.intervals[0].every == timedelta(hours=12)
-        assert schedule.spec.jitter == timedelta(minutes=30)
+        schedule = await sync_to_async(get_saved_query_schedule)(saved_query)
+        assert len(schedule.spec.calendars) == 1
+        assert schedule.spec.jitter == timedelta(hours=1)
 
-        # Test 24-hour frequency
+        # Test 24-hour frequency (medium interval: calendar with hour buckets, 1hr jitter)
         saved_query.sync_frequency_interval = timedelta(hours=24)
-        schedule = get_saved_query_schedule(saved_query)
-        assert schedule.spec.intervals[0].every == timedelta(hours=24)
+        schedule = await sync_to_async(get_saved_query_schedule)(saved_query)
+        assert len(schedule.spec.calendars) == 1
         assert schedule.spec.jitter == timedelta(hours=1)

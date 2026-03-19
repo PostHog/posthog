@@ -69,7 +69,7 @@ class Command(BaseCommand):
         existing_key = PersonalAPIKey.objects.filter(secure_value=secure_value).first()
         if existing_key:
             if add_scopes:
-                current = set(existing_key.scopes or [])
+                current = set(existing_key.scopes)
                 merged = sorted(current | set(add_scopes))
                 if merged != sorted(current):
                     existing_key.scopes = merged
@@ -78,7 +78,7 @@ class Command(BaseCommand):
                 else:
                     print(f"Scopes already present for user '{existing_key.user.email}'")
             elif scopes is not None and existing_key.scopes != scopes:
-                existing_key.scopes = scopes or None
+                existing_key.scopes = scopes
                 existing_key.save(update_fields=["scopes"])
                 print(f"Updated scopes to {existing_key.scopes} for user '{existing_key.user.email}'")
             else:
@@ -88,7 +88,7 @@ class Command(BaseCommand):
 
         PersonalAPIKey.objects.filter(user=user, label=DEV_KEY_LABEL).delete()
 
-        create_scopes = scopes or add_scopes or None
+        create_scopes = scopes or add_scopes or []
 
         PersonalAPIKey.objects.create(
             user=user,

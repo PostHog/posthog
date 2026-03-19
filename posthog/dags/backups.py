@@ -52,6 +52,8 @@ NON_SHARDED_TABLES = [
     "plugin_log_entries",
 ]
 
+LOGS_TABLES = ["logs34"]
+
 
 @dataclass
 class Table:
@@ -603,7 +605,11 @@ def prepare_run_config(config: BackupConfig) -> dagster.RunConfig:
 
 
 def run_backup_request(
-    table: str, incremental: bool, context: dagster.ScheduleEvaluationContext
+    table: str,
+    incremental: bool,
+    context: dagster.ScheduleEvaluationContext,
+    owner: JobOwners = JobOwners.TEAM_CLICKHOUSE,
+    workload: Workload = Workload.OFFLINE,
 ) -> Optional[dagster.RunRequest]:
     skip_reason = check_for_concurrent_runs(
         context,
@@ -620,6 +626,7 @@ def run_backup_request(
         database=settings.CLICKHOUSE_DATABASE,
         table=table,
         incremental=incremental,
+        workload=workload,
     )
 
     return dagster.RunRequest(
@@ -628,7 +635,7 @@ def run_backup_request(
         tags={
             "backup_type": "incremental" if incremental else "full",
             "table": table,
-            "owner": JobOwners.TEAM_CLICKHOUSE.value,
+            "owner": owner.value,
         },
     )
 
@@ -683,5 +690,36 @@ def incremental_non_sharded_backup_schedule(context: dagster.ScheduleEvaluationC
     """Launch an incremental backup for non-sharded tables"""
     for table in NON_SHARDED_TABLES:
         request = run_backup_request(table, incremental=True, context=context)
+        if request:
+            yield request
+
+
+@dagster.schedule(
+    job=non_sharded_backup,
+    cron_schedule=settings.CLICKHOUSE_FULL_BACKUP_SCHEDULE,
+    should_execute=lambda context: 1 <= context.scheduled_execution_time.day <= 7,
+    default_status=dagster.DefaultScheduleStatus.RUNNING,
+)
+def full_logs_backup_schedule(context: dagster.ScheduleEvaluationContext):
+    """Launch a full backup for logs tables"""
+    for table in LOGS_TABLES:
+        request = run_backup_request(
+            table, incremental=False, context=context, owner=JobOwners.TEAM_LOGS, workload=Workload.DEFAULT
+        )
+        if request:
+            yield request
+
+
+@dagster.schedule(
+    job=non_sharded_backup,
+    cron_schedule=settings.CLICKHOUSE_INCREMENTAL_BACKUP_SCHEDULE,
+    default_status=dagster.DefaultScheduleStatus.RUNNING,
+)
+def incremental_logs_backup_schedule(context: dagster.ScheduleEvaluationContext):
+    """Launch an incremental backup for logs tables"""
+    for table in LOGS_TABLES:
+        request = run_backup_request(
+            table, incremental=True, context=context, owner=JobOwners.TEAM_LOGS, workload=Workload.DEFAULT
+        )
         if request:
             yield request

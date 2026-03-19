@@ -289,6 +289,7 @@ class InsightBasicSerializer(
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Any:
         raise NotImplementedError()
 
+    @extend_schema_field(serializers.DateTimeField(allow_null=True))
     def get_last_viewed_at(self, instance: Insight):
         """Get the last viewed timestamp for this insight by any user in the team."""
         return getattr(instance, "last_viewed_at", None)
@@ -642,15 +643,19 @@ class InsightSerializer(InsightBasicSerializer):
 
         self.context["after_dashboard_changes"] = [describe_change(d) for d in dashboards if not d.deleted]
 
+    @extend_schema_field(OpenApiTypes.ANY)
     def get_result(self, insight: Insight):
         return self.insight_result(insight).result
 
+    @extend_schema_field(serializers.BooleanField(allow_null=True))
     def get_hasMore(self, insight: Insight):
         return self.insight_result(insight).has_more
 
+    @extend_schema_field(serializers.ListField(child=serializers.CharField(), allow_null=True))
     def get_columns(self, insight: Insight):
         return self.insight_result(insight).columns
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_timezone(self, insight: Insight):
         # :TODO: This doesn't work properly as background cache updates don't set timezone in the response.
         # This should get refactored.
@@ -659,18 +664,23 @@ class InsightSerializer(InsightBasicSerializer):
 
         return self.insight_result(insight).timezone
 
+    @extend_schema_field(serializers.DateTimeField(allow_null=True))
     def get_last_refresh(self, insight: Insight):
         return self.insight_result(insight).last_refresh
 
+    @extend_schema_field(serializers.DateTimeField(allow_null=True))
     def get_cache_target_age(self, insight: Insight):
         return self.insight_result(insight).cache_target_age
 
+    @extend_schema_field(serializers.DateTimeField(allow_null=True))
     def get_next_allowed_client_refresh(self, insight: Insight):
         return self.insight_result(insight).next_allowed_client_refresh
 
+    @extend_schema_field(serializers.BooleanField())
     def get_is_cached(self, insight: Insight):
         return self.insight_result(insight).is_cached
 
+    @extend_schema_field(OpenApiTypes.ANY)
     def get_query_status(self, insight: Insight):
         return self.insight_result(insight).query_status
 
@@ -687,15 +697,28 @@ class InsightSerializer(InsightBasicSerializer):
 
         return query
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_hogql(self, insight: Insight):
         return self.insight_result(insight).hogql
 
+    @extend_schema_field(serializers.ListField(allow_null=True))
     def get_types(self, insight: Insight):
         return self.insight_result(insight).types
 
+    @extend_schema_field(
+        {
+            "type": "object",
+            "nullable": True,
+            "properties": {
+                "date_from": {"type": "string", "format": "date-time"},
+                "date_to": {"type": "string", "format": "date-time"},
+            },
+        }
+    )
     def get_resolved_date_range(self, insight: Insight):
         return self.insight_result(insight).resolved_date_range
 
+    @extend_schema_field(serializers.ListField())
     def get_alerts(self, insight: Insight):
         if not insight.are_alerts_supported:
             return []

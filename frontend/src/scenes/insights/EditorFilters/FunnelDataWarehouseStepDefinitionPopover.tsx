@@ -16,7 +16,7 @@ import {
 } from './funnelDataWarehouseStepDefinitionPopoverLogic'
 
 const EDITABLE_FIELD_EXPLANATIONS: Record<FunnelFieldKey, string> = {
-    distinct_id_field: 'Used to match people or groups across funnel steps.',
+    aggregation_target_field: 'Used to match people or groups across funnel steps.',
     timestamp_field: 'Used to order step timing and apply the funnel date range.',
     id_field: 'Used as the unique row ID to detect missing or duplicate records.',
 }
@@ -89,7 +89,7 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
             <span className="label-text font-semibold mt-3 mb-1">{activeField?.label}</span>
             <div className="text-secondary text-xs">{EDITABLE_FIELD_EXPLANATIONS[activeFieldKey]}</div>
 
-            {activeFieldKey === 'distinct_id_field' && (
+            {activeFieldKey === 'aggregation_target_field' && (
                 <div className="text-secondary text-xs mt-1">
                     {isAggregatingByHogQL ? (
                         <span>

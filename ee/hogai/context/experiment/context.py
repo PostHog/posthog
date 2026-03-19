@@ -1,8 +1,10 @@
 from posthog.schema import MaxExperimentMetricResult
 
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
-from posthog.models import Experiment, Team
+from posthog.models import Team
 from posthog.sync import database_sync_to_async
+
+from products.experiments.backend.models.experiment import Experiment
 
 from .prompts import (
     EXPERIMENT_CONCLUSION_COMMENT_TEMPLATE,

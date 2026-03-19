@@ -79,7 +79,7 @@ export const getPydanticAISteps = (ctx: OnboardingComponentsContext): StepDefini
                             provider = OpenAIProvider(openai_client=openai_client)
 
                             model = OpenAIChatModel(
-                                "gpt-4o-mini",
+                                "gpt-5-mini",
                                 provider=provider
                             )
                         `}

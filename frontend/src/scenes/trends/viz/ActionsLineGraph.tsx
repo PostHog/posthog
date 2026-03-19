@@ -52,6 +52,7 @@ export function ActionsLineGraph({
         showMovingAverage,
         movingAverageIntervals,
         getTrendsColor,
+        currentPeriodResult,
     } = useValues(trendsDataLogic(insightProps))
     const { weekStartDay, timezone } = useValues(teamLogic)
 
@@ -59,12 +60,7 @@ export function ActionsLineGraph({
         insightAlertsLogic({ insightId: insight.id!, insightLogicProps: insightProps })
     )
 
-    const labels =
-        (indexedResults.length === 2 &&
-            indexedResults.every((x) => x.compare) &&
-            indexedResults.find((x) => x.compare_label === 'current')?.labels) ||
-        (indexedResults[0] && indexedResults[0].labels) ||
-        []
+    const labels = currentPeriodResult?.labels ?? []
 
     const shortenLifecycleLabels = (s: string | undefined): string => {
         const labelParts = s?.split(' - ')
@@ -202,6 +198,7 @@ export function ActionsLineGraph({
                     : {
                           groupTypeLabel: context?.groupTypeLabel,
                           filter: (s) => !s.hideTooltip,
+                          formatCompareLabel: context?.formatCompareLabel,
                       }
             }
             isInProgress={!isStickiness && incompletenessOffsetFromEnd < 0}
