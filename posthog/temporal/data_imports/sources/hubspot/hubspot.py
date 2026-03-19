@@ -78,10 +78,9 @@ def _build_initial_url(path: str, associations: list[str], properties: str, limi
 
 
 def _backfill_missing_properties(row: dict[str, Any], expected_properties: list[str]) -> None:
-    """Ensure all expected properties exist in the row, defaulting missing ones to None."""
+    """HubSpot omits properties with null values; PyArrow drops absent columns during schema inference."""
     for prop in expected_properties:
-        if prop not in row:
-            row[prop] = None
+        row.setdefault(prop, None)
 
 
 def _flatten_result(result: dict[str, Any]) -> dict[str, Any]:

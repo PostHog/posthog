@@ -30,7 +30,7 @@ from unittest.mock import MagicMock, patch
 
 import structlog
 
-from posthog.temporal.data_imports.sources.hubspot.hubspot import PROPERTY_LENGTH_LIMIT, _backfill_missing_properties, _flatten_result, _get_properties_str, get_rows
+from posthog.temporal.data_imports.sources.hubspot.hubspot import PROPERTY_LENGTH_LIMIT, _backfill_missing_properties, _get_properties_str, get_rows
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
 
 from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
@@ -304,6 +304,7 @@ def test_get_rows_backfills_missing_properties():
         table = tables[0]
 
         # Both rows should have all columns, including ones HubSpot omitted
+        assert "id" in table.column_names
         assert "domain" in table.column_names
         assert "custom_field" in table.column_names
         assert table.num_rows == 2
