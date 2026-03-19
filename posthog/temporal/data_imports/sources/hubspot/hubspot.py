@@ -77,6 +77,13 @@ def _build_initial_url(path: str, associations: list[str], properties: str, limi
     return f"{BASE_URL.rstrip('/')}{path}?{'&'.join(parts)}"
 
 
+def _backfill_missing_properties(row: dict[str, Any], expected_properties: list[str]) -> None:
+    """Ensure all expected properties exist in the row, defaulting missing ones to None."""
+    for prop in expected_properties:
+        if prop not in row:
+            row[prop] = None
+
+
 def _flatten_result(result: dict[str, Any]) -> dict[str, Any]:
     """Flatten a HubSpot CRM API result into a flat dict.
 
@@ -183,9 +190,7 @@ def get_rows(
 
         for result in results:
             row = _flatten_result(result)
-            for prop in expected_properties:
-                if prop not in row:
-                    row[prop] = None
+            _backfill_missing_properties(row, expected_properties)
             batcher.batch(row)
 
             if batcher.should_yield():
