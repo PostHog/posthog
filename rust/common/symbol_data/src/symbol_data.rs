@@ -126,25 +126,11 @@ fn read_version(buffer: &[u8]) -> Result<u32, Error> {
     ))
 }
 
-pub fn assert_version(buffer: &[u8]) -> Result<(), Error> {
-    let version = read_version(buffer)?;
-    if version > VERSION {
-        return Err(Error::WrongVersion(version, VERSION));
-    }
-    Ok(())
-}
-
 fn assert_has_magic(buffer: &[u8]) -> Result<(), Error> {
     if &buffer[..MAGIC.len()] != MAGIC {
         return Err(Error::InvalidMagic);
     }
     Ok(())
-}
-
-pub fn assert_data_type(buffer: &[u8], expected_type: SymbolDataType) -> Result<(), Error> {
-    // read_version validates magic and minimum length
-    let _version = read_version(buffer)?;
-    assert_data_type_impl(buffer, expected_type)
 }
 
 fn assert_data_type_impl(buffer: &[u8], expected_type: SymbolDataType) -> Result<(), Error> {
