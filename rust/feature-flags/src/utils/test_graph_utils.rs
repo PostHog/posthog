@@ -3169,13 +3169,15 @@ mod precomputed_dependency_graph_tests {
                 (5, HashSet::new()),
             ]),
         };
-        let make_flags = || vec![
-            create_flag(1, "flag_a", HashSet::from([2, 3]), true),
-            create_flag(2, "flag_b", HashSet::from([4]), true),
-            create_flag(3, "flag_c", HashSet::from([4]), true),
-            create_flag(4, "flag_d", HashSet::new(), true),
-            create_flag(5, "flag_e", HashSet::new(), true),
-        ];
+        let make_flags = || {
+            vec![
+                create_flag(1, "flag_a", HashSet::from([2, 3]), true),
+                create_flag(2, "flag_b", HashSet::from([4]), true),
+                create_flag(3, "flag_c", HashSet::from([4]), true),
+                create_flag(4, "flag_d", HashSet::new(), true),
+                create_flag(5, "flag_e", HashSet::new(), true),
+            ]
+        };
         let requested_keys = vec!["flag_a".to_string()];
 
         // Path 1: graph fallback (no evaluation_metadata), then filter_stages_by_keys
@@ -3193,7 +3195,8 @@ mod precomputed_dependency_graph_tests {
             ..Default::default()
         };
         let direct =
-            PrecomputedDependencyGraph::build(&precomputed_flags, 1, Some(&requested_keys)).unwrap();
+            PrecomputedDependencyGraph::build(&precomputed_flags, 1, Some(&requested_keys))
+                .unwrap();
 
         assert_eq!(
             stage_keys(&direct.evaluation_stages),
