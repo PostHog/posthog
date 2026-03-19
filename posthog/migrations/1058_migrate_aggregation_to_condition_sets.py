@@ -62,7 +62,7 @@ def migrate_aggregation_to_condition_sets(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1054_add_detector_fields"),
+        ("posthog", "1057_personalapikey_scopes_not_null"),
     ]
 
     operations = [
