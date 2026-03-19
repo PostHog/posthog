@@ -749,6 +749,30 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         assert pretty_print_in_tests(printed, self.team.pk) == self.snapshot
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=True)
+    def test_database_warehouse_joins_persons_poe_v2_source_key_nested_ast_call(self):
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="persons",
+            source_table_key="toString(ifNull(properties.email, ''))",
+            joining_table_name="groups",
+            joining_table_key="key",
+            field_name="some_field",
+        )
+
+        db = Database.create_for(team=self.team)
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=db,
+        )
+
+        poe = cast(Table, db.get_table("events").fields["poe"])
+
+        assert poe.fields["some_field"] is not None
+
+        prepare_and_print_ast(parse_select("select person.some_field.key from events"), context, dialect="clickhouse")
+
     def test_database_warehouse_joins_on_view(self):
         DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -2077,6 +2101,27 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             assert table_name in existing_posthog_table_names, (
                 f"Table {table_name} should not be added to ROOT_TABLES__DO_NOT_ADD_ANY_MORE. Add the table to the `posthog` TableNode"
             )
+
+    def test_posthog_qualified_table_names_are_resolvable(self):
+        database = Database.create_for(team=self.team)
+
+        for table_name in ROOT_TABLES__DO_NOT_ADD_ANY_MORE.keys():
+            qualified_name = f"posthog.{table_name}"
+            assert database.has_table(qualified_name), f"Table {qualified_name} should be resolvable"
+
+            table = database.get_table(qualified_name)
+            assert table is not None, f"Table {qualified_name} should return a valid table"
+
+    def test_posthog_qualified_table_names_resolve_in_select(self):
+        database = Database.create_for(team=self.team)
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=database,
+            modifiers=create_default_modifiers_for_team(self.team),
+        )
+
+        prepare_and_print_ast(parse_select("select * from posthog.events"), context, dialect="clickhouse")
 
     def test_database_serialization_handles_invalid_sources_gracefully(self):
         """Test that serialization continues even with sources that have invalid prefixes."""

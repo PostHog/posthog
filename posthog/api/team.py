@@ -425,12 +425,14 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             PosthogJwtAudience.LIVESTREAM,
         )
 
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_product_intents(self, obj):
         calculate_product_activation.delay(obj.id, only_calc_if_days_since_last_checked=1)
         return ProductIntent.objects.filter(team=obj).values(
             "product_type", "created_at", "onboarding_completed_at", "updated_at"
         )
 
+    @extend_schema_field(serializers.DictField(child=serializers.BooleanField()))
     def get_managed_viewsets(self, obj):
         from products.data_warehouse.backend.models import DataWarehouseManagedViewSet
         from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
@@ -644,9 +646,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # Strip widget_public_token from user input - it's auto-generated only
         if "widget_public_token" in value:
             value.pop("widget_public_token")
-        # Slack integration state is managed only by the SupportHog OAuth endpoints
-        for slack_key in ("slack_bot_token", "slack_team_id", "slack_enabled"):
-            value.pop(slack_key, None)
+        # Integration state is managed only by dedicated endpoints, not user input
+        for managed_key in ("slack_bot_token", "slack_team_id", "slack_enabled", "email_enabled"):
+            value.pop(managed_key, None)
         return value
 
     def validate_slack_incoming_webhook(self, value: str | None) -> str | None:

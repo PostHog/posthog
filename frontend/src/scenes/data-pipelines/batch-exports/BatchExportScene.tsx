@@ -248,7 +248,12 @@ function BatchExportSceneContentInner({
                   key: 'logs',
                   content: (
                       <FlaggedFeature flag="batch-export-new-logs" fallback={<PipelineNodeLogs id={id} />}>
-                          <LogsViewer sourceType="batch_exports" sourceId={id} instanceLabel="run" />
+                          <LogsViewer
+                              sourceType="batch_exports"
+                              sourceId={id}
+                              instanceLabel="run"
+                              defaultFilters={{ levels: ['LOG', 'INFO', 'WARN', 'ERROR'] }}
+                          />
                       </FlaggedFeature>
                   ),
               }
@@ -264,7 +269,7 @@ function BatchExportSceneContentInner({
             ? {
                   label: 'Backfills',
                   key: 'backfills',
-                  content: <BatchExportBackfills id={id} />,
+                  content: <BatchExportBackfills id={id} batchExportConfig={batchExportConfig} />,
               }
             : null,
     ]

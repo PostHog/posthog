@@ -1,5 +1,6 @@
 """Serializers for Conversations API."""
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.api.utils import on_permitted_recording_domain
@@ -21,17 +22,21 @@ class TicketAssignmentSerializer(serializers.ModelSerializer):
         model = TicketAssignment
         fields = ["id", "type", "user", "role"]
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_id(self, obj):
         return obj.user_id if obj.user_id else str(obj.role_id) if obj.role_id else None
 
+    @extend_schema_field(serializers.CharField())
     def get_type(self, obj):
         return "role" if obj.role_id else "user"
 
+    @extend_schema_field(serializers.DictField(child=serializers.CharField(), allow_null=True))
     def get_user(self, obj):
         if obj.user_id and obj.user:
             return {"email": obj.user.email}
         return None
 
+    @extend_schema_field(serializers.DictField(child=serializers.CharField(), allow_null=True))
     def get_role(self, obj):
         if obj.role_id and obj.role:
             return {"name": obj.role.name}

@@ -5,9 +5,15 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
-import { NodeKind } from '~/queries/schema/schema-general'
+import {
+    FunnelsQuery,
+    InsightVizNode,
+    NodeKind,
+    ResultCustomizationBy,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { InsightShortId } from '~/types'
+import { FunnelVizType, InsightShortId } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
 
@@ -35,6 +41,155 @@ describe('insightDataLogic', () => {
 
         theInsightLogic = insightLogic(props)
         theInsightLogic.mount()
+    })
+
+    describe('syncQueryFromProps', () => {
+        const funnelsSource: FunnelsQuery = {
+            kind: NodeKind.FunnelsQuery,
+            series: [
+                { kind: NodeKind.EventsNode, event: '$pageview' },
+                { kind: NodeKind.EventsNode, event: '$pageleave' },
+            ],
+            funnelsFilter: { funnelVizType: FunnelVizType.Steps },
+        }
+
+        const stepsQuery: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: funnelsSource,
+        }
+
+        const trendsQuery: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: { ...funnelsSource, funnelsFilter: { funnelVizType: FunnelVizType.Trends } },
+        }
+
+        it('updates internalQuery without triggering setQuery listeners', async () => {
+            const adHocProps = {
+                dashboardItemId: 'new-AdHoc.InsightViz.test-node' as any,
+                query: stepsQuery,
+            }
+
+            const adHocLogic = insightDataLogic(adHocProps)
+            adHocLogic.mount()
+
+            await expectLogic(adHocLogic, () => {
+                adHocLogic.actions.syncQueryFromProps(trendsQuery)
+            })
+                .toDispatchActions(['syncQueryFromProps'])
+                .toNotHaveDispatchedActions(['setQuery'])
+                .toMatchValues({
+                    internalQuery: trendsQuery,
+                    query: trendsQuery,
+                })
+        })
+
+        it('propsChanged syncs query when props.query changes', async () => {
+            const adHocProps = {
+                dashboardItemId: 'new-AdHoc.InsightViz.test-node' as any,
+                query: stepsQuery,
+            }
+
+            const adHocLogic = insightDataLogic(adHocProps)
+            adHocLogic.mount()
+
+            await expectLogic(adHocLogic).toMatchValues({ query: stepsQuery })
+
+            // Rebuild with updated props triggers propsChanged
+            insightDataLogic({ ...adHocProps, query: trendsQuery })
+
+            await expectLogic(adHocLogic)
+                .toDispatchActions(['syncQueryFromProps'])
+                .toNotHaveDispatchedActions(['setQuery'])
+                .toMatchValues({ query: trendsQuery })
+        })
+
+        it('does not dispatch syncQueryFromProps when query is unchanged', async () => {
+            const adHocProps = {
+                dashboardItemId: 'new-AdHoc.InsightViz.test-node' as any,
+                query: stepsQuery,
+            }
+
+            const adHocLogic = insightDataLogic(adHocProps)
+            adHocLogic.mount()
+
+            // Rebuild with same query
+            insightDataLogic({ ...adHocProps, query: { ...stepsQuery } })
+
+            await expectLogic(adHocLogic).toNotHaveDispatchedActions(['syncQueryFromProps'])
+        })
+    })
+
+    describe('cached insight query sync', () => {
+        const baseQuery = examples.InsightTrends as InsightVizNode
+        const trendsSource = baseQuery.source as TrendsQuery
+        const buildLocalUpdatedQuery = (): InsightVizNode => ({
+            ...baseQuery,
+            source: {
+                ...trendsSource,
+                trendsFilter: {
+                    ...trendsSource.trendsFilter,
+                    resultCustomizations: {
+                        series_0: {
+                            assignmentBy: ResultCustomizationBy.Value,
+                            hidden: true,
+                        },
+                    },
+                },
+            },
+        })
+
+        it('does not reset local query when cachedInsight query is unchanged', async () => {
+            const localUpdatedQuery = buildLocalUpdatedQuery()
+            const logic = insightDataLogic({
+                dashboardItemId: Insight123,
+                cachedInsight: { short_id: Insight123, query: baseQuery } as any,
+            })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setQuery(localUpdatedQuery)
+            }).toMatchValues({ query: localUpdatedQuery })
+
+            await expectLogic(logic, () => {
+                insightDataLogic({
+                    dashboardItemId: Insight123,
+                    cachedInsight: { short_id: Insight123, query: { ...baseQuery } } as any,
+                    loadPriority: 1,
+                }).mount()
+            }).toMatchValues({ query: localUpdatedQuery })
+        })
+
+        it('syncs local query when cachedInsight query changes', async () => {
+            const localUpdatedQuery = buildLocalUpdatedQuery()
+            const updatedCachedQuery: InsightVizNode = {
+                ...baseQuery,
+                source: {
+                    ...baseQuery.source,
+                    dateRange: {
+                        ...baseQuery.source.dateRange,
+                        date_from: '-14d',
+                    },
+                },
+            }
+
+            const logic = insightDataLogic({
+                dashboardItemId: Insight123,
+                cachedInsight: { short_id: Insight123, query: baseQuery } as any,
+            })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setQuery(localUpdatedQuery)
+            }).toMatchValues({ query: localUpdatedQuery })
+
+            await expectLogic(logic, () => {
+                insightDataLogic({
+                    dashboardItemId: Insight123,
+                    cachedInsight: { short_id: Insight123, query: updatedCachedQuery } as any,
+                    loadPriority: 1,
+                }).mount()
+            }).toMatchValues({ query: updatedCachedQuery })
+        })
     })
 
     describe('reacts when the insight changes', () => {

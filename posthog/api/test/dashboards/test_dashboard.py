@@ -265,6 +265,22 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.filters, {})
 
+    def test_cannot_update_dashboard_with_invalid_variables(self):
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="dashboard",
+            created_by=self.user,
+            variables={"existing": "value"},
+        )
+        self.dashboard_api.update_dashboard(
+            dashboard.pk,
+            {"variables": ["not", "a", "dict"]},
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        dashboard.refresh_from_db()
+        self.assertEqual(dashboard.variables, {"existing": "value"})
+
     def test_create_dashboard_item(self):
         dashboard = Dashboard.objects.create(team=self.team, name="public dashboard")
         self.dashboard_api.create_insight(
@@ -336,15 +352,15 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 12):
+            with self.assertNumQueries(baseline + 11 + 13):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 12):
+            with self.assertNumQueries(baseline + 11 + 13):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
         self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-        with self.assertNumQueries(baseline + 11 + 12):
+        with self.assertNumQueries(baseline + 11 + 13):
             self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     @snapshot_postgres_queries
@@ -910,6 +926,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             team=ANY,
             request=ANY,
         )
+
+    def test_invalid_template_key_returns_400(self):
+        _, response = self.dashboard_api.create_dashboard(
+            {"name": "bad template", "use_template": "NONEXISTENT_KEY_abc123"},
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertEqual(response["attr"], "use_template")
 
     def test_dashboard_creation_validation(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)

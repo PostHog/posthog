@@ -24,6 +24,12 @@ class Command(BaseCommand):
             help="Comma separated list of team IDs to filter by",
         )
         parser.add_argument(
+            "--all",
+            action="store_true",
+            default=False,
+            help="Update all materialized saved queries, not just daily+ ones",
+        )
+        parser.add_argument(
             "--dry-run",
             action="store_true",
             default=False,
@@ -33,10 +39,16 @@ class Command(BaseCommand):
     def handle(self, **options):
         logger.setLevel(logging.INFO)
 
-        queryset = DataWarehouseSavedQuery.objects.filter(
-            deleted=False,
-            sync_frequency_interval__gte=timedelta(hours=24),
-        )
+        if options["all"]:
+            queryset = DataWarehouseSavedQuery.objects.select_related("team").filter(
+                deleted=False,
+                sync_frequency_interval__isnull=False,
+            )
+        else:
+            queryset = DataWarehouseSavedQuery.objects.select_related("team").filter(
+                deleted=False,
+                sync_frequency_interval__gte=timedelta(hours=24),
+            )
 
         if options.get("team_ids") is not None:
             try:

@@ -27,7 +27,10 @@ import type {
     LLMProviderKeyApi,
     LlmAnalyticsClusteringJobsListParams,
     LlmAnalyticsProviderKeysListParams,
+    LlmAnalyticsReviewQueueItemsListParams,
+    LlmAnalyticsReviewQueuesListParams,
     LlmAnalyticsScoreDefinitionsListParams,
+    LlmAnalyticsTraceReviewsListParams,
     LlmPromptsListParams,
     LlmPromptsNameRetrieveParams,
     LlmPromptsResolveNameRetrieveParams,
@@ -37,13 +40,23 @@ import type {
     PaginatedEvaluationListApi,
     PaginatedLLMPromptListApi,
     PaginatedLLMProviderKeyListApi,
+    PaginatedReviewQueueItemListApi,
+    PaginatedReviewQueueListApi,
     PaginatedScoreDefinitionListApi,
+    PaginatedTraceReviewListApi,
     PatchedClusteringJobApi,
     PatchedDatasetApi,
     PatchedDatasetItemApi,
     PatchedLLMPromptPublishApi,
     PatchedLLMProviderKeyApi,
+    PatchedReviewQueueItemUpdateApi,
+    PatchedReviewQueueUpdateApi,
     PatchedScoreDefinitionMetadataApi,
+    PatchedTraceReviewUpdateApi,
+    ReviewQueueApi,
+    ReviewQueueCreateApi,
+    ReviewQueueItemApi,
+    ReviewQueueItemCreateApi,
     ScoreDefinitionApi,
     ScoreDefinitionCreateApi,
     ScoreDefinitionNewVersionApi,
@@ -53,6 +66,8 @@ import type {
     SummarizeResponseApi,
     TextReprRequestApi,
     TextReprResponseApi,
+    TraceReviewApi,
+    TraceReviewCreateApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -579,6 +594,193 @@ export const llmAnalyticsProviderKeysValidateCreate = async (
     })
 }
 
+export const getLlmAnalyticsReviewQueueItemsListUrl = (
+    projectId: string,
+    params?: LlmAnalyticsReviewQueueItemsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/llm_analytics/review_queue_items/?${stringifiedParams}`
+        : `/api/environments/${projectId}/llm_analytics/review_queue_items/`
+}
+
+export const llmAnalyticsReviewQueueItemsList = async (
+    projectId: string,
+    params?: LlmAnalyticsReviewQueueItemsListParams,
+    options?: RequestInit
+): Promise<PaginatedReviewQueueItemListApi> => {
+    return apiMutator<PaginatedReviewQueueItemListApi>(getLlmAnalyticsReviewQueueItemsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLlmAnalyticsReviewQueueItemsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/review_queue_items/`
+}
+
+export const llmAnalyticsReviewQueueItemsCreate = async (
+    projectId: string,
+    reviewQueueItemCreateApi: ReviewQueueItemCreateApi,
+    options?: RequestInit
+): Promise<ReviewQueueItemApi> => {
+    return apiMutator<ReviewQueueItemApi>(getLlmAnalyticsReviewQueueItemsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(reviewQueueItemCreateApi),
+    })
+}
+
+export const getLlmAnalyticsReviewQueueItemsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/review_queue_items/${id}/`
+}
+
+export const llmAnalyticsReviewQueueItemsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReviewQueueItemApi> => {
+    return apiMutator<ReviewQueueItemApi>(getLlmAnalyticsReviewQueueItemsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLlmAnalyticsReviewQueueItemsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/review_queue_items/${id}/`
+}
+
+export const llmAnalyticsReviewQueueItemsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedReviewQueueItemUpdateApi: PatchedReviewQueueItemUpdateApi,
+    options?: RequestInit
+): Promise<ReviewQueueItemApi> => {
+    return apiMutator<ReviewQueueItemApi>(getLlmAnalyticsReviewQueueItemsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedReviewQueueItemUpdateApi),
+    })
+}
+
+export const getLlmAnalyticsReviewQueueItemsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/review_queue_items/${id}/`
+}
+
+export const llmAnalyticsReviewQueueItemsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getLlmAnalyticsReviewQueueItemsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getLlmAnalyticsReviewQueuesListUrl = (projectId: string, params?: LlmAnalyticsReviewQueuesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/llm_analytics/review_queues/?${stringifiedParams}`
+        : `/api/environments/${projectId}/llm_analytics/review_queues/`
+}
+
+export const llmAnalyticsReviewQueuesList = async (
+    projectId: string,
+    params?: LlmAnalyticsReviewQueuesListParams,
+    options?: RequestInit
+): Promise<PaginatedReviewQueueListApi> => {
+    return apiMutator<PaginatedReviewQueueListApi>(getLlmAnalyticsReviewQueuesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLlmAnalyticsReviewQueuesCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/review_queues/`
+}
+
+export const llmAnalyticsReviewQueuesCreate = async (
+    projectId: string,
+    reviewQueueCreateApi: ReviewQueueCreateApi,
+    options?: RequestInit
+): Promise<ReviewQueueApi> => {
+    return apiMutator<ReviewQueueApi>(getLlmAnalyticsReviewQueuesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(reviewQueueCreateApi),
+    })
+}
+
+export const getLlmAnalyticsReviewQueuesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/review_queues/${id}/`
+}
+
+export const llmAnalyticsReviewQueuesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReviewQueueApi> => {
+    return apiMutator<ReviewQueueApi>(getLlmAnalyticsReviewQueuesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLlmAnalyticsReviewQueuesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/review_queues/${id}/`
+}
+
+export const llmAnalyticsReviewQueuesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedReviewQueueUpdateApi: PatchedReviewQueueUpdateApi,
+    options?: RequestInit
+): Promise<ReviewQueueApi> => {
+    return apiMutator<ReviewQueueApi>(getLlmAnalyticsReviewQueuesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedReviewQueueUpdateApi),
+    })
+}
+
+export const getLlmAnalyticsReviewQueuesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/review_queues/${id}/`
+}
+
+export const llmAnalyticsReviewQueuesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getLlmAnalyticsReviewQueuesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getLlmAnalyticsScoreDefinitionsListUrl = (
     projectId: string,
     params?: LlmAnalyticsScoreDefinitionsListParams
@@ -813,6 +1015,98 @@ export const llmAnalyticsTextReprCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(textReprRequestApi),
+    })
+}
+
+export const getLlmAnalyticsTraceReviewsListUrl = (projectId: string, params?: LlmAnalyticsTraceReviewsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/llm_analytics/trace_reviews/?${stringifiedParams}`
+        : `/api/environments/${projectId}/llm_analytics/trace_reviews/`
+}
+
+export const llmAnalyticsTraceReviewsList = async (
+    projectId: string,
+    params?: LlmAnalyticsTraceReviewsListParams,
+    options?: RequestInit
+): Promise<PaginatedTraceReviewListApi> => {
+    return apiMutator<PaginatedTraceReviewListApi>(getLlmAnalyticsTraceReviewsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLlmAnalyticsTraceReviewsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/trace_reviews/`
+}
+
+export const llmAnalyticsTraceReviewsCreate = async (
+    projectId: string,
+    traceReviewCreateApi: TraceReviewCreateApi,
+    options?: RequestInit
+): Promise<TraceReviewApi> => {
+    return apiMutator<TraceReviewApi>(getLlmAnalyticsTraceReviewsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(traceReviewCreateApi),
+    })
+}
+
+export const getLlmAnalyticsTraceReviewsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/trace_reviews/${id}/`
+}
+
+export const llmAnalyticsTraceReviewsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TraceReviewApi> => {
+    return apiMutator<TraceReviewApi>(getLlmAnalyticsTraceReviewsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLlmAnalyticsTraceReviewsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/trace_reviews/${id}/`
+}
+
+export const llmAnalyticsTraceReviewsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedTraceReviewUpdateApi: PatchedTraceReviewUpdateApi,
+    options?: RequestInit
+): Promise<TraceReviewApi> => {
+    return apiMutator<TraceReviewApi>(getLlmAnalyticsTraceReviewsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTraceReviewUpdateApi),
+    })
+}
+
+export const getLlmAnalyticsTraceReviewsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/trace_reviews/${id}/`
+}
+
+export const llmAnalyticsTraceReviewsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getLlmAnalyticsTraceReviewsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

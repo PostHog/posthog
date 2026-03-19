@@ -4,6 +4,7 @@ from typing import Any, Optional
 
 import structlog
 import temporalio
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -70,6 +71,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "incremental_field_type",
             "sync_frequency",
             "sync_time_of_day",
+            "description",
         ]
 
         read_only_fields = [
@@ -79,6 +81,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "last_synced_at",
             "latest_error",
             "status",
+            "description",
         ]
 
     def get_status(self, schema: ExternalDataSchema) -> str | None:
@@ -114,9 +117,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         return SimpleTableSerializer(schema.table, context={"database": hogql_context}).data or None
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_sync_frequency(self, schema: ExternalDataSchema):
         return sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval)
 
+    @extend_schema_field(serializers.TimeField(allow_null=True))
     def get_sync_time_of_day(self, schema: ExternalDataSchema):
         return schema.sync_time_of_day
 

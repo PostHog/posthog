@@ -941,7 +941,7 @@ export function ActionFilterRow({
                             filter.type == TaxonomicFilterGroupType.DataWarehouse
                                 ? {
                                       kind: NodeKind.HogQLQuery,
-                                      query: `select ${filter.distinct_id_field} from ${filter.table_name}`,
+                                      query: `select ${filter.aggregation_target_field} from ${filter.table_name}`,
                                   }
                                 : undefined
                         }

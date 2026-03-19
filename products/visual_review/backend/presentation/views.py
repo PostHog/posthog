@@ -45,8 +45,6 @@ from .serializers import (
     UpdateRepoInputSerializer,
 )
 
-# TODO: Add VISUAL_REVIEW to frontend/src/queries/schema/schema-general.ts ProductKey enum
-# and regenerate posthog/schema.py, then use ProductKey.VISUAL_REVIEW here
 VISUAL_REVIEW_TAG = "visual_review"
 
 

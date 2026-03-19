@@ -20,6 +20,8 @@ export type State = {
     region: CloudRegion | undefined
     apiKey: ApiRedactedPersonalApiKey | undefined
     clientName: string | undefined
+    aiConsentGiven: boolean | undefined
+    aiConsentFetchedAt: number | undefined
 } & Record<PrefixedString<'session'>, SessionState>
 
 export type Env = {
@@ -36,6 +38,12 @@ export type Env = {
      * Only set this for self-hosted PostHog deployments.
      */
     POSTHOG_API_BASE_URL: string | undefined
+    /**
+     * Base URL for serving MCP UI app static assets.
+     * When using Workers Static Assets, this is the Worker's own public URL.
+     * Example: https://mcp.posthog.com
+     */
+    MCP_APPS_BASE_URL: string | undefined
     /**
      * PostHog base URL for MCP Apps analytics (used for CSP and analytics ingestion).
      * For local development, set to http://localhost:8010.

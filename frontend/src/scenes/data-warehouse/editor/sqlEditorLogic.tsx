@@ -653,6 +653,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             actions._setSuggestionPayload(null)
         },
         editView: ({ query, view }) => {
+            actions.setActiveTab(OutputTab.Materialization)
             actions.createTab(query, view)
         },
         editInsight: ({ query, insight }) => {
@@ -1531,11 +1532,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     // Open view
                     const viewId = searchParams.open_view || hashParams.view
 
+                    actions.setActiveTab(OutputTab.Materialization)
+                    actions.setViewLoading(true)
+
                     if (values.dataWarehouseSavedQueries.length === 0) {
                         await dataWarehouseViewsLogic.asyncActions.loadDataWarehouseSavedQueries()
                     }
 
-                    actions.setViewLoading(true)
                     let view = values.dataWarehouseSavedQueries.find((n) => n.id === viewId)
                     if (!view) {
                         lemonToast.error('View not found')

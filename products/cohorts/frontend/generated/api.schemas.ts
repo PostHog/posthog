@@ -241,6 +241,8 @@ export interface CohortApi {
     readonly created_at: string | null
     /** @nullable */
     readonly last_calculation: string | null
+    /** @nullable */
+    readonly last_backfill_person_properties_at: string | null
     readonly errors_calculating: number
     /** @nullable */
     readonly last_error_message: string | null
@@ -292,6 +294,8 @@ export interface PatchedCohortApi {
     readonly created_at?: string | null
     /** @nullable */
     readonly last_calculation?: string | null
+    /** @nullable */
+    readonly last_backfill_person_properties_at?: string | null
     readonly errors_calculating?: number
     /** @nullable */
     readonly last_error_message?: string | null
