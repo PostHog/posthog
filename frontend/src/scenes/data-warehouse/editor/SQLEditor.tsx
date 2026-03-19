@@ -39,16 +39,23 @@ interface SQLEditorProps {
     tabId?: string
     mode?: SQLEditorMode
     showDatabaseTree?: boolean
+    defaultShowDatabaseTree?: boolean
 }
 
-export function SQLEditor({ tabId, mode = SQLEditorMode.FullScene, showDatabaseTree }: SQLEditorProps): JSX.Element {
+export function SQLEditor({
+    tabId,
+    mode = SQLEditorMode.FullScene,
+    showDatabaseTree,
+    defaultShowDatabaseTree = true,
+}: SQLEditorProps): JSX.Element {
     const ref = useRef(null)
     const navigatorRef = useRef(null)
     const queryPaneRef = useRef(null)
     const sidebarRef = useRef(null)
     const databaseTreeRef = useRef(null)
+    const [hasShownDatabaseTree, setHasShownDatabaseTree] = useState(defaultShowDatabaseTree)
 
-    const shouldShowDatabaseTree = showDatabaseTree ?? true
+    const shouldShowDatabaseTree = showDatabaseTree ?? hasShownDatabaseTree
 
     const editorSizingLogicProps = useMemo(
         () => ({
@@ -175,6 +182,8 @@ export function SQLEditor({ tabId, mode = SQLEditorMode.FullScene, showDatabaseT
                                                     <QueryWindow
                                                         mode={mode}
                                                         tabId={tabId || ''}
+                                                        showDatabaseTree={shouldShowDatabaseTree}
+                                                        onShowDatabaseTree={() => setHasShownDatabaseTree(true)}
                                                         onSetMonacoAndEditor={(nextMonaco, nextEditor) =>
                                                             setMonacoAndEditor([nextMonaco, nextEditor])
                                                         }
