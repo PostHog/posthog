@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+import dns.resolver
+
 from products.workflows.backend.providers.ses import SESProvider
 
 TEST_DOMAIN = "test.posthog.com"
@@ -93,7 +95,8 @@ class TestSESProvider(TestCase):
             with pytest.raises(Exception, match="Please enter a valid domain"):
                 provider.create_email_domain("invalid-domain", mail_from_subdomain="mail", team_id=1)
 
-    def test_verify_email_domain_initial_setup(self):
+    @patch("products.workflows.backend.providers.ses.dns.resolver.resolve", side_effect=dns.resolver.NXDOMAIN)
+    def test_verify_email_domain_initial_setup(self, mock_dns_resolve):
         provider = SESProvider()
 
         # Mock the SES client on the provider instance
@@ -189,7 +192,8 @@ class TestSESProvider(TestCase):
             ],
         }
 
-    def test_verify_email_domain_success(self):
+    @patch("products.workflows.backend.providers.ses.dns.resolver.resolve", side_effect=dns.resolver.NXDOMAIN)
+    def test_verify_email_domain_success(self, mock_dns_resolve):
         provider = SESProvider()
 
         # Patch the SES client to return 'Success' for both verification and DKIM
@@ -216,3 +220,80 @@ class TestSESProvider(TestCase):
             # Should return verified status with DNS records
             assert result["status"] == "success"
             assert len(result["dnsRecords"]) > 0  # Records are now always returned
+
+    def test_verify_email_domain_dmarc_found(self):
+        provider = SESProvider()
+
+        mock_rdata = MagicMock()
+        mock_rdata.strings = [b"v=DMARC1; p=none;"]
+
+        with (
+            patch.object(provider.ses_client, "get_identity_verification_attributes") as mock_verif_attrs,
+            patch.object(provider.ses_client, "get_identity_dkim_attributes") as mock_dkim_attrs,
+            patch.object(provider.ses_client, "get_identity_mail_from_domain_attributes") as mock_mail_from_attrs,
+            patch("products.workflows.backend.providers.ses.dns.resolver.resolve") as mock_dns_resolve,
+        ):
+            mock_verif_attrs.return_value = {"VerificationAttributes": {TEST_DOMAIN: {"VerificationStatus": "Pending"}}}
+            mock_dkim_attrs.return_value = {"DkimAttributes": {TEST_DOMAIN: {"DkimVerificationStatus": "Pending"}}}
+            mock_mail_from_attrs.return_value = {
+                "MailFromDomainAttributes": {TEST_DOMAIN: {"MailFromDomainStatus": "Pending"}}
+            }
+            mock_dns_resolve.return_value = [mock_rdata]
+
+            result = provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
+
+            # DMARC record should be upgraded to success
+            dmarc_records = [r for r in result["dnsRecords"] if r["type"] == "dmarc"]
+            assert len(dmarc_records) == 1
+            assert dmarc_records[0]["status"] == "success"
+
+            # Overall status should still be pending (DMARC doesn't affect it)
+            assert result["status"] == "pending"
+
+    @patch("products.workflows.backend.providers.ses.dns.resolver.resolve", side_effect=dns.resolver.NXDOMAIN)
+    def test_verify_email_domain_dmarc_not_found(self, mock_dns_resolve):
+        provider = SESProvider()
+
+        with (
+            patch.object(provider.ses_client, "get_identity_verification_attributes") as mock_verif_attrs,
+            patch.object(provider.ses_client, "get_identity_dkim_attributes") as mock_dkim_attrs,
+            patch.object(provider.ses_client, "get_identity_mail_from_domain_attributes") as mock_mail_from_attrs,
+        ):
+            mock_verif_attrs.return_value = {"VerificationAttributes": {TEST_DOMAIN: {"VerificationStatus": "Pending"}}}
+            mock_dkim_attrs.return_value = {"DkimAttributes": {TEST_DOMAIN: {"DkimVerificationStatus": "Pending"}}}
+            mock_mail_from_attrs.return_value = {
+                "MailFromDomainAttributes": {TEST_DOMAIN: {"MailFromDomainStatus": "Pending"}}
+            }
+
+            result = provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
+
+            # DMARC record should remain pending
+            dmarc_records = [r for r in result["dnsRecords"] if r["type"] == "dmarc"]
+            assert len(dmarc_records) == 1
+            assert dmarc_records[0]["status"] == "pending"
+
+    def test_verify_email_domain_dmarc_non_dmarc_txt_record(self):
+        provider = SESProvider()
+
+        mock_rdata = MagicMock()
+        mock_rdata.strings = [b"some random txt value"]
+
+        with (
+            patch.object(provider.ses_client, "get_identity_verification_attributes") as mock_verif_attrs,
+            patch.object(provider.ses_client, "get_identity_dkim_attributes") as mock_dkim_attrs,
+            patch.object(provider.ses_client, "get_identity_mail_from_domain_attributes") as mock_mail_from_attrs,
+            patch("products.workflows.backend.providers.ses.dns.resolver.resolve") as mock_dns_resolve,
+        ):
+            mock_verif_attrs.return_value = {"VerificationAttributes": {TEST_DOMAIN: {"VerificationStatus": "Pending"}}}
+            mock_dkim_attrs.return_value = {"DkimAttributes": {TEST_DOMAIN: {"DkimVerificationStatus": "Pending"}}}
+            mock_mail_from_attrs.return_value = {
+                "MailFromDomainAttributes": {TEST_DOMAIN: {"MailFromDomainStatus": "Pending"}}
+            }
+            mock_dns_resolve.return_value = [mock_rdata]
+
+            result = provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
+
+            # Non-DMARC TXT record should not upgrade status
+            dmarc_records = [r for r in result["dnsRecords"] if r["type"] == "dmarc"]
+            assert len(dmarc_records) == 1
+            assert dmarc_records[0]["status"] == "pending"

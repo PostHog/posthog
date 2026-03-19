@@ -4,6 +4,7 @@ import logging
 from django.conf import settings
 
 import boto3
+import dns.resolver
 from botocore.exceptions import BotoCoreError, ClientError
 from rest_framework import exceptions
 
@@ -146,9 +147,9 @@ class SESProvider:
             }
         )
 
-        # DMARC is recommended but not verified — the AWS SDK has no method to check
-        # its presence, so the status always stays "pending" and it is excluded from
-        # the overall status computation below.
+        # DMARC is recommended but not required — AWS SES has no method to check its
+        # presence, so we do a direct DNS lookup. It is excluded from the overall
+        # status computation below.
         dns_records.append(
             {
                 "type": "dmarc",
@@ -207,6 +208,21 @@ class SESProvider:
             for r in dns_records:
                 if r["type"] == "mail_from":
                     r["status"] = "success"
+
+        # DMARC: check via direct DNS lookup since AWS SES doesn't track it
+        try:
+            answers = dns.resolver.resolve(f"_dmarc.{domain}", "TXT")
+            for rdata in answers:
+                txt_value = "".join(s.decode("utf-8") if isinstance(s, bytes) else s for s in rdata.strings)
+                if txt_value.startswith("v=DMARC1"):
+                    for r in dns_records:
+                        if r["type"] == "dmarc":
+                            r["status"] = "success"
+                    break
+        except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers, dns.resolver.Timeout):
+            pass  # No DMARC record found — fall back to "pending" status
+        except Exception:
+            logger.exception("Unexpected error during DMARC lookup for %s", domain)
 
         return {
             "status": overall,
