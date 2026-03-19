@@ -10,17 +10,35 @@ from django.test import override_settings
 from rest_framework import status
 
 from posthog.api.test.dashboards import DashboardAPI
+from posthog.constants import AvailableFeature
 from posthog.models import Dashboard, DashboardTile, Insight, OrganizationMembership, User
 from posthog.test.db_context_capturing import capture_db_queries
 
 from ee.api.test.base import APILicensedTest
 from ee.models import DashboardPrivilege
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestInsightEnterpriseAPI(APILicensedTest):
+    CONFIG_FORCE_ADVANCED_PERMISSIONS_ON_SETUP = True
+
     def setUp(self) -> None:
         super().setUp()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
+
+    def _require_advanced_permissions(self) -> None:
+        if not self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
+            self.skipTest("This insight RBAC test requires advanced permissions")
+
+    def _set_project_default_member_access(self) -> None:
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="member",
+        )
 
     @override_settings(IN_UNIT_TESTING=True)
     def test_can_add_and_remove_tags(self) -> None:
@@ -200,6 +218,7 @@ class TestInsightEnterpriseAPI(APILicensedTest):
     def test_non_admin_user_with_privilege_can_add_an_insight_to_a_restricted_dashboard(
         self,
     ) -> None:
+        self._require_advanced_permissions()
         # create insight and dashboard separately with default user
         dashboard_restricted: Dashboard = Dashboard.objects.create(
             team=self.team,
@@ -231,6 +250,7 @@ class TestInsightEnterpriseAPI(APILicensedTest):
     def test_an_insight_on_both_restricted_dashboard_does_not_restrict_with_explicit_privilege(
         self,
     ) -> None:
+        self._require_advanced_permissions()
         dashboard_restricted: Dashboard = Dashboard.objects.create(
             team=self.team,
             restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
@@ -258,6 +278,8 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         )
 
     def test_cannot_update_restricted_insight_as_other_user_who_is_project_member(self):
+        self._require_advanced_permissions()
+        self._set_project_default_member_access()
         creator = User.objects.create_and_join(self.organization, "y@x.com", None)
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
@@ -341,6 +363,8 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         ]
 
     def test_cannot_update_an_insight_if_on_restricted_dashboard(self) -> None:
+        self._require_advanced_permissions()
+        self._set_project_default_member_access()
         dashboard_restricted: Dashboard = Dashboard.objects.create(
             team=self.team,
             restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
@@ -363,6 +387,8 @@ class TestInsightEnterpriseAPI(APILicensedTest):
     def test_non_admin_user_cannot_add_an_insight_to_a_restricted_dashboard(
         self,
     ) -> None:
+        self._require_advanced_permissions()
+        self._set_project_default_member_access()
         # create insight and dashboard separately with default user
         dashboard_restricted_id, _ = self.dashboard_api.create_dashboard(
             {"restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT}
@@ -393,6 +419,7 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
 
     def test_admin_user_can_add_an_insight_to_a_restricted_dashboard(self) -> None:
+        self._require_advanced_permissions()
         # create insight and dashboard separately with default user
         dashboard_restricted: Dashboard = Dashboard.objects.create(
             team=self.team,
@@ -444,6 +471,8 @@ class TestInsightEnterpriseAPI(APILicensedTest):
     def test_an_insight_on_restricted_dashboard_has_restrictions_cannot_edit_without_explicit_privilege(
         self,
     ) -> None:
+        self._require_advanced_permissions()
+        self._set_project_default_member_access()
         dashboard: Dashboard = Dashboard.objects.create(
             team=self.team,
             restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
@@ -463,6 +492,7 @@ class TestInsightEnterpriseAPI(APILicensedTest):
     def test_an_insight_on_both_restricted_and_unrestricted_dashboard_has_no_restrictions(
         self,
     ) -> None:
+        self._require_advanced_permissions()
         dashboard_restricted: Dashboard = Dashboard.objects.create(
             team=self.team,
             restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
@@ -487,6 +517,7 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         )
 
     def test_an_insight_on_restricted_dashboard_does_not_restrict_admin(self) -> None:
+        self._require_advanced_permissions()
         dashboard_restricted: Dashboard = Dashboard.objects.create(
             team=self.team,
             restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
@@ -561,6 +592,8 @@ class TestInsightEnterpriseAPI(APILicensedTest):
     def test_non_admin_user_cannot_remove_an_insight_from_a_restricted_dashboard(
         self,
     ) -> None:
+        self._require_advanced_permissions()
+        self._set_project_default_member_access()
         # create a restricted dashboard with the default user (who has edit permission)
         dashboard_restricted_id, _ = self.dashboard_api.create_dashboard(
             {"restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT}

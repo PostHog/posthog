@@ -1661,11 +1661,11 @@ dependencies = [
  "envconfig",
  "flate2",
  "futures",
- "health",
  "hex",
  "httparse",
  "hyper 1.8.1",
  "hyper-util",
+ "lifecycle",
  "limiters",
  "lz-str",
  "metrics",
@@ -6240,11 +6240,13 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 name = "personhog-common"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "http 1.4.0",
  "metrics",
  "pin-project",
  "sqlx",
  "tokio",
+ "tonic 0.12.3",
  "tower 0.4.13",
 ]
 
@@ -6669,10 +6671,11 @@ dependencies = [
 
 [[package]]
 name = "posthog-symbol-data"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde",
  "thiserror 2.0.18",
+ "zstd",
 ]
 
 [[package]]

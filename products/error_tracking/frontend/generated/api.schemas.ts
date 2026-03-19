@@ -7,10 +7,19 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * @nullable
+ */
+export type ErrorTrackingAssignmentRuleApiAssignee = {
+    readonly type?: 'user' | 'role'
+    readonly id?: number | string
+} | null | null
+
 export interface ErrorTrackingAssignmentRuleApi {
     readonly id: string
     filters: unknown
-    readonly assignee: string
+    /** @nullable */
+    readonly assignee: ErrorTrackingAssignmentRuleApiAssignee
     /**
      * @minimum -2147483648
      * @maximum 2147483647
@@ -30,10 +39,19 @@ export interface PaginatedErrorTrackingAssignmentRuleListApi {
     results: ErrorTrackingAssignmentRuleApi[]
 }
 
+/**
+ * @nullable
+ */
+export type PatchedErrorTrackingAssignmentRuleApiAssignee = {
+    readonly type?: 'user' | 'role'
+    readonly id?: number | string
+} | null | null
+
 export interface PatchedErrorTrackingAssignmentRuleApi {
     readonly id?: string
     filters?: unknown
-    readonly assignee?: string
+    /** @nullable */
+    readonly assignee?: PatchedErrorTrackingAssignmentRuleApiAssignee
     /**
      * @minimum -2147483648
      * @maximum 2147483647
@@ -122,6 +140,14 @@ export interface PaginatedErrorTrackingFingerprintListApi {
 }
 
 /**
+ * @nullable
+ */
+export type ErrorTrackingGroupingRuleApiAssignee = {
+    readonly type?: 'user' | 'role'
+    readonly id?: number | string
+} | null | null
+
+/**
  * Issue linked to this rule
  * @nullable
  */
@@ -130,7 +156,8 @@ export type ErrorTrackingGroupingRuleApiIssue = { [key: string]: string } | null
 export interface ErrorTrackingGroupingRuleApi {
     readonly id: string
     filters: unknown
-    readonly assignee: string
+    /** @nullable */
+    readonly assignee: ErrorTrackingGroupingRuleApiAssignee
     /**
      * Issue linked to this rule
      * @nullable
@@ -156,6 +183,14 @@ export interface PaginatedErrorTrackingGroupingRuleListApi {
 }
 
 /**
+ * @nullable
+ */
+export type PatchedErrorTrackingGroupingRuleApiAssignee = {
+    readonly type?: 'user' | 'role'
+    readonly id?: number | string
+} | null | null
+
+/**
  * Issue linked to this rule
  * @nullable
  */
@@ -164,7 +199,8 @@ export type PatchedErrorTrackingGroupingRuleApiIssue = { [key: string]: string }
 export interface PatchedErrorTrackingGroupingRuleApi {
     readonly id?: string
     filters?: unknown
-    readonly assignee?: string
+    /** @nullable */
+    readonly assignee?: PatchedErrorTrackingGroupingRuleApiAssignee
     /**
      * Issue linked to this rule
      * @nullable
@@ -199,9 +235,17 @@ export const ErrorTrackingIssueFullStatusEnumApi = {
 } as const
 
 export interface ErrorTrackingIssueAssignmentApi {
-    readonly id: string
+    readonly id: number | string | null
     readonly type: string
 }
+
+/**
+ * @nullable
+ */
+export type ErrorTrackingIssueFullApiCohort = {
+    readonly id?: number
+    readonly name?: string
+} | null | null
 
 export interface ErrorTrackingIssueFullApi {
     readonly id: string
@@ -213,7 +257,8 @@ export interface ErrorTrackingIssueFullApi {
     first_seen: string
     assignee: ErrorTrackingIssueAssignmentApi
     external_issues: ErrorTrackingExternalReferenceApi[]
-    readonly cohort: string
+    /** @nullable */
+    readonly cohort: ErrorTrackingIssueFullApiCohort
 }
 
 export interface PaginatedErrorTrackingIssueFullListApi {
@@ -225,6 +270,14 @@ export interface PaginatedErrorTrackingIssueFullListApi {
     results: ErrorTrackingIssueFullApi[]
 }
 
+/**
+ * @nullable
+ */
+export type PatchedErrorTrackingIssueFullApiCohort = {
+    readonly id?: number
+    readonly name?: string
+} | null | null
+
 export interface PatchedErrorTrackingIssueFullApi {
     readonly id?: string
     status?: ErrorTrackingIssueFullStatusEnumApi
@@ -235,7 +288,8 @@ export interface PatchedErrorTrackingIssueFullApi {
     first_seen?: string
     assignee?: ErrorTrackingIssueAssignmentApi
     external_issues?: ErrorTrackingExternalReferenceApi[]
-    readonly cohort?: string
+    /** @nullable */
+    readonly cohort?: PatchedErrorTrackingIssueFullApiCohort
 }
 
 export interface ErrorTrackingReleaseApi {
@@ -269,6 +323,7 @@ export interface PatchedErrorTrackingReleaseApi {
 
 export interface ErrorTrackingStackFrameApi {
     readonly id: string
+    /** Raw frame ID in 'hash/part' format */
     readonly raw_id: string
     readonly created_at: string
     contents: unknown
@@ -324,6 +379,12 @@ export interface PatchedErrorTrackingSuppressionRuleApi {
     readonly updated_at?: string
 }
 
+/**
+ * Release associated with this symbol set
+ * @nullable
+ */
+export type ErrorTrackingSymbolSetApiRelease = { [key: string]: unknown } | null | null
+
 export interface ErrorTrackingSymbolSetApi {
     readonly id: string
     ref: string
@@ -335,7 +396,11 @@ export interface ErrorTrackingSymbolSetApi {
     storage_ptr?: string | null
     /** @nullable */
     failure_reason?: string | null
-    readonly release: string
+    /**
+     * Release associated with this symbol set
+     * @nullable
+     */
+    readonly release: ErrorTrackingSymbolSetApiRelease
 }
 
 export interface PaginatedErrorTrackingSymbolSetListApi {
@@ -346,6 +411,12 @@ export interface PaginatedErrorTrackingSymbolSetListApi {
     previous?: string | null
     results: ErrorTrackingSymbolSetApi[]
 }
+
+/**
+ * Release associated with this symbol set
+ * @nullable
+ */
+export type PatchedErrorTrackingSymbolSetApiRelease = { [key: string]: unknown } | null | null
 
 export interface PatchedErrorTrackingSymbolSetApi {
     readonly id?: string
@@ -358,7 +429,11 @@ export interface PatchedErrorTrackingSymbolSetApi {
     storage_ptr?: string | null
     /** @nullable */
     failure_reason?: string | null
-    readonly release?: string
+    /**
+     * Release associated with this symbol set
+     * @nullable
+     */
+    readonly release?: PatchedErrorTrackingSymbolSetApiRelease
 }
 
 export type ErrorTrackingAssignmentRulesListParams = {

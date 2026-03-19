@@ -246,7 +246,7 @@ export const logsValuesRetrieve = async (projectId: string, options?: RequestIni
 
 export const getPluginConfigsLogsListUrl = (
     projectId: string,
-    pluginConfigId: string,
+    pluginConfigId: number,
     params?: PluginConfigsLogsListParams
 ) => {
     const normalizedParams = new URLSearchParams()
@@ -266,7 +266,7 @@ export const getPluginConfigsLogsListUrl = (
 
 export const pluginConfigsLogsList = async (
     projectId: string,
-    pluginConfigId: string,
+    pluginConfigId: number,
     params?: PluginConfigsLogsListParams,
     options?: RequestInit
 ): Promise<PaginatedPluginLogEntryListApi> => {

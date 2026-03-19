@@ -71,6 +71,8 @@ from products.llm_analytics.backend.api import (
     LLMProviderKeyValidationViewSet,
     LLMProviderKeyViewSet,
     LLMProxyViewSet,
+    ReviewQueueItemViewSet,
+    ReviewQueueViewSet,
     ScoreDefinitionViewSet,
     TraceReviewViewSet,
 )
@@ -1293,6 +1295,20 @@ environments_router.register(
     r"llm_analytics/sentiment",
     LLMAnalyticsSentimentViewSet,
     "environment_llm_analytics_sentiment",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/review_queue_items",
+    ReviewQueueItemViewSet,
+    "environment_llm_analytics_review_queue_items",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/review_queues",
+    ReviewQueueViewSet,
+    "environment_llm_analytics_review_queues",
     ["team_id"],
 )
 

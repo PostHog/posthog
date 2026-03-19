@@ -949,7 +949,7 @@ const EventContent = React.memo(
         const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
         const { setupPlaygroundFromEvent } = useActions(llmPlaygroundPromptsLogic)
         const { featureFlags } = useValues(featureFlagLogic)
-        const { displayOption, lineNumber, initialTab, viewMode } = useValues(traceLogic)
+        const { displayOption, lineNumber, initialTab, viewMode, highlightMessageIndex } = useValues(traceLogic)
         const { handleTextViewFallback, copyLinePermalink, setViewMode } = useActions(traceLogic)
 
         const node = event && isLLMEvent(event) ? findNodeForEvent(tree, event.id) : null
@@ -1191,6 +1191,7 @@ const EventContent = React.memo(
                                                                 raisedError={event.properties.$ai_is_error}
                                                                 searchQuery={searchQuery}
                                                                 displayOption={displayOption}
+                                                                highlightMessageIndex={highlightMessageIndex}
                                                             />
                                                         ) : event.event === '$ai_embedding' ? (
                                                             <EventContentDisplayAsync

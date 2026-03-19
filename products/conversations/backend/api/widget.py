@@ -396,8 +396,8 @@ class WidgetTicketsView(APIView):
 
         response_data = {"count": total_count, "results": ticket_list}
 
-        # Cache first page
-        if offset == 0:
+        # Cache first page (skip empty results to avoid stale cache after restore/migration)
+        if offset == 0 and total_count > 0:
             set_cached_tickets(team.id, widget_session_id, response_data, status_filter)
 
         return Response(response_data)

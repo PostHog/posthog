@@ -684,6 +684,17 @@
                     "description": "Release condition groups for the feature flag.",
                     "items": {
                         "properties": {
+                            "aggregation_group_type_index": {
+                                "anyOf": [
+                                    {
+                                        "type": "number"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Group type index for this condition set. None means person-level aggregation."
+                            },
                             "properties": {
                                 "description": "Property conditions for this release condition group.",
                                 "items": {
