@@ -63,6 +63,16 @@ def get_or_create_webhook_hog_function(
     if extra_inputs:
         inputs.update({key: {"value": value} for key, value in extra_inputs.items()})
 
+    try:
+        existing_hog = HogFunction.objects.get(
+            team=team,
+            type="warehouse_source_webhook",
+            inputs__source_id__value=source_id,
+        )
+        existing_mapping = existing_hog.inputs.get("schema_mapping", {}).get("value", {})
+    except HogFunction.DoesNotExist:
+        existing_mapping = {}
+
     hog_function, created = HogFunction.objects.update_or_create(
         team=team,
         type="warehouse_source_webhook",
@@ -82,9 +92,6 @@ def get_or_create_webhook_hog_function(
     )
 
     # Merge with any existing schema_mapping from a previous call
-    assert hog_function.inputs is not None
-    existing_mapping = hog_function.inputs.get("schema_mapping", {}).get("value", {})
-
     merged_mapping = {**existing_mapping, **schema_mapping}
 
     if merged_mapping != schema_mapping:
@@ -102,7 +109,9 @@ def get_or_create_webhook_hog_function(
 
     webhook_url = f"{webhooks_host}/public/webhooks/dwh/{hog_function.id}"
 
-    return WebhookHogFunctionCreateResult(hog_function=hog_function, webhook_url=webhook_url)
+    return WebhookHogFunctionCreateResult(
+        hog_function=hog_function, webhook_url=webhook_url, hog_function_created=created
+    )
 
 
 def create_and_register_webhook(
