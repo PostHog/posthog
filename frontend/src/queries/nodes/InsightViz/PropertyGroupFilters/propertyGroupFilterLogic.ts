@@ -5,7 +5,13 @@ import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { ProductAnalyticsInsightQueryNode } from '~/queries/schema/schema-general'
-import { AnyFilterLike, FilterLogicalOperator, PropertyGroupFilter, PropertyGroupFilterValue } from '~/types'
+import {
+    AnyFilterLike,
+    AnyPropertyFilter,
+    FilterLogicalOperator,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
+} from '~/types'
 
 import type { propertyGroupFilterLogicType } from './propertyGroupFilterLogicType'
 
@@ -116,9 +122,13 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
 ])
 
 function hasAnyPropertyFilters(filter: PropertyGroupFilter): boolean {
-    return filter.values.some((group: PropertyGroupFilterValue) =>
-        group.values.some((v: AnyFilterLike | PropertyGroupFilterValue) =>
-            'values' in v ? hasAnyPropertyFilters(v as PropertyGroupFilter) : isValidPropertyFilter(v)
-        )
+    return filter.values.some((group: PropertyGroupFilterValue) => hasAnyFiltersInGroup(group))
+}
+
+function hasAnyFiltersInGroup(group: PropertyGroupFilterValue): boolean {
+    return group.values.some((v: AnyFilterLike | PropertyGroupFilterValue) =>
+        'values' in v && Array.isArray((v as PropertyGroupFilterValue).values)
+            ? hasAnyFiltersInGroup(v as PropertyGroupFilterValue)
+            : isValidPropertyFilter(v as AnyPropertyFilter)
     )
 }
