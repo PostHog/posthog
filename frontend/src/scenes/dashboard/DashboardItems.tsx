@@ -401,7 +401,7 @@ export function DashboardItems(): JSX.Element {
                                         tile={tile}
                                         placement={placement}
                                         otherDashboards={otherDashboards}
-                                        isDragging={isDragging.current}
+                                        isDraggingRef={isDragging}
                                         onEdit={() => {
                                             if (dashboard?.id) {
                                                 push(urls.dashboardButtonTile(dashboard.id, tile.id))

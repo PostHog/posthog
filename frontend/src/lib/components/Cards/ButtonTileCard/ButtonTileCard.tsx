@@ -24,7 +24,7 @@ interface ButtonTileCardProps extends React.HTMLAttributes<HTMLDivElement>, Resi
     /** Whether editing controls (three-dots menu) should be shown. False hides them on template dashboards in view mode. */
     showEditingControls?: boolean
     /** Suppresses button click navigation while the tile is being dragged. */
-    isDragging?: boolean
+    isDraggingRef?: React.RefObject<boolean>
 }
 
 function ButtonTileCardInternal(
@@ -39,7 +39,7 @@ function ButtonTileCardInternal(
         onEnterEditModeFromEdge,
         onDragHandleMouseDown,
         showEditingControls,
-        isDragging,
+        isDraggingRef,
         ...divProps
     }: ButtonTileCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -54,7 +54,7 @@ function ButtonTileCardInternal(
     const shouldHideMoreButton = placement === DashboardPlacement.Public || showEditingControls === false
 
     const handleClick = (): void => {
-        if (isDragging) {
+        if (isDraggingRef?.current) {
             return
         }
         if (button_tile.url.startsWith('/')) {

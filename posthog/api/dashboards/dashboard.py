@@ -213,7 +213,7 @@ class ButtonTileSerializer(serializers.ModelSerializer):
             if not re.match(r"^/[a-zA-Z0-9._~:/?#\[\]@!$&'()*+,;=%-]*$", value):
                 raise serializers.ValidationError("Pathname must start with / and contain valid URL path characters")
         else:
-            validator = URLValidator()
+            validator = URLValidator(schemes=["http", "https"])
             try:
                 validator(value)
             except Exception:
@@ -705,9 +705,17 @@ class DashboardSerializer(DashboardMetadataSerializer):
             validated_data["last_modified_by"] = last_modified_by
             validated_data["last_modified_at"] = now()
 
-            text, _ = Text.objects.update_or_create(
-                id=text_json.get("id", None), team_id=instance.team_id, defaults=validated_data
-            )
+            existing_text_id = text_json.get("id", None)
+            if existing_text_id:
+                try:
+                    text = Text.objects.get(id=existing_text_id, team_id=instance.team_id)
+                    for attr, val in validated_data.items():
+                        setattr(text, attr, val)
+                    text.save()
+                except Text.DoesNotExist:
+                    raise serializers.ValidationError({"text": "Text tile not found in this team."})
+            else:
+                text = Text.objects.create(**validated_data)
             # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
             _, created = DashboardTile.objects.update_or_create(
                 id=tile_data.get("id", None),
@@ -741,9 +749,17 @@ class DashboardSerializer(DashboardMetadataSerializer):
             validated_data["last_modified_by"] = last_modified_by
             validated_data["last_modified_at"] = now()
 
-            button_tile, _ = ButtonTile.objects.update_or_create(
-                id=button_tile_json.get("id", None), team_id=instance.team_id, defaults=validated_data
-            )
+            existing_button_id = button_tile_json.get("id", None)
+            if existing_button_id:
+                try:
+                    button_tile = ButtonTile.objects.get(id=existing_button_id, team_id=instance.team_id)
+                    for attr, val in validated_data.items():
+                        setattr(button_tile, attr, val)
+                    button_tile.save()
+                except ButtonTile.DoesNotExist:
+                    raise serializers.ValidationError({"button_tile": "Button tile not found in this team."})
+            else:
+                button_tile = ButtonTile.objects.create(**validated_data)
             # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
             _, created = DashboardTile.objects.update_or_create(
                 id=tile_data.get("id", None),

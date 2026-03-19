@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
+import { DashboardType, QueryBasedInsightModel } from '~/types'
 
 import type { buttonTileCardModalLogicType } from './buttonTileCardModalLogicType'
 
@@ -117,14 +117,16 @@ export const buttonTileCardModalLogic = kea<buttonTileCardModalLogicType>([
                         tiles: [{ button_tile: buttonTileFields, transparent_background }],
                     })
                 } else {
-                    const updatedTiles = [...tiles].reduce((acc, tile) => {
+                    const updatedTiles = tiles.map((tile) => {
                         if (tile.id === props.buttonTileId && tile.button_tile) {
-                            tile.button_tile = { ...tile.button_tile, ...buttonTileFields }
-                            ;(tile as Partial<DashboardTile>).transparent_background = transparent_background
-                            acc.push(tile)
+                            return {
+                                ...tile,
+                                button_tile: { ...tile.button_tile, ...buttonTileFields },
+                                transparent_background,
+                            }
                         }
-                        return acc
-                    }, [] as Partial<DashboardTile>[])
+                        return tile
+                    })
                     actions.updateDashboard({ id: props.dashboard.id, tiles: updatedTiles })
                 }
             },
