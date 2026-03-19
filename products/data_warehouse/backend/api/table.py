@@ -1,4 +1,3 @@
-import os
 import re
 from typing import Any
 
@@ -375,15 +374,22 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         file = request.FILES["file"]
 
-        # Sanitize filename to prevent path traversal
-        safe_filename = re.sub(r"[^a-zA-Z0-9._-]", "_", os.path.basename(file.name))
+        # Reject filenames with path separators to prevent path traversal
+        if "/" in file.name or "\\" in file.name:
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Invalid filename"},
+            )
+
+        # Sanitize filename
+        safe_filename = re.sub(r"[^a-zA-Z0-9._-]", "_", file.name)
         if not safe_filename or safe_filename.startswith("."):
             return response.Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Invalid filename"},
             )
 
-        table_name = request.data.get("name", file.name)
+        table_name = request.data.get("name", safe_filename)
         file_format = request.data.get("format", "CSVWithNames")
 
         # Validate format against allowed choices

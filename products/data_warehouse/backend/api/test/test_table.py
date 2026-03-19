@@ -905,13 +905,15 @@ class TestTable(APIBaseTest):
 
         test_file = SimpleUploadedFile(malicious_filename, b"col1\nval1", content_type="text/csv")
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/warehouse_tables/file/",
-            {"file": test_file, "name": "test_table", "format": "CSVWithNames"},
-            format="multipart",
-        )
+        with self.settings(DATAWAREHOUSE_BUCKET="test-warehouse-bucket"):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/warehouse_tables/file/",
+                {"file": test_file, "name": "test_table", "format": "CSVWithNames"},
+                format="multipart",
+            )
 
         assert response.status_code == 400
+        assert response.json()["message"] == "Invalid filename"
 
     @parameterized.expand(
         [
@@ -928,10 +930,12 @@ class TestTable(APIBaseTest):
 
         test_file = SimpleUploadedFile("safe_file.csv", b"col1\nval1", content_type="text/csv")
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/warehouse_tables/file/",
-            {"file": test_file, "name": "test_table", "format": bad_format},
-            format="multipart",
-        )
+        with self.settings(DATAWAREHOUSE_BUCKET="test-warehouse-bucket"):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/warehouse_tables/file/",
+                {"file": test_file, "name": "test_table", "format": bad_format},
+                format="multipart",
+            )
 
         assert response.status_code == 400
+        assert "Invalid format" in response.json()["message"]
