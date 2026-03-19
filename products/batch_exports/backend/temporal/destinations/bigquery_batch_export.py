@@ -478,7 +478,11 @@ async def verify_impersonated_service_account_ownership(
 def impersonate_service_account(
     integration: GoogleCloudServiceAccountIntegration,
 ) -> google.auth.impersonated_credentials.Credentials:
-    """Impersonate a user's service account using our own credentials."""
+    """Impersonate a user's service account using our own.
+
+    This requires that the user's service account grants our own service account the
+    `roles/iam.serviceAccountTokenCreator` role on their service account.
+    """
     service_account_email = integration.service_account_email
     our_credentials = get_our_google_cloud_credentials()
 
@@ -497,6 +501,24 @@ class BigQueryClient:
 
     Wraps a non-async `bigquery.Client` and exposes async versions of some of its
     methods.
+
+    Interacting with BigQuery requires a service account with the necessary permissions.
+    In order to authenticate with this service account, you should provide a
+    `GoogleCloudServiceAccountIntegration` to `from_service_account_integration`. The
+    `from_service_account_inputs` classmethod is maintained for backwards compatibility,
+    but may be removed in the future.
+
+    Authenticating with an integration supports two possible authentication mechanisms:
+    * Impersonating the service account
+    * Directly authenticating using the service account credentials
+
+    The first method is preferred as it doesn't require any long-lived credentials to be
+    exchanged or stored. It works by using AWS credentials available in production
+    environments to authenticate to our own service account. If a user has then granted
+    us the right permissions, we can use our own service account to impersonate theirs.
+
+    The second method directly uses the user's service account's credentials, which must
+    be stored somewhere, so it is not recommended.
     """
 
     def __init__(self, client: bigquery.Client):
