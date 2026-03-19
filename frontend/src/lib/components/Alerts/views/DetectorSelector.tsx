@@ -19,7 +19,6 @@ import {
     OCSVMDetectorConfig,
     PCADetectorConfig,
     PreprocessingConfig,
-    ThresholdDetectorConfig,
     SingleDetectorConfig,
     ZScoreDetectorConfig,
 } from '~/queries/schema/schema-general'
@@ -107,12 +106,23 @@ const DEFAULT_SINGLE_CONFIGS: Record<string, SingleDetectorConfig> = {
     threshold: { type: 'threshold' },
     ecod: { type: 'ecod', threshold: 0.9 },
     copod: { type: 'copod', threshold: 0.9 },
-    isolation_forest: { type: 'isolation_forest', threshold: 0.9, n_estimators: 100 },
-    knn: { type: 'knn', threshold: 0.9, n_neighbors: 5, method: 'largest' },
-    lof: { type: 'lof', threshold: 0.9, n_neighbors: 20 },
+    isolation_forest: {
+        type: 'isolation_forest',
+        threshold: 0.9,
+        n_estimators: 100,
+        preprocessing: { diffs_n: 1, lags_n: 3 },
+    },
+    knn: {
+        type: 'knn',
+        threshold: 0.9,
+        n_neighbors: 5,
+        method: 'largest',
+        preprocessing: { diffs_n: 1, lags_n: 3 },
+    },
+    lof: { type: 'lof', threshold: 0.9, n_neighbors: 20, preprocessing: { diffs_n: 1, lags_n: 3 } },
     hbos: { type: 'hbos', threshold: 0.9, n_bins: 10 },
-    ocsvm: { type: 'ocsvm', threshold: 0.9 },
-    pca: { type: 'pca', threshold: 0.9 },
+    ocsvm: { type: 'ocsvm', threshold: 0.9, preprocessing: { diffs_n: 1, lags_n: 3 } },
+    pca: { type: 'pca', threshold: 0.9, preprocessing: { diffs_n: 1, lags_n: 3 } },
 }
 
 const DEFAULT_ENSEMBLE: EnsembleDetectorConfig = {
@@ -156,50 +166,8 @@ export function DetectorSelector({ value, onChange }: DetectorSelectorProps): JS
             return
         }
 
-        switch (type) {
-            case DetectorType.ZSCORE:
-                onChange({ type: 'zscore', threshold: 3.0, window: 30 } as ZScoreDetectorConfig)
-                break
-            case DetectorType.MAD:
-                onChange({ type: 'mad', threshold: 3.5, window: 30 } as MADDetectorConfig)
-                break
-            case DetectorType.IQR:
-                onChange({ type: 'iqr', multiplier: 1.5, window: 30 } as IQRDetectorConfig)
-                break
-            case DetectorType.THRESHOLD:
-                onChange({ type: 'threshold' } as ThresholdDetectorConfig)
-                break
-            case DetectorType.ECOD:
-                onChange({ type: 'ecod', threshold: 0.9 } as ECODDetectorConfig)
-                break
-            case DetectorType.COPOD:
-                onChange({ type: 'copod', threshold: 0.9 } as COPODDetectorConfig)
-                break
-            case DetectorType.ISOLATION_FOREST:
-                onChange({
-                    type: 'isolation_forest',
-                    threshold: 0.9,
-                    n_estimators: 100,
-                } as IsolationForestDetectorConfig)
-                break
-            case DetectorType.KNN:
-                onChange({ type: 'knn', threshold: 0.9, n_neighbors: 5, method: 'largest' } as KNNDetectorConfig)
-                break
-            case DetectorType.LOF:
-                onChange({ type: 'lof', threshold: 0.9, n_neighbors: 20 } as LOFDetectorConfig)
-                break
-            case DetectorType.HBOS:
-                onChange({ type: 'hbos', threshold: 0.9, n_bins: 10 } as HBOSDetectorConfig)
-                break
-            case DetectorType.OCSVM:
-                onChange({ type: 'ocsvm', threshold: 0.9 } as OCSVMDetectorConfig)
-                break
-            case DetectorType.PCA:
-                onChange({ type: 'pca', threshold: 0.9 } as PCADetectorConfig)
-                break
-            default:
-                onChange(null)
-        }
+        const defaultConfig = DEFAULT_SINGLE_CONFIGS[type]
+        onChange(defaultConfig ?? null)
     }
 
     return (
@@ -730,6 +698,9 @@ function WindowSizeInput({
     )
 }
 
+// Detectors that benefit from multivariate input (lag features)
+const MULTIVARIATE_DETECTORS = new Set(['knn', 'pca', 'lof', 'ocsvm', 'isolation_forest'])
+
 function PreprocessingSection({
     config,
     onChange,
@@ -738,7 +709,9 @@ function PreprocessingSection({
     onChange: (config: SingleDetectorConfig) => void
 }): JSX.Element {
     const preprocessing = config.preprocessing ?? {}
-    const hasPreprocessing = (preprocessing.diffs_n ?? 0) > 0 || (preprocessing.smooth_n ?? 0) > 0
+    const isMultivariate = MULTIVARIATE_DETECTORS.has(config.type)
+    const hasPreprocessing =
+        (preprocessing.diffs_n ?? 0) > 0 || (preprocessing.smooth_n ?? 0) > 0 || (preprocessing.lags_n ?? 0) > 0
 
     const updatePreprocessing = (updates: Partial<PreprocessingConfig>): void => {
         const newPreprocessing = { ...preprocessing, ...updates }
@@ -762,6 +735,7 @@ function PreprocessingSection({
                                         (preprocessing.smooth_n ?? 0) > 0
                                             ? `smoothing (${preprocessing.smooth_n})`
                                             : null,
+                                        (preprocessing.lags_n ?? 0) > 0 ? `${preprocessing.lags_n} lags` : null,
                                     ]
                                         .filter(Boolean)
                                         .join(', ')}
@@ -770,40 +744,62 @@ function PreprocessingSection({
                         </span>
                     ),
                     content: (
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <Label
-                                    text="Differencing"
-                                    tooltip="Removes trends by using changes between consecutive values instead of raw values."
-                                />
-                                <LemonSelect
-                                    value={preprocessing.diffs_n ?? 0}
-                                    onChange={(val) => updatePreprocessing({ diffs_n: val || undefined })}
-                                    options={[
-                                        { value: 0, label: 'None (raw values)' },
-                                        { value: 1, label: 'First-order (delta values)' },
-                                    ]}
-                                    fullWidth
-                                />
+                        <div className="space-y-3">
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <Label
+                                        text="Differencing"
+                                        tooltip="Removes trends by using changes between consecutive values instead of raw values."
+                                    />
+                                    <LemonSelect
+                                        value={preprocessing.diffs_n ?? 0}
+                                        onChange={(val) => updatePreprocessing({ diffs_n: val || undefined })}
+                                        options={[
+                                            { value: 0, label: 'None (raw values)' },
+                                            { value: 1, label: 'First-order (delta values)' },
+                                        ]}
+                                        fullWidth
+                                    />
+                                </div>
+                                <div>
+                                    <Label
+                                        text="Smoothing"
+                                        tooltip="Moving average over n data points. Reduces noise before detection. 0 = no smoothing."
+                                    />
+                                    <LemonInput
+                                        type="number"
+                                        min={0}
+                                        max={30}
+                                        step={1}
+                                        value={preprocessing.smooth_n ?? 0}
+                                        onChange={(val) =>
+                                            updatePreprocessing({
+                                                smooth_n: val ? parseInt(String(val), 10) : undefined,
+                                            })
+                                        }
+                                    />
+                                </div>
                             </div>
-                            <div>
-                                <Label
-                                    text="Smoothing"
-                                    tooltip="Moving average over n data points. Reduces noise before detection. 0 = no smoothing."
-                                />
-                                <LemonInput
-                                    type="number"
-                                    min={0}
-                                    max={30}
-                                    step={1}
-                                    value={preprocessing.smooth_n ?? 0}
-                                    onChange={(val) =>
-                                        updatePreprocessing({
-                                            smooth_n: val ? parseInt(String(val), 10) : undefined,
-                                        })
-                                    }
-                                />
-                            </div>
+                            {isMultivariate && (
+                                <div>
+                                    <Label
+                                        text="Lag features"
+                                        tooltip="Creates a feature vector from recent values (e.g. 5 lags = each point becomes [t, t-1, t-2, t-3, t-4, t-5]). Essential for multivariate detectors like KNN, PCA, and LOF."
+                                    />
+                                    <LemonInput
+                                        type="number"
+                                        min={0}
+                                        max={10}
+                                        step={1}
+                                        value={preprocessing.lags_n ?? 0}
+                                        onChange={(val) =>
+                                            updatePreprocessing({
+                                                lags_n: val ? parseInt(String(val), 10) : undefined,
+                                            })
+                                        }
+                                    />
+                                </div>
+                            )}
                         </div>
                     ),
                 },
