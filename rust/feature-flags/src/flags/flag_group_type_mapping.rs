@@ -13,9 +13,8 @@ use crate::{
     api::errors::FlagError,
     database::get_connection_with_metrics,
     metrics::consts::{
-        DB_GROUP_TYPE_ERRORS_COUNTER, DB_GROUP_TYPE_READS_COUNTER,
-        GROUP_TYPE_CACHE_ENTRIES_GAUGE, GROUP_TYPE_CACHE_HIT_COUNTER,
-        GROUP_TYPE_CACHE_MISS_COUNTER,
+        DB_GROUP_TYPE_ERRORS_COUNTER, DB_GROUP_TYPE_READS_COUNTER, GROUP_TYPE_CACHE_ENTRIES_GAUGE,
+        GROUP_TYPE_CACHE_HIT_COUNTER, GROUP_TYPE_CACHE_MISS_COUNTER,
     },
 };
 
@@ -47,8 +46,10 @@ pub struct GroupTypeMapping {
 
 impl GroupTypeMapping {
     pub fn new(types_to_indexes: HashMap<String, GroupTypeIndex>) -> Self {
-        let group_indexes_to_types: HashMap<GroupTypeIndex, String> =
-            types_to_indexes.iter().map(|(k, v)| (*v, k.clone())).collect();
+        let group_indexes_to_types: HashMap<GroupTypeIndex, String> = types_to_indexes
+            .iter()
+            .map(|(k, v)| (*v, k.clone()))
+            .collect();
         Self {
             group_types_to_indexes: types_to_indexes,
             group_indexes_to_types,
@@ -152,11 +153,7 @@ pub struct GroupTypeCacheManager {
 impl GroupTypeCacheManager {
     const DEFAULT_MAX_ENTRIES: u64 = 50_000;
 
-    pub fn new(
-        reader: PostgresReader,
-        max_entries: Option<u64>,
-        ttl_seconds: Option<u64>,
-    ) -> Self {
+    pub fn new(reader: PostgresReader, max_entries: Option<u64>, ttl_seconds: Option<u64>) -> Self {
         let fetcher = PostgresGroupTypeMappingFetcher::new(reader);
         Self::new_with_fetcher(fetcher, max_entries, ttl_seconds)
     }
@@ -184,16 +181,11 @@ impl GroupTypeCacheManager {
     /// - If not cached: only one caller fetches from DB, others wait for the result
     /// - Different teams fetch in parallel (no cross-team blocking)
     pub async fn get_mappings(&self, team_id: TeamId) -> Result<GroupTypeMapping, FlagError> {
-        if let Some(cached) = self.cache.get(&team_id).await {
-            common_metrics::inc(GROUP_TYPE_CACHE_HIT_COUNTER, &[], 1);
-            return Ok(cached);
-        }
-
+        let was_cached = self.cache.contains_key(&team_id);
         let fetcher = self.fetcher.clone();
 
-        common_metrics::inc(GROUP_TYPE_CACHE_MISS_COUNTER, &[], 1);
-
-        self.cache
+        let result = self
+            .cache
             .try_get_with(team_id, async move {
                 match fetcher.fetch(team_id).await {
                     Ok(mapping) => {
@@ -212,10 +204,17 @@ impl GroupTypeCacheManager {
                 }
             })
             .await
-            .map_err(|arc_err| FlagError::from((*arc_err).clone()))
-            .inspect(|_| {
-                self.report_cache_metrics();
-            })
+            .map_err(|arc_err| FlagError::from((*arc_err).clone()));
+
+        if was_cached {
+            common_metrics::inc(GROUP_TYPE_CACHE_HIT_COUNTER, &[], 1);
+        } else {
+            common_metrics::inc(GROUP_TYPE_CACHE_MISS_COUNTER, &[], 1);
+        }
+
+        self.report_cache_metrics();
+
+        result
     }
 
     fn report_cache_metrics(&self) {
@@ -270,10 +269,7 @@ mod tests {
 
     #[async_trait]
     impl GroupTypeMappingFetcher for MockGroupTypeFetcher {
-        async fn fetch(
-            &self,
-            _team_id: TeamId,
-        ) -> Result<GroupTypeMapping, GroupTypeFetchError> {
+        async fn fetch(&self, _team_id: TeamId) -> Result<GroupTypeMapping, GroupTypeFetchError> {
             self.fetch_count.fetch_add(1, Ordering::SeqCst);
 
             if let Some(barrier) = &self.barrier {
@@ -316,10 +312,7 @@ mod tests {
 
     #[async_trait]
     impl GroupTypeMappingFetcher for CoalescingTestFetcher {
-        async fn fetch(
-            &self,
-            _team_id: TeamId,
-        ) -> Result<GroupTypeMapping, GroupTypeFetchError> {
+        async fn fetch(&self, _team_id: TeamId) -> Result<GroupTypeMapping, GroupTypeFetchError> {
             self.fetch_count.fetch_add(1, Ordering::SeqCst);
             self.fetch_started.notify_one();
             self.may_complete.notified().await;
@@ -333,12 +326,9 @@ mod tests {
     }
 
     fn test_mapping() -> HashMap<String, GroupTypeIndex> {
-        [
-            ("project".to_string(), 0),
-            ("organization".to_string(), 1),
-        ]
-        .into_iter()
-        .collect()
+        [("project".to_string(), 0), ("organization".to_string(), 1)]
+            .into_iter()
+            .collect()
     }
 
     #[tokio::test]
@@ -562,21 +552,16 @@ mod tests {
 
     #[test]
     fn test_group_type_mapping_new() {
-        let types_to_indexes: HashMap<String, GroupTypeIndex> = [
-            ("project".to_string(), 0),
-            ("organization".to_string(), 1),
-        ]
-        .into_iter()
-        .collect();
+        let types_to_indexes: HashMap<String, GroupTypeIndex> =
+            [("project".to_string(), 0), ("organization".to_string(), 1)]
+                .into_iter()
+                .collect();
 
         let mapping = GroupTypeMapping::new(types_to_indexes);
 
         assert_eq!(mapping.group_types_to_indexes().len(), 2);
         assert_eq!(mapping.group_indexes_to_types().len(), 2);
-        assert_eq!(
-            mapping.group_types_to_indexes().get("project"),
-            Some(&0)
-        );
+        assert_eq!(mapping.group_types_to_indexes().get("project"), Some(&0));
         assert_eq!(
             mapping.group_indexes_to_types().get(&1),
             Some(&"organization".to_string())

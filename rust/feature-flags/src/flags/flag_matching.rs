@@ -1725,14 +1725,11 @@ impl FeatureFlagMatcher {
     ) -> Result<String, FlagError> {
         if let Some(group_type_index) = feature_flag.get_group_type_index() {
             // Group-based flag
-            let group_key = match self
-                .group_type_mapping
-                .as_ref()
-                .and_then(|m| {
-                    m.group_indexes_to_types()
-                        .get(&group_type_index)
-                        .and_then(|group_type_name| self.groups.get(group_type_name))
-                }) {
+            let group_key = match self.group_type_mapping.as_ref().and_then(|m| {
+                m.group_indexes_to_types()
+                    .get(&group_type_index)
+                    .and_then(|group_type_name| self.groups.get(group_type_name))
+            }) {
                 Some(Value::String(s)) => s.clone(),
                 Some(Value::Number(n)) => n.to_string(),
                 Some(_) => {
@@ -2226,8 +2223,9 @@ impl FeatureFlagMatcher {
                     &[("reason".to_string(), reason.to_string())],
                     1,
                 );
-                // Empty mappings are not an error in the cache sense, but no group flags will match.
-                // We still set group_type_mapping to None so callers return empty results.
+                // Preserve existing behavior: empty mappings are surfaced as an error to callers,
+                // so clients see `errorsWhileComputingFlags: true` just like before caching.
+                errors_while_computing_flags = true;
             }
             Ok(mapping) => {
                 self.group_type_mapping = Some(mapping);

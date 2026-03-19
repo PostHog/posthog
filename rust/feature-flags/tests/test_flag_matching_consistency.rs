@@ -126,7 +126,16 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
                 reader.clone(),
                 writer.clone(),
             );
-            FeatureFlagMatcher::new(distinct_id, None, 1, router, cohort_cache, Arc::new(GroupTypeCacheManager::new(reader.clone(), None, None)), None)
+            let group_type_cache = Arc::new(GroupTypeCacheManager::new(reader.clone(), None, None));
+            FeatureFlagMatcher::new(
+                distinct_id,
+                None,
+                1,
+                router,
+                cohort_cache,
+                group_type_cache,
+                None,
+            )
         }
         .get_match(&flags[0], None, None, &None)
         .unwrap();
@@ -1224,7 +1233,16 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
                 reader.clone(),
                 writer.clone(),
             );
-            FeatureFlagMatcher::new(distinct_id, None, 1, router, cohort_cache, Arc::new(GroupTypeCacheManager::new(reader.clone(), None, None)), None)
+            let group_type_cache = Arc::new(GroupTypeCacheManager::new(reader.clone(), None, None));
+            FeatureFlagMatcher::new(
+                distinct_id,
+                None,
+                1,
+                router,
+                cohort_cache,
+                group_type_cache,
+                None,
+            )
         }
         .get_match(&flags[0], None, None, &None)
         .unwrap();

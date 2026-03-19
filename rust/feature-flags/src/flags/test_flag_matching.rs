@@ -48,9 +48,7 @@ mod tests {
         }
     }
 
-    fn mock_group_type_cache(
-        types_to_indexes: HashMap<String, i32>,
-    ) -> Arc<GroupTypeCacheManager> {
+    fn mock_group_type_cache(types_to_indexes: HashMap<String, i32>) -> Arc<GroupTypeCacheManager> {
         let fetcher = MockGroupTypeFetcher {
             mapping: GroupTypeMapping::new(types_to_indexes),
         };
@@ -504,9 +502,8 @@ mod tests {
             None,
         );
 
-        let group_type_cache = mock_group_type_cache(
-            [("organization".to_string(), 1)].into_iter().collect(),
-        );
+        let group_type_cache =
+            mock_group_type_cache([("organization".to_string(), 1)].into_iter().collect());
 
         let groups = HashMap::from([("organization".to_string(), json!("org_123"))]);
 
@@ -1352,9 +1349,8 @@ mod tests {
             None,
             None,
         ));
-        let group_type_cache = mock_group_type_cache(
-            [("group_type_1".to_string(), 1)].into_iter().collect(),
-        );
+        let group_type_cache =
+            mock_group_type_cache([("group_type_1".to_string(), 1)].into_iter().collect());
 
         let groups = HashMap::from([("group_type_1".to_string(), json!("group_key_1"))]);
 
@@ -6241,9 +6237,8 @@ mod tests {
         );
 
         // Set up group type mappings
-        let group_type_cache = mock_group_type_cache(
-            [("organization".to_string(), 1)].into_iter().collect(),
-        );
+        let group_type_cache =
+            mock_group_type_cache([("organization".to_string(), 1)].into_iter().collect());
 
         let groups = HashMap::from([("organization".to_string(), json!("test_org_123"))]);
 
@@ -6726,8 +6721,15 @@ mod tests {
             .expect("Failed to insert team in pg");
 
         let distinct_id = "user_distinct_id".to_string();
-        let mut matcher =
-            FeatureFlagMatcher::new(distinct_id, None, team.id, router, cohort_cache, empty_group_type_cache(), None);
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id,
+            None,
+            team.id,
+            router,
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        );
 
         // A filtered-out flag with experience continuity should not trigger
         // hash-key-override error handling or appear in the response.
