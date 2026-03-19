@@ -327,10 +327,6 @@ async fn emit_spiking_events(
         })
         .collect();
 
-    if events.is_empty() {
-        return;
-    }
-
     let kafka_events: Vec<&InternalEvent> = events.iter().map(|(_, e)| e).collect();
     let results = send_iter_to_kafka(
         &context.immediate_producer,
