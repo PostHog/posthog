@@ -65,15 +65,29 @@ class BasePyODDetector(BaseDetector):
         if data.ndim == 1:
             data = data.reshape(-1, 1)
 
-        model = self._build_model(n_samples=len(data))
-        model.fit(data)
+        offset = max(self.training_offset, 1)
+        triggered: list[int] = []
+        scores: list[float | None] = [None] * self.MIN_SAMPLES
 
-        probs = model.predict_proba(data)[:, 1]
-        triggered = [i for i, p in enumerate(probs) if p > threshold]
+        for i in range(self.MIN_SAMPLES, len(data)):
+            train_data = data[: i - offset + 1]
+            if len(train_data) < self.MIN_SAMPLES:
+                scores.append(None)
+                continue
+
+            test_point = data[i : i + 1]
+            model = self._build_model(n_samples=len(train_data))
+            model.fit(train_data)
+
+            prob = float(model.predict_proba(test_point)[0, 1])
+            scores.append(prob)
+
+            if prob > threshold:
+                triggered.append(i)
 
         return DetectionResult(
             is_anomaly=len(triggered) > 0,
-            score=float(probs[-1]) if len(probs) > 0 else None,
+            score=scores[-1] if scores else None,
             triggered_indices=triggered,
-            all_scores=[float(p) for p in probs],
+            all_scores=scores,
         )
