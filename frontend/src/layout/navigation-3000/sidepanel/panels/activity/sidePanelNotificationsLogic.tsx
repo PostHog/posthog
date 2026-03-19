@@ -48,7 +48,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             teamLogic,
             ['currentTeam'],
         ],
-        actions: [sidePanelStateLogic, ['openSidePanel']],
+        actions: [sidePanelStateLogic, ['openSidePanel'], teamLogic, ['loadCurrentTeamSuccess']],
     })),
     actions({
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
@@ -359,6 +359,11 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 // Swallow
             }
         },
+        loadCurrentTeamSuccess: () => {
+            if (values.realTimeNotificationsEnabled && !cache.sseConnection) {
+                actions.startSSE()
+            }
+        },
         loadMoreNotifications: async () => {
             if (!values.hasMoreNotifications) {
                 return
@@ -459,10 +464,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
     }),
     afterMount(({ cache, actions, values }) => {
         if (values.realTimeNotificationsEnabled) {
-            // Start SSE first so it's connected, but messages are ignored until initial load completes
-            actions.startSSE()
-
-            // Load initial notifications from the REST API — this is the authoritative source
+            // Load initial notifications from the REST API
             void (async () => {
                 try {
                     const resp = await api.get<{
@@ -481,9 +483,14 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 } catch {
                     // Swallow
                 }
-                // Now SSE messages will be processed as truly new notifications
                 actions.initialLoadDone()
             })()
+
+            // SSE requires currentTeam.live_events_token — start now if available,
+            // otherwise wait for teamLogic to load it
+            if (values.currentTeam?.live_events_token) {
+                actions.startSSE()
+            }
         } else {
             cache.disposables.add(() => {
                 const onVisibilityChange = (): void => {
