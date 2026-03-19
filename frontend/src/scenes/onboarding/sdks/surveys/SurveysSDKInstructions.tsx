@@ -12,6 +12,7 @@ import {
     SurveysNuxtInstallation,
     SurveysReactInstallation,
     SurveysReactNativeInstallation,
+    SurveysReactRouterInstallation,
     SurveysRemixInstallation,
     SurveysSvelteInstallation,
     SurveysVueInstallation,
@@ -66,6 +67,10 @@ const SurveysNuxtInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: SurveysNuxtInstallation,
     snippets: SNIPPETS,
 })
+const SurveysReactRouterInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: SurveysReactRouterInstallation,
+    snippets: SNIPPETS,
+})
 const SurveysRemixInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: SurveysRemixInstallation,
     snippets: SNIPPETS,
@@ -109,6 +114,7 @@ export const SurveysSDKInstructions: SDKInstructionsMap = {
     [SDKKey.NEXT_JS]: SurveysNextJSInstructionsWrapper,
     [SDKKey.NUXT_JS]: SurveysNuxtInstructionsWrapper,
     [SDKKey.REACT]: SurveysReactInstructionsWrapper,
+    [SDKKey.REACT_ROUTER]: SurveysReactRouterInstructionsWrapper,
     [SDKKey.REMIX]: SurveysRemixInstructionsWrapper,
     [SDKKey.TANSTACK_START]: SurveysReactInstructionsWrapper,
     [SDKKey.SVELTE]: SurveysSvelteInstructionsWrapper,

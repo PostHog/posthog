@@ -23,6 +23,7 @@ import {
     PythonInstallation,
     ReactInstallation,
     ReactNativeInstallation,
+    ReactRouterInstallation,
     ReloadFlagsSnippet,
     RemixInstallation,
     RubyInstallation,
@@ -234,6 +235,10 @@ const FeatureFlagsSvelteInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: SvelteInstallation,
     snippets: SSR_FRAMEWORK_SNIPPETS,
 })
+const FeatureFlagsReactRouterInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ReactRouterInstallation,
+    snippets: SSR_FRAMEWORK_SNIPPETS,
+})
 const FeatureFlagsRemixJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RemixInstallation,
     snippets: SSR_FRAMEWORK_SNIPPETS,
@@ -263,6 +268,7 @@ export const FeatureFlagsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.PYTHON]: FeatureFlagsPythonInstructionsWrapper,
     [SDKKey.REACT]: FeatureFlagsReactInstructionsWrapper,
     [SDKKey.REACT_NATIVE]: FeatureFlagsRNInstructionsWrapper,
+    [SDKKey.REACT_ROUTER]: FeatureFlagsReactRouterInstructionsWrapper,
     [SDKKey.TANSTACK_START]: FeatureFlagsReactInstructionsWrapper,
     [SDKKey.REMIX]: FeatureFlagsRemixJSInstructionsWrapper,
     [SDKKey.RUBY]: FeatureFlagsRubyInstructionsWrapper,

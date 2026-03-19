@@ -27,6 +27,7 @@ import {
     PythonInstallation,
     ReactInstallation,
     ReactNativeInstallation,
+    ReactRouterInstallation,
     RemixInstallation,
     RetoolInstallation,
     RubyInstallation,
@@ -128,6 +129,10 @@ const ProductAnalyticsNuxtJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: NuxtInstallation,
     snippets: JS_WEB_SNIPPETS,
 })
+const ProductAnalyticsReactRouterInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ReactRouterInstallation,
+    snippets: JS_WEB_SNIPPETS,
+})
 const ProductAnalyticsRemixJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RemixInstallation,
     snippets: JS_WEB_SNIPPETS,
@@ -227,6 +232,7 @@ export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.PYTHON]: ProductAnalyticsPythonInstructionsWrapper,
     [SDKKey.REACT]: ProductAnalyticsReactInstructionsWrapper,
     [SDKKey.REACT_NATIVE]: ProductAnalyticsRNInstructionsWrapper,
+    [SDKKey.REACT_ROUTER]: ProductAnalyticsReactRouterInstructionsWrapper,
     [SDKKey.REMIX]: ProductAnalyticsRemixJSInstructionsWrapper,
     [SDKKey.RETOOL]: ProductAnalyticsRetoolInstructionsWrapper,
     [SDKKey.RUBY]: ProductAnalyticsRubyInstructionsWrapper,
