@@ -1,0 +1,18 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A unique value identifying this person. Accepts both numeric ID and UUID.",
+            "type": "string"
+        },
+        "key": {
+            "description": "The property key to set.",
+            "type": "string"
+        },
+        "value": {
+            "description": "The property value. Can be a string, number, boolean, or object."
+        }
+    },
+    "required": ["id", "key", "value"],
+    "type": "object"
+}

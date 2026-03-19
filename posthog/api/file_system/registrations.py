@@ -368,7 +368,7 @@ def register_core_file_system_types() -> None:
 
     register_file_system_type(
         "experiment",
-        "posthog",
+        "experiments",
         "Experiment",
         undo_message="Send PATCH /api/projects/@current/experiments/{id} with deleted=false.",
     )

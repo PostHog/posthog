@@ -1315,7 +1315,7 @@ impl FeatureFlagMatcher {
         }
 
         // Match for holdout super condition
-        // TODO: Flags shouldn't have both super_groups and holdout_groups
+        // TODO: Flags shouldn't have both super_groups and holdout
         // TODO: Validate only multivariant flags to have holdout groups. I could make this implicit by reusing super_groups but
         // this will shoot ourselves in the foot when we extend early access to support variants as well.
         // TODO: Validate holdout variant should have 0% default rollout %?
@@ -1324,7 +1324,7 @@ impl FeatureFlagMatcher {
         // experiment level concept that applies across experiments, and we are creating a feature flag level primitive to handle it.
         // Validating things like the variant name is the same across all flags, rolled out to 0%, has the same correct conditions is a bit of
         // a pain here. But I'm not sure if feature flags should indeed know all this info. It's fine for them to just work with what they're given.
-        if flag.filters.holdout.is_some() || flag.filters.holdout_groups.is_some() {
+        if flag.filters.holdout.is_some() {
             let (is_match, holdout_value, evaluation_reason) =
                 self.is_holdout_condition_match(flag, request_hash_key_override)?;
             if is_match {
@@ -1594,8 +1594,6 @@ impl FeatureFlagMatcher {
         flag: &FeatureFlag,
         request_hash_key_override: &Option<String>,
     ) -> Result<(bool, Option<String>, FeatureFlagMatchReason), FlagError> {
-        // New format takes precedence: `holdout` has explicit id and exclusion_percentage.
-        // During the migration, Django writes both formats, so both may be present.
         if let Some(holdout) = &flag.filters.holdout {
             let percentage = holdout.exclusion_percentage.clamp(0.0, 100.0);
 
@@ -1613,44 +1611,6 @@ impl FeatureFlagMatcher {
                 Some(format!("holdout-{}", holdout.id)),
                 FeatureFlagMatchReason::HoldoutConditionValue,
             ));
-        }
-        // Legacy format fallback: original holdout_groups logic, unchanged.
-        else if let Some(holdout_groups) = &flag.filters.holdout_groups {
-            if !holdout_groups.is_empty() {
-                let condition = &holdout_groups[0];
-                // TODO: Check properties and match based on them
-
-                if condition.properties.as_ref().is_some_and(|p| !p.is_empty()) {
-                    return Ok((false, None, FeatureFlagMatchReason::NoConditionMatch));
-                }
-
-                let rollout_percentage = condition.rollout_percentage;
-
-                if let Some(percentage) = rollout_percentage {
-                    if percentage < 100.0
-                        && self.get_holdout_hash(flag, None, request_hash_key_override)?
-                            > (percentage / 100.0)
-                    {
-                        // If hash is greater than percentage, we're OUT of holdout
-                        return Ok((false, None, FeatureFlagMatchReason::OutOfRolloutBound));
-                    }
-                }
-
-                // rollout_percentage is None (=100%), or we are inside holdout rollout bound.
-                // Thus, we match. Now get the variant override for the holdout condition.
-                let variant = if let Some(variant_override) = condition.variant.as_ref() {
-                    variant_override.clone()
-                } else {
-                    self.get_matching_variant(flag, None, request_hash_key_override)?
-                        .unwrap_or_else(|| "holdout".to_string())
-                };
-
-                return Ok((
-                    true,
-                    Some(variant),
-                    FeatureFlagMatchReason::HoldoutConditionValue,
-                ));
-            }
         }
         Ok((false, None, FeatureFlagMatchReason::NoConditionMatch))
     }

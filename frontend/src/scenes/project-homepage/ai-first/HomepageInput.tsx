@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import {
     IconArrowRight,
     IconChevronRight,
+    IconGear,
     IconLightBulb,
     IconLock,
     IconNotification,
@@ -26,6 +27,7 @@ import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 
 import { aiFirstHomepageLogic } from './aiFirstHomepageLogic'
 import { HOMEPAGE_TAB_ID } from './constants'
@@ -254,26 +256,45 @@ function SuggestionMenubar(): JSX.Element {
     const menubarRef = useRef<HTMLDivElement>(null)
 
     return (
-        <Menubar ref={menubarRef} className="flex gap-2 justify-center">
-            <SuggestionMenu
-                icon={<IconLightBulb className="size-4" />}
-                label="Learn"
-                suggestions={LEARN_SUGGESTIONS}
-                anchor={menubarRef}
-            />
-            <SuggestionMenu
-                icon={<IconRocket className="size-4" />}
-                label="Build"
-                suggestions={BUILD_SUGGESTIONS}
-                anchor={menubarRef}
-            />
-            <SuggestionMenu
-                icon={<IconNotification className="size-4" />}
-                label="Signals"
-                suggestions={SIGNALS_SUGGESTIONS}
-                anchor={menubarRef}
-            />
-        </Menubar>
+        <div className="flex gap-2 justify-center items-center">
+            <Menubar ref={menubarRef} className="flex gap-2 justify-center">
+                <SuggestionMenu
+                    icon={<IconLightBulb className="size-4" />}
+                    label="Learn"
+                    suggestions={LEARN_SUGGESTIONS}
+                    anchor={menubarRef}
+                />
+                <SuggestionMenu
+                    icon={<IconRocket className="size-4" />}
+                    label="Build"
+                    suggestions={BUILD_SUGGESTIONS}
+                    anchor={menubarRef}
+                />
+                <SuggestionMenu
+                    icon={<IconNotification className="size-4" />}
+                    label="Signals"
+                    suggestions={SIGNALS_SUGGESTIONS}
+                    anchor={menubarRef}
+                />
+            </Menubar>
+        </div>
+    )
+}
+
+function HomePageOfframp(): JSX.Element {
+    const { showConfigurePinnedTabsModal } = useActions(navigationLogic)
+
+    return (
+        <div className="flex items-center gap-2">
+            <ButtonPrimitive
+                variant="panel"
+                onClick={() => showConfigurePinnedTabsModal()}
+                tooltip="Configure tabs & home"
+                className="text-tertiary hover:text-primary"
+            >
+                Configure home <IconGear className="size-4" />
+            </ButtonPrimitive>
+        </div>
     )
 }
 
@@ -292,6 +313,8 @@ export function HomepageInput(): JSX.Element {
                     <p className="w-full flex justify-center text-xs text-tertiary m-0 grow">
                         PostHog AI can make mistakes. Please double-check responses
                     </p>
+
+                    <HomePageOfframp />
                 </div>
             )}
             {mode === 'ai' && <HomepageAiInput />}

@@ -200,7 +200,7 @@ async fn test_evaluate_feature_flags() {
             aggregation_group_type_index: None,
             payloads: None,
             super_groups: None,
-            holdout_groups: None,
+
             holdout: None,
         },
         ensure_experience_continuity: Some(false),
@@ -306,7 +306,7 @@ async fn test_evaluate_feature_flags_with_errors() {
             aggregation_group_type_index: None,
             payloads: None,
             super_groups: None,
-            holdout_groups: None,
+
             holdout: None,
         },
         ensure_experience_continuity: Some(false),
@@ -703,7 +703,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             },
             ensure_experience_continuity: Some(false),
@@ -730,7 +730,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             },
             ensure_experience_continuity: Some(false),
@@ -822,7 +822,7 @@ async fn test_evaluate_feature_flags_details() {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             },
             ensure_experience_continuity: Some(false),
@@ -849,7 +849,7 @@ async fn test_evaluate_feature_flags_details() {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             },
             ensure_experience_continuity: Some(false),
@@ -1011,7 +1011,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
             aggregation_group_type_index: Some(0),
             payloads: None,
             super_groups: None,
-            holdout_groups: None,
+
             holdout: None,
         },
         ensure_experience_continuity: Some(false),
@@ -1127,7 +1127,7 @@ async fn test_long_distinct_id() {
             aggregation_group_type_index: None,
             payloads: None,
             super_groups: None,
-            holdout_groups: None,
+
             holdout: None,
         },
         ensure_experience_continuity: Some(false),
@@ -1594,7 +1594,7 @@ async fn test_parallel_path_matches_sequential_results() {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             },
             ensure_experience_continuity: Some(false),
@@ -1621,7 +1621,7 @@ async fn test_parallel_path_matches_sequential_results() {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             },
             ensure_experience_continuity: Some(false),
@@ -1648,7 +1648,7 @@ async fn test_parallel_path_matches_sequential_results() {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             },
             ensure_experience_continuity: Some(false),
@@ -1675,7 +1675,7 @@ async fn test_parallel_path_matches_sequential_results() {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             },
             ensure_experience_continuity: Some(false),
@@ -1813,7 +1813,7 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
             aggregation_group_type_index: None,
             payloads: None,
             super_groups: None,
-            holdout_groups: None,
+
             holdout: None,
         },
         ensure_experience_continuity: Some(false),

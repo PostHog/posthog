@@ -212,7 +212,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -289,7 +289,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -372,7 +372,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -403,7 +403,7 @@ mod tests {
                 aggregation_group_type_index: Some(0),
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -494,7 +494,7 @@ mod tests {
                 aggregation_group_type_index: Some(1),
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -758,7 +758,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -1233,7 +1233,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -1429,7 +1429,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -1484,7 +1484,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -1560,7 +1560,7 @@ mod tests {
                 aggregation_group_type_index: Some(1),
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             },
             deleted: false,
@@ -1606,7 +1606,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -1688,7 +1688,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -1768,7 +1768,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -1830,7 +1830,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -1879,7 +1879,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -2013,7 +2013,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -2079,7 +2079,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -2127,7 +2127,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -2201,7 +2201,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             Some(false),
@@ -2435,7 +2435,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -2545,7 +2545,7 @@ mod tests {
                     variant: None,
                     ..Default::default()
                 }]),
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -2709,7 +2709,7 @@ mod tests {
                     variant: None,
                     ..Default::default()
                 }]),
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -2825,7 +2825,7 @@ mod tests {
                     variant: None,
                     ..Default::default()
                 }]),
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -2978,7 +2978,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -3076,7 +3076,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -3174,7 +3174,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -3293,7 +3293,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -3391,7 +3391,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -3489,7 +3489,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -3579,7 +3579,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -3664,7 +3664,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -3764,7 +3764,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -3842,7 +3842,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -3950,7 +3950,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -4041,7 +4041,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -4073,7 +4073,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -4199,7 +4199,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -4267,7 +4267,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -4359,13 +4359,10 @@ mod tests {
                     variant: None,
                     ..Default::default()
                 }],
-                holdout_groups: Some(vec![FlagPropertyGroup {
-                    properties: Some(vec![]),
-                    rollout_percentage: Some(70.0),
-                    variant: Some("holdout".to_string()),
-                    ..Default::default()
-                }]),
-                holdout: None,
+                holdout: Some(Holdout {
+                    id: 1,
+                    exclusion_percentage: 70.0,
+                }),
                 multivariate: Some(multivariate_json.clone()),
                 aggregation_group_type_index: None,
                 payloads: None,
@@ -4395,13 +4392,10 @@ mod tests {
                     variant: None,
                     ..Default::default()
                 }],
-                holdout_groups: Some(vec![FlagPropertyGroup {
-                    properties: Some(vec![]),
-                    rollout_percentage: Some(70.0),
-                    variant: Some("holdout".to_string()),
-                    ..Default::default()
-                }]),
-                holdout: None,
+                holdout: Some(Holdout {
+                    id: 1,
+                    exclusion_percentage: 70.0,
+                }),
                 multivariate: Some(multivariate_json.clone()),
                 aggregation_group_type_index: None,
                 payloads: None,
@@ -4431,13 +4425,10 @@ mod tests {
                     variant: None,
                     ..Default::default()
                 }],
-                holdout_groups: Some(vec![FlagPropertyGroup {
-                    properties: Some(vec![]),
-                    rollout_percentage: Some(0.0),
-                    variant: Some("holdout".to_string()),
-                    ..Default::default()
-                }]),
-                holdout: None,
+                holdout: Some(Holdout {
+                    id: 1,
+                    exclusion_percentage: 0.0,
+                }),
                 multivariate: Some(multivariate_json),
                 aggregation_group_type_index: None,
                 payloads: None,
@@ -4498,7 +4489,7 @@ mod tests {
             .unwrap();
 
         assert!(result.matches);
-        assert_eq!(result.variant, Some("holdout".to_string()));
+        assert_eq!(result.variant, Some("holdout-1".to_string()));
         assert_eq!(result.reason, FeatureFlagMatchReason::HoldoutConditionValue);
 
         // same should hold true for a different feature flag when within holdout
@@ -4506,7 +4497,7 @@ mod tests {
             .get_match(&other_flag_with_holdout, None, None, &None)
             .unwrap();
         assert!(result.matches);
-        assert_eq!(result.variant, Some("holdout".to_string()));
+        assert_eq!(result.variant, Some("holdout-1".to_string()));
         assert_eq!(result.reason, FeatureFlagMatchReason::HoldoutConditionValue);
 
         // Test with matcher1 (outside holdout) to verify different variants
@@ -4582,7 +4573,7 @@ mod tests {
             ],
         };
 
-        // New format: holdout field only, no holdout_groups
+        // holdout field with id and exclusion_percentage
         let flag_with_new_holdout = create_test_flag(
             Some(1),
             Some(team.id),
@@ -4602,7 +4593,7 @@ mod tests {
                     variant: None,
                     ..Default::default()
                 }],
-                holdout_groups: None,
+
                 holdout: Some(Holdout {
                     id: 1,
                     exclusion_percentage: 70.0,
@@ -4803,7 +4794,7 @@ mod tests {
                     variant: None,
                     ..Default::default()
                 }],
-                holdout_groups: None,
+
                 holdout: Some(Holdout {
                     id: 1,
                     exclusion_percentage: 0.0,
@@ -4906,7 +4897,7 @@ mod tests {
                     variant: None,
                     ..Default::default()
                 }],
-                holdout_groups: None,
+
                 holdout: Some(Holdout {
                     id: 1,
                     exclusion_percentage: 100.0,
@@ -5004,7 +4995,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             },
             deleted: false,
@@ -5152,7 +5143,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -5217,7 +5208,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -5287,7 +5278,7 @@ mod tests {
                 aggregation_group_type_index: Some(1),
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -5479,7 +5470,7 @@ mod tests {
                     variant: None,
                     ..Default::default()
                 }]),
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -5968,7 +5959,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -6228,7 +6219,7 @@ mod tests {
                 aggregation_group_type_index: Some(1), // This is a group-based flag
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -6521,7 +6512,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             },
             deleted: false,
@@ -7329,7 +7320,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -7423,7 +7414,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -7530,7 +7521,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -7642,7 +7633,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -7741,7 +7732,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -7824,7 +7815,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -7849,7 +7840,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -7874,7 +7865,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -7995,7 +7986,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -8020,7 +8011,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -8135,7 +8126,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -8168,7 +8159,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -8273,7 +8264,7 @@ mod tests {
                     variant: None,
                     ..Default::default()
                 }]),
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -8374,7 +8365,7 @@ mod tests {
                     variant: None,
                     ..Default::default()
                 }]),
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -8481,7 +8472,7 @@ mod tests {
                     variant: None,
                     ..Default::default()
                 }]),
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -8585,7 +8576,7 @@ mod tests {
                 aggregation_group_type_index: Some(0),
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
@@ -8617,7 +8608,7 @@ mod tests {
                 aggregation_group_type_index: Some(1),
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             }),
             None,
