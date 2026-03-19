@@ -35,7 +35,6 @@ impl DistinctIdLookup for PostgresStorage {
                     SELECT distinct_id, version
                     FROM posthog_persondistinctid
                     WHERE team_id = $1 AND person_id = $2
-                    ORDER BY id
                     LIMIT $3
                     "#,
                     team_id as i32,
@@ -102,14 +101,14 @@ impl DistinctIdLookup for PostgresStorage {
                 sqlx::query_as!(
                     DistinctIdMapping,
                     r#"
-                    SELECT person_id, distinct_id
-                    FROM (
-                        SELECT person_id, distinct_id,
-                               ROW_NUMBER() OVER (PARTITION BY person_id ORDER BY id) as rn
+                    SELECT l.person_id, l.distinct_id
+                    FROM UNNEST($2::bigint[]) AS pid(id)
+                    CROSS JOIN LATERAL (
+                        SELECT person_id, distinct_id
                         FROM posthog_persondistinctid
-                        WHERE team_id = $1 AND person_id = ANY($2)
-                    ) sub
-                    WHERE rn <= $3
+                        WHERE team_id = $1 AND person_id = pid.id
+                        LIMIT $3
+                    ) l
                     "#,
                     team_id as i32,
                     person_ids,
