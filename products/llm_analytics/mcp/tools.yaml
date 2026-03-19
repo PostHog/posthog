@@ -176,3 +176,48 @@ tools:
     llm-analytics-provider-keys-validate-create:
         operation: llm_analytics_provider_keys_validate_create
         enabled: false
+    llm-analytics-review-queue-items-list:
+        operation: llm_analytics_review_queue_items_list
+        enabled: false
+    llm-analytics-review-queue-items-create:
+        operation: llm_analytics_review_queue_items_create
+        enabled: false
+    llm-analytics-review-queue-items-retrieve:
+        operation: llm_analytics_review_queue_items_retrieve
+        enabled: false
+    llm-analytics-review-queue-items-partial-update:
+        operation: llm_analytics_review_queue_items_partial_update
+        enabled: false
+    llm-analytics-review-queue-items-destroy:
+        operation: llm_analytics_review_queue_items_destroy
+        enabled: false
+    llm-analytics-review-queues-list:
+        operation: llm_analytics_review_queues_list
+        enabled: false
+    llm-analytics-review-queues-create:
+        operation: llm_analytics_review_queues_create
+        enabled: false
+    llm-analytics-review-queues-retrieve:
+        operation: llm_analytics_review_queues_retrieve
+        enabled: false
+    llm-analytics-review-queues-partial-update:
+        operation: llm_analytics_review_queues_partial_update
+        enabled: false
+    llm-analytics-review-queues-destroy:
+        operation: llm_analytics_review_queues_destroy
+        enabled: false
+    llm-analytics-trace-reviews-list:
+        operation: llm_analytics_trace_reviews_list
+        enabled: false
+    llm-analytics-trace-reviews-create:
+        operation: llm_analytics_trace_reviews_create
+        enabled: false
+    llm-analytics-trace-reviews-retrieve:
+        operation: llm_analytics_trace_reviews_retrieve
+        enabled: false
+    llm-analytics-trace-reviews-partial-update:
+        operation: llm_analytics_trace_reviews_partial_update
+        enabled: false
+    llm-analytics-trace-reviews-destroy:
+        operation: llm_analytics_trace_reviews_destroy
+        enabled: false

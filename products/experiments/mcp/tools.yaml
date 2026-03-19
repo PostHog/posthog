@@ -76,3 +76,21 @@ tools:
     experiments-stats-retrieve:
         operation: experiments_stats_retrieve
         enabled: false
+    experiment-saved-metrics-list:
+        operation: experiment_saved_metrics_list
+        enabled: false
+    experiment-saved-metrics-create:
+        operation: experiment_saved_metrics_create
+        enabled: false
+    experiment-saved-metrics-retrieve:
+        operation: experiment_saved_metrics_retrieve
+        enabled: false
+    experiment-saved-metrics-update:
+        operation: experiment_saved_metrics_update
+        enabled: false
+    experiment-saved-metrics-partial-update:
+        operation: experiment_saved_metrics_partial_update
+        enabled: false
+    experiment-saved-metrics-destroy:
+        operation: experiment_saved_metrics_destroy
+        enabled: false
