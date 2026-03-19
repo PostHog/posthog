@@ -115,7 +115,7 @@ SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
 SNAPSHOT_SOURCE_REQUESTED = Counter(
     "session_snapshots_requested_counter",
     "When calling the API and providing a concrete snapshot type to load.",
-    labelnames=["source", "is_personal_api_key"],
+    labelnames=["source", "is_personal_api_key", "auth_type"],
 )
 
 GENERATE_PRE_SIGNED_URL_HISTOGRAM = Histogram(
@@ -142,7 +142,9 @@ FETCH_BLOCKS_HISTOGRAM = Histogram(
 )
 
 LOADING_V2_LTS_COUNTER = Counter(
-    "session_snapshots_loading_v2_lts_counter", "Count of times we loaded a v2 recording from the lts path"
+    "session_snapshots_loading_v2_lts_counter",
+    "Count of times we loaded a v2 recording from the lts path",
+    labelnames=["auth_type"],
 )
 
 SESSION_RECORDING_THROTTLED = Counter(
@@ -1181,7 +1183,7 @@ class SessionRecordingViewSet(
             raise exceptions.NotFound("Recording not found")
 
         SNAPSHOT_SOURCE_REQUESTED.labels(
-            source=source_log_label, is_personal_api_key=str(is_personal_api_key).lower()
+            source=source_log_label, is_personal_api_key=str(is_personal_api_key).lower(), auth_type=auth_type
         ).inc()
 
         if is_personal_api_key:
@@ -1229,7 +1231,7 @@ class SessionRecordingViewSet(
                     raise exceptions.NotFound("Recording not found")
                 response = self._stream_lts_blob_v2_to_client(blob_key=provided_blob_key, decompress=decompress)
             else:
-                response = self._gather_session_recording_sources(recording, timer)
+                response = self._gather_session_recording_sources(recording, timer, auth_type=auth_type)
 
             response.headers["Server-Timing"] = timer.to_header_string()
             return response
@@ -1321,6 +1323,7 @@ class SessionRecordingViewSet(
         self,
         recording: SessionRecording,
         timer: ServerTimingsGathered,
+        auth_type: str = "unknown",
     ) -> Response:
         sources: list[dict] = []
 
@@ -1336,7 +1339,7 @@ class SessionRecordingViewSet(
                         "blob_key": urlparse(recording.full_recording_v2_path).path.lstrip("/"),
                     }
                 )
-                LOADING_V2_LTS_COUNTER.inc()
+                LOADING_V2_LTS_COUNTER.labels(auth_type=auth_type).inc()
             else:
                 with timer("list_blocks__gather_session_recording_sources"):
                     blocks = list_blocks(recording)

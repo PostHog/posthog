@@ -658,6 +658,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitWinOrderByClause(self, ctx: HogQLParser.WinOrderByClauseContext):
         return self.visit(ctx.orderExprList())
 
+    def visitWithinGroupClause(self, ctx: HogQLParser.WithinGroupClauseContext):
+        return self.visit(ctx.orderByClause())
+
     def visitWinFrameClause(self, ctx: HogQLParser.WinFrameClauseContext):
         return self.visit(ctx.winFrameExtend())
 
@@ -1052,6 +1055,12 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         args: list[ast.Expr] = self.visit(ctx.columnArgList) if ctx.columnArgList is not None else []
         distinct = True if ctx.DISTINCT() else False
         return ast.Call(name=name, params=parameters, args=args, distinct=distinct)
+
+    def visitColumnExprFunctionWithinGroup(self, ctx: HogQLParser.ColumnExprFunctionWithinGroupContext):
+        name = self.visit(ctx.identifier())
+        parameters: list[ast.Expr] = self.visit(ctx.columnExprs) if ctx.columnExprs is not None else []
+        within_group = self.visit(ctx.withinGroupClause())
+        return ast.Call(name=name, params=parameters, args=[], within_group=within_group)
 
     def visitColumnExprAsterisk(self, ctx: HogQLParser.ColumnExprAsteriskContext):
         if ctx.tableIdentifier():
