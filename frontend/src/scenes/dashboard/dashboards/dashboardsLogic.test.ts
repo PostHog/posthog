@@ -1,7 +1,8 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
 
-import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 import { DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
