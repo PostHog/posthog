@@ -1,22 +1,30 @@
-// unified's CallableInstance pattern breaks Sucrase's .call(void 0) transform.
-// This wrapper re-exports unified using dynamic import (ESM-native) and patches
-// the callable instance so Function.prototype.call is available.
+// unified v11's CallableInstance sets the prototype of the returned function
+// to Processor.prototype via Object.setPrototypeOf, which drops
+// Function.prototype from the chain. Sucrase's .call(void 0) transform then
+// fails with "Cannot read properties of undefined (reading 'call')".
 //
-// Instead of transforming unified through Sucrase, we point moduleNameMapper here.
+// We patch Object.setPrototypeOf to detect when a function's prototype is being
+// set to something that lacks Function.prototype, and restore the chain.
 
-const { unified: originalUnified, Processor } = jest.requireActual('unified')
+const origSetPrototypeOf = Object.setPrototypeOf
 
-// The CallableInstance sets prototype to Processor.prototype, dropping
-// Function.prototype from the chain. Restore it so .call/.apply/.bind work.
-function patchCallable(obj) {
+Object.setPrototypeOf = function patchedSetPrototypeOf(obj, proto) {
+    const result = origSetPrototypeOf.call(Object, obj, proto)
+    // If `obj` is a function and it lost `.call`, fix the chain
     if (typeof obj === 'function' && typeof obj.call !== 'function') {
-        const proto = Object.getPrototypeOf(obj)
-        // Insert Function.prototype between the object and its current prototype
-        Object.setPrototypeOf(proto, Function.prototype)
+        // Walk up to find the end of the prototype chain (before null)
+        let current = proto
+        while (current && Object.getPrototypeOf(current) !== null) {
+            current = Object.getPrototypeOf(current)
+        }
+        // Insert Function.prototype at the end of the chain
+        if (current && current !== Function.prototype) {
+            origSetPrototypeOf.call(Object, current, Function.prototype)
+        }
     }
-    return obj
+    return result
 }
 
-const unified = patchCallable(originalUnified)
+const { unified } = jest.requireActual('unified')
 
-module.exports = { unified, Processor }
+module.exports = { unified }
