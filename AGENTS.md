@@ -65,6 +65,10 @@ Follow the PR description template in `.github/pull_request_template.md` when cr
 - Description should be lowercase and not end with a period
 - Keep the first line under 72 characters
 
+## CI / GitHub Actions
+
+- Every job in `.github/workflows/` must declare `timeout-minutes` — prevents stuck runners from burning credits indefinitely
+
 ## Security
 
 See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep security guidelines.
