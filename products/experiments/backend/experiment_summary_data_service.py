@@ -28,12 +28,14 @@ from posthog.schema import (
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.event_usage import EventSource
 from posthog.hogql_queries.experiments.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Experiment
 from posthog.sync import database_sync_to_async
+
+from products.experiments.backend.models.experiment import Experiment
 
 
 @dataclass
@@ -216,7 +218,10 @@ class ExperimentSummaryDataService:
                         team=experiment.team,
                         workload=Workload.ONLINE,
                     )
-                    result = query_runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
+                    result = query_runner.run(
+                        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                        analytics_props={"source": EventSource.POSTHOG_AI},
+                    )
                 refresh_time = getattr(result, "last_refresh", None)
 
                 if is_incomplete_response(result):
@@ -265,7 +270,8 @@ class ExperimentSummaryDataService:
                             team=experiment.team,
                         )
                         exposure_result = exposure_runner.run(
-                            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
+                            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                            analytics_props={"source": EventSource.POSTHOG_AI},
                         )
 
                     if is_incomplete_response(exposure_result):

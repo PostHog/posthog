@@ -32,12 +32,10 @@ import { createXAxisTickCallback } from 'lib/charts/utils/dates'
 import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useChart } from 'lib/hooks/useChart'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
@@ -275,17 +273,18 @@ export function LineGraph_({
 
     const { aggregationLabel } = useValues(groupsModel)
     const { isDarkModeOn } = useValues(themeLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { baseCurrency } = useValues(teamLogic)
 
     const { insightProps, insight } = useValues(insightLogic)
     const { timezone, isTrends, isFunnels, breakdownFilter, interval, insightData } = useValues(
         insightVizDataLogic(insightProps)
     )
-    const { theme, getTrendsColor, getTrendsHidden, hoveredDatasetIndex } = useValues(trendsDataLogic(insightProps))
+    const { theme, getTrendsColor, getTrendsHidden, hoveredDatasetIndex, currentPeriodResult } = useValues(
+        trendsDataLogic(insightProps)
+    )
     const { setHoveredDatasetIndex } = useActions(trendsDataLogic(insightProps))
 
-    const { tooltipId, hideTooltip, getTooltip, positionTooltip } = useInsightTooltip()
+    const { tooltipId, hideTooltip, showTooltip, getTooltip, positionTooltip } = useInsightTooltip()
 
     const colors = getGraphColors()
     const isHorizontal = type === GraphType.HorizontalBar
@@ -571,13 +570,11 @@ export function LineGraph_({
                     weight: 'normal',
                 },
             }
-            const xAxisTickCallback = featureFlags[FEATURE_FLAGS.DASHBOARD_TILE_REDESIGN]
-                ? createXAxisTickCallback({
-                      interval: interval ?? 'day',
-                      allDays: filteredDatasets[0]?.days ?? [],
-                      timezone,
-                  })
-                : undefined
+            const xAxisTickCallback = createXAxisTickCallback({
+                interval: interval ?? 'day',
+                allDays: currentPeriodResult?.days ?? [],
+                timezone,
+            })
 
             const gridOptions: Partial<GridLineOptions> = {
                 color: (context) => {
@@ -722,7 +719,7 @@ export function LineGraph_({
 
                             tooltipEl.classList.remove('above', 'below', 'no-transform', 'opacity-0', 'invisible')
                             tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
-                            tooltipEl.style.opacity = '1'
+                            showTooltip()
 
                             if (tooltip.body) {
                                 const referenceDataPoint = tooltip.dataPoints[0]
@@ -1110,6 +1107,7 @@ export function LineGraph_({
             showTrendLines,
             labels,
             hideTooltip,
+            showTooltip,
             getTooltip,
             hoveredDatasetIndex,
             setHoveredDatasetIndex,

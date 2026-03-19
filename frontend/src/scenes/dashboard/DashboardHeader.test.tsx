@@ -4,6 +4,7 @@ import { cleanup, render } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -81,7 +82,7 @@ describe('DashboardHeader', () => {
         logic.mount()
 
         if (dashboardMode) {
-            logic.actions.setDashboardMode(dashboardMode, null)
+            logic.actions.setDashboardMode(dashboardMode, DashboardEventSource.Browser)
         }
 
         render(
@@ -134,59 +135,6 @@ describe('DashboardHeader', () => {
         for (const attr of notVisible) {
             expect(document.querySelector(`[data-attr="${attr}"]`)).not.toBeInTheDocument()
         }
-
-        logic.unmount()
-    })
-
-    it('new dashboard gets forceEdit on SceneTitleSection', () => {
-        const dashboard = makeDashboard({
-            name: 'New Dashboard',
-            tiles: [
-                {
-                    id: 1,
-                    layouts: {},
-                    color: null,
-                    insight: {
-                        id: 10,
-                        short_id: 'xyz',
-                        name: 'Some insight',
-                        query: { kind: 'TrendsQuery', series: [] },
-                    },
-                },
-            ],
-        })
-        const { logic } = renderHeader({ dashboard })
-
-        const textarea = document.querySelector('[data-attr="scene-title-textarea"]')
-        expect(textarea).toBeInTheDocument()
-
-        logic.unmount()
-    })
-
-    it('existing dashboard does not get forceEdit on SceneTitleSection', () => {
-        const dashboard = makeDashboard({
-            name: 'My Custom Dashboard',
-            created_at: '2020-01-01T00:00:00Z',
-            tiles: [
-                {
-                    id: 1,
-                    layouts: {},
-                    color: null,
-                    insight: {
-                        id: 10,
-                        short_id: 'xyz',
-                        name: 'Some insight',
-                        query: { kind: 'TrendsQuery', series: [] },
-                    },
-                },
-            ],
-        })
-        const { logic } = renderHeader({ dashboard })
-
-        const textarea = document.querySelector('[data-attr="scene-title-textarea"]')
-        // SceneTitleSection should not be in forceEdit for old dashboards —
-        // it renders but the textarea won't be auto-focused/editable
-        expect(textarea).not.toBeInTheDocument()
 
         logic.unmount()
     })

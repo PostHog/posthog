@@ -90,6 +90,7 @@ rules:
                               |DataWarehouseTable
                               |DesktopRecording
                               |EarlyAccessFeature
+                              |EmailMessageMapping
                               |EvaluationContext
                               |Edge
                               |Endpoint
@@ -101,6 +102,7 @@ rules:
                               |ErrorTrackingIssueFingerprintV2
                               |ErrorTrackingRelease
                               |ErrorTrackingSpikeDetectionConfig
+                              |ErrorTrackingSpikeEvent
                               |ErrorTrackingStackFrame
                               |ErrorTrackingSuppressionRule
                               |ErrorTrackingSymbolSet
@@ -137,6 +139,7 @@ rules:
                               |MessageRecipientPreference
                               |MessageTemplate
                               |Node
+                              |NotificationEvent
                               |Notebook
                               |ObjectMediaPreview
                               |PluginConfig
@@ -166,9 +169,14 @@ rules:
                               |Tag
                               |Task
                               |TaskRun
+                              |TeamConversationsEmailConfig
                               |Text
                               |Threshold
                               |Ticket
+                              |ReviewQueue
+                              |ReviewQueueItem
+                              |TraceReview
+                              |TraceReviewScore
                               |UploadedMedia
                               |UserInterview
                               |UserRepoPreference
@@ -260,6 +268,7 @@ rules:
                         |DataWarehouseTable
                         |DesktopRecording
                         |EarlyAccessFeature
+                        |EmailMessageMapping
                         |EvaluationContext
                         |Edge
                         |Endpoint
@@ -271,6 +280,7 @@ rules:
                         |ErrorTrackingIssueFingerprintV2
                         |ErrorTrackingRelease
                         |ErrorTrackingSpikeDetectionConfig
+                        |ErrorTrackingSpikeEvent
                         |ErrorTrackingStackFrame
                         |ErrorTrackingSuppressionRule
                         |ErrorTrackingSymbolSet
@@ -306,6 +316,7 @@ rules:
                         |MessageRecipientPreference
                         |MessageTemplate
                         |Node
+                        |NotificationEvent
                         |Notebook
                         |ObjectMediaPreview
                         |PluginConfig
@@ -335,9 +346,14 @@ rules:
                         |Tag
                         |Task
                         |TaskRun
+                        |TeamConversationsEmailConfig
                         |Text
                         |Threshold
                         |Ticket
+                        |ReviewQueue
+                        |ReviewQueueItem
+                        |TraceReview
+                        |TraceReviewScore
                         |UploadedMedia
                         |UserInterview
                         |UserRepoPreference

@@ -85,6 +85,18 @@ MOCK_COST_DATA: dict[str, ModelCost] = {
         "supports_vision": True,
         "mode": "chat",
     },
+    "openrouter/anthropic/claude-3.5-sonnet": {
+        "litellm_provider": "openrouter",
+        "max_input_tokens": 200000,
+        "supports_vision": True,
+        "mode": "chat",
+    },
+    "fireworks_ai/accounts/fireworks/models/llama-v3p1-70b-instruct": {
+        "litellm_provider": "fireworks_ai",
+        "max_input_tokens": 131072,
+        "supports_vision": False,
+        "mode": "chat",
+    },
 }
 
 
@@ -101,6 +113,8 @@ def create_mock_settings() -> MagicMock:
     settings.openai_api_key = "sk-test"
     settings.anthropic_api_key = "sk-ant-test"
     settings.gemini_api_key = "gemini-test"
+    settings.openrouter_api_key = "or-test"
+    settings.fireworks_api_key = "fw-test"
     return settings
 
 
@@ -188,3 +202,32 @@ class TestListModelsForProductEndpoint:
         response = client.get("/invalid_product/v1/models")
         assert response.status_code == 400
         assert "Invalid product" in response.json()["detail"]
+
+
+class TestResponsesModeModels:
+    @pytest.mark.parametrize(
+        "endpoint", ["/v1/models", "/posthog_code/v1/models", "/array/v1/models", "/twig/v1/models"]
+    )
+    def test_models_endpoint_includes_responses_mode_models(self, client: TestClient, endpoint: str):
+        cost_data_with_responses = dict(MOCK_COST_DATA)
+        cost_data_with_responses["gpt-5.3-codex"] = {
+            **cost_data_with_responses["gpt-5.3-codex"],
+            "mode": "responses",
+        }
+
+        def get_costs_with_responses(self: ModelCostService, model: str) -> ModelCost | None:
+            return cost_data_with_responses.get(model)
+
+        def get_all_models_with_responses(self: ModelCostService) -> dict[str, ModelCost]:
+            return cost_data_with_responses
+
+        ModelRegistryService.reset_instance()
+        ModelCostService.reset_instance()
+        with (
+            patch.object(ModelCostService, "get_costs", get_costs_with_responses),
+            patch.object(ModelCostService, "get_all_models", get_all_models_with_responses),
+        ):
+            response = client.get(endpoint)
+            assert response.status_code == 200
+            model_ids = {m["id"] for m in response.json()["data"]}
+            assert "gpt-5.3-codex" in model_ids

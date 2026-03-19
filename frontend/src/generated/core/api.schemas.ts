@@ -288,6 +288,14 @@ export interface PaginatedProjectBackwardCompatBasicListApi {
 
 export type ProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
 
+export type ProjectBackwardCompatApiProductIntentsItem = {
+    product_type?: string
+    created_at?: string
+    /** @nullable */
+    onboarding_completed_at?: string | null
+    updated_at?: string
+}
+
 export type EffectiveMembershipLevelEnumApi =
     (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
 
@@ -558,7 +566,7 @@ export interface ProjectBackwardCompatApi {
     surveys_opt_in?: boolean | null
     /** @nullable */
     heatmaps_opt_in?: boolean | null
-    readonly product_intents: string
+    readonly product_intents: readonly ProjectBackwardCompatApiProductIntentsItem[]
     /** @nullable */
     flags_persistence_default?: boolean | null
     /** @nullable */
@@ -583,6 +591,14 @@ export interface ProjectBackwardCompatApi {
 }
 
 export type PatchedProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
+
+export type PatchedProjectBackwardCompatApiProductIntentsItem = {
+    product_type?: string
+    created_at?: string
+    /** @nullable */
+    onboarding_completed_at?: string | null
+    updated_at?: string
+}
 
 /**
  * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
@@ -683,7 +699,7 @@ export interface PatchedProjectBackwardCompatApi {
     surveys_opt_in?: boolean | null
     /** @nullable */
     heatmaps_opt_in?: boolean | null
-    readonly product_intents?: string
+    readonly product_intents?: readonly PatchedProjectBackwardCompatApiProductIntentsItem[]
     /** @nullable */
     flags_persistence_default?: boolean | null
     /** @nullable */
@@ -707,14 +723,17 @@ export interface PatchedProjectBackwardCompatApi {
     readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnumApi[]
 }
 
+export type RoleApiMembersItem = { [key: string]: unknown }
+
 export interface RoleApi {
     readonly id: string
     /** @maxLength 200 */
     name: string
     readonly created_at: string
     readonly created_by: UserBasicApi
-    readonly members: string
-    readonly is_default: string
+    /** Members assigned to this role */
+    readonly members: readonly RoleApiMembersItem[]
+    readonly is_default: boolean
 }
 
 export interface PaginatedRoleListApi {
@@ -726,111 +745,17 @@ export interface PaginatedRoleListApi {
     results: RoleApi[]
 }
 
+export type PatchedRoleApiMembersItem = { [key: string]: unknown }
+
 export interface PatchedRoleApi {
     readonly id?: string
     /** @maxLength 200 */
     name?: string
     readonly created_at?: string
     readonly created_by?: UserBasicApi
-    readonly members?: string
-    readonly is_default?: string
-}
-
-/**
- * * `USR` - user
- * `GIT` - GitHub
- */
-export type CreationTypeEnumApi = (typeof CreationTypeEnumApi)[keyof typeof CreationTypeEnumApi]
-
-export const CreationTypeEnumApi = {
-    Usr: 'USR',
-    Git: 'GIT',
-} as const
-
-/**
- * * `dashboard_item` - insight
- * `dashboard` - dashboard
- * `project` - project
- * `organization` - organization
- * `recording` - recording
- */
-export type AnnotationScopeEnumApi = (typeof AnnotationScopeEnumApi)[keyof typeof AnnotationScopeEnumApi]
-
-export const AnnotationScopeEnumApi = {
-    DashboardItem: 'dashboard_item',
-    Dashboard: 'dashboard',
-    Project: 'project',
-    Organization: 'organization',
-    Recording: 'recording',
-} as const
-
-export interface AnnotationApi {
-    readonly id: number
-    /**
-     * @maxLength 8192
-     * @nullable
-     */
-    content?: string | null
-    /** @nullable */
-    date_marker?: string | null
-    creation_type?: CreationTypeEnumApi
-    /** @nullable */
-    dashboard_item?: number | null
-    /** @nullable */
-    dashboard_id?: number | null
-    /** @nullable */
-    readonly dashboard_name: string | null
-    /** @nullable */
-    readonly insight_short_id: string | null
-    /** @nullable */
-    readonly insight_name: string | null
-    /** @nullable */
-    readonly insight_derived_name: string | null
-    readonly created_by: UserBasicApi
-    /** @nullable */
-    readonly created_at: string | null
-    readonly updated_at: string
-    deleted?: boolean
-    scope?: AnnotationScopeEnumApi
-}
-
-export interface PaginatedAnnotationListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: AnnotationApi[]
-}
-
-export interface PatchedAnnotationApi {
-    readonly id?: number
-    /**
-     * @maxLength 8192
-     * @nullable
-     */
-    content?: string | null
-    /** @nullable */
-    date_marker?: string | null
-    creation_type?: CreationTypeEnumApi
-    /** @nullable */
-    dashboard_item?: number | null
-    /** @nullable */
-    dashboard_id?: number | null
-    /** @nullable */
-    readonly dashboard_name?: string | null
-    /** @nullable */
-    readonly insight_short_id?: string | null
-    /** @nullable */
-    readonly insight_name?: string | null
-    /** @nullable */
-    readonly insight_derived_name?: string | null
-    readonly created_by?: UserBasicApi
-    /** @nullable */
-    readonly created_at?: string | null
-    readonly updated_at?: string
-    deleted?: boolean
-    scope?: AnnotationScopeEnumApi
+    /** Members assigned to this role */
+    readonly members?: readonly PatchedRoleApiMembersItem[]
+    readonly is_default?: boolean
 }
 
 export interface CommentApi {
@@ -1017,7 +942,7 @@ export interface ExportedAssetApi {
     insight?: number | null
     export_format: ExportFormatEnumApi
     readonly created_at: string
-    readonly has_content: string
+    readonly has_content: boolean
     export_context?: unknown | null
     readonly filename: string
     /** @nullable */
@@ -1097,6 +1022,18 @@ export interface FlagValueResponseApi {
     refreshing: boolean
 }
 
+export interface SharePasswordApi {
+    readonly id: number
+    readonly created_at: string
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    note?: string | null
+    readonly created_by_email: string
+    readonly is_active: boolean
+}
+
 export interface SharingConfigurationApi {
     readonly created_at: string
     enabled?: boolean
@@ -1104,12 +1041,12 @@ export interface SharingConfigurationApi {
     readonly access_token: string | null
     settings?: unknown | null
     password_required?: boolean
-    readonly share_passwords: string
+    readonly share_passwords: readonly SharePasswordApi[]
 }
 
 /**
  * * `slack` - Slack
- * `slack-twig` - Slack Twig
+ * `slack-posthog-code` - Slack Posthog Code
  * `salesforce` - Salesforce
  * `hubspot` - Hubspot
  * `google-pubsub` - Google Pubsub
@@ -1136,11 +1073,11 @@ export interface SharingConfigurationApi {
  * `jira` - Jira
  * `pinterest-ads` - Pinterest Ads
  */
-export type Kind439EnumApi = (typeof Kind439EnumApi)[keyof typeof Kind439EnumApi]
+export type KindBfbEnumApi = (typeof KindBfbEnumApi)[keyof typeof KindBfbEnumApi]
 
-export const Kind439EnumApi = {
+export const KindBfbEnumApi = {
     Slack: 'slack',
-    SlackTwig: 'slack-twig',
+    SlackPosthogCode: 'slack-posthog-code',
     Salesforce: 'salesforce',
     Hubspot: 'hubspot',
     GooglePubsub: 'google-pubsub',
@@ -1173,7 +1110,7 @@ export const Kind439EnumApi = {
  */
 export interface IntegrationApi {
     readonly id: number
-    kind: Kind439EnumApi
+    kind: KindBfbEnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -1195,7 +1132,7 @@ export interface PaginatedIntegrationListApi {
  */
 export interface PatchedIntegrationApi {
     readonly id?: number
-    kind?: Kind439EnumApi
+    kind?: KindBfbEnumApi
     config?: unknown
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -1610,6 +1547,8 @@ export type OrganizationApiTeamsItem = { [key: string]: unknown }
 
 export type OrganizationApiProjectsItem = { [key: string]: unknown }
 
+export type OrganizationApiMetadata = { [key: string]: string }
+
 export interface OrganizationApi {
     readonly id: string
     /** @maxLength 64 */
@@ -1627,7 +1566,7 @@ export interface OrganizationApi {
     /** @nullable */
     readonly available_product_features: readonly unknown[] | null
     is_member_join_email_enabled?: boolean
-    readonly metadata: string
+    readonly metadata: OrganizationApiMetadata
     /** @nullable */
     readonly customer_id: string | null
     /** @nullable */
@@ -1636,7 +1575,7 @@ export interface OrganizationApi {
     members_can_invite?: boolean | null
     members_can_use_personal_api_keys?: boolean
     allow_publicly_shared_resources?: boolean
-    readonly member_count: string
+    readonly member_count: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
     /** Default statistical method for new experiments in this organization.
@@ -1927,21 +1866,6 @@ export type RolesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
-}
-
-export type AnnotationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * A search term.
-     */
-    search?: string
 }
 
 export type CommentsListParams = {

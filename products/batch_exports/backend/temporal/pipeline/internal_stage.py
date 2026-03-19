@@ -1,5 +1,4 @@
 import sys
-import time
 import uuid
 import socket
 import typing
@@ -25,7 +24,6 @@ if typing.TYPE_CHECKING:
 
 from structlog.contextvars import bind_contextvars
 
-from posthog.batch_exports.service import BackfillDetails, BatchExportField, BatchExportModel, BatchExportSchema
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import (
     ClickHouseCheckQueryStatusError,
@@ -39,7 +37,14 @@ from posthog.temporal.common.clickhouse import (
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.service import (
+    BackfillDetails,
+    BatchExportField,
+    BatchExportModel,
+    BatchExportSchema,
+)
 from products.batch_exports.backend.temporal.batch_exports import default_fields
+from products.batch_exports.backend.temporal.metrics import log_query_duration
 from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (
     RecordBatchModel,
@@ -545,21 +550,17 @@ async def _execute_query(client: ClickHouseClient, query: str, query_parameters:
     and process list.
     If the query fails, we will raise an error.
     """
-    query_id = uuid.uuid4()
-    logger = LOGGER.bind(query_id=str(query_id))
-    start_time = time.monotonic()
-    logger.info("Executing insert into internal stage query")
-    try:
-        await client.execute_query(query, query_parameters=query_parameters, query_id=str(query_id), timeout=300)
-    except ClickHouseClientTimeoutError:
-        logger.warning(
-            "Timed-out waiting for insert into S3. Will attempt to check query status and wait for completion",
-            timeout=300,
-        )
-        await _wait_for_query_completion(client, str(query_id))
-
-    execution_time = time.monotonic() - start_time
-    logger.info("Query completed successfully", query_duration_seconds=execution_time)
+    query_id = str(uuid.uuid4())
+    logger = LOGGER.bind(query_id=query_id)
+    with log_query_duration(logger=logger, query_id=query_id, query_type="insert_into_internal_stage"):
+        try:
+            await client.execute_query(query, query_parameters=query_parameters, query_id=query_id, timeout=300)
+        except ClickHouseClientTimeoutError:
+            logger.warning(
+                "Timed-out waiting for insert into S3. Will attempt to check query status and wait for completion",
+                timeout=300,
+            )
+            await _wait_for_query_completion(client, query_id)
 
 
 async def _wait_for_query_completion(client: ClickHouseClient, query_id: str) -> None:

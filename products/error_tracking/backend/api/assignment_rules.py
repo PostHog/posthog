@@ -1,5 +1,6 @@
 import structlog
 import posthoganalytics
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.response import Response
 
@@ -20,9 +21,19 @@ class ErrorTrackingAssignmentRuleSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ErrorTrackingAssignmentRule
-        fields = ["id", "filters", "assignee", "order_key", "disabled_data"]
-        read_only_fields = ["team_id"]
+        fields = ["id", "filters", "assignee", "order_key", "disabled_data", "created_at", "updated_at"]
+        read_only_fields = ["team_id", "created_at", "updated_at"]
 
+    @extend_schema_field(
+        {
+            "type": "object",
+            "nullable": True,
+            "properties": {
+                "type": {"type": "string", "enum": ["user", "role"]},
+                "id": {"oneOf": [{"type": "integer"}, {"type": "string", "format": "uuid"}]},
+            },
+        }
+    )
     def get_assignee(self, obj):
         if obj.user_id:
             return {"type": "user", "id": obj.user_id}

@@ -1,8 +1,6 @@
 from typing import Any
 
 from django.db import transaction
-from django.db.models.signals import pre_delete
-from django.dispatch import receiver
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
@@ -13,9 +11,8 @@ from rest_framework.response import Response
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.experiment import ExperimentHoldout, holdout_filters_for_flag
-from posthog.models.signals import model_activity_signal, mutable_receiver
+
+from products.experiments.backend.models.experiment import ExperimentHoldout, holdout_filters_for_flag
 
 
 class ExperimentHoldoutSerializer(serializers.ModelSerializer):
@@ -132,41 +129,3 @@ class ExperimentHoldoutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 existing_flag_serializer.save()
 
             return super().destroy(request, *args, **kwargs)
-
-
-@mutable_receiver(model_activity_signal, sender=ExperimentHoldout)
-def handle_experiment_holdout_change(
-    sender, scope, before_update, after_update, activity, user=None, was_impersonated=False, **kwargs
-):
-    # Log activity for the holdout itself
-    log_activity(
-        organization_id=after_update.team.organization_id,
-        team_id=after_update.team_id,
-        user=user or after_update.created_by,
-        was_impersonated=was_impersonated,
-        item_id=after_update.id,
-        scope="Experiment",  # log under Experiment scope so it appears in experiment activity log
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=after_update.name,
-            type="holdout",
-        ),
-    )
-
-
-@receiver(pre_delete, sender=ExperimentHoldout)
-def handle_experiment_holdout_delete(sender, instance, **kwargs):
-    from posthog.models.activity_logging.utils import activity_storage
-
-    # Log activity for the holdout itself
-    log_activity(
-        organization_id=instance.team.organization_id,
-        team_id=instance.team_id,
-        user=activity_storage.get_user() or getattr(instance, "last_modified_by", instance.created_by),
-        was_impersonated=activity_storage.get_was_impersonated(),
-        item_id=instance.id,
-        scope="Experiment",
-        activity="deleted",
-        detail=Detail(name=instance.name, type="holdout"),
-    )

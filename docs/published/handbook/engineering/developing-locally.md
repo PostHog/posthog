@@ -54,7 +54,7 @@ For other Linux distros, adjust the steps as needed (e.g. use `dnf` or `pacman` 
 
 Windows isn't supported natively. But, Windows users can run a Linux virtual machine. The latest Ubuntu LTS Desktop is recommended. (Ubuntu Server is not recommended as debugging the frontend will require a browser that can access localhost.)
 
-In case some steps here have fallen out of date, please tell us about it – feel free to [submit a patch](https://github.com/PostHog/posthog.com/blob/master/contents/handbook/engineering/developing-locally.md)!
+In case some steps here have fallen out of date, please tell us about it – feel free to [submit a patch](https://github.com/PostHog/posthog/blob/master/docs/published/handbook/engineering/developing-locally.md)!
 
 ## Option 1: Developing locally
 
@@ -480,6 +480,13 @@ hogli build:openapi
 ```
 
 See the [Type system guide](type-system) for details on how type generation works and best practices for documenting your API.
+
+## Extra: Working on multiple branches simultaneously
+
+If you frequently switch between features, bug fixes, and PR reviews, the
+[isolated development with Flox](./flox-multi-instance-workflow) guide shows
+how to use Git worktrees with per-worktree Flox environments for fast context
+switching.
 
 ## Extra: Working with the data warehouse
 

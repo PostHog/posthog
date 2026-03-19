@@ -35,6 +35,9 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub statement_timeout_ms: u64,
 
+    #[envconfig(default = "10")]
+    pub pool_monitor_interval_secs: u64,
+
     #[envconfig(default = "9100")]
     pub metrics_port: u16,
 }

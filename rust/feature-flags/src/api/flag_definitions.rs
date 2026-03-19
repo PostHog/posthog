@@ -26,6 +26,7 @@ use common_hypercache::{HyperCacheError, KeyType};
 use common_metrics::inc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::sync::Arc;
 use tracing::{info, warn};
 
 /// Response for flag definitions endpoint
@@ -366,6 +367,21 @@ async fn authenticate_flag_definitions(
     // Try team secret token first (from Authorization header only)
     // Secret tokens have priority over personal API keys
     if let Some(token) = auth::extract_team_secret_token(headers) {
+        // Try managed project secret API key (posthog_projectsecretapikey) first
+        // TODO: track last_used_at for project secret API keys (similar to PAK path below)
+        if auth::validate_project_secret_api_key_for_team(state, &token, team.id)
+            .await
+            .is_ok()
+        {
+            inc(
+                FLAG_DEFINITIONS_AUTH_COUNTER,
+                &[("method".to_string(), "project_secret_api_key".to_string())],
+                1,
+            );
+            return Ok(());
+        }
+
+        // Fall back to legacy secret_api_token on posthog_team
         let result = auth::validate_secret_api_token_for_team(state, &token, team.id).await;
         if result.is_ok() {
             inc(
@@ -379,15 +395,28 @@ async fn authenticate_flag_definitions(
 
     // Try personal API key (with scope validation)
     if let Some(key) = auth::extract_personal_api_key(headers)? {
-        let result = auth::validate_personal_api_key_with_scopes_for_team(state, &key, team).await;
-        if result.is_ok() {
-            inc(
-                FLAG_DEFINITIONS_AUTH_COUNTER,
-                &[("method".to_string(), "personal_api_key".to_string())],
-                1,
-            );
+        let pak_id =
+            auth::validate_personal_api_key_with_scopes_for_team(state, &key, team).await?;
+        inc(
+            FLAG_DEFINITIONS_AUTH_COUNTER,
+            &[("method".to_string(), "personal_api_key".to_string())],
+            1,
+        );
+
+        if !*state.config.skip_writes {
+            // Use shared Redis, not the dedicated flags cache client —
+            // PAK last_used_at tracking is advisory and shouldn't steal
+            // capacity from the critical path.
+            let redis = state.redis_client.clone();
+            let pg_writer: Arc<dyn common_database::Client + Send + Sync> =
+                state.database_pools.non_persons_writer.clone();
+            // Redis SET NX EX is sub-millisecond, so we check inline to avoid
+            // spawning a background task on every request. Only the DB write
+            // (triggered when the key is newly set) runs in a spawned task.
+            drop(super::pak_usage::record_pak_last_used(redis, pg_writer, pak_id).await);
         }
-        return result;
+
+        return Ok(());
     }
 
     Err(FlagError::NoAuthenticationProvided)

@@ -7,6 +7,8 @@ import { PaginationManual } from '@posthog/lemon-ui'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { objectsEqual, parseTagsFilter, toParams } from 'lib/utils'
+import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
+import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -152,14 +154,28 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     }
                 },
                 updateFeatureFlag: async ({ id, payload }: { id: number; payload: Partial<FeatureFlagType> }) => {
-                    const response = await api.update(
-                        `api/projects/${values.currentProjectId}/feature_flags/${id}`,
-                        payload
-                    )
-                    const updatedFlags = [...values.featureFlags.results].map((flag) =>
-                        flag.id === response.id ? response : flag
-                    )
-                    return { ...values.featureFlags, results: updatedFlags, lastUpdatedFlagId: id }
+                    try {
+                        const response = await api.update(
+                            `api/projects/${values.currentProjectId}/feature_flags/${id}`,
+                            payload
+                        )
+                        const updatedFlags = [...values.featureFlags.results].map((flag) =>
+                            flag.id === response.id ? response : flag
+                        )
+                        return { ...values.featureFlags, results: updatedFlags, lastUpdatedFlagId: id }
+                    } catch (e: any) {
+                        if (e.status === 409 && e.data?.change_request_id) {
+                            const actionDescription =
+                                payload.active === true
+                                    ? 'enable this feature flag'
+                                    : payload.active === false
+                                      ? 'disable this feature flag'
+                                      : 'update this feature flag'
+                            showApprovalRequiredToast(e.data.change_request_id, actionDescription)
+                            dispatchChangeRequestCreated({ resourceType: 'feature_flag', resourceId: id })
+                        }
+                        throw e
+                    }
                 },
             },
         ],

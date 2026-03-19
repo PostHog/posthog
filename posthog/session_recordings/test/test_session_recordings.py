@@ -324,6 +324,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             properties={
                 "source": ANY,
                 "$current_url": ANY,
+                "$host": ANY,
+                "$pathname": ANY,
                 "$session_id": ANY,
                 "was_impersonated": ANY,
                 "mcp_user_agent": ANY,
@@ -331,6 +333,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "mcp_client_version": ANY,
                 "mcp_protocol_version": ANY,
                 "mcp_oauth_client_name": ANY,
+                "$set_once": ANY,
                 "partial_filter_chosen_my_filter": "something",
             },
             groups=ANY,
