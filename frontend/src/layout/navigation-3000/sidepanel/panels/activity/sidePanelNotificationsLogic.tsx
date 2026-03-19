@@ -93,7 +93,11 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             [] as InAppNotification[],
             {
                 setInAppNotifications: (_, { notifications }) => notifications,
-                appendInAppNotifications: (state, { notifications }) => [...state, ...notifications],
+                appendInAppNotifications: (state, { notifications }) => {
+                    const existingIds = new Set(state.map((n) => n.id))
+                    const newItems = notifications.filter((n) => !existingIds.has(n.id))
+                    return [...state, ...newItems]
+                },
                 notificationReceived: (state, { notification }) => [notification, ...state],
                 markAsRead: (state, { id }) =>
                     state.map((n) => (n.id === id ? { ...n, read: true, read_at: new Date().toISOString() } : n)),
