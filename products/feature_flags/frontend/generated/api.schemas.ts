@@ -571,6 +571,11 @@ export interface FeatureFlagConditionGroupSchemaApi {
      * @nullable
      */
     variant?: string | null
+    /**
+     * Group type index for this condition set. None means person-level aggregation.
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
 }
 
 export interface FeatureFlagMultivariateVariantSchemaApi {

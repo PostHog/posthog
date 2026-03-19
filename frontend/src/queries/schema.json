@@ -11772,6 +11772,21 @@
             ],
             "type": "string"
         },
+        "DetectorConfig": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/SingleDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/EnsembleDetectorConfig"
+                }
+            ],
+            "description": "Detector configuration types"
+        },
+        "DetectorType": {
+            "enum": ["zscore", "mad", "threshold"],
+            "type": "string"
+        },
         "DocumentArtifactContent": {
             "additionalProperties": false,
             "properties": {
@@ -12537,6 +12552,32 @@
             },
             "required": ["results"],
             "type": "object"
+        },
+        "EnsembleDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "detectors": {
+                    "description": "Sub-detector configurations (minimum 2)",
+                    "items": {
+                        "$ref": "#/definitions/SingleDetectorConfig"
+                    },
+                    "type": "array"
+                },
+                "operator": {
+                    "$ref": "#/definitions/EnsembleOperator",
+                    "description": "How to combine sub-detector results"
+                },
+                "type": {
+                    "const": "ensemble",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "operator", "detectors"],
+            "type": "object"
+        },
+        "EnsembleOperator": {
+            "enum": ["and", "or"],
+            "type": "string"
         },
         "EntityNode": {
             "additionalProperties": false,
@@ -15797,6 +15838,16 @@
         "FeatureFlagGroupType": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "description": {
                     "type": ["string", "null"]
                 },
@@ -20105,6 +20156,29 @@
             "enum": ["severity", "service"],
             "type": "string"
         },
+        "MADDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig",
+                    "description": "Preprocessing transforms applied before detection"
+                },
+                "threshold": {
+                    "description": "Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)",
+                    "type": "number"
+                },
+                "type": {
+                    "const": "mad",
+                    "type": "string"
+                },
+                "window": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Rolling window size for calculating median/MAD (default: 30)"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
         "MarkdownBlock": {
             "additionalProperties": false,
             "properties": {
@@ -23636,6 +23710,25 @@
         "PlanningStepStatus": {
             "enum": ["pending", "in_progress", "completed"],
             "type": "string"
+        },
+        "PreprocessingConfig": {
+            "additionalProperties": false,
+            "description": "Preprocessing transforms applied to the time series before detection",
+            "properties": {
+                "diffs_n": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
+                },
+                "lags_n": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
+                },
+                "smooth_n": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
+                }
+            },
+            "type": "object"
         },
         "ProductAnalyticsInsightQueryNode": {
             "anyOf": [
@@ -31841,6 +31934,20 @@
             "enum": ["day", "month"],
             "type": "string"
         },
+        "SingleDetectorConfig": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ZScoreDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/MADDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/ThresholdDetectorConfig"
+                }
+            ],
+            "description": "A single (leaf) detector config"
+        },
         "SlashCommandName": {
             "enum": ["/init", "/remember", "/usage", "/feedback", "/ticket"],
             "type": "string"
@@ -33258,6 +33365,29 @@
                 "results",
                 "timezone"
             ],
+            "type": "object"
+        },
+        "ThresholdDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "lower_bound": {
+                    "description": "Lower bound - values below this are anomalies",
+                    "type": "number"
+                },
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig",
+                    "description": "Preprocessing transforms applied before detection"
+                },
+                "type": {
+                    "const": "threshold",
+                    "type": "string"
+                },
+                "upper_bound": {
+                    "description": "Upper bound - values above this are anomalies",
+                    "type": "number"
+                }
+            },
+            "required": ["type"],
             "type": "object"
         },
         "TikTokAdsDefaultSources": {
@@ -36188,6 +36318,29 @@
                     "type": "boolean"
                 }
             },
+            "type": "object"
+        },
+        "ZScoreDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig",
+                    "description": "Preprocessing transforms applied before detection"
+                },
+                "threshold": {
+                    "description": "Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)",
+                    "type": "number"
+                },
+                "type": {
+                    "const": "zscore",
+                    "type": "string"
+                },
+                "window": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Rolling window size for calculating mean/std (default: 30)"
+                }
+            },
+            "required": ["type"],
             "type": "object"
         },
         "ZendeskTicketSignalExtra": {

@@ -98,6 +98,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'llm_prompt:read',
     'llm_prompt:write',
     'logs:read',
+    'notebook:read',
+    'notebook:write',
     'organization:read',
     'organization:write',
     'project:read',
