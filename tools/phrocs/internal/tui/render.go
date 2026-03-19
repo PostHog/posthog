@@ -133,6 +133,9 @@ func (m Model) renderOutput() string {
 // Overlays a -line counter in the top-right corner of the viewport
 func (m Model) viewportWithIndicator() string {
 	view := m.viewport.View()
+	if m.hedgehogMode {
+		view = m.overlayHedgehog(view)
+	}
 	total := m.viewport.TotalLineCount()
 	if total <= m.viewport.Height() {
 		return view

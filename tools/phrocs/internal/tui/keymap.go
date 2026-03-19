@@ -21,6 +21,7 @@ type keyMap struct {
 	Quit       key.Binding
 	Help       key.Binding
 	Backspace  key.Binding
+	Hedgehog   key.Binding
 }
 
 func defaultKeyMap() keyMap {
@@ -96,6 +97,10 @@ func defaultKeyMap() keyMap {
 		Backspace: key.NewBinding(
 			key.WithKeys("backspace"),
 			key.WithHelp("⌫:", "del char"),
+		),
+		Hedgehog: key.NewBinding(
+			key.WithKeys("h"),
+			key.WithHelp("h:", "hedgehog"),
 		),
 	}
 }

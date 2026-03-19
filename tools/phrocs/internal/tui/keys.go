@@ -229,6 +229,16 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 		m.applyCopyStyle()
 		m.dbg("copy mode: enter at line %d", m.copyCursor)
 
+	case key.Matches(msg, m.keys.Hedgehog):
+		m.hedgehogMode = !m.hedgehogMode
+		m.dbg("hedgehog mode: %v", m.hedgehogMode)
+		if m.hedgehogMode {
+			m.hedgehogX = 0
+			m.hedgehogDir = 1
+			m.hedgehogFrame = 0
+			cmds = append(cmds, hedgehogTick())
+		}
+
 	default:
 		if m.focusedPane == focusOutput {
 			cmds = append(cmds, m.forwardToViewport(msg))

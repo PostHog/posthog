@@ -54,6 +54,12 @@ type Model struct {
 	containerLogStream *docker.ContainerLogStream
 	composeArgs        docker.ComposeArgs
 
+	// Hedgehog mode: animated hedgehog walks across the output pane
+	hedgehogMode  bool
+	hedgehogX     int
+	hedgehogDir   int // +1 right, -1 left
+	hedgehogFrame int
+
 	keys     keyMap
 	help     help.Model
 	spinner  spinner.Model
@@ -189,6 +195,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.searchQuery != "" {
 				m.updateSearchForLine(msg.Line, lineIndex, evicted)
 			}
+		}
+
+	case hedgehogTickMsg:
+		if m.hedgehogMode {
+			m.advanceHedgehog()
+			cmds = append(cmds, hedgehogTick())
 		}
 
 	case tea.KeyPressMsg:
