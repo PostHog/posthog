@@ -93,6 +93,9 @@ NON_RETRYABLE_ERROR_TYPES = (
     "StartQueryTimeoutError",
     # A service account we are supposed to impersonate does not exist.
     "ServiceAccountNotFoundError",
+    # We could not verify that the service account we are meant to use belongs to the
+    # organization this batch export is running for.
+    "ServiceAccountOwnershipError",
 )
 
 LOGGER = get_write_only_logger(__name__)
