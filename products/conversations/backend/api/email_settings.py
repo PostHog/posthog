@@ -80,6 +80,12 @@ class EmailConnectView(APIView):
                 status=400,
             )
 
+        def _enable_email_on_team() -> None:
+            s = team.conversations_settings or {}
+            s["email_enabled"] = True
+            team.conversations_settings = s
+            team.save(update_fields=["conversations_settings"])
+
         try:
             with transaction.atomic():
                 config = TeamConversationsEmailConfig.objects.select_for_update().get(team=team)
@@ -87,6 +93,7 @@ class EmailConnectView(APIView):
                 config.from_name = from_name
                 config.domain = domain
                 config.save(update_fields=["from_email", "from_name", "domain"])
+                _enable_email_on_team()
         except TeamConversationsEmailConfig.DoesNotExist:
             try:
                 with transaction.atomic():
@@ -97,20 +104,15 @@ class EmailConnectView(APIView):
                         from_name=from_name,
                         domain=domain,
                     )
+                    _enable_email_on_team()
             except IntegrityError:
-                # Concurrent request already created it — update instead
                 with transaction.atomic():
                     config = TeamConversationsEmailConfig.objects.select_for_update().get(team=team)
                     config.from_email = from_email
                     config.from_name = from_name
                     config.domain = domain
                     config.save(update_fields=["from_email", "from_name", "domain"])
-
-        with transaction.atomic():
-            settings = team.conversations_settings or {}
-            settings["email_enabled"] = True
-            team.conversations_settings = settings
-            team.save(update_fields=["conversations_settings"])
+                    _enable_email_on_team()
 
         forwarding_address = f"team-{config.inbound_token}@{inbound_domain}"
 
@@ -137,16 +139,17 @@ class EmailDisconnectView(APIView):
 
         team = user.current_team
 
-        try:
-            config = TeamConversationsEmailConfig.objects.get(team=team)
-            config.delete()
-        except TeamConversationsEmailConfig.DoesNotExist:
-            pass
+        with transaction.atomic():
+            try:
+                config = TeamConversationsEmailConfig.objects.get(team=team)
+                config.delete()
+            except TeamConversationsEmailConfig.DoesNotExist:
+                pass
 
-        settings = team.conversations_settings or {}
-        settings["email_enabled"] = False
-        team.conversations_settings = settings
-        team.save(update_fields=["conversations_settings"])
+            settings = team.conversations_settings or {}
+            settings["email_enabled"] = False
+            team.conversations_settings = settings
+            team.save(update_fields=["conversations_settings"])
 
         logger.info("email_channel_disconnected", team_id=team.id, user_id=user.id, user_email=user.email)
 
