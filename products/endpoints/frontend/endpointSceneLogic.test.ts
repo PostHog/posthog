@@ -1,4 +1,3 @@
-import { actions, kea, key, path, props, reducers } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -7,34 +6,6 @@ import api from 'lib/api'
 import { initKeaTests } from '~/test/init'
 
 import { endpointSceneLogic, EndpointTab } from './endpointSceneLogic'
-import type { endpointLogicType } from './endpointSceneLogic.testType'
-
-const endpointLogic = kea<endpointLogicType>([
-    path(['products', 'endpoints', 'frontend', 'mockedEndpointLogic']),
-    props({} as { tabId: string }),
-    key((props) => props.tabId),
-    actions({
-        loadEndpoint: (name: string) => ({ name }),
-        loadEndpointSuccess: (endpoint: any) => ({ endpoint }),
-        loadVersions: (name: string) => ({ name }),
-        setEndpointDescription: (endpointDescription: string | null) => ({ endpointDescription }),
-        clearMaterializationStatus: true,
-        updateEndpointSuccess: (response: any, endpointName: string, options?: any) => ({
-            response,
-            endpointName,
-            options,
-        }),
-    }),
-    reducers({
-        endpoint: [
-            null as any,
-            {
-                loadEndpointSuccess: (_, { endpoint }) => endpoint,
-            },
-        ],
-        endpointLoading: [false as boolean, {}],
-    }),
-])
 
 const mockSceneLogic = {
     isMounted: jest.fn(() => true),
@@ -60,17 +31,32 @@ jest.mock('lib/api', () => ({
     },
 }))
 
+jest.mock('./endpointsLogic', () => ({
+    endpointsLogic: {
+        loadEndpoints: jest.fn(() => ({ type: 'load endpoints (mock)' })),
+    },
+}))
+
+jest.mock('~/layout/scenes/sceneLayoutLogic', () => ({
+    sceneLayoutLogic: {
+        setScenePanelOpen: jest.fn((open?: boolean) => ({ type: 'set scene panel open (mock)', open })),
+    },
+}))
+
+jest.mock('scenes/teamLogic', () => ({
+    teamLogic: {
+        addProductIntent: jest.fn((properties?: Record<string, any>) => ({
+            type: 'add product intent (mock)',
+            properties,
+        })),
+    },
+}))
+
 jest.mock('scenes/sceneLogic', () => ({
     get sceneLogic() {
         return mockSceneLogic
     },
 }))
-
-jest.mock('./endpointLogic', () => {
-    return {
-        endpointLogic,
-    }
-})
 
 describe('endpointSceneLogic', () => {
     let logic: ReturnType<typeof endpointSceneLogic.build>
@@ -139,9 +125,10 @@ describe('endpointSceneLogic', () => {
 
         const initialPathname = router.values.location.pathname
 
-        await expectLogic(logic, () => {
-            logic.actions.loadEndpointSuccess(endpoint)
-        }).toMatchValues({
+        logic.actions.loadEndpointSuccess(endpoint)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values).toMatchObject({
             viewingVersion: versionData,
         })
 
