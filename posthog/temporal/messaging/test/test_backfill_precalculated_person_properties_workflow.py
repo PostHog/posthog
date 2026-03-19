@@ -364,14 +364,20 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
                 result.result = False
             return result
 
-        # Mock asyncio.to_thread to handle both flush and execute_bytecode calls
+        # Mock asyncio.to_thread to handle flush, get_filters, and execute_bytecode calls
         async def mock_to_thread(func, *args, **kwargs):
             if hasattr(func, "_mock_name") and "flush" in func._mock_name:
                 # This is the kafka flush call - just return None
                 return None
-            else:
+            elif func.__name__ == "get_filters":
+                # This is the get_filters call - return the filters we stored earlier
+                return filters
+            elif func.__name__ == "execute_bytecode":
                 # This is the execute_bytecode call
                 return mock_execute_bytecode(*args, **kwargs)
+            else:
+                # Unknown function
+                raise ValueError(f"Unexpected function in mock_to_thread: {func.__name__}")
 
         with (
             patch(
@@ -543,9 +549,15 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
             if hasattr(func, "_mock_name") and "flush" in func._mock_name:
                 # This is the kafka flush call
                 return None
-            else:
+            elif func.__name__ == "get_filters":
+                # This is the get_filters call - return the filters we stored earlier
+                return filters
+            elif func.__name__ == "execute_bytecode":
                 # This is the execute_bytecode call
                 return mock_execute_bytecode(*args, **kwargs)
+            else:
+                # Unknown function
+                raise ValueError(f"Unexpected function in mock_to_thread: {func.__name__}")
 
         with (
             patch(
