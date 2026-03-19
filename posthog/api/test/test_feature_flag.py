@@ -9806,7 +9806,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             key="50-percent-holdout-group-flag",
             team=self.team,
             active=True,
-            filters={"holdout_groups": [{"rollout_percentage": 50, "properties": []}]},
+            filters={"holdout": {"id": 1, "exclusion_percentage": 50}},
             last_called_at=datetime.now(UTC) - timedelta(days=1),
         )
 
@@ -9819,21 +9819,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             key="100-percent-holdout-group-with-properties-flag",
             team=self.team,
             active=True,
-            filters={
-                "holdout_groups": [
-                    {
-                        "properties": [
-                            {
-                                "key": "name",
-                                "type": "person",
-                                "value": ["Smith"],
-                                "operator": "contains",
-                            }
-                        ],
-                        "rollout_percentage": 100,
-                    }
-                ]
-            },
+            filters={"holdout": {"id": 2, "exclusion_percentage": 100}},
             last_called_at=datetime.now(UTC) - timedelta(days=1),
         )
 

@@ -583,10 +583,6 @@ class TestExperimentCRUD(APILicensedTest):
 
         self.assertEqual(created_ff.key, ff_key)
         self.assertEqual(
-            created_ff.filters["holdout_groups"],
-            [{"properties": [], "rollout_percentage": 20, "variant": f"holdout-{holdout_id}"}],
-        )
-        self.assertEqual(
             created_ff.filters["holdout"],
             {"id": holdout_id, "exclusion_percentage": 20},
         )
@@ -621,10 +617,6 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(experiment.holdout_id, holdout_2_id)
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
-        self.assertEqual(
-            created_ff.filters["holdout_groups"],
-            [{"properties": [], "rollout_percentage": 5, "variant": f"holdout-{holdout_2_id}"}],
-        )
         self.assertEqual(
             created_ff.filters["holdout"],
             {"id": holdout_2_id, "exclusion_percentage": 5},
@@ -661,10 +653,6 @@ class TestExperimentCRUD(APILicensedTest):
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
         self.assertEqual(
-            created_ff.filters["holdout_groups"],
-            [{"properties": [], "rollout_percentage": 5, "variant": f"holdout-{holdout_2_id}"}],
-        )
-        self.assertEqual(
             created_ff.filters["holdout"],
             {"id": holdout_2_id, "exclusion_percentage": 5},
         )
@@ -689,7 +677,6 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(experiment.holdout_id, None)
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
-        self.assertEqual(created_ff.filters["holdout_groups"], None)
         self.assertEqual(created_ff.filters["holdout"], None)
 
         # try adding invalid holdout
@@ -723,10 +710,6 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.json()["detail"], "Can't update holdout on running Experiment")
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
-        self.assertEqual(
-            created_ff.filters["holdout_groups"],
-            [{"properties": [], "rollout_percentage": 5, "variant": f"holdout-{holdout_2_id}"}],
-        )
         self.assertEqual(
             created_ff.filters["holdout"],
             {"id": holdout_2_id, "exclusion_percentage": 5},
@@ -2235,7 +2218,6 @@ class TestExperimentCRUD(APILicensedTest):
                     ]
                 },
                 "aggregation_group_type_index": None,
-                "holdout_groups": None,
                 "holdout": None,
             },
         )
@@ -2293,7 +2275,6 @@ class TestExperimentCRUD(APILicensedTest):
                     ]
                 },
                 "aggregation_group_type_index": None,
-                "holdout_groups": None,
                 "holdout": None,
             },
         )
@@ -2362,7 +2343,6 @@ class TestExperimentCRUD(APILicensedTest):
                     ]
                 },
                 "aggregation_group_type_index": None,
-                "holdout_groups": None,
                 "holdout": None,
             },
         )
