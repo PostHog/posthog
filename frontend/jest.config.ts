@@ -140,8 +140,9 @@ const config: Config = {
         '^~/(.*)$': '<rootDir>/src/$1',
         '^@posthog/lemon-ui(|/.*)$': '<rootDir>/@posthog/lemon-ui/src/$1',
         '^lib/(.*)$': '<rootDir>/src/lib/$1',
-        // unified uses CallableInstance which breaks Sucrase's .call(void 0) transform
-        '^unified$': '<rootDir>/src/test/mocks/unifiedMock.js',
+        '^react-markdown$': '<rootDir>/src/test/mocks/reactMarkdownMock.js',
+        '^remark-gfm$': '<rootDir>/src/test/mocks/emptyMock.js',
+        '^mdast-util-find-and-replace$': '<rootDir>/src/test/mocks/emptyMock.js',
         '^chart\\.js$': '<rootDir>/src/test/insight-testing/chartjs-mock',
         '@sgratzl/chartjs-chart-boxplot': '<rootDir>/src/test/mocks/emptyMock.js',
         'chartjs-plugin-crosshair': '<rootDir>/src/test/mocks/emptyMock.js',
