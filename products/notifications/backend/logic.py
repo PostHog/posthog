@@ -1,12 +1,10 @@
-import os
-import json
-
 from django.db import transaction
 
-import redis
 import structlog
 import posthoganalytics
 
+from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.topics import KAFKA_NOTIFICATION_EVENTS
 from posthog.models import Team
 
 from products.notifications.backend.facade.contracts import NotificationData
@@ -17,22 +15,14 @@ from products.notifications.backend.resolvers import RecipientsResolver
 logger = structlog.get_logger(__name__)
 
 
-def _get_livestream_redis_client():
-    """Connect to the same Redis instance as the Go livestream service.
-    This is separate from Django's default cache Redis."""
-    host = os.getenv("LIVESTREAM_REDIS_ADDRESS", "localhost")
-    port = int(os.getenv("LIVESTREAM_REDIS_PORT", "6379"))
-    return redis.Redis(host=host, port=port)
-
-
-def _publish_to_redis(event: NotificationEvent) -> None:
+def _publish_to_kafka(event: NotificationEvent) -> None:
     try:
-        client = _get_livestream_redis_client()
-        channel = f"notifications:{event.organization_id}"
-
-        payload = json.dumps(
-            {
+        producer = KafkaProducer()
+        producer.produce(
+            topic=KAFKA_NOTIFICATION_EVENTS,
+            data={
                 "id": str(event.id),
+                "organization_id": str(event.organization_id),
                 "notification_type": event.notification_type,
                 "priority": event.priority,
                 "title": event.title,
@@ -41,12 +31,11 @@ def _publish_to_redis(event: NotificationEvent) -> None:
                 "source_url": event.source_url,
                 "resolved_user_ids": event.resolved_user_ids,
                 "created_at": event.created_at.isoformat(),
-            }
+            },
+            key=str(event.organization_id),
         )
-
-        client.publish(channel, payload)
     except Exception:
-        logger.exception("notifications.redis_publish_failed", event_id=event.id)
+        logger.exception("notifications.kafka_publish_failed", event_id=event.id)
 
 
 def create_notification(data: NotificationData) -> NotificationEvent | None:
@@ -94,6 +83,6 @@ def create_notification(data: NotificationData) -> NotificationEvent | None:
         resolved_user_ids=resolved_user_ids,
     )
 
-    transaction.on_commit(lambda: _publish_to_redis(event))
+    transaction.on_commit(lambda: _publish_to_kafka(event))
 
     return event
