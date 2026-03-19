@@ -28,6 +28,8 @@ jobs:
             - uses: actions/checkout@v6
               with:
                   sparse-checkout: |
+                      rust/Cargo.toml
+                      rust/Cargo.lock
                       rust/common/symbol_data/
                   sparse-checkout-cone-mode: false
                   clean: false
@@ -50,11 +52,15 @@ jobs:
             - name: Obtain crates.io publish token via OIDC
               id: oidc
               run: |
-                  OIDC_TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-                      "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https://crates.io" | jq -r '.value')
-                  CRATES_TOKEN=$(curl -sS -X POST "https://crates.io/api/v1/tokens/oidc" \
+                  set -euo pipefail
+
+                  OIDC_TOKEN=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+                      "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https://crates.io" | jq -re '.value')
+
+                  CRATES_TOKEN=$(curl -sSf -X POST "https://crates.io/api/v1/tokens/oidc" \
                       -H "Content-Type: application/json" \
-                      -d "{\"oidc_token\":\"$OIDC_TOKEN\"}" | jq -r '.token')
+                      -d "{\"oidc_token\":\"$OIDC_TOKEN\"}" | jq -re '.token')
+
                   echo "::add-mask::$CRATES_TOKEN"
                   echo "token=$CRATES_TOKEN" >> "$GITHUB_OUTPUT"
 
