@@ -337,7 +337,6 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         data = request.validated_data
 
         if "is_enabled" in data:
-            logger.info("WE ARE HERE")
             report_user_action(
                 request.user,
                 "mcp_store server toggled",
