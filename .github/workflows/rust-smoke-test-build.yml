@@ -19,6 +19,8 @@ jobs:
         name: authorize smoke test
         runs-on: ubuntu-latest
         if: contains(github.event.pull_request.labels.*.name, 'smoke_test')
+        permissions:
+            contents: read
         steps:
             - name: Verify PostHog org membership
               env:
