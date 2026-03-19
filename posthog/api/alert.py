@@ -353,7 +353,8 @@ class AlertSerializer(serializers.ModelSerializer):
             if len(root.detectors) < 2:
                 raise ValidationError("Ensemble detector requires at least 2 sub-detectors.")
             for sub in root.detectors:
-                self._validate_detector_params(sub.model_dump() if hasattr(sub, "model_dump") else sub)
+                sub_dict: dict = sub.model_dump() if hasattr(sub, "model_dump") else sub  # type: ignore[assignment]
+                self._validate_detector_params(sub_dict)
         else:
             self._validate_detector_params(value)
 
