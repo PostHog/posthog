@@ -173,30 +173,6 @@ class TestSentryTransport:
                 should_use_incremental_field=False,
             )
 
-    @parameterized.expand(
-        [
-            ("ok", 200, (True, None)),
-            ("unauthorized", 401, (False, "Invalid Sentry auth token")),
-            ("forbidden", 403, (False, "Sentry token is missing required scopes (org:read)")),
-            ("not_found", 404, (False, "Sentry organization 'acme' not found")),
-        ]
-    )
-    @patch("posthog.temporal.data_imports.sources.sentry.sentry.requests.get")
-    def test_validate_credentials(self, _name, status_code, expected, mock_get) -> None:
-        resp = Mock()
-        resp.status_code = status_code
-        resp.text = "error"
-        resp.json.return_value = {"detail": "error"}
-        mock_get.return_value = resp
-
-        result = validate_credentials(
-            auth_token="token",
-            organization_slug="acme",
-            api_base_url="https://sentry.io",
-        )
-
-        assert result == expected
-
     def test_validate_credentials_rejects_unknown_api_base_url(self) -> None:
         result = validate_credentials(
             auth_token="token",

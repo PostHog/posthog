@@ -1,1 +1,1 @@
-0218_add_group_keys_to_person
+0219_drop_group_keys_from_person
