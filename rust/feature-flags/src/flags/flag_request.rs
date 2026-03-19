@@ -190,9 +190,9 @@ impl FlagRequest {
     /// person_properties.$device_id for SDKs that only send it as a property.
     pub fn extract_device_id(&self) -> Option<String> {
         self.device_id
-            .as_deref()
+            .as_ref()
             .filter(|s| !s.is_empty())
-            .map(|s| s.to_string())
+            .cloned()
             .or_else(|| {
                 self.person_properties
                     .as_ref()
