@@ -4714,12 +4714,6 @@ mod tests {
                     variant: None,
                     ..Default::default()
                 }],
-                holdout_groups: Some(vec![FlagPropertyGroup {
-                    properties: Some(vec![]),
-                    rollout_percentage: Some(70.0),
-                    variant: Some("holdout".to_string()),
-                    ..Default::default()
-                }]),
                 holdout: Some(Holdout {
                     id: 42,
                     exclusion_percentage: 70.0,

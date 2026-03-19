@@ -303,11 +303,6 @@ mod tests {
                 mapping,
             }
         }
-
-        fn with_error(mut self, error: GroupTypeFetchError) -> Self {
-            self.error = Some(error);
-            self
-        }
     }
 
     #[async_trait]
