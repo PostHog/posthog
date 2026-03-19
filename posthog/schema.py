@@ -1045,6 +1045,7 @@ class DataWarehouseSavedQueryOrigin(StrEnum):
 
 class DataWarehouseSyncInterval(StrEnum):
     FIELD_5MIN = "5min"
+    FIELD_15MIN = "15min"
     FIELD_30MIN = "30min"
     FIELD_1HOUR = "1hour"
     FIELD_6HOUR = "6hour"
