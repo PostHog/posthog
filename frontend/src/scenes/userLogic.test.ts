@@ -76,6 +76,13 @@ describe('userLogic', () => {
         })
 
         it('updateUser without theme_mode does not change optimisticThemeMode', async () => {
+            // Keep update requests in-flight so success/failure handlers cannot clear optimisticThemeMode mid-test.
+            useMocks({
+                patch: {
+                    '/api/users/@me/': async () => await new Promise(() => undefined),
+                },
+            })
+
             userLogic.actions.updateUser({ theme_mode: 'dark' })
             await expectLogic(userLogic).toMatchValues({ optimisticThemeMode: 'dark' })
 
