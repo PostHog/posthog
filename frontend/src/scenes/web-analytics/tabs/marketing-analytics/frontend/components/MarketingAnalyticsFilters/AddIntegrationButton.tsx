@@ -65,7 +65,7 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
                         urls.dataWarehouseSourceNew(
                             pendingNavigation.integrationId,
                             urls.marketingAnalyticsApp(),
-                            'marketing analytics'
+                            'Marketing analytics'
                         )
                     )
                 }
@@ -106,7 +106,7 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
             onIntegrationSelect(integrationId)
         } else {
             router.actions.push(
-                urls.dataWarehouseSourceNew(integrationId, urls.marketingAnalyticsApp(), 'marketing analytics')
+                urls.dataWarehouseSourceNew(integrationId, urls.marketingAnalyticsApp(), 'Marketing analytics')
             )
         }
         setShowPopover(false)

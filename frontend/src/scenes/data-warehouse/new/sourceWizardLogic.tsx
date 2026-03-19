@@ -234,6 +234,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         toggleManualLinkFormVisible: (visible: boolean) => ({ visible }),
         handleRedirect: (source: ExternalDataSourceType, searchParams?: any) => ({ source, searchParams }),
         setReturnConfig: (returnUrl: string, returnLabel: string) => ({ returnUrl, returnLabel }),
+        clearReturnConfig: true,
         onClear: true,
         onBack: true,
         onNext: true,
@@ -377,6 +378,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             null as { returnUrl: string; returnLabel: string } | null,
             {
                 setReturnConfig: (_, { returnUrl, returnLabel }) => ({ returnUrl, returnLabel }),
+                clearReturnConfig: () => null,
             },
         ],
         syncMethodModalOpen: [
@@ -934,6 +936,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
             if (returnUrl && returnLabel) {
                 actions.setReturnConfig(returnUrl, returnLabel)
+            } else {
+                actions.clearReturnConfig()
             }
 
             const source = values.connectors?.find((s) => s?.name?.toLowerCase?.() === kind)
