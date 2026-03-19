@@ -443,6 +443,12 @@ mod tests {
                 person_properties: Some(HashMap::from([("$device_id".to_string(), json!(""))])),
                 expected: None,
             },
+            // non-string device_id in person_properties is ignored
+            Case {
+                device_id: None,
+                person_properties: Some(HashMap::from([("$device_id".to_string(), json!(12345))])),
+                expected: None,
+            },
             // empty string at top level → should also return None / fall through
             Case {
                 device_id: Some("".to_string()),
