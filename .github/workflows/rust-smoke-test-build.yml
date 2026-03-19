@@ -128,7 +128,7 @@ jobs:
             - name: Set up QEMU
               uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
               with:
-                  image: tonistiigi/binfmt:latest
+                  image: tonistiigi/binfmt:qemu-v10.2.1@sha256:7c76af7ed8714b80e3fc6d6d1c748ebcac867ad6b631167d0a6d3d92952151ea
                   platforms: all
 
             - name: Login to ghcr.io
