@@ -85,6 +85,7 @@ interface FunctionInstrumentationOptions {
     getLoggingContext?: () => Record<string, any>
     logExecutionTime?: boolean
     sendException?: boolean
+    measureTime?: boolean
 }
 
 /**
@@ -102,25 +103,24 @@ export async function instrumentFn<T>(
     const timeout = (typeof options === 'string' ? undefined : options.timeoutMs) ?? defaultConfig.TASK_TIMEOUT * 1000
     const sendException = (typeof options === 'string' ? undefined : options.sendException) ?? true
     const logExecutionTime = (typeof options === 'string' ? undefined : options.logExecutionTime) ?? false
+    const measureTime = (typeof options === 'string' ? undefined : options.measureTime) ?? true
 
     const t = timeoutGuard(timeoutMessage, getLoggingContext, timeout, sendException)
     const startTime = performance.now()
-    const end = instrumentedFunctionDuration.startTimer({
-        function: key,
-    })
+    const end = measureTime ? instrumentedFunctionDuration.startTimer({ function: key }) : undefined
 
     try {
         // Skip expensive span creation when tracing is disabled
         const result = defaultConfig.DISABLE_OPENTELEMETRY_TRACING
             ? await func()
             : await withSpan('instrumented_function', key, {}, func)
-        end({ success: 'true' })
+        end?.({ success: 'true' })
         if (logExecutionTime) {
             logTime(startTime, key)
         }
         return result
     } catch (error) {
-        end({ success: 'false' })
+        end?.({ success: 'false' })
         logger.info('🔔', error)
         if (logExecutionTime) {
             logTime(startTime, key, error)

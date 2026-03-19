@@ -853,7 +853,7 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
 
         try:
             user = User.objects.filter(is_active=True).get(uuid=self.context["view"].kwargs["user_uuid"])
-        except User.DoesNotExist:
+        except (User.DoesNotExist, ValidationError):
             capture_exception(
                 Exception("User not found in password reset serializer"),
                 {"user_uuid": self.context["view"].kwargs["user_uuid"]},
@@ -913,7 +913,7 @@ class PasswordResetCompleteViewSet(NonCreatingViewSetMixin, mixins.RetrieveModel
 
         try:
             user = User.objects.filter(is_active=True).get(uuid=user_uuid)
-        except User.DoesNotExist:
+        except (User.DoesNotExist, ValidationError):
             capture_exception(
                 Exception("User not found in password reset viewset"), {"user_uuid": user_uuid, "token": token}
             )

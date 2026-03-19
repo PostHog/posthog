@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT distinct_id, version\n            FROM posthog_persondistinctid\n            WHERE team_id = $1 AND person_id = $2\n            ",
+  "query": "\n                    SELECT distinct_id, version\n                    FROM posthog_persondistinctid\n                    WHERE team_id = $1 AND person_id = $2\n                    LIMIT $3\n                    ",
   "describe": {
     "columns": [
       {
@@ -17,6 +17,7 @@
     "parameters": {
       "Left": [
         "Int4",
+        "Int8",
         "Int8"
       ]
     },
@@ -25,5 +26,5 @@
       true
     ]
   },
-  "hash": "e2e7be52f2c454ac69af554d4de8c09dc66fec2fbf87f251a6606b1bc23ae901"
+  "hash": "963d58f461b9acaa7a993b9463892051fea8c20cf9f1c72de70040c4055e6b7d"
 }

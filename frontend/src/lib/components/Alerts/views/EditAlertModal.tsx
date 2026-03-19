@@ -143,11 +143,21 @@ export function EditAlertModal({
         [loadAlert, onEditSuccess]
     )
 
+    const trendsLogic = trendsDataLogic({ dashboardItemId: insightShortId })
+    const {
+        alertSeries,
+        isNonTimeSeriesDisplay,
+        isBreakdownValid,
+        formulaNodes,
+        interval: trendInterval,
+    } = useValues(trendsLogic)
+
     const formLogicProps = {
         alert,
         insightId,
         onEditSuccess: _onEditSuccess,
         insightVizDataLogicProps: insightLogicProps,
+        insightInterval: trendInterval ?? undefined,
     }
     const formLogic = alertFormLogic(formLogicProps)
     const { alertForm, isAlertFormSubmitting, alertFormChanged } = useValues(formLogic)
@@ -160,15 +170,6 @@ export function EditAlertModal({
 
     const { pendingNotifications } = useValues(alertNotificationLogic({ alertId: alertId }))
     const hasPendingNotifications = inlineNotificationsEnabled && pendingNotifications.length > 0
-
-    const trendsLogic = trendsDataLogic({ dashboardItemId: insightShortId })
-    const {
-        alertSeries,
-        isNonTimeSeriesDisplay,
-        isBreakdownValid,
-        formulaNodes,
-        interval: trendInterval,
-    } = useValues(trendsLogic)
 
     const creatingNewAlert = alertForm.id === undefined
     // can only check ongoing interval for absolute value/increase alerts with upper threshold
