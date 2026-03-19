@@ -57,11 +57,19 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         markAllAsRead: true,
         loadImportantChanges: (onlyUnread = true) => ({ onlyUnread }),
         // Real-time notification actions
-        setInAppNotifications: (notifications: InAppNotification[]) => ({ notifications }),
+        setInAppNotifications: (notifications: InAppNotification[], hasMore: boolean) => ({
+            notifications,
+            hasMore,
+        }),
+        appendInAppNotifications: (notifications: InAppNotification[], hasMore: boolean) => ({
+            notifications,
+            hasMore,
+        }),
         setInAppUnreadCount: (count: number) => ({ count }),
         notificationReceived: (notification: InAppNotification) => ({ notification }),
         markAsRead: (id: string) => ({ id }),
         toggleRead: (id: string) => ({ id }),
+        loadMoreNotifications: true,
         initialLoadDone: true,
         startSSE: true,
         stopSSE: true,
@@ -85,6 +93,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             [] as InAppNotification[],
             {
                 setInAppNotifications: (_, { notifications }) => notifications,
+                appendInAppNotifications: (state, { notifications }) => [...state, ...notifications],
                 notificationReceived: (state, { notification }) => [notification, ...state],
                 markAsRead: (state, { id }) =>
                     state.map((n) => (n.id === id ? { ...n, read: true, read_at: new Date().toISOString() } : n)),
@@ -94,6 +103,27 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     ),
                 markAllAsRead: (state) =>
                     state.map((n) => (n.read ? n : { ...n, read: true, read_at: new Date().toISOString() })),
+            },
+        ],
+        loadedFromApiCount: [
+            0,
+            {
+                setInAppNotifications: (_, { notifications }) => notifications.length,
+                appendInAppNotifications: (state, { notifications }) => state + notifications.length,
+            },
+        ],
+        hasMoreNotifications: [
+            false,
+            {
+                setInAppNotifications: (_, { hasMore }) => hasMore,
+                appendInAppNotifications: (_, { hasMore }) => hasMore,
+            },
+        ],
+        isLoadingMore: [
+            false,
+            {
+                loadMoreNotifications: () => true,
+                appendInAppNotifications: () => false,
             },
         ],
         inAppUnreadCount: [
@@ -325,6 +355,22 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 // Swallow
             }
         },
+        loadMoreNotifications: async () => {
+            if (!values.hasMoreNotifications) {
+                return
+            }
+            try {
+                const resp = await api.get<{
+                    results: InAppNotification[]
+                    next: string | null
+                }>(
+                    `api/environments/${values.currentProjectId}/notifications/?limit=20&offset=${values.loadedFromApiCount}`
+                )
+                actions.appendInAppNotifications(resp.results, !!resp.next)
+            } catch {
+                // Swallow
+            }
+        },
     })),
     selectors({
         realTimeNotificationsEnabled: [
@@ -415,10 +461,11 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             // Load initial notifications from the REST API — this is the authoritative source
             void (async () => {
                 try {
-                    const resp = await api.get<{ results: InAppNotification[] }>(
-                        `api/environments/${values.currentProjectId}/notifications/`
-                    )
-                    actions.setInAppNotifications(resp.results)
+                    const resp = await api.get<{
+                        results: InAppNotification[]
+                        next: string | null
+                    }>(`api/environments/${values.currentProjectId}/notifications/?limit=20`)
+                    actions.setInAppNotifications(resp.results, !!resp.next)
                 } catch {
                     // Swallow
                 }

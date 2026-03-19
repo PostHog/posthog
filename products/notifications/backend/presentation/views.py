@@ -20,7 +20,7 @@ from products.notifications.backend.presentation.serializers import Notification
 
 
 class NotificationPagination(LimitOffsetPagination):
-    default_limit = 50
+    default_limit = 20
     max_limit = 100
 
 

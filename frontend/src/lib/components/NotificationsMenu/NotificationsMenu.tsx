@@ -19,8 +19,9 @@ import { notificationsMenuLogic } from './notificationsMenuLogic'
 export const NotificationsMenu = ({ iconOnly = false }: { iconOnly?: boolean }): JSX.Element => {
     const { isNotificationsMenuOpen, activeTab } = useValues(notificationsMenuLogic)
     const { setNotificationsMenuOpen, setActiveTab } = useActions(notificationsMenuLogic)
-    const { inAppNotifications, inAppUnreadCount, importantChangesLoading } = useValues(sidePanelNotificationsLogic)
-    const { markAllAsRead } = useActions(sidePanelNotificationsLogic)
+    const { inAppNotifications, inAppUnreadCount, importantChangesLoading, hasMoreNotifications, isLoadingMore } =
+        useValues(sidePanelNotificationsLogic)
+    const { markAllAsRead, loadMoreNotifications } = useActions(sidePanelNotificationsLogic)
     const [badgePulse, setBadgePulse] = useState(false)
     const prevCountRef = useRef(inAppUnreadCount)
 
@@ -126,15 +127,31 @@ export const NotificationsMenu = ({ iconOnly = false }: { iconOnly?: boolean }):
                                     <LemonSkeleton className="h-10 my-1" repeat={5} fade />
                                 </div>
                             ) : filteredNotifications.length > 0 ? (
-                                <div className="flex flex-col gap-px">
-                                    {filteredNotifications.map((notification: InAppNotification) => (
-                                        <NotificationRow
-                                            key={notification.id}
-                                            notification={notification}
-                                            onNavigate={handleCloseForNavigation}
-                                        />
-                                    ))}
-                                </div>
+                                <>
+                                    <div className="flex flex-col gap-px">
+                                        {filteredNotifications.map((notification: InAppNotification) => (
+                                            <NotificationRow
+                                                key={notification.id}
+                                                notification={notification}
+                                                onNavigate={handleCloseForNavigation}
+                                            />
+                                        ))}
+                                    </div>
+                                    {hasMoreNotifications && activeTab === 'all' && (
+                                        <div className="p-2">
+                                            <LemonButton
+                                                type="secondary"
+                                                fullWidth
+                                                center
+                                                size="small"
+                                                loading={isLoadingMore}
+                                                onClick={() => loadMoreNotifications()}
+                                            >
+                                                Load more
+                                            </LemonButton>
+                                        </div>
+                                    )}
+                                </>
                             ) : (
                                 <div className="flex flex-col items-center justify-center p-6 text-center">
                                     <IconNotification className="size-8 text-muted mb-2" />
