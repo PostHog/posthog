@@ -24,10 +24,11 @@ global.fetch = jest.fn(() =>
 
 describe('shim consumer integration', () => {
     beforeEach(() => {
-        // Pre-set current_user: null so initKeaTests preserves it (via the `in` check) rather than
-        // bootstrapping the default org. Without this, something in the import chain mounts the real
-        // userLogic (bypassing the jest.mock shim), reads POSTHOG_APP_CONTEXT.current_user, and leaks
-        // it into hedgehogModeLogic.values.user — which should be null in the toolbar context.
+        // The toolbar runs on third-party pages without an authenticated PostHog user, so
+        // hedgehogModeLogic.values.user must be null. We pre-set current_user: null here because
+        // initKeaTests now bootstraps a default org into current_user (to mirror production).
+        // Without this, the real userLogic (which gets mounted despite the jest.mock shim)
+        // would read that bootstrapped user and leak it into hedgehogModeLogic.
         window.POSTHOG_APP_CONTEXT = { current_user: null } as unknown as AppContext
         initKeaTests(false)
         toolbarConfigLogic.build({ apiURL: 'http://localhost' }).mount()
