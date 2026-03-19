@@ -648,6 +648,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     AvailableFeature.WHITE_LABELLING
                 ):
                     exported_data["whitelabel"] = True
+                if settings_data.get("theme") in {"light", "dark", "system"}:
+                    exported_data["theme"] = settings_data["theme"]
 
                 # Don't include app_context in the initial unlock page for security
                 # It will be provided after authentication
@@ -881,7 +883,25 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             merged_data = base_settings.model_dump()
             for field_name in base_settings.model_fields.keys():
                 if field_name in request.GET:
-                    merged_data[field_name] = bool(request.GET[field_name])
+                    raw_value = request.GET.get(field_name)
+                    if field_name == "theme":
+                        if raw_value in {"light", "dark", "system"}:
+                            merged_data[field_name] = raw_value
+                        continue
+
+                    # For legacy boolean settings we support either presence-only params
+                    # (`?legend`) or explicit values (`?legend=false`).
+                    if raw_value in (None, ""):
+                        merged_data[field_name] = True
+                        continue
+
+                    lowered = str(raw_value).strip().lower()
+                    if lowered in {"1", "true", "yes", "on"}:
+                        merged_data[field_name] = True
+                    elif lowered in {"0", "false", "no", "off"}:
+                        merged_data[field_name] = False
+                    else:
+                        merged_data[field_name] = True
             final_settings = SharingConfigurationSettings.model_validate(merged_data, strict=False)
         else:
             final_settings = base_settings
@@ -902,6 +922,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             exported_data.update({"detailed": True})
         if final_settings.hideExtraDetails:
             exported_data.update({"hideExtraDetails": True})
+        if final_settings.theme in {"light", "dark", "system"}:
+            exported_data.update({"theme": final_settings.theme})
+
         if request.path.endswith(f".json"):
             # For password-protected POST requests, only return basic metadata and JWT token
             if request.method == "POST" and isinstance(resource, SharingConfiguration) and resource.password_required:
@@ -914,6 +937,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     "showInspector": exported_data.get("showInspector", False),
                     "legend": exported_data.get("legend", False),
                     "detailed": exported_data.get("detailed", False),
+                    "theme": exported_data.get("theme"),
                 }
                 return response.Response(minimal_data)
             return response.Response(exported_data)

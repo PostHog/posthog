@@ -1,8 +1,9 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { Breadcrumb } from '~/types'
 
@@ -23,6 +24,9 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
     path(['products', 'visual_review', 'frontend', 'scenes', 'visualReviewRunSceneLogic']),
     props({} as VisualReviewRunSceneLogicProps),
     key((props) => props.runId),
+    connect(() => ({
+        values: [teamLogic, ['currentProjectId']],
+    })),
     actions({
         setSelectedSnapshotId: (snapshotId: string | null) => ({ snapshotId }),
         approveChanges: true,
@@ -36,12 +40,12 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             },
         ],
     }),
-    loaders(({ props }) => ({
+    loaders(({ props, values }) => ({
         run: [
             null as RunApi | null,
             {
                 loadRun: async () => {
-                    return visualReviewRunsRetrieve('@current', props.runId)
+                    return visualReviewRunsRetrieve(String(values.currentProjectId), props.runId)
                 },
             },
         ],
@@ -49,7 +53,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             [] as SnapshotApi[],
             {
                 loadSnapshots: async () => {
-                    const response = await visualReviewRunsSnapshotsList('@current', props.runId)
+                    const response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId)
                     return response.results
                 },
             },
@@ -58,9 +62,13 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             [] as SnapshotHistoryEntryApi[],
             {
                 loadSnapshotHistory: async (identifier: string) => {
-                    const response = await visualReviewRunsSnapshotHistoryList('@current', props.runId, {
-                        identifier,
-                    })
+                    const response = await visualReviewRunsSnapshotHistoryList(
+                        String(values.currentProjectId),
+                        props.runId,
+                        {
+                            identifier,
+                        }
+                    )
                     return response.results
                 },
             },
@@ -136,7 +144,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             }
 
             try {
-                await visualReviewRunsApproveCreate('@current', props.runId, approvalPayload)
+                await visualReviewRunsApproveCreate(String(values.currentProjectId), props.runId, approvalPayload)
                 lemonToast.success('Changes approved successfully')
                 actions.loadRun()
                 actions.loadSnapshots()
@@ -160,7 +168,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             }
 
             try {
-                await visualReviewRunsApproveCreate('@current', props.runId, approvalPayload)
+                await visualReviewRunsApproveCreate(String(values.currentProjectId), props.runId, approvalPayload)
                 lemonToast.success('Snapshot approved')
                 actions.loadRun()
                 actions.loadSnapshots()

@@ -2,7 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
-import { pipelineLastStepCounter } from '../../worker/ingestion/event-pipeline/metrics'
+import { ingestionPipelineResultCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { logDroppedMessage, redirectMessageToTopic, sendMessageToDLQ } from '../../worker/ingestion/pipeline-helpers'
 import { BatchPipelineResultWithContext } from './batch-pipeline.interface'
 import { createContext, createNewBatchPipeline } from './helpers'
@@ -18,7 +18,7 @@ jest.mock('../../worker/ingestion/pipeline-helpers', () => ({
 
 // Mock the metrics
 jest.mock('../../worker/ingestion/event-pipeline/metrics', () => ({
-    pipelineLastStepCounter: {
+    ingestionPipelineResultCounter: {
         labels: jest.fn().mockReturnValue({
             inc: jest.fn(),
         }),
@@ -28,7 +28,9 @@ jest.mock('../../worker/ingestion/event-pipeline/metrics', () => ({
 const mockLogDroppedMessage = logDroppedMessage as jest.MockedFunction<typeof logDroppedMessage>
 const mockRedirectMessageToTopic = redirectMessageToTopic as jest.MockedFunction<typeof redirectMessageToTopic>
 const mockSendMessageToDLQ = sendMessageToDLQ as jest.MockedFunction<typeof sendMessageToDLQ>
-const mockPipelineLastStepCounter = pipelineLastStepCounter as jest.Mocked<typeof pipelineLastStepCounter>
+const mockIngestionPipelineResultCounter = ingestionPipelineResultCounter as jest.Mocked<
+    typeof ingestionPipelineResultCounter
+>
 
 describe('ResultHandlingPipeline', () => {
     let mockKafkaProducer: KafkaProducerWrapper
@@ -463,14 +465,27 @@ describe('ResultHandlingPipeline', () => {
             expect(results).not.toBeNull()
             expect(results).toHaveLength(4)
 
-            // Verify all last steps were reported
-            expect(mockPipelineLastStepCounter.labels).toHaveBeenCalledWith('validationStep')
-            expect(mockPipelineLastStepCounter.labels).toHaveBeenCalledWith('filterStep')
-            expect(mockPipelineLastStepCounter.labels).toHaveBeenCalledWith('routingStep')
-            expect(mockPipelineLastStepCounter.labels).toHaveBeenCalledWith('processingStep')
-
-            // Verify inc() was called for each step
-            expect(mockPipelineLastStepCounter.labels().inc).toHaveBeenCalledTimes(4)
+            // Verify all results were recorded with correct step names
+            expect(mockIngestionPipelineResultCounter.labels).toHaveBeenCalledWith({
+                result: 'ok',
+                step_name: 'validationStep',
+                details: '',
+            })
+            expect(mockIngestionPipelineResultCounter.labels).toHaveBeenCalledWith({
+                result: 'drop',
+                step_name: 'filterStep',
+                details: 'dropped item',
+            })
+            expect(mockIngestionPipelineResultCounter.labels).toHaveBeenCalledWith({
+                result: 'redirect',
+                step_name: 'routingStep',
+                details: 'overflow-topic(preserve_key=true)',
+            })
+            expect(mockIngestionPipelineResultCounter.labels).toHaveBeenCalledWith({
+                result: 'dlq',
+                step_name: 'processingStep',
+                details: 'dlq item',
+            })
         })
 
         it('should not report last step when context has no lastStep', async () => {
@@ -491,8 +506,12 @@ describe('ResultHandlingPipeline', () => {
             expect(results).not.toBeNull()
             expect(results).toEqual([createContext(ok({ processed: 'success' }), { message: messages[0] })])
 
-            // Verify no last step was reported
-            expect(mockPipelineLastStepCounter.labels).not.toHaveBeenCalled()
+            // Verify result was recorded with 'unknown' step name
+            expect(mockIngestionPipelineResultCounter.labels).toHaveBeenCalledWith({
+                result: 'ok',
+                step_name: 'unknown',
+                details: '',
+            })
         })
     })
 

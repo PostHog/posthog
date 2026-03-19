@@ -34,7 +34,7 @@ export type RoleResourceAccessControls = DefaultResourceAccessControls & {
 export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
     path(['scenes', 'accessControl', 'roleAccessControlLogic']),
     connect(() => ({
-        values: [membersLogic, ['sortedMembers'], teamLogic, ['currentTeam'], userLogic, ['hasAvailableFeature']],
+        values: [membersLogic, ['sortedMembers'], teamLogic, ['currentProjectId'], userLogic, ['hasAvailableFeature']],
         actions: [membersLogic, ['ensureAllMembersLoaded'], organizationLogic, ['loadCurrentOrganization']],
     })),
     actions({
@@ -103,7 +103,7 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
             {
                 loadResourceAccessControls: async () => {
                     const response = await api.get<AccessControlResponseType>(
-                        'api/projects/@current/resource_access_controls'
+                        `api/projects/${values.currentProjectId}/resource_access_controls`
                     )
                     return response
                 },
