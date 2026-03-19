@@ -247,16 +247,23 @@ export function Nav(): JSX.Element {
                                 ))}
                             </Tabs.List>
 
-                            <div className="h-px bg-border-primary -mx-1 w-[calc(100%+var(--spacing)*4)]" />
+                            <div className="px-2">
+                                <div className="h-px bg-border-primary " />
+                            </div>
                         </>
                     )}
 
                     <div className="flex-1 overflow-hidden relative">
-                        <Tabs.Panel value="home" className="absolute inset-0 flex flex-col" keepMounted>
+                        <Tabs.Panel value="home" className="absolute inset-0 flex flex-col" keepMounted tabIndex={-1}>
                             <NavTabBrowse />
                         </Tabs.Panel>
                         {!isLayoutNavCollapsed && (
-                            <Tabs.Panel value="chat" className="absolute inset-0 flex flex-col" keepMounted>
+                            <Tabs.Panel
+                                value="chat"
+                                className="absolute inset-0 flex flex-col"
+                                keepMounted
+                                tabIndex={-1}
+                            >
                                 <Suspense
                                     fallback={
                                         <div className="flex flex-col gap-px px-1 pt-2">
@@ -274,7 +281,9 @@ export function Nav(): JSX.Element {
                         )}
                     </div>
 
-                    <div className="border-b border-primary h-px" />
+                    <div className="px-2">
+                        <div className="h-px bg-border-primary " />
+                    </div>
 
                     <div className="p-1">
                         <NavBarFooter isLayoutNavCollapsed={isLayoutNavCollapsed} />
