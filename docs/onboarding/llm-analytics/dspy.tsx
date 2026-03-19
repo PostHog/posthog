@@ -73,7 +73,7 @@ export const getDSPySteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                             litellm.failure_callback = ["posthog"]
 
                             # Configure DSPy to use an LLM
-                            lm = dspy.LM("openai/gpt-4o-mini", api_key="your_openai_api_key")
+                            lm = dspy.LM("openai/gpt-5-mini", api_key="your_openai_api_key")
                             dspy.configure(lm=lm)
                         `}
                     />

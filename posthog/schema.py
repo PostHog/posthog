@@ -3873,6 +3873,12 @@ class SessionSegmentClusterSignalInput(BaseModel):
     weight: float
 
 
+class Theme(StrEnum):
+    LIGHT = "light"
+    DARK = "dark"
+    SYSTEM = "system"
+
+
 class SharingConfigurationSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3882,6 +3888,7 @@ class SharingConfigurationSettings(BaseModel):
     legend: bool | None = None
     noHeader: bool | None = None
     showInspector: bool | None = None
+    theme: Theme | None = None
     whitelabel: bool | None = None
 
 

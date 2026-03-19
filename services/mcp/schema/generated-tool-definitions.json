@@ -884,6 +884,111 @@
             "readOnlyHint": false
         }
     },
+    "persons-list": {
+        "description": "List persons in the current project. Supports search by email (full text) or distinct ID (exact match), and filtering by email or distinct_id query parameters. Returns paginated results with person properties and distinct IDs.",
+        "category": "Persons",
+        "feature": "persons",
+        "summary": "List persons",
+        "title": "List persons",
+        "required_scopes": ["person:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "persons-retrieve": {
+        "description": "Retrieve a single person by numeric ID or UUID. Returns the person's properties, distinct IDs, and metadata.",
+        "category": "Persons",
+        "feature": "persons",
+        "summary": "Get person",
+        "title": "Get person",
+        "required_scopes": ["person:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "persons-property-delete": {
+        "description": "Remove a single property from a person by key. The property is deleted asynchronously via the event pipeline ($unset).",
+        "category": "Persons",
+        "feature": "persons",
+        "summary": "Delete person property",
+        "title": "Delete person property",
+        "required_scopes": ["person:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "persons-property-set": {
+        "description": "Set a single property on a person. The property is updated asynchronously via the event pipeline ($set). Returns 202 Accepted.",
+        "category": "Persons",
+        "feature": "persons",
+        "summary": "Set person property",
+        "title": "Set person property",
+        "required_scopes": ["person:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "persons-bulk-delete": {
+        "description": "Delete up to 1000 persons by PostHog person UUIDs or distinct IDs. Optionally delete associated events and recordings. Pass either `ids` (person UUIDs) or `distinct_ids`. Returns 202 Accepted. This operation is irreversible.",
+        "category": "Persons",
+        "feature": "persons",
+        "summary": "Bulk delete persons",
+        "title": "Bulk delete persons",
+        "required_scopes": ["person:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "persons-cohorts-retrieve": {
+        "description": "Get all cohorts that a specific person belongs to. Requires the person_id query parameter.",
+        "category": "Persons",
+        "feature": "persons",
+        "summary": "Get person cohorts",
+        "title": "Get person cohorts",
+        "required_scopes": ["person:read", "cohort:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "persons-values-retrieve": {
+        "description": "Get distinct values for a person property key. Useful for discovering what values exist for properties like 'plan', 'role', or 'company'. Provide the property key and optionally a search value to filter results.",
+        "category": "Persons",
+        "feature": "persons",
+        "summary": "Get person property values",
+        "title": "Get person property values",
+        "required_scopes": ["person:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "prompt-list": {
         "description": "List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt summaries.",
         "category": "Prompts",
