@@ -1,10 +1,11 @@
+import os
 import json
 
 from django.db import transaction
 
+import redis
 import structlog
 import posthoganalytics
-from django_redis import get_redis_connection
 
 from posthog.models import Team
 
@@ -16,13 +17,17 @@ from products.notifications.backend.resolvers import RecipientsResolver
 logger = structlog.get_logger(__name__)
 
 
-def _get_redis_client():
-    return get_redis_connection("default")
+def _get_livestream_redis_client():
+    """Connect to the same Redis instance as the Go livestream service.
+    This is separate from Django's default cache Redis."""
+    host = os.getenv("LIVESTREAM_REDIS_ADDRESS", "localhost")
+    port = int(os.getenv("LIVESTREAM_REDIS_PORT", "6379"))
+    return redis.Redis(host=host, port=port)
 
 
 def _publish_to_redis(event: NotificationEvent) -> None:
     try:
-        client = _get_redis_client()
+        client = _get_livestream_redis_client()
         channel = f"notifications:{event.organization_id}"
 
         payload = json.dumps(
