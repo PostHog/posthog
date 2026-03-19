@@ -31,30 +31,9 @@ interface DetectorSelectorProps {
 
 const DETECTOR_OPTIONS: Array<{ value: string; label: string; tooltip: string }> = [
     {
-        value: DetectorType.ZSCORE,
-        label: 'Z-Score',
-        tooltip: 'Flags points that are unusually far from the rolling average. Good general-purpose detector.',
-    },
-    {
-        value: DetectorType.MAD,
-        label: 'MAD',
-        tooltip:
-            'Like Z-Score but uses the median instead of the mean, making it robust to existing outliers in your data.',
-    },
-    {
-        value: DetectorType.IQR,
-        label: 'IQR',
-        tooltip: 'Interquartile range — classic box plot method for detecting outliers.',
-    },
-    {
-        value: DetectorType.THRESHOLD,
-        label: 'Threshold',
-        tooltip: 'Simple upper/lower bounds. Alerts when the value crosses a fixed limit.',
-    },
-    {
-        value: 'ensemble',
-        label: 'Ensemble',
-        tooltip: 'Combine multiple detectors with AND/OR logic for more precise anomaly detection.',
+        value: DetectorType.COPOD,
+        label: 'COPOD',
+        tooltip: 'Copula-based outlier detection — efficient and parameter-free.',
     },
     {
         value: DetectorType.ECOD,
@@ -62,9 +41,19 @@ const DETECTOR_OPTIONS: Array<{ value: string; label: string; tooltip: string }>
         tooltip: 'Empirical cumulative distribution — parameter-free and interpretable.',
     },
     {
-        value: DetectorType.COPOD,
-        label: 'COPOD',
-        tooltip: 'Copula-based outlier detection — efficient and parameter-free.',
+        value: 'ensemble',
+        label: 'Ensemble',
+        tooltip: 'Combine multiple detectors with AND/OR logic for more precise anomaly detection.',
+    },
+    {
+        value: DetectorType.HBOS,
+        label: 'HBOS',
+        tooltip: 'Histogram-based outlier score — very fast, good for high-volume alerting.',
+    },
+    {
+        value: DetectorType.IQR,
+        label: 'IQR',
+        tooltip: 'Interquartile range — classic box plot method for detecting outliers.',
     },
     {
         value: DetectorType.ISOLATION_FOREST,
@@ -82,9 +71,10 @@ const DETECTOR_OPTIONS: Array<{ value: string; label: string; tooltip: string }>
         tooltip: 'Local outlier factor — density-based, good for seasonal data.',
     },
     {
-        value: DetectorType.HBOS,
-        label: 'HBOS',
-        tooltip: 'Histogram-based outlier score — very fast, good for high-volume alerting.',
+        value: DetectorType.MAD,
+        label: 'MAD',
+        tooltip:
+            'Like Z-Score but uses the median instead of the mean, making it robust to existing outliers in your data.',
     },
     {
         value: DetectorType.OCSVM,
@@ -95,6 +85,16 @@ const DETECTOR_OPTIONS: Array<{ value: string; label: string; tooltip: string }>
         value: DetectorType.PCA,
         label: 'PCA',
         tooltip: 'PCA-based — detects anomalies via reconstruction error.',
+    },
+    {
+        value: DetectorType.THRESHOLD,
+        label: 'Threshold',
+        tooltip: 'Simple upper/lower bounds. Alerts when the value crosses a fixed limit.',
+    },
+    {
+        value: DetectorType.ZSCORE,
+        label: 'Z-Score',
+        tooltip: 'Flags points that are unusually far from the rolling average. Good general-purpose detector.',
     },
 ]
 
@@ -450,9 +450,10 @@ function IQRConfig({
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
             <div>
-                <label className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1 block">
-                    IQR multiplier
-                </label>
+                <Label
+                    text="IQR multiplier"
+                    tooltip="How far from the interquartile range a value must be to count as an outlier. 1.5 = standard, 3.0 = extreme only."
+                />
                 <LemonInput
                     type="number"
                     min={1}
@@ -522,9 +523,7 @@ function IsolationForestConfig({
                 tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
             <div>
-                <label className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1 block">
-                    Number of trees
-                </label>
+                <Label text="Number of trees" tooltip="More trees = more accurate but slower. 100 is a good default." />
                 <LemonInput
                     type="number"
                     min={10}
@@ -555,9 +554,10 @@ function KNNConfig({
                 tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
             <div>
-                <label className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1 block">
-                    Number of neighbors
-                </label>
+                <Label
+                    text="Number of neighbors"
+                    tooltip="How many nearest neighbors to consider. More = smoother detection, fewer = more sensitive."
+                />
                 <LemonInput
                     type="number"
                     min={1}
@@ -569,9 +569,10 @@ function KNNConfig({
                 />
             </div>
             <div>
-                <label className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1 block">
-                    Distance method
-                </label>
+                <Label
+                    text="Distance method"
+                    tooltip="How to aggregate distances to K neighbors. 'Largest' uses the farthest neighbor, 'mean' and 'median' average across all K."
+                />
                 <LemonSelect
                     value={config.method ?? 'largest'}
                     onChange={(val) => onChange({ ...config, method: val as 'largest' | 'mean' | 'median' })}
@@ -605,9 +606,10 @@ function LOFConfig({
                 tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
             <div>
-                <label className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1 block">
-                    Number of neighbors
-                </label>
+                <Label
+                    text="Number of neighbors"
+                    tooltip="Size of the local neighborhood for density estimation. 20 is a good default for most time series."
+                />
                 <LemonInput
                     type="number"
                     min={1}
@@ -640,9 +642,10 @@ function HBOSConfig({
                 tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
             <div>
-                <label className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1 block">
-                    Number of bins
-                </label>
+                <Label
+                    text="Number of bins"
+                    tooltip="How many histogram bins to use. More bins = finer-grained detection but needs more data points."
+                />
                 <LemonInput
                     type="number"
                     min={5}

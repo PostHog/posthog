@@ -76,7 +76,7 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
     So then we check current interval value first and alert if threshold breached, otherwise fallback and process previous interval.
     """
 
-    if "type" in alert.config and alert.config["type"] == "TrendsAlertConfig":
+    if alert.config and "type" in alert.config and alert.config["type"] == "TrendsAlertConfig":
         config = TrendsAlertConfig.model_validate(alert.config)
     else:
         raise ValueError(f"Unsupported alert config type: {alert.config}")
