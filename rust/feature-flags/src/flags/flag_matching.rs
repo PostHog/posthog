@@ -1867,6 +1867,9 @@ impl FeatureFlagMatcher {
             .map(|c| c.id)
             .collect();
 
+        // Ensure group type mappings are loaded before preparing group data
+        self.initialize_group_type_mappings_if_needed(flags).await;
+
         // Then prepare group mappings and properties
         // This should be _wicked_ fast since it's async and is just pulling from a cache that's already in memory
         let group_timer = common_metrics::timing_guard(FLAG_GROUP_CACHE_FETCH_TIME, &[]);
@@ -2183,9 +2186,9 @@ impl FeatureFlagMatcher {
                     &[("reason".to_string(), reason.to_string())],
                     1,
                 );
-                // Preserve existing behavior: empty mappings are surfaced as an error to callers,
-                // so clients see `errorsWhileComputingFlags: true` just like before caching.
-                errors_while_computing_flags = true;
+                // Empty mappings are not an error — the team simply has no group types configured.
+                // Group-based flags won't match, but person flags in the same batch should succeed
+                // without surfacing errorsWhileComputingFlags to the client.
             }
             Ok(mapping) => {
                 self.group_type_mapping = Some(mapping);
