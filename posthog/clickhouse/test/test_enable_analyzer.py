@@ -47,12 +47,12 @@ class TestSyncExecuteEnableAnalyzer:
     )
     def test_analyzer_setting(self, _name, allowed_teams, team_id, explicit_value, expected):
         mock_client = MagicMock()
-        caller_settings = {"allow_experimental_analyzer": explicit_value} if explicit_value is not None else None
+        caller_settings = {"enable_analyzer": explicit_value} if explicit_value is not None else None
 
         with patch(INSTANCE_SETTING_PATH, return_value=allowed_teams):
             sync_execute("SELECT 1", settings=caller_settings, team_id=team_id, flush=False, sync_client=mock_client)
 
-        actual = mock_client.__enter__.return_value.execute.call_args[1]["settings"].get("allow_experimental_analyzer")
+        actual = mock_client.__enter__.return_value.execute.call_args[1]["settings"].get("enable_analyzer")
         assert actual == expected
 
 
@@ -66,27 +66,27 @@ class TestGetDefaultHogQLGlobalSettings:
     def test_sets_enable_analyzer_for_listed_team(self):
         with patch(INSTANCE_SETTING_PATH, return_value=[2]):
             settings = get_default_hogql_global_settings(team_id=2)
-            assert settings.allow_experimental_analyzer is True
+            assert settings.enable_analyzer is True
 
     def test_no_override_for_unlisted_team(self):
         with patch(INSTANCE_SETTING_PATH, return_value=[2]):
             settings = get_default_hogql_global_settings(team_id=99)
-            assert settings.allow_experimental_analyzer is None
+            assert settings.enable_analyzer is None
 
     def test_does_not_override_explicit_false(self):
         with patch(INSTANCE_SETTING_PATH, return_value=[2]):
-            base = HogQLGlobalSettings(allow_experimental_analyzer=False)
+            base = HogQLGlobalSettings(enable_analyzer=False)
             settings = get_default_hogql_global_settings(team_id=2, base=base)
-            assert settings.allow_experimental_analyzer is False
+            assert settings.enable_analyzer is False
 
     def test_preserves_base_settings(self):
         with patch(INSTANCE_SETTING_PATH, return_value=[2]):
             base = HogQLGlobalSettings(max_execution_time=120)
             settings = get_default_hogql_global_settings(team_id=2, base=base)
             assert settings.max_execution_time == 120
-            assert settings.allow_experimental_analyzer is True
+            assert settings.enable_analyzer is True
 
     def test_none_team_id(self):
         with patch(INSTANCE_SETTING_PATH, return_value=[2]):
             settings = get_default_hogql_global_settings(team_id=None)
-            assert settings.allow_experimental_analyzer is None
+            assert settings.enable_analyzer is None

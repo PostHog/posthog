@@ -75,7 +75,7 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
     const { loadSources } = useActions(externalDataSourcesLogic)
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     const { tiles: marketingTiles } = useValues(marketingAnalyticsTilesLogic)
-    const { showOnboarding } = useValues(marketingOnboardingLogic)
+    const { showOnboarding, currentStep } = useValues(marketingOnboardingLogic)
     const { completeOnboarding, resetOnboarding } = useActions(marketingOnboardingLogic)
 
     // Reload sources on every navigation to this scene so newly configured
@@ -84,12 +84,19 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
         loadSources()
     }, [loadSources])
 
-    // Auto-complete onboarding if user already has sources and conversion goals configured
+    // Auto-complete onboarding if user already has sources and conversion goals configured,
+    // but only when not actively on the conversion-goals step (let the user click "Continue")
     useEffect(() => {
-        if (!loading && hasSources && conversion_goals.length > 0 && showOnboarding) {
+        if (
+            !loading &&
+            hasSources &&
+            conversion_goals.length > 0 &&
+            showOnboarding &&
+            currentStep !== 'conversion-goals'
+        ) {
             completeOnboarding()
         }
-    }, [loading, hasSources, conversion_goals, showOnboarding, completeOnboarding])
+    }, [loading, hasSources, conversion_goals, showOnboarding, currentStep, completeOnboarding])
 
     // Reset onboarding if user truly has no configured sources (handles session/project changes).
     // Uses hasNoConfiguredSources which guards against premature evaluation while tables are loading.

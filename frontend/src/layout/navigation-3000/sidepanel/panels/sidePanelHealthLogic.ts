@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { sidePanelHealthLogicType } from './sidePanelHealthLogicType'
 
@@ -30,7 +31,7 @@ export const REFRESH_INTERVAL = 60 * 1000 * 5 // 5 minutes
 export const sidePanelHealthLogic = kea<sidePanelHealthLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelHealthLogic']),
     connect({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeamIdStrict']],
     }),
 
     actions({
@@ -58,7 +59,7 @@ export const sidePanelHealthLogic = kea<sidePanelHealthLogicType>([
                     }
                     try {
                         const response = await api.get<DataHealthIssuesResponse>(
-                            'api/environments/@current/data_warehouse/data_health_issues/'
+                            `api/environments/${values.currentTeamIdStrict}/data_warehouse/data_health_issues/`
                         )
                         return response
                     } catch (error) {
