@@ -2,10 +2,18 @@ import { Message } from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
-import { pipelineLastStepCounter } from '../../worker/ingestion/event-pipeline/metrics'
+import { ingestionPipelineResultCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { logDroppedMessage, redirectMessageToTopic, sendMessageToDLQ } from '../../worker/ingestion/pipeline-helpers'
 import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
-import { PipelineResult, isDlqResult, isDropResult, isOkResult, isRedirectResult } from './results'
+import {
+    PipelineResult,
+    PipelineResultRedirect,
+    PipelineResultType,
+    isDlqResult,
+    isDropResult,
+    isOkResult,
+    isRedirectResult,
+} from './results'
 
 export type PipelineConfig = {
     kafkaProducer: KafkaProducerWrapper
@@ -43,17 +51,15 @@ export class ResultHandlingPipeline<
         const processedResults: BatchPipelineResultWithContext<TOutput, COutput> = []
 
         for (const resultWithContext of results) {
-            const lastStep = resultWithContext.context.lastStep
-            if (lastStep) {
-                pipelineLastStepCounter.labels(lastStep).inc()
-            }
+            const stepName = resultWithContext.context.lastStep || 'unknown'
+            const { result: resultType, details } = resultDetails(resultWithContext.result)
+            ingestionPipelineResultCounter.labels({ result: resultType, last_step_name: stepName, details }).inc()
 
             if (isOkResult(resultWithContext.result)) {
                 processedResults.push(resultWithContext)
             } else {
                 const result = resultWithContext.result
                 const originalMessage = resultWithContext.context.message
-                const stepName = resultWithContext.context.lastStep || 'unknown'
                 const sideEffects = this.handleNonSuccessResult(result, originalMessage, stepName)
 
                 processedResults.push({
@@ -101,5 +107,23 @@ export class ResultHandlingPipeline<
         }
 
         return sideEffects
+    }
+}
+
+function redirectDetails(result: PipelineResultRedirect): string {
+    const preserveKey = result.preserveKey ?? true
+    return `${result.topic}(preserve_key=${preserveKey})`
+}
+
+function resultDetails<T>(result: PipelineResult<T>): { result: string; details: string } {
+    switch (result.type) {
+        case PipelineResultType.OK:
+            return { result: 'ok', details: '' }
+        case PipelineResultType.DROP:
+            return { result: 'drop', details: result.reason }
+        case PipelineResultType.DLQ:
+            return { result: 'dlq', details: result.reason }
+        case PipelineResultType.REDIRECT:
+            return { result: 'redirect', details: redirectDetails(result) }
     }
 }
