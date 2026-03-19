@@ -8,9 +8,14 @@ from unittest.mock import MagicMock, patch
 from posthog.schema import ExperimentQueryResponse, ExperimentStatsBaseValidated, ExperimentVariantResultFrequentist
 
 from posthog.models import Organization, Team, User
-from posthog.models.experiment import Experiment, ExperimentMetricResult, ExperimentTimeseriesRecalculation
 from posthog.models.feature_flag import FeatureFlag
 from posthog.temporal.experiments.activities import _backfill_experiment_metric_sync
+
+from products.experiments.backend.models.experiment import (
+    Experiment,
+    ExperimentMetricResult,
+    ExperimentTimeseriesRecalculation,
+)
 
 
 @pytest.mark.django_db

@@ -275,7 +275,7 @@ def sync_execute(
 
     # Only enable if not explicitly disabled — setdefault preserves existing value
     if team_id is not None and is_enable_analyzer_team(team_id):
-        core_settings.setdefault("allow_experimental_analyzer", 1)
+        core_settings.setdefault("enable_analyzer", 1)
 
     kill_switch_level = KillSwitchLevel.OFF if TEST else get_kill_switch_level()
     if kill_switch_level != KillSwitchLevel.OFF and ch_user not in _KILL_SWITCH_EXEMPT_USERS:

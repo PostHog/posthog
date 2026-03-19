@@ -9,6 +9,7 @@ from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import ANY, patch
 
+from django.contrib.sessions.backends.base import UpdateError
 from django.core import mail
 from django.core.cache import cache
 from django.urls.base import reverse
@@ -16,6 +17,7 @@ from django.utils import timezone
 
 from rest_framework import status
 
+from posthog.api.signup import _save_session_with_recovery
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.constants import AvailableFeature
 from posthog.models import Dashboard, Organization, Team, User
@@ -1479,6 +1481,25 @@ class TestPasskeySignupAPI(APIBaseTest):
             },
         )
         self.assertEqual(User.objects.count(), count)
+
+
+class TestSignupSessionSaveRecovery(unittest.TestCase):
+    def test_save_session_with_recovery_uses_save_when_row_exists(self):
+        session = mock.Mock()
+
+        _save_session_with_recovery(session)
+
+        session.save.assert_called_once_with()
+        session.create.assert_not_called()
+
+    def test_save_session_with_recovery_recreates_session_on_update_error(self):
+        session = mock.Mock()
+        session.save.side_effect = UpdateError
+
+        _save_session_with_recovery(session)
+
+        session.save.assert_called_once_with()
+        session.create.assert_called_once_with()
 
 
 class TestInviteSignupAPI(APIBaseTest):

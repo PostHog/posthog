@@ -58,26 +58,37 @@ def build_dependent_resource(
     should_use_incremental_field: bool = False,
     incremental_field: str | None = None,
     incremental_config_factory: Callable[[str], IncrementalConfig] | None = None,
+    parent_endpoint_extra: Endpoint | None = None,
+    child_endpoint_extra: Endpoint | None = None,
+    page_size_param: str = "limit",
 ) -> Iterable[Any]:
     parent_config = endpoint_configs[fanout.parent_name]
     child_config = endpoint_configs[child_endpoint]
 
-    parent_params: dict[str, Any] = {"limit": parent_config.page_size}
+    parent_params: dict[str, Any] = {page_size_param: parent_config.page_size}
     parent_params.update(fanout.parent_params)
 
     parent_path = parent_config.path
     for key, value in path_format_values.items():
         parent_path = parent_path.replace(f"{{{key}}}", value)
 
+    parent_endpoint_config: Endpoint = {
+        "path": parent_path,
+        "params": parent_params,
+    }
+    if parent_endpoint_extra:
+        if "params" in parent_endpoint_extra:
+            raise ValueError(
+                "Do not pass 'params' in parent_endpoint_extra. Use fanout.parent_params or page_size_param instead."
+            )
+        parent_endpoint_config.update(parent_endpoint_extra)
+
     parent_resource: EndpointResource = {
         "name": fanout.parent_name,
         "table_name": fanout.parent_name,
         "primary_key": parent_config.primary_key,
         "write_disposition": "replace",
-        "endpoint": {
-            "path": parent_path,
-            "params": parent_params,
-        },
+        "endpoint": parent_endpoint_config,
         "table_format": "delta",
     }
 
@@ -91,12 +102,19 @@ def build_dependent_resource(
             "resource": fanout.parent_name,
             "field": fanout.resolve_field,
         },
-        "limit": child_config.page_size,
+        page_size_param: child_config.page_size,
     }
     child_endpoint_config: Endpoint = {
         "path": child_path,
         "params": child_params,
     }
+    if child_endpoint_extra:
+        if "params" in child_endpoint_extra:
+            raise ValueError(
+                "Do not pass 'params' in child_endpoint_extra. "
+                "The child resolve/page-size params are managed by build_dependent_resource."
+            )
+        child_endpoint_config.update(child_endpoint_extra)
 
     use_merge = should_use_incremental_field and bool(child_config.incremental_fields)
     if use_merge:

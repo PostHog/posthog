@@ -8,12 +8,12 @@ from django.utils import timezone
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.preaggregation.experiment_exposures_sql import TRUNCATE_EXPERIMENT_EXPOSURES_TABLE_SQL
-from posthog.models.experiment import Experiment
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.data_warehouse.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
+from products.experiments.backend.models.experiment import Experiment
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql.experiments.queryrunner"
 

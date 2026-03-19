@@ -1148,6 +1148,24 @@ class TestPrinter(BaseTest):
             'The HogQL identifier "as%d" is not permitted as it contains the "%" character',
         )
 
+    @parameterized.expand([["percentile_cont"], ["percentile_disc"]])
+    def test_percentile_within_group_printer(self, function_name: str):
+        self.assertEqual(
+            self._expr(f"{function_name}(0.5) within group (order by event desc)", dialect="hogql"),
+            f"{function_name}(0.5) WITHIN GROUP (ORDER BY event DESC)",
+        )
+
+    @parameterized.expand([["percentile_cont"], ["percentile_disc"]])
+    def test_percentile_within_group_parse_errors(self, function_name: str):
+        self._assert_expr_error(
+            f"{function_name}(0.5)",
+            f"Aggregation '{function_name}' requires WITHIN GROUP",
+        )
+        self._assert_expr_error(
+            f"{function_name}(0.5) within group (order by event desc)",
+            f"Aggregation '{function_name}' with WITHIN GROUP is not supported in ClickHouse dialect",
+        )
+
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
     def test_expr_parse_errors_poe_on(self):
         # VirtualTable

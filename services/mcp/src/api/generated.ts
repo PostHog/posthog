@@ -4383,6 +4383,29 @@ export namespace Schemas {
       window?: number | null;
     }
 
+    export type IQRDetectorConfigType = typeof IQRDetectorConfigType[keyof typeof IQRDetectorConfigType];
+
+
+    export const IQRDetectorConfigType = {
+      Iqr: 'iqr',
+    } as const;
+
+    export interface IQRDetectorConfig {
+      /**
+       * IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)
+       * @nullable
+       */
+      multiplier?: number | null;
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      type?: IQRDetectorConfigType;
+      /**
+       * Rolling window size for calculating quartiles (default: 30)
+       * @nullable
+       */
+      window?: number | null;
+    }
+
     export type ThresholdDetectorConfigType = typeof ThresholdDetectorConfigType[keyof typeof ThresholdDetectorConfigType];
 
 
@@ -4406,6 +4429,191 @@ export namespace Schemas {
       upper_bound?: number | null;
     }
 
+    export type ECODDetectorConfigType = typeof ECODDetectorConfigType[keyof typeof ECODDetectorConfigType];
+
+
+    export const ECODDetectorConfigType = {
+      Ecod: 'ecod',
+    } as const;
+
+    export interface ECODDetectorConfig {
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      /**
+       * Anomaly probability threshold (default: 0.9)
+       * @nullable
+       */
+      threshold?: number | null;
+      type?: ECODDetectorConfigType;
+    }
+
+    export type COPODDetectorConfigType = typeof COPODDetectorConfigType[keyof typeof COPODDetectorConfigType];
+
+
+    export const COPODDetectorConfigType = {
+      Copod: 'copod',
+    } as const;
+
+    export interface COPODDetectorConfig {
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      /**
+       * Anomaly probability threshold (default: 0.9)
+       * @nullable
+       */
+      threshold?: number | null;
+      type?: COPODDetectorConfigType;
+    }
+
+    export type IsolationForestDetectorConfigType = typeof IsolationForestDetectorConfigType[keyof typeof IsolationForestDetectorConfigType];
+
+
+    export const IsolationForestDetectorConfigType = {
+      IsolationForest: 'isolation_forest',
+    } as const;
+
+    export interface IsolationForestDetectorConfig {
+      /**
+       * Number of trees in the forest (default: 100)
+       * @nullable
+       */
+      n_estimators?: number | null;
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      /**
+       * Anomaly probability threshold (default: 0.9)
+       * @nullable
+       */
+      threshold?: number | null;
+      type?: IsolationForestDetectorConfigType;
+    }
+
+    export type Method = typeof Method[keyof typeof Method];
+
+
+    export const Method = {
+      Largest: 'largest',
+      Mean: 'mean',
+      Median: 'median',
+    } as const;
+
+    export type KNNDetectorConfigType = typeof KNNDetectorConfigType[keyof typeof KNNDetectorConfigType];
+
+
+    export const KNNDetectorConfigType = {
+      Knn: 'knn',
+    } as const;
+
+    export interface KNNDetectorConfig {
+      /** Distance method: 'largest', 'mean', 'median' (default: 'largest') */
+      method?: Method | null;
+      /**
+       * Number of neighbors to consider (default: 5)
+       * @nullable
+       */
+      n_neighbors?: number | null;
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      /**
+       * Anomaly probability threshold (default: 0.9)
+       * @nullable
+       */
+      threshold?: number | null;
+      type?: KNNDetectorConfigType;
+    }
+
+    export type HBOSDetectorConfigType = typeof HBOSDetectorConfigType[keyof typeof HBOSDetectorConfigType];
+
+
+    export const HBOSDetectorConfigType = {
+      Hbos: 'hbos',
+    } as const;
+
+    export interface HBOSDetectorConfig {
+      /**
+       * Number of histogram bins (default: 10)
+       * @nullable
+       */
+      n_bins?: number | null;
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      /**
+       * Anomaly probability threshold (default: 0.9)
+       * @nullable
+       */
+      threshold?: number | null;
+      type?: HBOSDetectorConfigType;
+    }
+
+    export type LOFDetectorConfigType = typeof LOFDetectorConfigType[keyof typeof LOFDetectorConfigType];
+
+
+    export const LOFDetectorConfigType = {
+      Lof: 'lof',
+    } as const;
+
+    export interface LOFDetectorConfig {
+      /**
+       * Number of neighbors for LOF (default: 20)
+       * @nullable
+       */
+      n_neighbors?: number | null;
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      /**
+       * Anomaly probability threshold (default: 0.9)
+       * @nullable
+       */
+      threshold?: number | null;
+      type?: LOFDetectorConfigType;
+    }
+
+    export type OCSVMDetectorConfigType = typeof OCSVMDetectorConfigType[keyof typeof OCSVMDetectorConfigType];
+
+
+    export const OCSVMDetectorConfigType = {
+      Ocsvm: 'ocsvm',
+    } as const;
+
+    export interface OCSVMDetectorConfig {
+      /**
+       * SVM kernel type (default: "rbf")
+       * @nullable
+       */
+      kernel?: string | null;
+      /**
+       * Upper bound on training errors fraction (default: 0.1)
+       * @nullable
+       */
+      nu?: number | null;
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      /**
+       * Anomaly probability threshold (default: 0.9)
+       * @nullable
+       */
+      threshold?: number | null;
+      type?: OCSVMDetectorConfigType;
+    }
+
+    export type PCADetectorConfigType = typeof PCADetectorConfigType[keyof typeof PCADetectorConfigType];
+
+
+    export const PCADetectorConfigType = {
+      Pca: 'pca',
+    } as const;
+
+    export interface PCADetectorConfig {
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      /**
+       * Anomaly probability threshold (default: 0.9)
+       * @nullable
+       */
+      threshold?: number | null;
+      type?: PCADetectorConfigType;
+    }
+
     export type EnsembleOperator = typeof EnsembleOperator[keyof typeof EnsembleOperator];
 
 
@@ -4423,7 +4631,7 @@ export namespace Schemas {
 
     export interface EnsembleDetectorConfig {
       /** Sub-detector configurations (minimum 2) */
-      detectors: (ZScoreDetectorConfig | MADDetectorConfig | ThresholdDetectorConfig)[];
+      detectors: (ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig)[];
       /** How to combine sub-detector results */
       operator: EnsembleOperator;
       type?: EnsembleDetectorConfigType;
@@ -4432,7 +4640,7 @@ export namespace Schemas {
     /**
      * Detector configuration types
      */
-    export type DetectorConfig = EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | ThresholdDetectorConfig;
+    export type DetectorConfig = EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig;
 
     /**
      * * `hourly` - hourly
@@ -12892,13 +13100,21 @@ export namespace Schemas {
     export type EventTypeProperties = { [key: string]: unknown };
 
     export interface Person {
+      /** Numeric person ID. */
       readonly id: number;
+      /** Display name derived from person properties (email, name, or username). */
       readonly name: string;
       readonly distinct_ids: readonly string[];
+      /** Key-value map of person properties set via $set and $set_once operations. */
       properties?: unknown;
+      /** When this person was first seen (ISO 8601). */
       readonly created_at: string;
+      /** Unique identifier (UUID) for this person. */
       readonly uuid: string;
-      /** @nullable */
+      /**
+       * Timestamp of the last event from this person, or null.
+       * @nullable
+       */
       readonly last_seen_at: string | null;
     }
 
@@ -17510,13 +17726,21 @@ export namespace Schemas {
     } as const;
 
     export interface MinimalPerson {
+      /** Numeric person ID. */
       readonly id: number;
+      /** Display name derived from person properties (email, name, or username). */
       readonly name: string;
       readonly distinct_ids: readonly string[];
+      /** Key-value map of person properties set via $set and $set_once operations. */
       properties?: unknown;
+      /** When this person was first seen (ISO 8601). */
       readonly created_at: string;
+      /** Unique identifier (UUID) for this person. */
       readonly uuid: string;
-      /** @nullable */
+      /**
+       * Timestamp of the last event from this person, or null.
+       * @nullable
+       */
       readonly last_seen_at: string | null;
     }
 
@@ -20017,6 +20241,10 @@ export namespace Schemas {
       readonly slack_thread_ts: string | null;
       /** @nullable */
       readonly slack_team_id: string | null;
+      /** @nullable */
+      readonly email_subject: string | null;
+      /** @nullable */
+      readonly email_from: string | null;
       readonly person: TicketPerson | null;
       tags?: unknown[];
     }
@@ -22370,13 +22598,21 @@ export namespace Schemas {
     }
 
     export interface PatchedPerson {
+      /** Numeric person ID. */
       readonly id?: number;
+      /** Display name derived from person properties (email, name, or username). */
       readonly name?: string;
       readonly distinct_ids?: readonly string[];
+      /** Key-value map of person properties set via $set and $set_once operations. */
       properties?: unknown;
+      /** When this person was first seen (ISO 8601). */
       readonly created_at?: string;
+      /** Unique identifier (UUID) for this person. */
       readonly uuid?: string;
-      /** @nullable */
+      /**
+       * Timestamp of the last event from this person, or null.
+       * @nullable
+       */
       readonly last_seen_at?: string | null;
     }
 
@@ -23474,6 +23710,10 @@ export namespace Schemas {
       readonly slack_thread_ts?: string | null;
       /** @nullable */
       readonly slack_team_id?: string | null;
+      /** @nullable */
+      readonly email_subject?: string | null;
+      /** @nullable */
+      readonly email_from?: string | null;
       readonly person?: TicketPerson | null;
       tags?: unknown[];
     }
@@ -23518,6 +23758,11 @@ export namespace Schemas {
       comment?: string | null;
       /** Full desired score set for this review. Omit scorers you want to leave blank. */
       scores?: TraceReviewScoreWrite[];
+      /**
+       * Optional review queue ID for queue-context saves. When provided, the matching pending queue item is cleared after the review is saved. If omitted, any pending queue item for the same trace is cleared.
+       * @nullable
+       */
+      queue_id?: string | null;
     }
 
     /**
@@ -23675,6 +23920,24 @@ export namespace Schemas {
       variants?: unknown;
     }
 
+    export interface PersonBulkDeleteRequest {
+      /** A list of PostHog person UUIDs to delete (max 1000). */
+      ids?: string[];
+      /** A list of distinct IDs whose associated persons will be deleted (max 1000). */
+      distinct_ids?: string[];
+      /** If true, queue deletion of all events associated with these persons. */
+      delete_events?: boolean;
+      /** If true, queue deletion of all recordings associated with these persons. */
+      delete_recordings?: boolean;
+      /** If true, keep the person records but delete their events and recordings. */
+      keep_person?: boolean;
+    }
+
+    export interface PersonDeletePropertyRequest {
+      /** The property key to remove from this person. */
+      $unset: string;
+    }
+
     /**
      * The parameters passed to the query
      */
@@ -23754,6 +24017,13 @@ export namespace Schemas {
       point_in_time_metadata: PersonPropertiesAtTimeMetadata;
       /** Debug information (only available when debug=true and DEBUG=True) */
       debug?: PersonPropertiesAtTimeDebug;
+    }
+
+    export interface PersonUpdatePropertyRequest {
+      /** The property key to set. */
+      key: string;
+      /** The property value. Can be a string, number, boolean, or object. */
+      value: unknown;
     }
 
     export interface PinnedSceneTabs {
@@ -27920,6 +28190,11 @@ export namespace Schemas {
       comment?: string | null;
       /** Full desired score set for this review. Omit scorers you want to leave blank. */
       scores?: TraceReviewScoreWrite[];
+      /**
+       * Optional review queue ID for queue-context saves. When provided, the matching pending queue item is cleared after the review is saved. If omitted, any pending queue item for the same trace is cleared.
+       * @nullable
+       */
+      queue_id?: string | null;
     }
 
     export interface ViewLinkValidation {
@@ -28927,10 +29202,6 @@ export namespace Schemas {
     } as const;
 
     export type EnvironmentsPersonsDeletePropertyCreateParams = {
-    /**
-     * Specify the property key to delete
-     */
-    $unset: string;
     format?: EnvironmentsPersonsDeletePropertyCreateFormat;
     };
 
@@ -28968,14 +29239,6 @@ export namespace Schemas {
 
     export type EnvironmentsPersonsUpdatePropertyCreateParams = {
     format?: EnvironmentsPersonsUpdatePropertyCreateFormat;
-    /**
-     * Specify the property key
-     */
-    key: string;
-    /**
-     * Specify the property value
-     */
-    value: unknown;
     };
 
     export type EnvironmentsPersonsUpdatePropertyCreateFormat = typeof EnvironmentsPersonsUpdatePropertyCreateFormat[keyof typeof EnvironmentsPersonsUpdatePropertyCreateFormat];
@@ -29011,27 +29274,7 @@ export namespace Schemas {
     } as const;
 
     export type EnvironmentsPersonsBulkDeleteCreateParams = {
-    /**
-     * If true, a task to delete all events associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday
-     */
-    delete_events?: boolean;
-    /**
-     * If true, a task to delete all recordings associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday
-     */
-    delete_recordings?: boolean;
-    /**
-     * A list of distinct IDs, up to 1000 of them. We'll delete all persons associated with those distinct IDs.
-     */
-    distinct_ids?: {[key: string]: unknown};
     format?: EnvironmentsPersonsBulkDeleteCreateFormat;
-    /**
-     * A list of PostHog person IDs, up to 1000 of them. We'll delete all the persons listed.
-     */
-    ids?: {[key: string]: unknown};
-    /**
-     * If true, the person record itself will not be deleted. This is useful if you want to keep the person record for auditing purposes but remove events and recordings associated with them
-     */
-    keep_person?: boolean;
     };
 
     export type EnvironmentsPersonsBulkDeleteCreateFormat = typeof EnvironmentsPersonsBulkDeleteCreateFormat[keyof typeof EnvironmentsPersonsBulkDeleteCreateFormat];
@@ -29044,6 +29287,10 @@ export namespace Schemas {
 
     export type EnvironmentsPersonsCohortsRetrieveParams = {
     format?: EnvironmentsPersonsCohortsRetrieveFormat;
+    /**
+     * The person ID or UUID to get cohorts for.
+     */
+    person_id: string;
     };
 
     export type EnvironmentsPersonsCohortsRetrieveFormat = typeof EnvironmentsPersonsCohortsRetrieveFormat[keyof typeof EnvironmentsPersonsCohortsRetrieveFormat];
@@ -29184,6 +29431,14 @@ export namespace Schemas {
 
     export type EnvironmentsPersonsValuesRetrieveParams = {
     format?: EnvironmentsPersonsValuesRetrieveFormat;
+    /**
+     * The person property key to get values for (e.g., 'email', 'plan', 'role').
+     */
+    key: string;
+    /**
+     * Optional search string to filter values (case-insensitive substring match).
+     */
+    value?: string;
     };
 
     export type EnvironmentsPersonsValuesRetrieveFormat = typeof EnvironmentsPersonsValuesRetrieveFormat[keyof typeof EnvironmentsPersonsValuesRetrieveFormat];
@@ -31859,10 +32114,6 @@ export namespace Schemas {
     } as const;
 
     export type PersonsDeletePropertyCreateParams = {
-    /**
-     * Specify the property key to delete
-     */
-    $unset: string;
     format?: PersonsDeletePropertyCreateFormat;
     };
 
@@ -31900,14 +32151,6 @@ export namespace Schemas {
 
     export type PersonsUpdatePropertyCreateParams = {
     format?: PersonsUpdatePropertyCreateFormat;
-    /**
-     * Specify the property key
-     */
-    key: string;
-    /**
-     * Specify the property value
-     */
-    value: unknown;
     };
 
     export type PersonsUpdatePropertyCreateFormat = typeof PersonsUpdatePropertyCreateFormat[keyof typeof PersonsUpdatePropertyCreateFormat];
@@ -31943,27 +32186,7 @@ export namespace Schemas {
     } as const;
 
     export type PersonsBulkDeleteCreateParams = {
-    /**
-     * If true, a task to delete all events associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday
-     */
-    delete_events?: boolean;
-    /**
-     * If true, a task to delete all recordings associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday
-     */
-    delete_recordings?: boolean;
-    /**
-     * A list of distinct IDs, up to 1000 of them. We'll delete all persons associated with those distinct IDs.
-     */
-    distinct_ids?: {[key: string]: unknown};
     format?: PersonsBulkDeleteCreateFormat;
-    /**
-     * A list of PostHog person IDs, up to 1000 of them. We'll delete all the persons listed.
-     */
-    ids?: {[key: string]: unknown};
-    /**
-     * If true, the person record itself will not be deleted. This is useful if you want to keep the person record for auditing purposes but remove events and recordings associated with them
-     */
-    keep_person?: boolean;
     };
 
     export type PersonsBulkDeleteCreateFormat = typeof PersonsBulkDeleteCreateFormat[keyof typeof PersonsBulkDeleteCreateFormat];
@@ -31976,6 +32199,10 @@ export namespace Schemas {
 
     export type PersonsCohortsRetrieveParams = {
     format?: PersonsCohortsRetrieveFormat;
+    /**
+     * The person ID or UUID to get cohorts for.
+     */
+    person_id: string;
     };
 
     export type PersonsCohortsRetrieveFormat = typeof PersonsCohortsRetrieveFormat[keyof typeof PersonsCohortsRetrieveFormat];
@@ -32116,6 +32343,14 @@ export namespace Schemas {
 
     export type PersonsValuesRetrieveParams = {
     format?: PersonsValuesRetrieveFormat;
+    /**
+     * The person property key to get values for (e.g., 'email', 'plan', 'role').
+     */
+    key: string;
+    /**
+     * Optional search string to filter values (case-insensitive substring match).
+     */
+    value?: string;
     };
 
     export type PersonsValuesRetrieveFormat = typeof PersonsValuesRetrieveFormat[keyof typeof PersonsValuesRetrieveFormat];

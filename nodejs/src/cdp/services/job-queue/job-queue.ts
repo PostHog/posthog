@@ -342,6 +342,14 @@ export class CyclotronJobQueue {
 
         if (postgresInvocationsToCreate.length > 0) {
             promises.push(this.jobQueuePostgres.queueInvocations(postgresInvocationsToCreate.map((x) => x.invocation)))
+
+            // Release postgres-v2 source jobs that are being re-routed to postgres
+            const v2JobsToRelease = postgresInvocationsToCreate
+                .filter((x) => x.invocation.queueSource === 'postgres-v2')
+                .map((x) => x.invocation)
+            if (v2JobsToRelease.length > 0 && this.jobQueuePostgresV2) {
+                promises.push(this.jobQueuePostgresV2.releaseInvocations(v2JobsToRelease))
+            }
         }
 
         if (postgresV2InvocationsToUpdate.length > 0 && this.jobQueuePostgresV2) {
@@ -352,6 +360,14 @@ export class CyclotronJobQueue {
             promises.push(
                 this.jobQueuePostgresV2.queueInvocations(postgresV2InvocationsToCreate.map((x) => x.invocation))
             )
+
+            // Release postgres source jobs that are being re-routed to postgres-v2
+            const pgJobsToRelease = postgresV2InvocationsToCreate
+                .filter((x) => x.invocation.queueSource === 'postgres')
+                .map((x) => x.invocation)
+            if (pgJobsToRelease.length > 0) {
+                promises.push(this.jobQueuePostgres.releaseInvocations(pgJobsToRelease))
+            }
         }
 
         if (kafkaInvocations.length > 0) {

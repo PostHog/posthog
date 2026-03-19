@@ -2813,6 +2813,25 @@
         "BreakdownValueInt": {
             "$ref": "#/definitions/integer"
         },
+        "COPODDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig",
+                    "description": "Preprocessing transforms applied before detection"
+                },
+                "threshold": {
+                    "description": "Anomaly probability threshold (default: 0.9)",
+                    "type": "number"
+                },
+                "type": {
+                    "const": "copod",
+                    "type": "string"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
         "CacheMissResponse": {
             "additionalProperties": false,
             "properties": {
@@ -11784,7 +11803,20 @@
             "description": "Detector configuration types"
         },
         "DetectorType": {
-            "enum": ["zscore", "mad", "threshold"],
+            "enum": [
+                "zscore",
+                "mad",
+                "threshold",
+                "iqr",
+                "copod",
+                "ecod",
+                "isolation_forest",
+                "knn",
+                "hbos",
+                "lof",
+                "ocsvm",
+                "pca"
+            ],
             "type": "string"
         },
         "DocumentArtifactContent": {
@@ -11959,6 +11991,25 @@
         "DurationType": {
             "enum": ["duration", "active_seconds", "inactive_seconds"],
             "type": "string"
+        },
+        "ECODDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig",
+                    "description": "Preprocessing transforms applied before detection"
+                },
+                "threshold": {
+                    "description": "Anomaly probability threshold (default: 0.9)",
+                    "type": "number"
+                },
+                "type": {
+                    "const": "ecod",
+                    "type": "string"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
         },
         "ElementPropertyFilter": {
             "additionalProperties": false,
@@ -17513,6 +17564,29 @@
             "required": ["columns", "hogql", "kind", "limit", "offset", "results", "types"],
             "type": "object"
         },
+        "HBOSDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "n_bins": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of histogram bins (default: 10)"
+                },
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig",
+                    "description": "Preprocessing transforms applied before detection"
+                },
+                "threshold": {
+                    "description": "Anomaly probability threshold (default: 0.9)",
+                    "type": "number"
+                },
+                "type": {
+                    "const": "hbos",
+                    "type": "string"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
         "HasPropertiesNode": {
             "anyOf": [
                 {
@@ -18206,6 +18280,29 @@
                 }
             },
             "required": ["type", "content"],
+            "type": "object"
+        },
+        "IQRDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "multiplier": {
+                    "description": "IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)",
+                    "type": "number"
+                },
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig",
+                    "description": "Preprocessing transforms applied before detection"
+                },
+                "type": {
+                    "const": "iqr",
+                    "type": "string"
+                },
+                "window": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Rolling window size for calculating quartiles (default: 30)"
+                }
+            },
+            "required": ["type"],
             "type": "object"
         },
         "InfinityValue": {
@@ -19100,6 +19197,57 @@
             "enum": ["second", "minute", "hour", "day", "week", "month"],
             "type": "string"
         },
+        "IsolationForestDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "n_estimators": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of trees in the forest (default: 100)"
+                },
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig",
+                    "description": "Preprocessing transforms applied before detection"
+                },
+                "threshold": {
+                    "description": "Anomaly probability threshold (default: 0.9)",
+                    "type": "number"
+                },
+                "type": {
+                    "const": "isolation_forest",
+                    "type": "string"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
+        "KNNDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "method": {
+                    "description": "Distance method: 'largest', 'mean', 'median' (default: 'largest')",
+                    "enum": ["largest", "mean", "median"],
+                    "type": "string"
+                },
+                "n_neighbors": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of neighbors to consider (default: 5)"
+                },
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig",
+                    "description": "Preprocessing transforms applied before detection"
+                },
+                "threshold": {
+                    "description": "Anomaly probability threshold (default: 0.9)",
+                    "type": "number"
+                },
+                "type": {
+                    "const": "knn",
+                    "type": "string"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
         "LLMTrace": {
             "additionalProperties": false,
             "properties": {
@@ -19207,6 +19355,29 @@
                 }
             },
             "required": ["uuid", "created_at", "properties", "distinct_id"],
+            "type": "object"
+        },
+        "LOFDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "n_neighbors": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of neighbors for LOF (default: 20)"
+                },
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig",
+                    "description": "Preprocessing transforms applied before detection"
+                },
+                "threshold": {
+                    "description": "Anomaly probability threshold (default: 0.9)",
+                    "type": "number"
+                },
+                "type": {
+                    "const": "lof",
+                    "type": "string"
+                }
+            },
+            "required": ["type"],
             "type": "object"
         },
         "LegacyExperimentQueryResponse": {
@@ -20350,10 +20521,10 @@
                 "Impressions",
                 "CPC",
                 "CTR",
-                "Reported Conversion",
+                "Reported Conversions",
                 "Reported Conversion Value",
                 "Reported ROAS",
-                "Cost per Reported Conversion"
+                "Cost per Reported Conversions"
             ],
             "type": "string"
         },
@@ -23202,6 +23373,52 @@
                 }
             },
             "required": ["type", "notebook_id", "content"],
+            "type": "object"
+        },
+        "OCSVMDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "kernel": {
+                    "description": "SVM kernel type (default: \"rbf\")",
+                    "type": "string"
+                },
+                "nu": {
+                    "description": "Upper bound on training errors fraction (default: 0.1)",
+                    "type": "number"
+                },
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig",
+                    "description": "Preprocessing transforms applied before detection"
+                },
+                "threshold": {
+                    "description": "Anomaly probability threshold (default: 0.9)",
+                    "type": "number"
+                },
+                "type": {
+                    "const": "ocsvm",
+                    "type": "string"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
+        "PCADetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig",
+                    "description": "Preprocessing transforms applied before detection"
+                },
+                "threshold": {
+                    "description": "Anomaly probability threshold (default: 0.9)",
+                    "type": "number"
+                },
+                "type": {
+                    "const": "pca",
+                    "type": "string"
+                }
+            },
+            "required": ["type"],
             "type": "object"
         },
         "PageURL": {
@@ -31872,6 +32089,10 @@
                 "showInspector": {
                     "type": "boolean"
                 },
+                "theme": {
+                    "enum": ["light", "dark", "system"],
+                    "type": "string"
+                },
                 "whitelabel": {
                     "type": "boolean"
                 }
@@ -31943,7 +32164,34 @@
                     "$ref": "#/definitions/MADDetectorConfig"
                 },
                 {
+                    "$ref": "#/definitions/IQRDetectorConfig"
+                },
+                {
                     "$ref": "#/definitions/ThresholdDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/ECODDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/COPODDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/IsolationForestDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/KNNDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/HBOSDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/LOFDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/OCSVMDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/PCADetectorConfig"
                 }
             ],
             "description": "A single (leaf) detector config"

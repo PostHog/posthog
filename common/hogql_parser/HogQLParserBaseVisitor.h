@@ -263,6 +263,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitWithinGroupClause(HogQLParser::WithinGroupClauseContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitWinFrameClause(HogQLParser::WinFrameClauseContext *ctx) override {
     return visitChildren(ctx);
   }
@@ -360,6 +364,10 @@ public:
   }
 
   virtual std::any visitColumnExprNullTupleAccess(HogQLParser::ColumnExprNullTupleAccessContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitColumnExprFunctionWithinGroup(HogQLParser::ColumnExprFunctionWithinGroupContext *ctx) override {
     return visitChildren(ctx);
   }
 
