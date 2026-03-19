@@ -95,29 +95,46 @@ class Migration(migrations.Migration):
                 name="unique_dashboard_button_tile",
             ),
         ),
-        migrations.AddConstraint(
-            model_name="dashboardtile",
-            constraint=models.CheckConstraint(
-                check=models.Q(
-                    models.Q(
-                        ("insight__isnull", False),
-                        ("text__isnull", True),
-                        ("button_tile__isnull", True),
+        # Use SeparateDatabaseAndState + NOT VALID to avoid locking the table during constraint validation.
+        # A follow-up migration (1057) validates the constraint separately.
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddConstraint(
+                    model_name="dashboardtile",
+                    constraint=models.CheckConstraint(
+                        check=models.Q(
+                            models.Q(
+                                ("insight__isnull", False),
+                                ("text__isnull", True),
+                                ("button_tile__isnull", True),
+                            ),
+                            models.Q(
+                                ("insight__isnull", True),
+                                ("text__isnull", False),
+                                ("button_tile__isnull", True),
+                            ),
+                            models.Q(
+                                ("insight__isnull", True),
+                                ("text__isnull", True),
+                                ("button_tile__isnull", False),
+                            ),
+                            _connector="OR",
+                        ),
+                        name="dash_tile_exactly_one_related_object",
                     ),
-                    models.Q(
-                        ("insight__isnull", True),
-                        ("text__isnull", False),
-                        ("button_tile__isnull", True),
-                    ),
-                    models.Q(
-                        ("insight__isnull", True),
-                        ("text__isnull", True),
-                        ("button_tile__isnull", False),
-                    ),
-                    _connector="OR",
                 ),
-                name="dash_tile_exactly_one_related_object",
-            ),
+            ],
+            database_operations=[
+                migrations.RunSQL(
+                    sql="""
+                        ALTER TABLE "posthog_dashboardtile"
+                        ADD CONSTRAINT "dash_tile_exactly_one_related_object"
+                        CHECK ((("insight_id" IS NOT NULL AND "text_id" IS NULL AND "button_tile_id" IS NULL) OR ("insight_id" IS NULL AND "text_id" IS NOT NULL AND "button_tile_id" IS NULL) OR ("insight_id" IS NULL AND "text_id" IS NULL AND "button_tile_id" IS NOT NULL)))
+                        NOT VALID; -- existing-table-constraint-ignore
+                    """,
+                    reverse_sql='ALTER TABLE "posthog_dashboardtile" DROP CONSTRAINT "dash_tile_exactly_one_related_object"',
+                ),
+            ],
         ),
         migrations.AddField(
             model_name="dashboardtile",
