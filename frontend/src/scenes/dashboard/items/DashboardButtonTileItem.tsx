@@ -21,7 +21,6 @@ interface DashboardButtonTileItemProps extends Omit<
     onMoveToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
     onDuplicate: () => void
     onRemove?: () => void
-    isDragging?: boolean
 }
 
 function DashboardButtonTileItemInternal(
@@ -33,7 +32,6 @@ function DashboardButtonTileItemInternal(
         onMoveToDashboard,
         onDuplicate,
         onRemove,
-        isDragging,
         ...buttonTileCardProps
     }: DashboardButtonTileItemProps,
     ref: React.ForwardedRef<HTMLDivElement>
@@ -43,7 +41,6 @@ function DashboardButtonTileItemInternal(
             ref={ref}
             buttonTile={tile}
             placement={placement}
-            isDragging={isDragging}
             moreButtonOverlay={
                 <>
                     <LemonButton fullWidth onClick={onEdit} data-attr="edit-button-tile">
