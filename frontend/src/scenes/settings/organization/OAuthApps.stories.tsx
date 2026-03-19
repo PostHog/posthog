@@ -13,7 +13,7 @@ export default meta
 export const Empty = (): JSX.Element => {
     useStorybookMocks({
         get: {
-            '/api/organizations/@current/oauth_applications/': {
+            '/api/organizations/:organization_id/oauth_applications/': {
                 count: 0,
                 next: null,
                 previous: null,
@@ -27,7 +27,7 @@ export const Empty = (): JSX.Element => {
 export const WithApps = (): JSX.Element => {
     useStorybookMocks({
         get: {
-            '/api/organizations/@current/oauth_applications/': {
+            '/api/organizations/:organization_id/oauth_applications/': {
                 count: 2,
                 next: null,
                 previous: null,
