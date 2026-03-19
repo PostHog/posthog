@@ -45,7 +45,7 @@ export function SpikeDetectionSettings(): JSX.Element {
 
                 {!hasSpikeAlerts && (
                     <LemonBanner
-                        type="warning"
+                        type="info"
                         action={{
                             children: 'Configure alerts',
                             onClick: () => selectSetting('error-tracking-alerting'),
