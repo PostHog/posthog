@@ -10,6 +10,7 @@ export type HealthIssueKind =
     | 'reverse_proxy'
     | 'web_vitals'
     | 'ingestion_lag'
+    | 'ingestion_warning'
     | 'sdk_outdated'
     | 'materialized_view_failure'
 
