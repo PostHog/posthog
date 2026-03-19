@@ -12,15 +12,15 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.models import FeatureFlag, Team
 from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
-from posthog.models.experiment import (
+
+from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentHoldout,
     ExperimentMetricResult,
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
 )
-
-from products.experiments.backend.experiment_service import ExperimentService
 
 
 class TestExperimentService(APIBaseTest):

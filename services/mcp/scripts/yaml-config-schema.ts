@@ -52,6 +52,12 @@ export const ToolConfigSchema = z
          * LLMs internally should set this to true.
          */
         requires_ai_consent: z.boolean().optional(),
+        /**
+         * Maps original OpenAPI field names to MCP-safe aliases. The generated tool
+         * schema uses the alias (which must match ^[a-zA-Z0-9_.-]{1,64}$), while
+         * the request body still sends the original field name.
+         */
+        rename_params: z.record(z.string(), z.string()).optional(),
     })
     .strict()
     .refine(

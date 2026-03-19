@@ -1122,6 +1122,7 @@ export interface TableSettings {
 
 export interface SharingConfigurationSettings {
     whitelabel?: boolean
+    theme?: 'light' | 'dark' | 'system'
     // Insights
     noHeader?: boolean
     legend?: boolean
@@ -4847,10 +4848,10 @@ export enum MarketingAnalyticsBaseColumns {
     Impressions = 'Impressions',
     CPC = 'CPC',
     CTR = 'CTR',
-    ReportedConversion = 'Reported Conversion',
+    ReportedConversions = 'Reported Conversions',
     ReportedConversionValue = 'Reported Conversion Value',
     ReportedROAS = 'Reported ROAS',
-    CostPerReportedConversion = 'Cost per Reported Conversion',
+    CostPerReportedConversions = 'Cost per Reported Conversions',
 }
 
 export type MarketingAnalyticsDrillDownConfig = {

@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-03-18 20:07:47 UTC
+// Generated at: 2026-03-19 10:13:21 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -65,6 +65,7 @@ export type CanonicalProvider =
     | 'io-net-bf16'
     | 'io-net-fp16'
     | 'io-net-fp8'
+    | 'io-net-int4'
     | 'ionstream-fp8'
     | 'liquid'
     | 'mancer-fp8'
@@ -117,7 +118,6 @@ export type CanonicalProvider =
     | 'seed-fp8'
     | 'siliconflow-fp8'
     | 'siliconflow-int4'
-    | 'stealth'
     | 'stepfun-fp8'
     | 'streamlake-fp16'
     | 'switchpoint'

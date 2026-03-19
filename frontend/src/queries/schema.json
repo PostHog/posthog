@@ -20350,10 +20350,10 @@
                 "Impressions",
                 "CPC",
                 "CTR",
-                "Reported Conversion",
+                "Reported Conversions",
                 "Reported Conversion Value",
                 "Reported ROAS",
-                "Cost per Reported Conversion"
+                "Cost per Reported Conversions"
             ],
             "type": "string"
         },
@@ -31871,6 +31871,10 @@
                 },
                 "showInspector": {
                     "type": "boolean"
+                },
+                "theme": {
+                    "enum": ["light", "dark", "system"],
+                    "type": "string"
                 },
                 "whitelabel": {
                     "type": "boolean"
