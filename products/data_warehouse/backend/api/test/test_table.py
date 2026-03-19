@@ -885,3 +885,53 @@ class TestTable(APIBaseTest):
         # TODO: DRY
         self._delete_all_from_s3(s3_client, test_bucket_name)
         s3_client.delete_bucket(Bucket=test_bucket_name)
+
+    @parameterized.expand(
+        [
+            ("dot_dot_slash", "../team_999/evil.csv"),
+            ("double_dot_dot_slash", "../../etc/passwd"),
+            ("nested_traversal", "foo/../../../bar.csv"),
+            ("slash_in_name", "team_1/nested/file.csv"),
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("boto3.client")
+    def test_file_upload_path_traversal_rejected(
+        self, _name, malicious_filename, mock_boto3_client, mock_feature_enabled
+    ):
+        mock_boto3_client.return_value = MagicMock()
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        test_file = SimpleUploadedFile(malicious_filename, b"col1\nval1", content_type="text/csv")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_tables/file/",
+            {"file": test_file, "name": "test_table", "format": "CSVWithNames"},
+            format="multipart",
+        )
+
+        assert response.status_code == 400
+
+    @parameterized.expand(
+        [
+            ("garbage", "InvalidFormat"),
+            ("injection", "'; DROP TABLE"),
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("boto3.client")
+    def test_file_upload_invalid_format_rejected(self, _name, bad_format, mock_boto3_client, mock_feature_enabled):
+        mock_boto3_client.return_value = MagicMock()
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        test_file = SimpleUploadedFile("safe_file.csv", b"col1\nval1", content_type="text/csv")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_tables/file/",
+            {"file": test_file, "name": "test_table", "format": bad_format},
+            format="multipart",
+        )
+
+        assert response.status_code == 400

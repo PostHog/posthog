@@ -1,3 +1,4 @@
+import os
 import re
 from typing import Any
 
@@ -373,8 +374,25 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "No file provided"})
 
         file = request.FILES["file"]
+
+        # Sanitize filename to prevent path traversal
+        safe_filename = re.sub(r"[^a-zA-Z0-9._-]", "_", os.path.basename(file.name))
+        if not safe_filename or safe_filename.startswith("."):
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Invalid filename"},
+            )
+
         table_name = request.data.get("name", file.name)
         file_format = request.data.get("format", "CSVWithNames")
+
+        # Validate format against allowed choices
+        valid_formats = {c[0] for c in DataWarehouseTable.TableFormat.choices}
+        if file_format not in valid_formats:
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Invalid format. Must be one of: {', '.join(sorted(valid_formats))}"},
+            )
 
         # Validate table name format
         if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table_name):
@@ -421,10 +439,12 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 else:
                     s3 = boto3.client("s3")
 
-                s3.upload_fileobj(file, settings.DATAWAREHOUSE_BUCKET, f"managed/team_{team_id}/{file.name}")
+                s3.upload_fileobj(file, settings.DATAWAREHOUSE_BUCKET, f"managed/team_{team_id}/{safe_filename}")
 
                 # Set the URL pattern for the table
-                table.url_pattern = f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/managed/team_{team_id}/{file.name}"
+                table.url_pattern = (
+                    f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/managed/team_{team_id}/{safe_filename}"
+                )
                 table.format = file_format
 
                 # Try to determine columns from the file
