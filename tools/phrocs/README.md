@@ -43,7 +43,6 @@ You typically run phrocs via `hogli dev` rather than directly.
 | `c`    | Enter copy mode                                 |
 | `/`    | Enter search mode                               |
 | `esc`  | Exit copy and search modes                      |
-| `d`    | Open lazydocker (only if installed)             |
 | `?`    | Toggle full help                                |
 | `q`    | Quit                                            |
 

@@ -1,4 +1,5 @@
-import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
+import { toolbarLogger } from '~/toolbar/toolbarLogger'
+import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 
 import { toolbarConfigLogic } from './toolbarConfigLogic'
 
@@ -16,6 +17,7 @@ export async function refreshOAuthTokens(
     }
 
     refreshPromise = (async () => {
+        const startTime = performance.now()
         try {
             const response = await fetch(`${uiHost}/api/user/toolbar_oauth_refresh/`, {
                 method: 'POST',
@@ -25,11 +27,21 @@ export async function refreshOAuthTokens(
 
             if (!response.ok) {
                 const err = new Error(`Refresh failed: ${response.status}`)
+                toolbarPosthogJS.capture('toolbar token refresh', {
+                    status: 'error',
+                    http_status: response.status,
+                    duration_ms: Math.round(performance.now() - startTime),
+                })
                 captureToolbarException(err, 'token_refresh')
                 throw err
             }
 
-            return await response.json()
+            const data = await response.json()
+            toolbarPosthogJS.capture('toolbar token refresh', {
+                status: 'success',
+                duration_ms: Math.round(performance.now() - startTime),
+            })
+            return data
         } finally {
             refreshPromise = null
         }
@@ -64,6 +76,7 @@ export async function withTokenRefresh(
         toolbarConfigLogic.actions.setOAuthTokens(tokens.access_token, tokens.refresh_token, clientId)
         return await retryRequest(tokens.access_token)
     } catch (e) {
+        toolbarLogger.error('auth', 'Token refresh retry failed', { status: response.status })
         captureToolbarException(e, 'token_refresh_retry')
         toolbarConfigLogic.actions.tokenExpired()
         return response

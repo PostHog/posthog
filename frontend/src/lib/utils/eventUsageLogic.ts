@@ -29,7 +29,7 @@ import {
     getInterval,
     getSeries,
     isActionsNode,
-    isDataWarehouseNode,
+    isAnyDataWarehouseNode,
     isEventsNode,
     isFunnelsQuery,
     isInsightQueryNode,
@@ -84,6 +84,9 @@ export enum DashboardEventSource {
     SceneCommonButtons = 'scene_common_buttons',
     CardEdgeHover = 'card_edge_hover',
     CardDragHandle = 'card_drag_handle',
+    DashboardFilters = 'dashboard_filters',
+    DashboardInsightColorsModal = 'dashboard_insight_colors_modal',
+    DashboardVariableOverride = 'dashboard_variable_override',
 }
 
 export enum InsightEventSource {
@@ -210,8 +213,7 @@ function sanitizeQuery(query: Node | null): Record<string, string | number | boo
         payload.series_length = getSeries(querySource)?.length
         payload.event_entity_count = getSeries(querySource)?.filter((e) => isEventsNode(e)).length
         payload.action_entity_count = getSeries(querySource)?.filter((e) => isActionsNode(e)).length
-        payload.data_warehouse_entity_count = getSeries(querySource)?.filter((e) => isDataWarehouseNode(e)).length
-        payload.has_data_warehouse_series = !!getSeries(querySource)?.find((e) => isDataWarehouseNode(e))
+        payload.data_warehouse_entity_count = getSeries(querySource)?.filter((e) => isAnyDataWarehouseNode(e)).length
 
         // properties
         payload.has_properties = !!properties
@@ -236,7 +238,6 @@ function sanitizeQuery(query: Node | null): Record<string, string | number | boo
         // funnels
         payload.funnel_viz_type = isFunnelsQuery(querySource) ? querySource.funnelsFilter?.funnelVizType : undefined
         payload.funnel_order_type = isFunnelsQuery(querySource) ? querySource.funnelsFilter?.funnelOrderType : undefined
-        payload.has_data_warehouse_series = !!getSeries(querySource)?.find((e) => isDataWarehouseNode(e))
     }
 
     return objectClean(payload)
@@ -422,9 +423,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         ) => ({ attribute, originalLength, newLength }),
         reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
         reportDashboardWhitelabelToggled: (isWhiteLabelled: boolean) => ({ isWhiteLabelled }),
-        reportDashboardTileRepositioned: (dashboardId: number, action: 'moved' | 'resized') => ({
+        reportDashboardTileRepositioned: (dashboardId: number, action: 'moved' | 'resized', layoutZoom: number) => ({
             dashboardId,
             action,
+            layoutZoom,
         }),
         reportDashboardInsightMetaUpdated: (
             dashboardId: number | undefined,
@@ -1233,10 +1235,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportDashboardWhitelabelToggled: async ({ isWhiteLabelled }) => {
             posthog.capture(`dashboard whitelabel toggled`, { is_whitelabelled: isWhiteLabelled })
         },
-        reportDashboardTileRepositioned: async ({ dashboardId, action }) => {
+        reportDashboardTileRepositioned: async ({ dashboardId, action, layoutZoom }) => {
             posthog.capture('dashboard tile repositioned', {
                 dashboard_id: dashboardId,
                 action,
+                layout_zoom: layoutZoom,
             })
         },
         reportDashboardInsightMetaUpdated: async ({ dashboardId, insightId, attribute }) => {

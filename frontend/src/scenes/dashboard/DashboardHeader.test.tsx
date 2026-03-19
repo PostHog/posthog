@@ -4,6 +4,7 @@ import { cleanup, render } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -81,7 +82,7 @@ describe('DashboardHeader', () => {
         logic.mount()
 
         if (dashboardMode) {
-            logic.actions.setDashboardMode(dashboardMode, null)
+            logic.actions.setDashboardMode(dashboardMode, DashboardEventSource.Browser)
         }
 
         render(
