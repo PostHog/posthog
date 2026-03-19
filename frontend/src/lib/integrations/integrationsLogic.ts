@@ -166,11 +166,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
                     )
                 }
             } catch (e: any) {
-                if (e.status === 403) {
-                    lemonToast.error('You need at least Admin access to connect integrations.')
-                } else {
-                    lemonToast.error(`Something went wrong. Please try again.`)
-                }
+                lemonToast.error(e.detail || `Something went wrong. Please try again.`)
             } finally {
                 router.actions.replace(replaceUrl)
             }
@@ -209,11 +205,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
                     lemonToast.success(`Integration successful.`)
                 }
             } catch (e: any) {
-                if (e.status === 403) {
-                    lemonToast.error('You need at least Admin access to connect integrations.')
-                } else {
-                    lemonToast.error(`Something went wrong. Please try again.`)
-                }
+                lemonToast.error(e.detail || `Something went wrong. Please try again.`)
             } finally {
                 router.actions.replace(replaceUrl)
             }
