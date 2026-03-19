@@ -10,7 +10,7 @@ from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
 
 import structlog
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, response, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -209,6 +209,7 @@ def build_shared_app_context(team: Team, request: Request) -> dict[str, Any]:
 class SharePasswordSerializer(serializers.ModelSerializer):
     created_by_email = serializers.SerializerMethodField()
 
+    @extend_schema_field(serializers.CharField())
     def get_created_by_email(self, obj):
         return obj.created_by.email if obj.created_by else "deleted user"
 
@@ -254,6 +255,7 @@ class SharingConfigurationSerializer(serializers.ModelSerializer):
             capture_exception(e)
             raise serializers.ValidationError("Invalid settings format")
 
+    @extend_schema_field(SharePasswordSerializer(many=True))
     def get_share_passwords(self, obj):
         # Return empty list for unsaved instances to avoid database relationship access
         if not obj.pk:
@@ -900,7 +902,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             exported_data.update({"detailed": True})
         if final_settings.hideExtraDetails:
             exported_data.update({"hideExtraDetails": True})
-
         if request.path.endswith(f".json"):
             # For password-protected POST requests, only return basic metadata and JWT token
             if request.method == "POST" and isinstance(resource, SharingConfiguration) and resource.password_required:

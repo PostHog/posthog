@@ -23,6 +23,7 @@ from rest_framework_csv.renderers import CSVRenderer
 from posthog.schema import QuerySchemaRoot
 
 from posthog.api.services.query import process_query_dict
+from posthog.event_usage import AnalyticsProps, EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.jwt import PosthogJwtAudience, encode_jwt
@@ -129,7 +130,9 @@ class RowBuffer:
 
 
 @contextmanager
-def _buffer_rows(exported_asset: ExportedAsset, limit: int) -> Iterator[RowBuffer]:
+def _buffer_rows(
+    exported_asset: ExportedAsset, limit: int, analytics_props: Optional[AnalyticsProps] = None
+) -> Iterator[RowBuffer]:
     """Buffer rows to a temp file, discovering columns along the way.
 
     Yields a RowBuffer that exposes:
@@ -139,7 +142,9 @@ def _buffer_rows(exported_asset: ExportedAsset, limit: int) -> Iterator[RowBuffe
     - __iter__: yields rows as dicts
     """
     with tempfile.NamedTemporaryFile(mode="w+", suffix=".jsonl", delete=True) as jsonl_file:
-        row_count, columns, seen_keys = _write_rows_to_jsonl(jsonl_file, exported_asset, limit)
+        row_count, columns, seen_keys = _write_rows_to_jsonl(
+            jsonl_file, exported_asset, limit, analytics_props=analytics_props
+        )
         jsonl_file.seek(0)
 
         yield RowBuffer(
@@ -451,7 +456,9 @@ def _query_supports_limit(query: dict) -> bool:
         return False
 
 
-def get_from_query(exported_asset: ExportedAsset, limit: int, resource: dict) -> Generator[Any, None, None]:
+def get_from_query(
+    exported_asset: ExportedAsset, limit: int, resource: dict, analytics_props: Optional[AnalyticsProps] = None
+) -> Generator[Any, None, None]:
     query = resource.get("source")
     assert query is not None
 
@@ -477,6 +484,7 @@ def get_from_query(exported_asset: ExportedAsset, limit: int, resource: dict) ->
                 limit_context=LimitContext.EXPORT,
                 execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
                 pagination_cursor=cursor,
+                analytics_props=analytics_props,
             )
         except ClickHouseQuerySizeExceeded:
             if "breakdownFilter" not in query or limit <= CSV_EXPORT_BREAKDOWN_LIMIT_LOW:
@@ -517,11 +525,13 @@ def get_from_query(exported_asset: ExportedAsset, limit: int, resource: dict) ->
             break
 
 
-def _iter_rows(exported_asset: ExportedAsset, limit: int) -> Generator[Any, None, None]:
+def _iter_rows(
+    exported_asset: ExportedAsset, limit: int, analytics_props: Optional[AnalyticsProps] = None
+) -> Generator[Any, None, None]:
     resource = exported_asset.export_context or {}
 
     if resource.get("source"):
-        yield from get_from_query(exported_asset, limit, resource)
+        yield from get_from_query(exported_asset, limit, resource, analytics_props=analytics_props)
     else:
         # Legacy path for PersonsNode exports (uses API path instead of HogQL source).
         # PersonsNode was migrated to ActorsQuery in migration 0459, so this path
@@ -529,7 +539,9 @@ def _iter_rows(exported_asset: ExportedAsset, limit: int) -> Generator[Any, None
         yield from get_from_insights_api(exported_asset, CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL, resource)
 
 
-def _write_rows_to_jsonl(jsonl_file: Any, exported_asset: ExportedAsset, limit: int) -> tuple[int, list[str], set[str]]:
+def _write_rows_to_jsonl(
+    jsonl_file: Any, exported_asset: ExportedAsset, limit: int, analytics_props: Optional[AnalyticsProps] = None
+) -> tuple[int, list[str], set[str]]:
     """Write flattened rows to a JSON lines file, discovering columns as we go.
 
     Returns:
@@ -540,7 +552,7 @@ def _write_rows_to_jsonl(jsonl_file: Any, exported_asset: ExportedAsset, limit: 
     seen_keys: set[str] = set()
     row_count = 0
 
-    for row in _iter_rows(exported_asset, limit):
+    for row in _iter_rows(exported_asset, limit, analytics_props=analytics_props):
         flat_row = dict(renderer.flatten_item(row))
 
         for key in flat_row.keys():
@@ -580,11 +592,13 @@ def _determine_columns(user_columns: list[str], all_keys: list[str], seen_keys: 
     return columns
 
 
-def _export_tabular(exported_asset: ExportedAsset, limit: int, writer: TabularWriter) -> None:
+def _export_tabular(
+    exported_asset: ExportedAsset, limit: int, writer: TabularWriter, analytics_props: Optional[AnalyticsProps] = None
+) -> None:
     """Export data using the provided writer."""
     user_columns = (exported_asset.export_context or {}).get("columns", [])
 
-    with _buffer_rows(exported_asset, limit) as buffer:
+    with _buffer_rows(exported_asset, limit, analytics_props=analytics_props) as buffer:
         if buffer.row_count == 0:
             columns = user_columns if user_columns else ["error"]
             writer.write_header(columns)
@@ -635,16 +649,20 @@ def make_api_call(
     return response
 
 
-def export_tabular(exported_asset: ExportedAsset, limit: Optional[int] = None) -> None:
+def export_tabular(
+    exported_asset: ExportedAsset, limit: Optional[int] = None, source: Optional[EventSource] = None
+) -> None:
     if not limit:
         limit = CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
+
+    analytics_props: AnalyticsProps = {"source": source or EventSource.EXPORT}
 
     try:
         with EXPORT_TIMER.labels(type=exported_asset.export_format).time():
             if exported_asset.export_format == ExportedAsset.ExportFormat.CSV:
-                _export_tabular(exported_asset, limit, CsvWriter())
+                _export_tabular(exported_asset, limit, CsvWriter(), analytics_props=analytics_props)
             elif exported_asset.export_format == ExportedAsset.ExportFormat.XLSX:
-                _export_tabular(exported_asset, limit, ExcelWriter())
+                _export_tabular(exported_asset, limit, ExcelWriter(), analytics_props=analytics_props)
             else:
                 raise NotImplementedError(f"Export to format {exported_asset.export_format} is not supported")
     except Exception as e:

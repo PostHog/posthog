@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconWarning } from '@posthog/icons'
+import { IconInfo, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonModal, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
@@ -80,6 +80,11 @@ export default function SchemaForm(): JSX.Element {
                                             >
                                                 {schema.table}
                                             </span>
+                                            {schema.description && (
+                                                <Tooltip title={schema.description}>
+                                                    <IconInfo className="text-muted-alt text-base" />
+                                                </Tooltip>
+                                            )}
                                             {isSuggested && (
                                                 <Tooltip title={tooltip} placement="top">
                                                     <LemonTag type="primary" className="cursor-help">

@@ -7,7 +7,8 @@ import type { PostHog } from 'posthog-js'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
-import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { toolbarLogger } from '~/toolbar/toolbarLogger'
+import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { CombinedFeatureFlagAndValueType } from '~/types'
 
 import type { flagsToolbarLogicType } from './flagsToolbarLogicType'
@@ -296,7 +297,8 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                     actions.setPayloadEditorOpen(flagKey, false)
                 } catch (e) {
                     actions.setPayloadError(flagKey, 'Invalid JSON')
-                    console.error('Invalid JSON:', e)
+                    toolbarLogger.error('flags', 'Invalid JSON payload', { flag_key: flagKey })
+                    captureToolbarException(e, 'flag_payload_parse', { flag_key: flagKey })
                 }
             },
             loadFlagsForDistinctId: async ({ distinctId }, breakpoint) => {

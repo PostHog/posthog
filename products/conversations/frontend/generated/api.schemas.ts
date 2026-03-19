@@ -268,6 +268,23 @@ export const ChannelSourceEnumApi = {
 } as const
 
 /**
+ * * `slack_channel_message` - Channel message
+ * `slack_bot_mention` - Bot mention
+ * `slack_emoji_reaction` - Emoji reaction
+ * `widget_embedded` - Widget
+ * `widget_api` - API
+ */
+export type ChannelDetailEnumApi = (typeof ChannelDetailEnumApi)[keyof typeof ChannelDetailEnumApi]
+
+export const ChannelDetailEnumApi = {
+    SlackChannelMessage: 'slack_channel_message',
+    SlackBotMention: 'slack_bot_mention',
+    SlackEmojiReaction: 'slack_emoji_reaction',
+    WidgetEmbedded: 'widget_embedded',
+    WidgetApi: 'widget_api',
+} as const
+
+/**
  * * `new` - New
  * `open` - Open
  * `pending` - Pending
@@ -298,13 +315,26 @@ export const PriorityEnumApi = {
 } as const
 
 /**
+ * @nullable
+ */
+export type TicketAssignmentApiUser = { [key: string]: string } | null | null
+
+/**
+ * @nullable
+ */
+export type TicketAssignmentApiRole = { [key: string]: string } | null | null
+
+/**
  * Serializer for ticket assignment (user or role).
  */
 export interface TicketAssignmentApi {
-    readonly id: string
+    /** @nullable */
+    readonly id: string | null
     readonly type: string
-    readonly user: string
-    readonly role: string
+    /** @nullable */
+    readonly user: TicketAssignmentApiUser
+    /** @nullable */
+    readonly role: TicketAssignmentApiRole
 }
 
 export type TicketPersonApiProperties = { [key: string]: unknown }
@@ -328,6 +358,7 @@ export interface TicketApi {
     readonly id: string
     readonly ticket_number: number
     readonly channel_source: ChannelSourceEnumApi
+    readonly channel_detail: ChannelDetailEnumApi | NullEnumApi | null
     readonly distinct_id: string
     status?: TicketStatusEnumApi
     priority?: PriorityEnumApi | BlankEnumApi | NullEnumApi | null
@@ -356,6 +387,10 @@ export interface TicketApi {
     readonly slack_thread_ts: string | null
     /** @nullable */
     readonly slack_team_id: string | null
+    /** @nullable */
+    readonly email_subject: string | null
+    /** @nullable */
+    readonly email_from: string | null
     readonly person: TicketPersonApi | null
     tags?: unknown[]
 }
@@ -376,6 +411,7 @@ export interface PatchedTicketApi {
     readonly id?: string
     readonly ticket_number?: number
     readonly channel_source?: ChannelSourceEnumApi
+    readonly channel_detail?: ChannelDetailEnumApi | NullEnumApi | null
     readonly distinct_id?: string
     status?: TicketStatusEnumApi
     priority?: PriorityEnumApi | BlankEnumApi | NullEnumApi | null
@@ -404,6 +440,10 @@ export interface PatchedTicketApi {
     readonly slack_thread_ts?: string | null
     /** @nullable */
     readonly slack_team_id?: string | null
+    /** @nullable */
+    readonly email_subject?: string | null
+    /** @nullable */
+    readonly email_from?: string | null
     readonly person?: TicketPersonApi | null
     tags?: unknown[]
 }

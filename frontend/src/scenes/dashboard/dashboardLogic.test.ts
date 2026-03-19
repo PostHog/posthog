@@ -311,7 +311,7 @@ describe('dashboardLogic', () => {
             logic.mount()
         })
 
-        it('saving layouts creates api call with all tiles', async () => {
+        it('saving without changes does not call api', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
             jest.spyOn(api, 'update')
@@ -320,26 +320,107 @@ describe('dashboardLogic', () => {
                 logic.actions.saveEditModeChanges()
             }).toFinishAllListeners()
 
-            expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
-                tiles: [
-                    {
-                        id: 0,
-                        layouts: {},
-                    },
-                    {
-                        id: 1,
-                        layouts: {},
-                    },
-                    {
-                        id: 4,
-                        layouts: {},
-                    },
-                ],
-                breakdown_colors: [],
-                data_color_theme_id: null,
-                filters: {},
-                variables: {},
-            })
+            expect(api.update).not.toHaveBeenCalled()
+        })
+
+        it('saving after layout change calls api', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const initialDashboard = logic.values.dashboard
+            expect(initialDashboard).not.toBeNull()
+
+            const firstTile = initialDashboard!.tiles[0]
+            const currentLayouts = logic.values.layouts
+            const modifiedLayouts: any = {
+                ...currentLayouts,
+                sm: currentLayouts.sm?.map((layout) =>
+                    layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                ),
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateLayouts(modifiedLayouts)
+            }).toFinishAllListeners()
+
+            jest.spyOn(api, 'update')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveEditModeChanges()
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledTimes(1)
+            expect(api.update).toHaveBeenCalledWith(
+                `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
+                expect.objectContaining({
+                    tiles: expect.any(Array),
+                })
+            )
+        })
+
+        it('saving after filter change calls api', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDates('-7d', null)
+            }).toFinishAllListeners()
+
+            jest.spyOn(api, 'update')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveEditModeChanges()
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledTimes(1)
+            expect(api.update).toHaveBeenCalledWith(
+                `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
+                expect.objectContaining({
+                    filters: expect.objectContaining({ date_from: '-7d' }),
+                })
+            )
+        })
+
+        it('saving after breakdown color change calls api', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setBreakdownColorConfig({ breakdownValue: 'x', color: 'red' } as any)
+            }).toFinishAllListeners()
+
+            jest.spyOn(api, 'update')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveEditModeChanges()
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledTimes(1)
+            expect(api.update).toHaveBeenCalledWith(
+                `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
+                expect.objectContaining({
+                    breakdown_colors: expect.any(Array),
+                })
+            )
+        })
+
+        it('saving after theme change calls api', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDataColorThemeId(123)
+            }).toFinishAllListeners()
+
+            jest.spyOn(api, 'update')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveEditModeChanges()
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledTimes(1)
+            expect(api.update).toHaveBeenCalledWith(
+                `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
+                expect.objectContaining({
+                    data_color_theme_id: 123,
+                })
+            )
         })
 
         it('discarding edit mode restores original layouts', async () => {
@@ -619,7 +700,6 @@ describe('dashboardLogic', () => {
                 const getInsightWithRetrySpy = jest
                     .spyOn(dashboardUtils, 'getInsightWithRetry')
                     .mockRejectedValue(refreshError)
-
                 ;(api.update as jest.Mock).mockClear()
 
                 await expectLogic(logic, () => {
@@ -828,6 +908,57 @@ describe('dashboardLogic', () => {
                 ])
 
             expect(logic.values.textTiles).toEqual([])
+        })
+    })
+
+    describe('layout zoom', () => {
+        beforeEach(async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        it('clamps layoutZoom between 0.25 and 1', async () => {
+            await expectLogic(logic).toMatchValues({ layoutZoom: 1 })
+
+            await expectLogic(logic, () => {
+                logic.actions.setLayoutZoom(2)
+            }).toMatchValues({ layoutZoom: 1 })
+
+            await expectLogic(logic, () => {
+                logic.actions.setLayoutZoom(0.1)
+            }).toMatchValues({ layoutZoom: 0.25 })
+
+            await expectLogic(logic, () => {
+                logic.actions.setLayoutZoom(0.75)
+            }).toMatchValues({ layoutZoom: 0.75 })
+        })
+
+        it('resets layoutZoom to 1 when leaving edit mode', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setLayoutZoom(0.5)
+            }).toMatchValues({ layoutZoom: 0.5 })
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderSaveDashboard)
+            }).toMatchValues({ layoutZoom: 1 })
+        })
+
+        it('resets layoutZoom to 1 when container becomes single-column', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setLayoutZoom(0.25)
+            }).toMatchValues({ layoutZoom: 0.25 })
+
+            await expectLogic(logic, () => {
+                // columns === 1 -> xs layout
+                logic.actions.updateContainerWidth(400, 1)
+            }).toMatchValues({ layoutZoom: 1 })
+
+            await expectLogic(logic, () => {
+                // moving back to multi-column should not change zoom
+                logic.actions.setLayoutZoom(0.5)
+                logic.actions.updateContainerWidth(1200, 12)
+            }).toMatchValues({ layoutZoom: 0.5 })
         })
     })
 

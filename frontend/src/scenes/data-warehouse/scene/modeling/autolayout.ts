@@ -58,10 +58,10 @@ export const getFormattedNodes = async (nodes: Node[], edges: Edge[], direction?
 
             return {
                 ...node,
-                width: NODE_WIDTH,
-                height: NODE_HEIGHT,
+                width: node.width ?? NODE_WIDTH,
+                height: node.height ?? NODE_HEIGHT,
                 targetPosition: direction === 'DOWN' ? 'top' : 'left',
-                sourcePosition: direction === 'RIGHT' ? 'bottom' : 'right',
+                sourcePosition: direction === 'DOWN' ? 'bottom' : 'right',
                 ports: [...handles],
             }
         }),

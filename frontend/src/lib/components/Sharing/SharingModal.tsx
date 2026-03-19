@@ -1,5 +1,3 @@
-import './SharingModal.scss'
-
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
@@ -280,18 +278,6 @@ export function SharingModalContent({
                                         Copy public link
                                     </LemonButton>
                                     {recordingLinkTimeForm}
-                                    <TitleWithIcon
-                                        icon={
-                                            <Tooltip
-                                                title={`Use the HTML snippet below to embed the ${resource} on your website`}
-                                            >
-                                                <IconInfo />
-                                            </Tooltip>
-                                        }
-                                    >
-                                        <b>Embed {resource}</b>
-                                    </TitleWithIcon>
-                                    <CodeSnippet language={Language.HTML}>{embedCode}</CodeSnippet>
                                 </div>
                                 {hasEditAccess && (
                                     <Form
@@ -300,6 +286,9 @@ export function SharingModalContent({
                                         formKey="sharingSettings"
                                         className="deprecated-space-y-2"
                                     >
+                                        <h4 className="text-xs font-semibold text-muted-alt uppercase tracking-wide">
+                                            Options
+                                        </h4>
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-2 grid-flow *:odd:last:col-span-2">
                                             {insight && (
                                                 <LemonField name="noHeader">
@@ -375,24 +364,26 @@ export function SharingModalContent({
                                             )}
 
                                             {dashboardId && (
-                                                <LemonField name="hideExtraDetails">
-                                                    {({ value, onChange }) => (
-                                                        <LemonSwitch
-                                                            fullWidth
-                                                            bordered
-                                                            label={
-                                                                <div className="flex items-center">
-                                                                    <span>Show insight details</span>
-                                                                    <Tooltip title="When disabled, viewers won't see the extra insights details like the who created the insight and the applied filters.">
-                                                                        <IconInfo className="ml-1.5 text-secondary text-lg" />
-                                                                    </Tooltip>
-                                                                </div>
-                                                            }
-                                                            onChange={() => onChange(!value)}
-                                                            checked={!value}
-                                                        />
-                                                    )}
-                                                </LemonField>
+                                                <>
+                                                    <LemonField name="hideExtraDetails">
+                                                        {({ value, onChange }) => (
+                                                            <LemonSwitch
+                                                                fullWidth
+                                                                bordered
+                                                                label={
+                                                                    <div className="flex items-center">
+                                                                        <span>Show insight details</span>
+                                                                        <Tooltip title="When disabled, viewers won't see the extra insights details like who created the insight and the applied filters.">
+                                                                            <IconInfo className="ml-1.5 text-secondary text-lg" />
+                                                                        </Tooltip>
+                                                                    </div>
+                                                                }
+                                                                onChange={() => onChange(!value)}
+                                                                checked={!value}
+                                                            />
+                                                        )}
+                                                    </LemonField>
+                                                </>
                                             )}
                                         </div>
 
@@ -407,7 +398,7 @@ export function SharingModalContent({
                                                     {showPreview && !iframeLoaded ? <Spinner className="ml-2" /> : null}
                                                 </LemonButton>
                                                 {showPreview && (
-                                                    <div className="SharingPreview border-t">
+                                                    <div className="border-t p-2 bg-bg-primary">
                                                         <iframe
                                                             className="block"
                                                             {...iframeProperties}
@@ -426,6 +417,21 @@ export function SharingModalContent({
                     </>
                 )}
             </div>
+            {sharingConfiguration?.enabled && embedCode && (
+                <>
+                    <LemonDivider />
+                    <TitleWithIcon
+                        icon={
+                            <Tooltip title={`Use the HTML snippet below to embed the ${resource} on your website`}>
+                                <IconInfo />
+                            </Tooltip>
+                        }
+                    >
+                        <b>Embed {resource}</b>
+                    </TitleWithIcon>
+                    <CodeSnippet language={Language.HTML}>{embedCode}</CodeSnippet>
+                </>
+            )}
             {insight?.query && (
                 <>
                     <LemonDivider />

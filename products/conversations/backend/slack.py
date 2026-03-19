@@ -10,6 +10,7 @@ All three converge to create_or_update_slack_ticket().
 """
 
 from io import BytesIO
+from types import MappingProxyType
 from typing import Any
 from urllib.parse import urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -25,9 +26,10 @@ from posthog.models.comment import Comment
 from posthog.models.team.team import Team
 from posthog.models.uploaded_media import UploadedMedia, save_content_to_object_storage
 
+from .cache import get_cached_slack_user, set_cached_slack_user
 from .formatting import extract_slack_user_ids, slack_to_content_and_rich_content
 from .models import Ticket
-from .models.constants import Channel, Status
+from .models.constants import Channel, ChannelDetail, Status
 from .support_slack import (
     SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES,
     SUPPORT_SLACK_MAX_IMAGE_BYTES,
@@ -85,23 +87,23 @@ def get_slack_client(team: Team) -> WebClient:
     raise ValueError("Support Slack bot token is not configured")
 
 
+_UNKNOWN_USER = MappingProxyType({"name": "Unknown", "email": None, "avatar": None})
+
+
 def resolve_slack_user(client: WebClient, slack_user_id: str) -> dict:
-    """Resolve a Slack user ID to name, email, and avatar."""
+    """Resolve a Slack user ID to name, email, and avatar. Cached in Redis for 5 minutes."""
     if not slack_user_id:
         logger.warning("slack_support_user_resolve_empty_id")
-        return {"name": "Unknown", "email": None, "avatar": None}
+        return dict(_UNKNOWN_USER)
+
+    cached = get_cached_slack_user(slack_user_id)
+    if cached is not None:
+        return cached
 
     try:
         response = client.users_info(user=slack_user_id)
-        # SlackResponse stores data in .data attribute (dict)
         raw_data = response.data if hasattr(response, "data") else None
         data: dict = raw_data if isinstance(raw_data, dict) else {}
-        logger.info(
-            "slack_support_user_resolve_raw",
-            slack_user_id=slack_user_id,
-            response_type=type(response).__name__,
-            data_keys=list(data.keys()) if data else None,
-        )
 
         if not data.get("ok"):
             logger.warning(
@@ -109,19 +111,21 @@ def resolve_slack_user(client: WebClient, slack_user_id: str) -> dict:
                 slack_user_id=slack_user_id,
                 error=data.get("error"),
             )
-            return {"name": "Unknown", "email": None, "avatar": None}
+            return dict(_UNKNOWN_USER)
 
         user_data = data.get("user") or {}
         profile = user_data.get("profile") or {}
         name = profile.get("display_name") or profile.get("real_name") or "Unknown"
-        return {
+        result = {
             "name": name,
             "email": profile.get("email"),
             "avatar": profile.get("image_72"),
         }
+        set_cached_slack_user(slack_user_id, result)
+        return result
     except Exception as e:
         logger.warning("slack_support_user_resolve_failed", slack_user_id=slack_user_id, error=str(e))
-        return {"name": "Unknown", "email": None, "avatar": None}
+        return dict(_UNKNOWN_USER)
 
 
 def get_bot_user_id(client: WebClient) -> str | None:
@@ -310,6 +314,7 @@ def create_or_update_slack_ticket(
     files: list[dict] | None = None,
     is_thread_reply: bool = False,
     slack_team_id: str | None = None,
+    channel_detail: ChannelDetail | None = None,
 ) -> Ticket | None:
     """
     Core function: create a new ticket or add a message to an existing one.
@@ -369,7 +374,7 @@ def create_or_update_slack_ticket(
             )
             return None
         if slack_team_id and not ticket.slack_team_id:
-            Ticket.objects.filter(id=ticket.id).update(slack_team_id=slack_team_id)
+            Ticket.objects.filter(id=ticket.id, team=team).update(slack_team_id=slack_team_id)
 
         # Allow messages with only images (no text)
         if not cleaned_text and not images:
@@ -402,7 +407,7 @@ def create_or_update_slack_ticket(
         )
 
         # Increment unread_team_count
-        Ticket.objects.filter(id=ticket.id).update(
+        Ticket.objects.filter(id=ticket.id, team=team).update(
             unread_team_count=F("unread_team_count") + 1,
         )
 
@@ -425,6 +430,7 @@ def create_or_update_slack_ticket(
     ticket = Ticket.objects.create_with_number(
         team=team,
         channel_source=Channel.SLACK,
+        channel_detail=channel_detail,
         widget_session_id="",  # Not used for Slack tickets
         distinct_id="",  # Will be linked later if email matches a person
         status=Status.NEW,
@@ -552,6 +558,7 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
         files=files,
         is_thread_reply=False,
         slack_team_id=slack_team_id,
+        channel_detail=ChannelDetail.SLACK_CHANNEL_MESSAGE,
     )
 
 
@@ -597,6 +604,7 @@ def handle_support_mention(event: dict, team: Team, slack_team_id: str) -> None:
         files=files,
         is_thread_reply=existing,
         slack_team_id=slack_team_id,
+        channel_detail=ChannelDetail.SLACK_BOT_MENTION,
     )
 
 
@@ -628,7 +636,7 @@ def _backfill_thread_replies(
     )
 
     user_cache: dict[str, dict] = {}
-    backfilled = 0
+    comments_to_create: list[Comment] = []
 
     for reply in thread_replies:
         # Match the bot/subtype filtering from handle_support_message
@@ -655,27 +663,35 @@ def _backfill_thread_replies(
 
         content, rich_content = _build_content_with_images(cleaned_text, rich_content, images)
 
-        Comment.objects.create(
-            team=team,
-            scope="conversations_ticket",
-            item_id=str(ticket.id),
-            content=content,
-            rich_content=rich_content,
-            item_context={
-                "author_type": "customer",
-                "is_private": False,
-                "slack_user_id": reply_user,
-                "slack_author_name": user_info["name"],
-                "slack_author_email": user_info.get("email"),
-                "slack_author_avatar": user_info.get("avatar"),
-                "slack_images": images if images else None,
-            },
+        comments_to_create.append(
+            Comment(
+                team=team,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                content=content,
+                rich_content=rich_content,
+                item_context={
+                    "author_type": "customer",
+                    "is_private": False,
+                    "slack_user_id": reply_user,
+                    "slack_author_name": user_info["name"],
+                    "slack_author_email": user_info.get("email"),
+                    "slack_author_avatar": user_info.get("avatar"),
+                    "slack_images": images if images else None,
+                },
+            )
         )
-        backfilled += 1
 
-    if backfilled:
-        Ticket.objects.filter(id=ticket.id).update(
-            unread_team_count=F("unread_team_count") + backfilled,
+    if comments_to_create:
+        # bulk_create intentionally skips post_save signals — backfilled historical
+        # messages should not trigger activity log entries or Slack reply notifications.
+        created_comments = Comment.objects.bulk_create(comments_to_create)
+        last_comment = created_comments[-1]
+        Ticket.objects.filter(id=ticket.id, team=team).update(
+            unread_team_count=F("unread_team_count") + len(comments_to_create),
+            message_count=F("message_count") + len(comments_to_create),
+            last_message_at=last_comment.created_at,
+            last_message_text=(last_comment.content or "")[:500],
         )
 
     logger.info(
@@ -683,7 +699,7 @@ def _backfill_thread_replies(
         channel=channel,
         thread_ts=thread_ts,
         ticket_id=str(ticket.id),
-        backfilled_count=backfilled,
+        backfilled_count=len(comments_to_create),
     )
 
 
@@ -759,6 +775,7 @@ def handle_support_reaction(event: dict, team: Team, slack_team_id: str) -> None
         files=original_files,
         is_thread_reply=False,
         slack_team_id=slack_team_id,
+        channel_detail=ChannelDetail.SLACK_EMOJI_REACTION,
     )
 
     if ticket:

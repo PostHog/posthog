@@ -1,0 +1,53 @@
+syntax = "proto3";
+package personhog.leader.v1;
+
+import "personhog/types/v1/person.proto";
+
+// UpdatePersonPropertiesRequest describes a property update for a person
+// identified by team_id + person_id. The caller resolves distinct_id → person_id
+// before sending. The leader merges property diffs ($set, $set_once, $unset)
+// into the cached state.
+message UpdatePersonPropertiesRequest {
+  int64 team_id = 1;
+  int64 person_id = 2;
+  // The event name that triggered this update (e.g. "$set", "$identify", "$pageview").
+  // Used to determine filtering behavior (person events bypass property filtering).
+  string event_name = 3;
+  // JSON-encoded map of properties to set (overwrites existing values).
+  bytes set_properties = 4;
+  // JSON-encoded map of properties to set only if not already present.
+  bytes set_once_properties = 5;
+  // Property keys to remove from the person.
+  repeated string unset_properties = 6;
+  // The partition this person belongs to, computed by the router via
+  // murmur2(team_id:person_id) % num_partitions. The leader uses this
+  // to look up the correct per-partition cache.
+  uint32 partition = 7;
+}
+
+// Leader-specific get request that includes the partition for cache routing.
+message LeaderGetPersonRequest {
+  int64 team_id = 1;
+  int64 person_id = 2;
+  // The partition this person belongs to, computed by the router.
+  uint32 partition = 3;
+}
+
+message UpdatePersonPropertiesResponse {
+  // The person after applying the update (if the person was found).
+  optional personhog.types.v1.Person person = 1;
+  // Whether any properties were actually changed.
+  bool updated = 2;
+}
+
+// PersonHogLeader is the internal write API exposed by leader pods.
+// The router calls this service after hashing (team_id, person_id) to a
+// partition and resolving the owning pod via the coordination routing table.
+service PersonHogLeader {
+  // Apply property updates to a person. Merges $set, $set_once, and $unset
+  // diffs into the cached person state.
+  rpc UpdatePersonProperties(UpdatePersonPropertiesRequest) returns (UpdatePersonPropertiesResponse);
+
+  // Strong consistency read: returns the latest person state from the leader's cache.
+  rpc GetPerson(LeaderGetPersonRequest) returns (personhog.types.v1.GetPersonResponse);
+}

@@ -149,7 +149,7 @@ export class ApiClient {
         method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
         path: string
         body?: Record<string, unknown>
-        query?: Record<string, string | number | boolean | string[] | undefined>
+        query?: Record<string, string | number | boolean | (string | number)[] | undefined>
     }): Promise<T> {
         const searchParams = new URLSearchParams()
         if (opts.query) {
@@ -236,6 +236,11 @@ export class ApiClient {
                     throw new Error(
                         `Request failed:\nURL: ${method} ${url}\nStatus Code: ${response.status} (${response.statusText})\nError Message: ${errorText}`
                     )
+                }
+
+                // 204 No Content (e.g. DELETE) returns no body
+                if (response.status === 204) {
+                    return { success: true, data: undefined as T }
                 }
 
                 const rawData = await response.json()
