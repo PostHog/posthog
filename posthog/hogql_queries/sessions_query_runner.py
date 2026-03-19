@@ -242,6 +242,8 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                 left=numeric_field,
                 right=ast.Constant(value=value),
             )
+        else:
+            raise ValueError(f"Unsupported operator '{operator}'")
 
     def to_query(self) -> ast.SelectQuery:
         with self.timings.measure("build_ast"):
@@ -293,7 +295,7 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                             Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team=self.team), self.query.personId
                         ).first()
                         # Qualify distinct_id with sessions. when person join is present to avoid ambiguity
-                        distinct_id_chain = (
+                        distinct_id_chain: list[str | int] = (
                             ["sessions", "distinct_id"] if self._needs_person_join() else ["distinct_id"]
                         )
                         where_exprs.append(
