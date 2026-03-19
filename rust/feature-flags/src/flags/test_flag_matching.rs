@@ -8765,7 +8765,7 @@ mod tests {
             team.id,
             router,
             cohort_cache,
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -8864,7 +8864,7 @@ mod tests {
             team.id,
             router,
             cohort_cache,
-            None,
+            empty_group_type_cache(),
             None,
         );
 

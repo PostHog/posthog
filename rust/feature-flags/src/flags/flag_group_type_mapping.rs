@@ -27,8 +27,6 @@ struct GroupTypeMappingRow {
     pub group_type_index: GroupTypeIndex,
 }
 
-// ─── GroupTypeMapping (pure data) ───────────────────────────────────────
-
 /// Holds the bidirectional mapping between group type names and their indices.
 ///
 /// Typically, the mappings look like this:
@@ -68,8 +66,6 @@ impl GroupTypeMapping {
         self.group_types_to_indexes.is_empty()
     }
 }
-
-// ─── Fetcher trait + Postgres impl ──────────────────────────────────────
 
 #[derive(Clone, Debug)]
 pub enum GroupTypeFetchError {
@@ -134,17 +130,7 @@ impl GroupTypeMappingFetcher for PostgresGroupTypeMappingFetcher {
     }
 }
 
-// ─── GroupTypeCacheManager ──────────────────────────────────────────────
-
 /// In-process Moka cache for group type mappings, keyed by TeamId.
-///
-/// Follows the same pattern as `CohortCacheManager`:
-/// - TTL-based expiry
-/// - Per-key coalescing via `try_get_with`
-/// - Count-based `max_capacity` (each team's mapping is ~100 bytes)
-///
-/// Uses dynamic dispatch (`dyn GroupTypeMappingFetcher`) so that production
-/// and test code share the same concrete `GroupTypeCacheManager` type.
 pub struct GroupTypeCacheManager {
     fetcher: Arc<dyn GroupTypeMappingFetcher>,
     cache: Cache<TeamId, GroupTypeMapping>,
