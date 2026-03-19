@@ -1775,13 +1775,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
 
 def _has_any_property_filters(
-    properties: list | PropertyGroupFilter,
+    properties: object,
 ) -> bool:
     """Check if properties contain any actual filter values, not just empty group structure."""
-    if isinstance(properties, list):
-        return len(properties) > 0
     if isinstance(properties, PropertyGroupFilter):
         return any(_has_any_property_filters_in_group(v) for v in properties.values)
+    if isinstance(properties, list):
+        return len(properties) > 0
     return bool(properties)
 
 
