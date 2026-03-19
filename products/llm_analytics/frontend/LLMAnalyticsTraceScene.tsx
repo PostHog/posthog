@@ -812,7 +812,7 @@ function TraceWorkflowPanel({ traceId }: { traceId: string }): JSX.Element {
             <LemonCollapse
                 embedded
                 size="small"
-                activeKey={isTraceReviewPanelExpanded ? 'workflow' : null}
+                activeKey={isTraceReviewPanelExpanded ? 'workflow' : undefined}
                 onChange={(activeKey) => setTraceReviewPanelExpanded(!!activeKey)}
                 panels={[
                     {
