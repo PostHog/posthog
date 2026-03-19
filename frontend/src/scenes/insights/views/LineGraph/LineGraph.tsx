@@ -30,6 +30,7 @@ import {
 import { resolveVariableColor } from 'lib/charts/utils/color'
 import { createXAxisTickCallback } from 'lib/charts/utils/dates'
 import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
+import { AnomalyPoint } from 'lib/components/Alerts/types'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { useChart } from 'lib/hooks/useChart'
@@ -216,6 +217,7 @@ export interface LineGraphProps {
     goalLines?: GoalLine[]
     isStacked?: boolean
     showTrendLines?: boolean
+    anomalyPoints?: AnomalyPoint[]
     ignoreActionsInSeriesLabels?: boolean
     datalabelFormatter?: (value: number, datasetIndex: number) => string
     onDateRangeZoom?: (dateFrom: string, dateTo: string) => void
@@ -264,6 +266,7 @@ export function LineGraph_({
     goalLines: _goalLines,
     isStacked = true,
     showTrendLines = false,
+    anomalyPoints,
     ignoreActionsInSeriesLabels = false,
     datalabelFormatter,
     onDateRangeZoom,
@@ -400,6 +403,35 @@ export function LineGraph_({
                   ctx.p1DataIndex >= incompleteStartIndex ? areaIncompletePattern : undefined
             : undefined
 
+        // Build anomaly point styling if this series has anomaly points
+        const seriesAnomalyPoints = (anomalyPoints ?? []).filter(
+            (ap) => ap.seriesIndex === (dataset.seriesIndex ?? index)
+        )
+        const seriesAnomalyIndices = new Set(seriesAnomalyPoints.map((ap) => ap.index))
+
+        // Build a sparse array of anomaly scores for tooltip lookup
+        const anomalyScoresMap: Record<number, number | null> = {}
+        for (const ap of seriesAnomalyPoints) {
+            anomalyScoresMap[ap.index] = ap.score
+        }
+        const hasAnomalyPoints = seriesAnomalyIndices.size > 0
+
+        const anomalyPointRadius = hasAnomalyPoints
+            ? (ctx: any) => (seriesAnomalyIndices.has(ctx.dataIndex) ? 6 : 0)
+            : undefined
+        const anomalyPointBackgroundColor = hasAnomalyPoints
+            ? (ctx: any) => (seriesAnomalyIndices.has(ctx.dataIndex) ? 'rgba(220, 38, 38, 0.9)' : 'transparent')
+            : undefined
+        const anomalyPointBorderColor = hasAnomalyPoints
+            ? (ctx: any) => (seriesAnomalyIndices.has(ctx.dataIndex) ? 'rgba(153, 27, 27, 1)' : 'transparent')
+            : undefined
+        const anomalyPointBorderWidth = hasAnomalyPoints
+            ? (ctx: any) => (seriesAnomalyIndices.has(ctx.dataIndex) ? 2 : 0)
+            : undefined
+
+        const defaultPointRadius = Array.isArray(adjustedData) && adjustedData.length === 1 ? 4 : 0
+        const defaultHitRadius = Array.isArray(adjustedData) && adjustedData.length === 1 ? 8 : 0
+
         // `horizontalBar` colors are set in `ActionsHorizontalBar.tsx` and overridden in spread of `dataset` below
         return {
             borderColor: mainColor,
@@ -412,11 +444,15 @@ export function LineGraph_({
                 backgroundColor: incompleteSegmentBackgroundColor,
             },
             borderWidth: isBar ? 0 : 2,
-            pointRadius: Array.isArray(adjustedData) && adjustedData.length === 1 ? 4 : 0,
-            hitRadius: Array.isArray(adjustedData) && adjustedData.length === 1 ? 8 : 0,
+            pointRadius: anomalyPointRadius ?? defaultPointRadius,
+            pointBackgroundColor: anomalyPointBackgroundColor,
+            pointBorderColor: anomalyPointBorderColor,
+            pointBorderWidth: anomalyPointBorderWidth,
+            hitRadius: hasAnomalyPoints ? 8 : defaultHitRadius,
             order: 1,
             ...(type === GraphType.Histogram ? { barPercentage: 1 } : {}),
             ...dataset,
+            anomalyScores: hasAnomalyPoints ? anomalyScoresMap : undefined,
             data: adjustedData,
             hoverBorderWidth: isBar ? 0 : 2,
             hoverBorderRadius: isBar ? 0 : 2,
@@ -1118,6 +1154,7 @@ export function LineGraph_({
             timezone,
             effectiveZoomCallback,
             zoomPluginOptions,
+            anomalyPoints,
         ],
     })
 

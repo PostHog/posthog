@@ -608,3 +608,115 @@ def _date_range_override_for_detector(query: TrendsQuery, min_samples: int) -> d
             date_from = f"-{min_samples}h"
 
     return {"date_from": date_from}
+
+
+def simulate_detector_on_insight(
+    insight: Insight,
+    team: Any,
+    detector_config: dict[str, Any],
+    series_index: int = 0,
+    date_from: str | None = None,
+) -> dict[str, Any]:
+    """
+    Run a detector over the full historical data of an insight using detect_batch().
+    Returns per-point scores and triggered indices for chart visualization.
+    No AlertCheck records are created — this is read-only.
+    """
+    from posthog.tasks.alerts.detectors import get_detector
+    from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS
+    from posthog.utils import get_from_dict_or_attr
+
+    if insight.query is None:
+        raise ValueError("Insight has no valid query.")
+
+    from posthog.schema_migrations.upgrade_manager import upgrade_query
+
+    with upgrade_query(insight):
+        query = insight.query
+
+    kind = get_from_dict_or_attr(query, "kind")
+    if kind in WRAPPER_NODE_KINDS:
+        query = get_from_dict_or_attr(query, "source")
+        kind = get_from_dict_or_attr(query, "kind")
+
+    if kind != "TrendsQuery":
+        raise ValueError("Only TrendsQuery insights are supported for simulation.")
+
+    trends_query = TrendsQuery.model_validate(query)
+
+    detector_type_str = detector_config.get("type", "zscore")
+
+    # Calculate minimum samples needed
+    if detector_type_str == "ensemble":
+        sub_detectors = detector_config.get("detectors", [])
+        min_samples = max((d.get("window", 30) + 1 for d in sub_detectors), default=31)
+    else:
+        detector_type = DetectorType(detector_type_str)
+        min_samples = DETECTOR_MIN_SAMPLES.get(detector_type, 31)
+        window = detector_config.get("window", 30)
+        if detector_type in (DetectorType.ZSCORE, DetectorType.MAD):
+            min_samples = max(min_samples, window + 1)
+
+    # Fetch enough historical data
+    is_non_time_series = _is_non_time_series_trend(trends_query)
+    if is_non_time_series:
+        filters_override = None
+    elif date_from:
+        # User-requested range — use it directly, but the detector will still
+        # need min_samples internally so we don't clamp here; if the user asks
+        # for too few points the detector simply won't trigger on early ones.
+        filters_override = {"date_from": date_from}
+    else:
+        filters_override = _date_range_override_for_detector(trends_query, min_samples)
+
+    execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+    if trends_query.interval == IntervalType.HOUR:
+        execution_mode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+
+    calculation_result = calculate_for_query_based_insight(
+        insight,
+        team=team,
+        execution_mode=execution_mode,
+        user=None,
+        filters_override=filters_override,
+    )
+
+    if calculation_result.result is None or not calculation_result.result:
+        raise ValueError("No results found for insight.")
+
+    # Pick the series
+    config = TrendsAlertConfig(type="TrendsAlertConfig", series_index=series_index)
+    selected_series_result = _pick_series_result(config, calculation_result)
+
+    if is_non_time_series:
+        data_list: list[float] = [float(selected_series_result.get("aggregated_value", 0))]
+    else:
+        data_list = [float(v) for v in selected_series_result.get("data", [])]
+
+    data = np.array(data_list)
+    if len(data) == 0:
+        raise ValueError("No data points found for the selected series.")
+
+    dates: list[str] = selected_series_result.get("days") or selected_series_result.get("labels") or []
+
+    # Run batch detection
+    detector = get_detector(detector_config)
+    result = detector.detect_batch(data)
+
+    # Map triggered indices to dates
+    triggered_dates: list[str] = []
+    if result.triggered_indices and dates:
+        triggered_dates = [dates[i] for i in result.triggered_indices if i < len(dates)]
+
+    scores = result.all_scores if result.all_scores else [None] * len(data)
+
+    return {
+        "data": data_list,
+        "dates": dates,
+        "scores": scores,
+        "triggered_indices": result.triggered_indices or [],
+        "triggered_dates": triggered_dates,
+        "interval": trends_query.interval.value if trends_query.interval else None,
+        "total_points": len(data),
+        "anomaly_count": len(result.triggered_indices) if result.triggered_indices else 0,
+    }

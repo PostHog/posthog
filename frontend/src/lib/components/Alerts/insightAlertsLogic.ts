@@ -10,7 +10,7 @@ import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 import type { insightAlertsLogicType } from './insightAlertsLogicType'
-import { AlertType } from './types'
+import { AlertType, AnomalyPoint } from './types'
 
 export interface InsightAlertsLogicProps {
     insightId: number
@@ -29,6 +29,8 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
         setShouldShowAlertDeletionWarning: (show: boolean) => ({ show }),
         upsertAlert: (alert: AlertType) => ({ alert }),
         removeAlert: (alertId: AlertType['id']) => ({ alertId }),
+        setSimulationAnomalyPoints: (points: AnomalyPoint[]) => ({ points }),
+        clearSimulationAnomalyPoints: true,
     }),
 
     connect((props: InsightAlertsLogicProps) => ({
@@ -69,6 +71,13 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
             false,
             {
                 setShouldShowAlertDeletionWarning: (_, { show }) => show,
+            },
+        ],
+        simulationAnomalyPoints: [
+            [] as AnomalyPoint[],
+            {
+                setSimulationAnomalyPoints: (_, { points }) => points,
+                clearSimulationAnomalyPoints: () => [],
             },
         ],
     }),

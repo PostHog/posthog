@@ -6,7 +6,9 @@ from django.db.models import OuterRef, QuerySet, Subquery
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
@@ -441,6 +443,70 @@ class AlertSerializer(serializers.ModelSerializer):
         return attrs
 
 
+class AlertSimulateSerializer(serializers.Serializer):
+    insight = TeamScopedPrimaryKeyRelatedField(
+        queryset=Insight.objects.all(),
+        help_text="Insight ID to simulate the detector on.",
+    )
+    detector_config = DetectorConfigField(
+        help_text="Detector configuration to simulate.",
+    )
+    series_index = serializers.IntegerField(
+        default=0,
+        help_text="Zero-based index of the series to analyze.",
+    )
+    date_from = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). "
+        "If not provided, uses the detector's minimum required samples.",
+    )
+
+    def validate_detector_config(self, value):
+        if value is None:
+            raise ValidationError("detector_config is required.")
+
+        import pydantic
+
+        try:
+            validated = DetectorConfig.model_validate(value)
+        except pydantic.ValidationError:
+            raise ValidationError("Invalid detector configuration.")
+
+        root = validated.root if hasattr(validated, "root") else validated
+        if getattr(root, "type", None) == "ensemble" and hasattr(root, "detectors"):
+            if len(root.detectors) < 2:
+                raise ValidationError("Ensemble detector requires at least 2 sub-detectors.")
+            for sub in root.detectors:
+                sub_dict: dict = sub.model_dump() if hasattr(sub, "model_dump") else sub  # type: ignore[assignment]
+                AlertSerializer._validate_detector_params(sub_dict)
+        else:
+            AlertSerializer._validate_detector_params(value)
+
+        return validated.model_dump() if hasattr(validated, "model_dump") else value
+
+
+class AlertSimulateResponseSerializer(serializers.Serializer):
+    data = serializers.ListField(child=serializers.FloatField(), help_text="Data values for each point.")
+    dates = serializers.ListField(child=serializers.CharField(), help_text="Date labels for each point.")
+    scores = serializers.ListField(
+        child=serializers.FloatField(allow_null=True),
+        help_text="Anomaly score for each point (null if insufficient data).",
+    )
+    triggered_indices = serializers.ListField(
+        child=serializers.IntegerField(), help_text="Indices of points flagged as anomalies."
+    )
+    triggered_dates = serializers.ListField(
+        child=serializers.CharField(), help_text="Dates of points flagged as anomalies."
+    )
+    interval = serializers.CharField(
+        allow_null=True, help_text="Interval of the trends query (hour, day, week, month)."
+    )
+    total_points = serializers.IntegerField(help_text="Total number of data points analyzed.")
+    anomaly_count = serializers.IntegerField(help_text="Number of anomalies detected.")
+
+
 class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "alert"
     queryset = AlertConfiguration.objects.all().order_by("-created_at")
@@ -476,6 +542,37 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+
+    @extend_schema(
+        request=AlertSimulateSerializer,
+        responses={200: AlertSimulateResponseSerializer},
+        description="Simulate a detector on an insight's historical data. Read-only — no AlertCheck records are created.",
+    )
+    @action(detail=False, methods=["POST"], url_path="simulate")
+    def simulate(self, request, *args, **kwargs):
+        from posthog.tasks.alerts.trends import simulate_detector_on_insight
+
+        serializer = AlertSimulateSerializer(data=request.data, context=self.get_serializer_context())
+        serializer.is_valid(raise_exception=True)
+
+        insight = serializer.validated_data["insight"]
+        detector_config = serializer.validated_data["detector_config"]
+        series_index = serializer.validated_data["series_index"]
+        date_from = serializer.validated_data.get("date_from")
+
+        try:
+            result = simulate_detector_on_insight(
+                insight=insight,
+                team=self.team,
+                detector_config=detector_config,
+                series_index=series_index,
+                date_from=date_from,
+            )
+        except (ValueError, RuntimeError) as e:
+            raise ValidationError(str(e))
+
+        response_serializer = AlertSimulateResponseSerializer(result)
+        return Response(response_serializer.data)
 
 
 class ThresholdWithAlertSerializer(ThresholdSerializer):
