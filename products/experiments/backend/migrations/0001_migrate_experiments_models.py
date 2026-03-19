@@ -8,37 +8,53 @@ from django.db import migrations, models
 
 import posthog.models.utils
 
+MODELS_TO_MOVE = [
+    "experiment",
+    "experimentholdout",
+    "experimentsavedmetric",
+    "experimenttosavedmetric",
+    "experimentmetricresult",
+    "experimenttimeseriesrecalculation",
+    "webexperiment",
+]
+
+
+def _move_content_types(apps, schema_editor, from_label, to_label):
+    """Move ContentTypes between apps, handling duplicates idempotently.
+
+    If the target (app_label, model) already exists (e.g., Django auto-created
+    it before migration ran, or a prior failed attempt), merges permissions
+    onto the target and deletes the source to avoid unique constraint violations.
+
+    Uses schema_editor.connection.alias for multi-DB safety.
+    """
+    db_alias = schema_editor.connection.alias
+    ContentType = apps.get_model("contenttypes", "ContentType")
+    Permission = apps.get_model("auth", "Permission")
+
+    for model_name in MODELS_TO_MOVE:
+        source = ContentType.objects.using(db_alias).filter(app_label=from_label, model=model_name).first()
+        target = ContentType.objects.using(db_alias).filter(app_label=to_label, model=model_name).first()
+
+        if source and target:
+            # Duplicate — move permissions to target, delete source
+            Permission.objects.using(db_alias).filter(content_type=source).update(content_type=target)
+            source.delete(using=db_alias)
+        elif source:
+            # Normal case — rename in place
+            source.app_label = to_label
+            source.save(using=db_alias)
+        # If neither exists, nothing to do (no-op)
+
 
 def update_content_types(apps, schema_editor):
-    """Update content types from posthog to experiments app."""
-    ContentType = apps.get_model("contenttypes", "ContentType")
-    models_to_move = [
-        "experiment",
-        "experimentholdout",
-        "experimentsavedmetric",
-        "experimenttosavedmetric",
-        "experimentmetricresult",
-        "experimenttimeseriesrecalculation",
-        "webexperiment",
-    ]
-    for model_name in models_to_move:
-        ContentType.objects.filter(app_label="posthog", model=model_name).update(app_label="experiments")
+    """Move content types from posthog to experiments app."""
+    _move_content_types(apps, schema_editor, "posthog", "experiments")
 
 
 def reverse_content_types(apps, schema_editor):
-    """Reverse content types from experiments back to posthog app."""
-    ContentType = apps.get_model("contenttypes", "ContentType")
-    models_to_move = [
-        "experiment",
-        "experimentholdout",
-        "experimentsavedmetric",
-        "experimenttosavedmetric",
-        "experimentmetricresult",
-        "experimenttimeseriesrecalculation",
-        "webexperiment",
-    ]
-    for model_name in models_to_move:
-        ContentType.objects.filter(app_label="experiments", model=model_name).update(app_label="posthog")
+    """Move content types from experiments back to posthog app."""
+    _move_content_types(apps, schema_editor, "experiments", "posthog")
 
 
 class Migration(migrations.Migration):
