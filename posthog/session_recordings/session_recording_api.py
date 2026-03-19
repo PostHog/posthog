@@ -126,19 +126,19 @@ GENERATE_PRE_SIGNED_URL_HISTOGRAM = Histogram(
 GATHER_RECORDING_SOURCES_HISTOGRAM = Histogram(
     "session_snapshots_gather_recording_sources_histogram",
     "Time taken to gather recording sources",
-    labelnames=["blob_version", "auth_type"],
+    labelnames=["blob_version"],
 )
 
 STREAM_RESPONSE_TO_CLIENT_HISTOGRAM = Histogram(
     "session_snapshots_stream_response_to_client_histogram",
     "Time taken to stream a session snapshot to the client",
-    labelnames=["blob_version", "decompress", "auth_type"],
+    labelnames=["blob_version", "decompress"],
 )
 
 FETCH_BLOCKS_HISTOGRAM = Histogram(
     "session_snapshots_fetch_blocks_seconds",
     "Time taken to fetch recording blocks from storage",
-    labelnames=["decompress", "auth_type"],
+    labelnames=["decompress"],
 )
 
 LOADING_V2_LTS_COUNTER = Counter(
@@ -1185,7 +1185,6 @@ class SessionRecordingViewSet(
                     min_blob_key=validated_data["min_blob_key"],
                     max_blob_key=validated_data["max_blob_key"],
                     decompress=decompress,
-                    auth_type=auth_type,
                 )
             elif source == "blob_v2_lts" and "blob_key" in validated_data:
                 if not recording.full_recording_v2_path:
@@ -1201,7 +1200,7 @@ class SessionRecordingViewSet(
                         expected_blob_key=expected_blob_key,
                     )
                     raise exceptions.NotFound("Recording not found")
-                response = self._stream_lts_blob_v2_to_client(blob_key=provided_blob_key, decompress=decompress, auth_type=auth_type)
+                response = self._stream_lts_blob_v2_to_client(blob_key=provided_blob_key, decompress=decompress)
             else:
                 response = self._gather_session_recording_sources(recording, timer, auth_type=auth_type)
 
@@ -1299,7 +1298,7 @@ class SessionRecordingViewSet(
     ) -> Response:
         sources: list[dict] = []
 
-        with GATHER_RECORDING_SOURCES_HISTOGRAM.labels(blob_version="v2", auth_type=auth_type).time():
+        with GATHER_RECORDING_SOURCES_HISTOGRAM.labels(blob_version="v2").time():
             if recording.full_recording_v2_path:
                 # Parse S3 URL to extract prefix (path without query parameters)
                 # Example: s3://bucket/path?range=bytes=0-1372588 -> path
@@ -1463,9 +1462,8 @@ class SessionRecordingViewSet(
         self,
         blob_key: str,
         decompress: bool = True,
-        auth_type: str = "unknown",
     ) -> HttpResponse:
-        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2", decompress=decompress, auth_type=auth_type).time():
+        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2", decompress=decompress).time():
             with (
                 tracer.start_as_current_span("list_blocks__stream_lts_blob_v2_to_client_async"),
             ):
@@ -1585,13 +1583,12 @@ class SessionRecordingViewSet(
         recording: SessionRecording,
         timer: ServerTimingsGathered,
         decompress: bool,
-        auth_type: str = "unknown",
     ) -> BlockList:
         compress_label = "decompressed" if decompress else "compressed"
         span_name = f"fetch_{compress_label}_blocks"
 
         async with recording_api_client() as storage:
-            with FETCH_BLOCKS_HISTOGRAM.labels(decompress=str(decompress), auth_type=auth_type).time():
+            with FETCH_BLOCKS_HISTOGRAM.labels(decompress=str(decompress)).time():
                 with timer(span_name), tracer.start_as_current_span(span_name):
                     return await self._fetch_blocks_parallel(
                         blocks, min_blob_key, max_blob_key, recording, storage, decompress
@@ -1605,14 +1602,13 @@ class SessionRecordingViewSet(
         min_blob_key: int,
         max_blob_key: int,
         decompress: bool = True,
-        auth_type: str = "unknown",
     ) -> HttpResponse:
         async def _run() -> HttpResponse:
-            with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2", decompress=decompress, auth_type=auth_type).time():
+            with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2", decompress=decompress).time():
                 blocks = await self._fetch_and_validate_blocks(recording, timer, min_blob_key, max_blob_key)
 
                 blocks_data = await self._fetch_blocks_with_storage(
-                    blocks, min_blob_key, max_blob_key, recording, timer, decompress=decompress, auth_type=auth_type
+                    blocks, min_blob_key, max_blob_key, recording, timer, decompress=decompress
                 )
 
                 if decompress:
@@ -1636,9 +1632,8 @@ class SessionRecordingViewSet(
         self,
         blob_key: str,
         decompress: bool = True,
-        auth_type: str = "unknown",
     ) -> HttpResponse:
-        return asyncio.run(self._stream_lts_blob_v2_to_client_async(blob_key, decompress, auth_type=auth_type))
+        return asyncio.run(self._stream_lts_blob_v2_to_client_async(blob_key, decompress))
 
     @extend_schema(
         exclude=True,
