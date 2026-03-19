@@ -16,7 +16,7 @@ export type SpikeEventOrder =
     | 'current_bucket_value'
     | '-current_bucket_value'
 
-type RecentSpikesResponse = CountedPaginatedResponse<ErrorTrackingSpikeEvent>
+export type RecentSpikesResponse = CountedPaginatedResponse<ErrorTrackingSpikeEvent>
 
 export const recentSpikesLogic = kea<recentSpikesLogicType>([
     path([
