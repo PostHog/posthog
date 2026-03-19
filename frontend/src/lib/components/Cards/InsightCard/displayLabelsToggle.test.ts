@@ -88,36 +88,52 @@ describe('displayLabelsToggle', () => {
     })
 
     describe('toggleDisplayLabelsInInsightQuery', () => {
-        it('toggles display labels for trends pie insights', () => {
-            const query = {
+        it.each([
+            {
+                kind: NodeKind.TrendsQuery,
+                filter: 'trendsFilter',
+                display: ChartDisplayType.ActionsLineGraph,
+                field: 'showValuesOnSeries',
+            },
+            {
+                kind: NodeKind.TrendsQuery,
+                filter: 'trendsFilter',
+                display: ChartDisplayType.ActionsPie,
+                field: 'showLabelsOnSeries',
+            },
+            {
+                kind: NodeKind.StickinessQuery,
+                filter: 'stickinessFilter',
+                display: ChartDisplayType.ActionsLineGraph,
+                field: 'showValuesOnSeries',
+            },
+            {
+                kind: NodeKind.FunnelsQuery,
+                filter: 'funnelsFilter',
+                field: 'showValuesOnSeries',
+            },
+            {
+                kind: NodeKind.LifecycleQuery,
+                filter: 'lifecycleFilter',
+                field: 'showValuesOnSeries',
+            },
+        ])('toggles $field for $kind', ({ kind, filter, display, field }) => {
+            const makeQuery = (enabled: boolean): any => ({
                 kind: NodeKind.InsightVizNode,
                 source: {
-                    kind: NodeKind.TrendsQuery,
-                    trendsFilter: {
-                        display: ChartDisplayType.ActionsPie,
-                        showLabelsOnSeries: false,
+                    kind,
+                    [filter]: {
+                        ...(display ? { display } : {}),
+                        [field]: enabled,
                     },
                 },
-            } as any
+            })
 
-            const updatedQuery = toggleDisplayLabelsInInsightQuery(query) as any
-            expect(updatedQuery.source.trendsFilter?.showLabelsOnSeries).toBe(true)
-        })
+            const enabledQuery = toggleDisplayLabelsInInsightQuery(makeQuery(false)) as any
+            expect(enabledQuery.source[filter]?.[field]).toBe(true)
 
-        it('toggles values on series for trends line insights', () => {
-            const query = {
-                kind: NodeKind.InsightVizNode,
-                source: {
-                    kind: NodeKind.TrendsQuery,
-                    trendsFilter: {
-                        display: ChartDisplayType.ActionsLineGraph,
-                        showValuesOnSeries: false,
-                    },
-                },
-            } as any
-
-            const updatedQuery = toggleDisplayLabelsInInsightQuery(query) as any
-            expect(updatedQuery.source.trendsFilter?.showValuesOnSeries).toBe(true)
+            const disabledQuery = toggleDisplayLabelsInInsightQuery(makeQuery(true)) as any
+            expect(disabledQuery.source[filter]?.[field]).toBe(false)
         })
 
         it('keeps query unchanged for trends displays without series values', () => {

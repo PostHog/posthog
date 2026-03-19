@@ -54,6 +54,7 @@ import {
 
 import {
     canToggleDisplayLabelsInInsightQuery,
+    getDisplayLabelsToggleMode,
     isDisplayLabelsEnabledInInsightQuery,
     toggleDisplayLabelsInInsightQuery,
 } from './displayLabelsToggle'
@@ -144,6 +145,15 @@ export function InsightMeta({
     const isSqlInsight = isDataVisualizationNode(insight.query)
     const canToggleDisplayLabelsForQuery = canToggleDisplayLabelsInInsightQuery(insight.query)
     const displayLabelsShown = isDisplayLabelsEnabledInInsightQuery(insight.query)
+    const displayLabelsToggleMode = getDisplayLabelsToggleMode(insight.query)
+    const displayLabelsToggleText =
+        displayLabelsToggleMode === 'pie_labels'
+            ? displayLabelsShown
+                ? 'Hide labels on series'
+                : 'Show labels on series'
+            : displayLabelsShown
+              ? 'Hide values on series'
+              : 'Show values on series'
     const showCompactHeading = !showCompactTile || (!filtersOverride?.date_from && !isSqlInsight)
 
     const topHeadingProps = {
@@ -391,7 +401,7 @@ export function InsightMeta({
                                 }}
                                 fullWidth
                             >
-                                {displayLabelsShown ? 'Hide values on series' : 'Show values on series'}
+                                {displayLabelsToggleText}
                             </LemonButton>
                             <LemonDivider />
                         </>
