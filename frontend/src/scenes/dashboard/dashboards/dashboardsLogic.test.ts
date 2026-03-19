@@ -1,6 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
 
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 import { DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -9,7 +10,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { initKeaTests } from '~/test/init'
-import { DashboardType, UserBasicType } from '~/types'
+import { AppContext, DashboardType, UserBasicType } from '~/types'
 
 import dashboardJson from '../__mocks__/dashboard.json'
 
@@ -46,6 +47,8 @@ describe('dashboardsLogic', () => {
     ]
 
     beforeEach(async () => {
+        window.POSTHOG_APP_CONTEXT = { current_user: MOCK_DEFAULT_USER } as unknown as AppContext
+
         useMocks({
             get: {
                 '/api/environments/:team_id/dashboards/': {
