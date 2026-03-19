@@ -5,24 +5,27 @@ from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.error_tracking.backend.models import ErrorTrackingSpikeEvent
+from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingSpikeEvent
+
+
+class ErrorTrackingSpikeEventIssueSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ErrorTrackingIssue
+        fields = ["id", "name", "description"]
+        read_only_fields = fields
 
 
 class ErrorTrackingSpikeEventSerializer(serializers.ModelSerializer):
-    issue_id = serializers.UUIDField(source="issue.id")
-    issue_name = serializers.CharField(source="issue.name", default=None, allow_null=True)
-    issue_description = serializers.CharField(source="issue.description", default=None, allow_null=True)
+    issue = ErrorTrackingSpikeEventIssueSerializer(read_only=True)
 
     class Meta:
         model = ErrorTrackingSpikeEvent
         fields = [
             "id",
-            "issue_id",
+            "issue",
             "detected_at",
             "computed_baseline",
             "current_bucket_value",
-            "issue_name",
-            "issue_description",
         ]
         read_only_fields = fields
 
@@ -45,13 +48,11 @@ class ErrorTrackingSpikeEventViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMix
     def safely_get_queryset(self, queryset):
         qs = queryset.filter(team_id=self.team.id).select_related("issue")
 
-        issue_ids = self.request.query_params.get("issue_ids")
-        issue_id = self.request.query_params.get("issue_id")
-        if issue_ids:
-            ids = [uid.strip() for uid in issue_ids.split(",") if uid.strip()]
-            qs = qs.filter(issue_id__in=ids)
-        elif issue_id:
-            qs = qs.filter(issue_id=issue_id)
+        issue_ids_param = self.request.query_params.get("issue_ids")
+        if issue_ids_param:
+            ids = [uid.strip() for uid in issue_ids_param.split(",") if uid.strip()]
+            if ids:
+                qs = qs.filter(issue_id__in=ids)
 
         date_from = self.request.query_params.get("date_from")
         date_to = self.request.query_params.get("date_to")

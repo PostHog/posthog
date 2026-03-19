@@ -59,7 +59,7 @@ export const recentSpikesLogic = kea<recentSpikesLogicType>([
         spikesResponse: {
             loadRecentSpikes: async (_, breakpoint) => {
                 await breakpoint(100)
-                return await api.errorTracking.getSpikeEvents(undefined, {
+                return await api.errorTracking.getSpikeEvents({
                     limit: RESULTS_PER_PAGE,
                     offset: (values.page - 1) * RESULTS_PER_PAGE,
                     orderBy: values.order,

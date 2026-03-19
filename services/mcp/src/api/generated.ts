@@ -12802,16 +12802,20 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface ErrorTrackingSpikeEventIssue {
+      readonly id: string;
+      /** @nullable */
+      name?: string | null;
+      /** @nullable */
+      description?: string | null;
+    }
+
     export interface ErrorTrackingSpikeEvent {
       readonly id: string;
-      issue_id: string;
+      issue: ErrorTrackingSpikeEventIssue;
       readonly detected_at: string;
       readonly computed_baseline: number;
       readonly current_bucket_value: number;
-      /** @nullable */
-      issue_name?: string | null;
-      /** @nullable */
-      issue_description?: string | null;
     }
 
     export interface ErrorTrackingStackFrame {

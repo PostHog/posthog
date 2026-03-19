@@ -3765,13 +3765,20 @@ const api = {
                 .update({ data })
         },
 
-        async getSpikeEvents(
-            issueId?: string,
-            params?: { limit?: number; offset?: number; orderBy?: string; dateFrom?: string; dateTo?: string }
-        ): Promise<CountedPaginatedResponse<ErrorTrackingSpikeEvent>> {
+        async getSpikeEvents(params?: {
+            issueIds?: string[]
+            limit?: number
+            offset?: number
+            orderBy?: string
+            dateFrom?: string
+            dateTo?: string
+        }): Promise<CountedPaginatedResponse<ErrorTrackingSpikeEvent>> {
             const query: Record<string, string | number> = {}
-            if (issueId) {
-                query.issue_id = issueId
+            if (params?.issueIds !== undefined && params.issueIds.length > 0) {
+                const ids = params.issueIds.filter(Boolean)
+                if (ids.length > 0) {
+                    query.issue_ids = ids.join(',')
+                }
             }
             if (params?.limit !== undefined) {
                 query.limit = params.limit

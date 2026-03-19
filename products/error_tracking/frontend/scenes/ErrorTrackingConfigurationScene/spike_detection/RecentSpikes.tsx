@@ -28,9 +28,9 @@ export function RecentSpikes(): JSX.Element {
     const columns: LemonTableColumns<ErrorTrackingSpikeEvent> = [
         {
             title: 'Issue',
-            dataIndex: 'issue_name',
+            key: 'issue',
             render: (_, record) => (
-                <Link to={urls.errorTrackingIssue(record.issue_id)}>{record.issue_name || 'Unknown issue'}</Link>
+                <Link to={urls.errorTrackingIssue(record.issue.id)}>{record.issue.name || 'Unknown issue'}</Link>
             ),
         },
         {
