@@ -77,15 +77,32 @@ class Migration(migrations.Migration):
             model_name="dashboardtile",
             name="dash_tile_exactly_one_related_object",
         ),
-        migrations.AddField(
-            model_name="dashboardtile",
-            name="button_tile",
-            field=models.ForeignKey(
-                null=True,
-                on_delete=django.db.models.deletion.CASCADE,
-                related_name="dashboard_tiles",
-                to="posthog.buttontile",
-            ),
+        # Use SeparateDatabaseAndState so the auto-generated FK index is not created here.
+        # The index is added concurrently in a follow-up migration.
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddField(
+                    model_name="dashboardtile",
+                    name="button_tile",
+                    field=models.ForeignKey(
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="dashboard_tiles",
+                        to="posthog.buttontile",
+                    ),
+                ),
+            ],
+            database_operations=[
+                migrations.RunSQL(
+                    sql="""
+                        ALTER TABLE "posthog_dashboardtile" ADD COLUMN "button_tile_id" uuid NULL
+                        CONSTRAINT "posthog_dashboardtil_button_tile_id_acf9543d_fk_posthog_b"
+                        REFERENCES "posthog_buttontile"("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
+                        SET CONSTRAINTS "posthog_dashboardtil_button_tile_id_acf9543d_fk_posthog_b" IMMEDIATE; -- existing-table-constraint-ignore
+                    """,
+                    reverse_sql='ALTER TABLE "posthog_dashboardtile" DROP COLUMN IF EXISTS "button_tile_id";',
+                ),
+            ],
         ),
         migrations.AddConstraint(
             model_name="dashboardtile",
