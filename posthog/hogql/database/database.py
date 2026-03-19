@@ -1601,7 +1601,10 @@ def serialize_fields(
         try:
             if db_columns is not None:
                 column = db_columns[field_key]
-                schema_valid = cast(bool, column.get("valid", True))
+                if isinstance(column, str):
+                    schema_valid = True
+                else:
+                    schema_valid = cast(bool, column.get("valid", True))
             else:
                 schema_valid = True
         except KeyError:

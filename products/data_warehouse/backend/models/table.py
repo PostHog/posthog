@@ -76,7 +76,8 @@ ExtractErrors = {
     "The operation is not valid for the object's storage class": "Some files in the bucket are archived (e.g. Glacier or S3 Intelligent-Tiering archive). Restore them to Standard storage or narrow the URL pattern to exclude archived files.",
 }
 
-type DataWarehouseTableColumns = dict[str, dict[str, Any]]
+type DataWarehouseTableColumn = str | dict[str, Any]
+type DataWarehouseTableColumns = dict[str, DataWarehouseTableColumn]
 
 
 class DataWarehouseTableManager(models.Manager):
