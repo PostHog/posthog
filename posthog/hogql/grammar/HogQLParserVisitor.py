@@ -319,6 +319,11 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by HogQLParser#withinGroupClause.
+    def visitWithinGroupClause(self, ctx:HogQLParser.WithinGroupClauseContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by HogQLParser#winFrameClause.
     def visitWinFrameClause(self, ctx:HogQLParser.WinFrameClauseContext):
         return self.visitChildren(ctx)
@@ -441,6 +446,11 @@ class HogQLParserVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by HogQLParser#ColumnExprNullTupleAccess.
     def visitColumnExprNullTupleAccess(self, ctx:HogQLParser.ColumnExprNullTupleAccessContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnExprFunctionWithinGroup.
+    def visitColumnExprFunctionWithinGroup(self, ctx:HogQLParser.ColumnExprFunctionWithinGroupContext):
         return self.visitChildren(ctx)
 
 

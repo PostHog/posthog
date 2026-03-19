@@ -1082,6 +1082,10 @@ class TestPrinter(BaseTest):
             self._expr("toDecimal('3.14', 2)", context), "accurateCastOrNull(%(hogql_val_6)s, %(hogql_val_7)s)"
         )
         self.assertEqual(self._expr("quantile(0.95)( event )"), "quantile(0.95)(events.event)")
+        self.assertEqual(
+            self._expr("percentile_cont(0.5) within group (order by event desc)", dialect="hogql"),
+            "percentile_cont(0.5) WITHIN GROUP (ORDER BY event DESC)",
+        )
 
         self.assertEqual(self._expr("groupArraySample(5)(event)"), "groupArraySample(5)(events.event)")
         self.assertEqual(self._expr("groupArraySample(5, 123456)(event)"), "groupArraySample(5, 123456)(events.event)")
@@ -1115,6 +1119,14 @@ class TestPrinter(BaseTest):
         self._assert_expr_error(
             "quantile(0.5, 2)(event)",
             "Aggregation 'quantile' expects 1 parameter, found 2",
+        )
+        self._assert_expr_error(
+            "percentile_cont(0.5)",
+            "Aggregation 'percentile_cont' requires WITHIN GROUP",
+        )
+        self._assert_expr_error(
+            "percentile_cont(0.5) within group (order by event desc)",
+            "Aggregation 'percentile_cont' with WITHIN GROUP is not supported in ClickHouse dialect",
         )
         self._assert_expr_error("sparkline()", "Function 'sparkline' expects 1 argument, found 0")
         self._assert_expr_error("hamburger(event)", "Unsupported function call 'hamburger(...)'")

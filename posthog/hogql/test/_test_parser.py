@@ -724,6 +724,15 @@ def parser_test_factory(backend: HogQLParserBackend):
                     params=[ast.Constant(value=0.95)],
                 ),
             )
+            self.assertEqual(
+                self._expr("percentile_cont(0.5) within group (order by foo desc)"),
+                ast.Call(
+                    name="percentile_cont",
+                    args=[],
+                    params=[ast.Constant(value=0.5)],
+                    within_group=[ast.OrderExpr(expr=ast.Field(chain=["foo"]), order="DESC")],
+                ),
+            )
 
         def test_alias(self):
             self.assertEqual(
