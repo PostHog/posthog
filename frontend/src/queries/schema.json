@@ -33400,6 +33400,7 @@
                 "max_ai_context",
                 "workflow_variables",
                 "suggested_filters",
+                "recent_filters",
                 "empty"
             ],
             "type": "string"

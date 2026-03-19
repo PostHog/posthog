@@ -1,6 +1,7 @@
 import { actions, kea, path, reducers, selectors } from 'kea'
 
 import { now } from 'lib/dayjs'
+import { isOperatorFlag } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 import { AnyPropertyFilter } from '~/types'
@@ -46,12 +47,32 @@ export function stripRecentContext<T extends Record<string, any>>(item: T): Omit
     return clean
 }
 
+function isCompleteRecentPropertyFilter(propertyFilter: AnyPropertyFilter | undefined): boolean {
+    if (!propertyFilter) {
+        return false
+    }
+    const hasValue =
+        'value' in propertyFilter &&
+        propertyFilter.value != null &&
+        !(Array.isArray(propertyFilter.value) && propertyFilter.value.length === 0)
+    const op = 'operator' in propertyFilter ? propertyFilter.operator : undefined
+    return hasValue || (!!op && isOperatorFlag(op))
+}
+
 function isDuplicateRecentFilter(
     existing: RecentTaxonomicFilter,
     incoming: { groupType: TaxonomicFilterGroupType; value: TaxonomicFilterValue; propertyFilter?: AnyPropertyFilter }
 ): boolean {
     if (existing.groupType !== incoming.groupType || existing.value !== incoming.value) {
         return false
+    }
+    const existingComplete = isCompleteRecentPropertyFilter(existing.propertyFilter)
+    const incomingComplete = isCompleteRecentPropertyFilter(incoming.propertyFilter)
+    if (existingComplete !== incomingComplete) {
+        return false
+    }
+    if (!existingComplete && !incomingComplete) {
+        return true
     }
     if (existing.propertyFilter && incoming.propertyFilter) {
         const eOp = 'operator' in existing.propertyFilter ? existing.propertyFilter.operator : undefined
@@ -94,6 +115,19 @@ export const recentTaxonomicFiltersLogic = kea<recentTaxonomicFiltersLogicType>(
                         return state
                     }
 
+                    const incomingComplete = isCompleteRecentPropertyFilter(propertyFilter)
+                    if (
+                        !incomingComplete &&
+                        state.some(
+                            (f) =>
+                                f.groupType === groupType &&
+                                f.value === value &&
+                                isCompleteRecentPropertyFilter(f.propertyFilter)
+                        )
+                    ) {
+                        return state
+                    }
+
                     const currentTime = now().valueOf()
                     const cutoff = currentTime - RECENT_FILTER_MAX_AGE_MS
 
@@ -107,9 +141,15 @@ export const recentTaxonomicFiltersLogic = kea<recentTaxonomicFiltersLogicType>(
                         ...(propertyFilter ? { propertyFilter } : {}),
                     }
 
-                    const withoutDuplicate = state.filter(
-                        (f) => !isDuplicateRecentFilter(f, { groupType, value, propertyFilter })
-                    )
+                    const withoutDuplicate = state.filter((f) => {
+                        if (f.groupType !== groupType || f.value !== value) {
+                            return true
+                        }
+                        if (incomingComplete && !isCompleteRecentPropertyFilter(f.propertyFilter)) {
+                            return false
+                        }
+                        return !isDuplicateRecentFilter(f, { groupType, value, propertyFilter })
+                    })
 
                     const withoutExpired = withoutDuplicate.filter((f) => f.timestamp > cutoff)
 

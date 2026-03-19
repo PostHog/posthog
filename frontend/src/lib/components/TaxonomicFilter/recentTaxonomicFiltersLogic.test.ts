@@ -1,5 +1,5 @@
 import { initKeaTests } from '~/test/init'
-import { PropertyFilterType, PropertyOperator } from '~/types'
+import { PersonPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import {
     MAX_RECENT_FILTERS,
@@ -111,6 +111,54 @@ describe('recentTaxonomicFiltersLogic', () => {
         )
 
         expect(logic.values.recentFilters).toHaveLength(1)
+    })
+
+    it('does not replace a complete property filter with a key-only record', () => {
+        const complete = {
+            type: PropertyFilterType.Person,
+            key: 'email',
+            operator: PropertyOperator.Exact,
+            value: 'alice@example.com',
+        } satisfies PersonPropertyFilter
+        logic.actions.recordRecentFilter(
+            TaxonomicFilterGroupType.PersonProperties,
+            'Person properties',
+            'email',
+            { name: 'email' },
+            undefined,
+            complete
+        )
+        logic.actions.recordRecentFilter(TaxonomicFilterGroupType.PersonProperties, 'Person properties', 'email', {
+            name: 'email',
+        })
+
+        const filters = logic.values.recentFilters
+        expect(filters).toHaveLength(1)
+        expect(filters[0].propertyFilter).toMatchObject(complete)
+    })
+
+    it('replaces a key-only entry when recording a complete filter for the same key', () => {
+        logic.actions.recordRecentFilter(TaxonomicFilterGroupType.PersonProperties, 'Person properties', 'email', {
+            name: 'email',
+        })
+        const complete = {
+            type: PropertyFilterType.Person,
+            key: 'email',
+            operator: PropertyOperator.Exact,
+            value: 'bob@example.com',
+        } satisfies PersonPropertyFilter
+        logic.actions.recordRecentFilter(
+            TaxonomicFilterGroupType.PersonProperties,
+            'Person properties',
+            'email',
+            { name: 'email' },
+            undefined,
+            complete
+        )
+
+        const filters = logic.values.recentFilters
+        expect(filters).toHaveLength(1)
+        expect(filters[0].propertyFilter).toMatchObject(complete)
     })
 
     it('allows the same value in different group types', () => {

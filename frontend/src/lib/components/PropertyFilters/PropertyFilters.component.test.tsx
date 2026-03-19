@@ -367,6 +367,37 @@ describe('PropertyFilters recent selections', () => {
         })
     })
 
+    it('with recents flag off, suggested filters do not list stored recents', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.TAXONOMIC_FILTER_RECENTS]: false,
+        })
+        useSetupMocks()
+
+        recentTaxonomicFiltersLogic.actions.recordRecentFilter(
+            TaxonomicFilterGroupType.EventProperties,
+            'Event properties',
+            '$browser',
+            { name: '$browser' },
+            undefined,
+            {
+                key: '$browser',
+                type: PropertyFilterType.Event,
+                value: 'Chrome',
+                operator: PropertyOperator.Exact,
+            }
+        )
+
+        expectRecentCount(1)
+
+        renderFilters()
+
+        await openNewFilter()
+
+        await waitFor(() => {
+            expect(screen.queryByTestId('prop-filter-suggested_filters-0')).not.toBeInTheDocument()
+        })
+    })
+
     it('multiple selections limited to 3 in suggested filters', async () => {
         const groupTypes = [TaxonomicFilterGroupType.PageviewUrls, TaxonomicFilterGroupType.EventProperties]
 

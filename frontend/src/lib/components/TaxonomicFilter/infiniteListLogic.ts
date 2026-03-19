@@ -21,6 +21,7 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { mapGroupQueryResponse } from 'lib/utils/groups'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
@@ -145,6 +146,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 'taxonomicGroupTypes',
                 'topMatchItemsWithSkeletons',
                 'anyGroupLoading',
+                'featureFlags',
             ],
             teamLogic,
             ['currentTeamId'],
@@ -436,19 +438,22 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             ): boolean =>
                 (totalListCount === 0 &&
                     !isLoading &&
-                    !(isSuggestedFilters && anyGroupLoading) &&
+                    !(isSuggestedFilters && anyGroupLoading && searchQuery.trim().length > 0) &&
                     (!!searchQuery || !hasRemoteDataSource) &&
                     !showNonCapturedEventOption) ||
                 needsMoreSearchCharacters,
         ],
         showLoadingState: [
-            (s) => [s.isLoading, s.isSuggestedFilters, s.anyGroupLoading, s.results],
+            (s) => [s.isLoading, s.isSuggestedFilters, s.anyGroupLoading, s.results, s.searchQuery],
             (
                 isLoading: boolean,
                 isSuggestedFilters: boolean,
                 anyGroupLoading: boolean,
-                results: TaxonomicDefinitionTypes[]
-            ): boolean => (isLoading || (isSuggestedFilters && anyGroupLoading)) && (!results || results.length === 0),
+                results: TaxonomicDefinitionTypes[],
+                searchQuery: string
+            ): boolean =>
+                (isLoading || (isSuggestedFilters && anyGroupLoading && searchQuery.trim().length > 0)) &&
+                (!results || results.length === 0),
         ],
         rawLocalItems: [
             (selectors) => [
@@ -560,6 +565,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.topMatchItemsWithSkeletons,
                 s.searchQuery,
                 s.contextFilteredRecentItems,
+                s.featureFlags,
             ],
             (
                 remoteItems,
@@ -567,11 +573,16 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 listGroupType,
                 topMatchItemsWithSkeletons,
                 searchQuery,
-                contextFilteredRecentItems
+                contextFilteredRecentItems,
+                featureFlags
             ) => {
                 const isSuggested = listGroupType === TaxonomicFilterGroupType.SuggestedFilters
                 const topMatches = isSuggested ? topMatchItemsWithSkeletons : []
-                const recentPrefix = isSuggested && !searchQuery ? (contextFilteredRecentItems || []).slice(0, 3) : []
+                const recentsUiEnabled = !!featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_RECENTS]
+                const recentPrefix =
+                    isSuggested && !searchQuery && recentsUiEnabled
+                        ? (contextFilteredRecentItems || []).slice(0, 3)
+                        : []
                 const combinedResults = [...recentPrefix, ...localItems.results, ...remoteItems.results, ...topMatches]
                 return {
                     results: searchQuery ? promoteMatchingProperties(combinedResults, searchQuery) : combinedResults,

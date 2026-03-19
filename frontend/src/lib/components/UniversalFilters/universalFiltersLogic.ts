@@ -5,7 +5,10 @@ import {
     PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
     taxonomicFilterTypeToPropertyFilterType,
 } from 'lib/components/PropertyFilters/utils'
-import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
+import {
+    hasRecentContext,
+    recentTaxonomicFiltersLogic,
+} from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { taxonomicFilterGroupTypeToEntityType } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { sessionRecordingSavedFiltersLogic } from 'scenes/session-recordings/filters/sessionRecordingSavedFiltersLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -192,6 +195,13 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                 return
             }
             const newValues = [...values.filterGroup.values]
+
+            if (hasRecentContext(item) && item._recentContext.propertyFilter) {
+                newValues.push(item._recentContext.propertyFilter)
+                recordRecentFromPropertyFilter(item._recentContext.propertyFilter)
+                actions.setGroupValues(newValues)
+                return
+            }
 
             if (isQuickFilterItem(item)) {
                 if (item.eventName) {

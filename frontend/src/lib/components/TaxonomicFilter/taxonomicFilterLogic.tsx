@@ -1412,12 +1412,16 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             const sourceGroupName = hasRecentContext(item)
                                 ? item._recentContext.sourceGroupName
                                 : group.name
+                            const propertyFilterFromRecent = hasRecentContext(item)
+                                ? item._recentContext.propertyFilter
+                                : undefined
                             recentTaxonomicFiltersLogic.actions.recordRecentFilter(
                                 sourceGroupType,
                                 sourceGroupName,
                                 value,
                                 cleanItem,
-                                teamLogic.values.currentTeamId ?? undefined
+                                teamLogic.values.currentTeamId ?? undefined,
+                                propertyFilterFromRecent
                             )
                         }
                     }, 0)

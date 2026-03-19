@@ -8989,7 +8989,6 @@ export namespace Schemas {
       MaxAiContext: 'max_ai_context',
       WorkflowVariables: 'workflow_variables',
       SuggestedFilters: 'suggested_filters',
-      RecentFilters: 'recent_filters',
       Empty: 'empty',
     } as const;
 
