@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 # --- Team signal handlers ---
 
 
-def capture_old_api_token(instance: Team, **kwargs):
+def _capture_old_api_token(instance: Team, **kwargs):
     """
     Capture the old api_token value before save for cleanup.
 
@@ -45,22 +45,22 @@ def capture_old_api_token(instance: Team, **kwargs):
 @receiver(pre_save, sender=Team)
 def team_pre_save_auth_cache(sender, instance: "Team", **kwargs):
     """Capture old api_token value before save for cache cleanup."""
-    capture_old_api_token(instance, **kwargs)
+    _capture_old_api_token(instance, **kwargs)
 
 
 @receiver(post_save, sender=Team)
 def team_saved_auth_cache(sender, instance: "Team", created, **kwargs):
     """Update team authentication cache on team save."""
-    transaction.on_commit(lambda: update_team_authentication_cache(instance, created, **kwargs))
+    transaction.on_commit(lambda: _update_team_authentication_cache(instance, created, **kwargs))
 
 
 @receiver(post_delete, sender=Team)
 def team_deleted_auth_cache(sender, instance: "Team", **kwargs):
     """Handle team deletion for access cache."""
-    transaction.on_commit(lambda: update_team_authentication_cache_on_delete(instance, **kwargs))
+    transaction.on_commit(lambda: _update_team_authentication_cache_on_delete(instance, **kwargs))
 
 
-def update_team_authentication_cache(instance: Team, created: bool, **kwargs):
+def _update_team_authentication_cache(instance: Team, created: bool, **kwargs):
     """
     Rebuild team access cache when Team model is saved.
 
@@ -130,7 +130,7 @@ def update_team_authentication_cache(instance: Team, created: bool, **kwargs):
         logger.exception(f"Error updating cache on team save for team {instance.pk}: {e}")
 
 
-def update_team_authentication_cache_on_delete(instance: Team, **kwargs):
+def _update_team_authentication_cache_on_delete(instance: Team, **kwargs):
     """
     Invalidate team access cache when Team is deleted.
     """
