@@ -24,7 +24,7 @@ BACKUP_RESOURCE_DEFS = {
 }
 
 NO_SHARD_PATH = "noshard"
-MAX_WAIT_TRIES = 360  # ~12 hours at 2min intervals — full sharded_events backups can take 8-12 hours
+MAX_WAIT_TRIES = 420  # ~14 hours at 2min intervals — full sharded_events backups can take 8-12 hours
 
 SHARDED_TABLES = [
     "sharded_events",
@@ -467,7 +467,7 @@ def wait_for_backup(
             tries += 1
             if tries > MAX_WAIT_TRIES:
                 raise dagster.Failure(
-                    description=f"Backup {backup.path} did not complete after {MAX_WAIT_TRIES} attempts (~12 hours). "
+                    description=f"Backup {backup.path} did not complete after {MAX_WAIT_TRIES} attempts (~14 hours). "
                     f"Check system.backup_log and system.processes on the offline node for shard {backup.shard}."
                 )
             map_hosts(backup.wait).result().values()
