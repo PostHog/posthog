@@ -225,16 +225,9 @@ class FeatureFlagMatcher:
                     payload=payload,
                 )
 
-        # Match for holdout super condition
+        # Match for holdout condition
         # TODO: Flags shouldn't have both super_groups and holdout
-        # TODO: Validate only multivariant flags to have holdout groups. I could make this implicit by reusing super_groups but
-        # this will shoot ourselves in the foot when we extend early access to support variants as well.
-        # TODO: Validate holdout variant should have 0% default rollout %?
-        # TODO: All this validation we need to do suggests the modelling is imperfect here. Carrying forward for now, we'll only enable
-        # in beta, and potentially rework representation before rolling out to everyone. Probably the problem is holdout groups are an
-        # experiment level concept that applies across experiments, and we are creating a feature flag level primitive to handle it.
-        # Validating things like the variant name is the same across all flags, rolled out to 0%, has the same correct conditions is a bit of
-        # a pain here. But I'm not sure if feature flags should indeed know all this info. It's fine for them to just work with what they're given.
+        # TODO: Validate only multivariant flags to have holdouts
         if feature_flag.filters.get("holdout", None):
             (
                 is_match,
