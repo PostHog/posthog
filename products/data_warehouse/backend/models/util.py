@@ -1,7 +1,7 @@
 import re
 import socket
 from ipaddress import IPv6Address, ip_address
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, Any, Union
 from urllib.parse import urlparse
 
 from django.db.models import Q
@@ -16,6 +16,7 @@ from posthog.hogql.database.models import (
     StringArrayDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
+    StructDatabaseField,
     UnknownDatabaseField,
 )
 
@@ -176,6 +177,7 @@ STR_TO_HOGQL_MAPPING = {
     "StringArrayDatabaseField": StringArrayDatabaseField,
     "StringDatabaseField": StringDatabaseField,
     "StringJSONDatabaseField": StringJSONDatabaseField,
+    "StructDatabaseField": StructDatabaseField,
     "UnknownDatabaseField": UnknownDatabaseField,
     "boolean": BooleanDatabaseField,
     "date": DateDatabaseField,
@@ -189,6 +191,7 @@ STR_TO_HOGQL_MAPPING = {
     "text": StringDatabaseField,
     "array": StringArrayDatabaseField,
     "json": StringJSONDatabaseField,
+    "struct": StructDatabaseField,
     "unknown": UnknownDatabaseField,
 }
 
@@ -228,7 +231,121 @@ CLICKHOUSE_TYPE_TO_HOGQL_LABEL = {
 }
 
 
-def postgres_column_to_dwh_column(column_name: str, postgres_type: str, nullable: bool) -> dict[str, str | bool]:
+def _split_top_level_items(value: str) -> list[str]:
+    items: list[str] = []
+    current: list[str] = []
+    depth = 0
+    quote: str | None = None
+    i = 0
+
+    while i < len(value):
+        char = value[i]
+
+        if quote is not None:
+            current.append(char)
+            if char == quote:
+                next_char = value[i + 1] if i + 1 < len(value) else None
+                if next_char == quote:
+                    current.append(next_char)
+                    i += 1
+                else:
+                    quote = None
+            i += 1
+            continue
+
+        if char in {"'", '"'}:
+            quote = char
+            current.append(char)
+        elif char == "(":
+            depth += 1
+            current.append(char)
+        elif char == ")":
+            depth = max(depth - 1, 0)
+            current.append(char)
+        elif char == "," and depth == 0:
+            item = "".join(current).strip()
+            if item:
+                items.append(item)
+            current = []
+        else:
+            current.append(char)
+
+        i += 1
+
+    final_item = "".join(current).strip()
+    if final_item:
+        items.append(final_item)
+
+    return items
+
+
+def _parse_struct_field(field: str) -> tuple[str, str] | None:
+    field = field.strip()
+    if not field:
+        return None
+
+    if field.startswith('"'):
+        identifier: list[str] = []
+        i = 1
+        while i < len(field):
+            char = field[i]
+            if char == '"':
+                if i + 1 < len(field) and field[i + 1] == '"':
+                    identifier.append('"')
+                    i += 2
+                    continue
+                break
+            identifier.append(char)
+            i += 1
+
+        if i >= len(field):
+            return None
+
+        field_name = "".join(identifier)
+        field_type = field[i + 1 :].strip()
+    else:
+        parts = field.split(None, 1)
+        if len(parts) != 2:
+            return None
+        field_name, field_type = parts
+
+    if not field_type:
+        return None
+
+    return field_name, field_type
+
+
+def _parse_postgres_struct_fields(postgres_type: str) -> dict[str, dict[str, Any]] | None:
+    match = re.match(r"(?is)^struct[a-z_]*\s*\((.*)\)$", postgres_type.strip())
+    if match is None:
+        return None
+
+    fields: dict[str, dict[str, Any]] = {}
+    for field in _split_top_level_items(match.group(1)):
+        parsed_field = _parse_struct_field(field)
+        if parsed_field is None:
+            return None
+
+        field_name, field_type = parsed_field
+        fields[field_name] = postgres_column_to_dwh_column(field_name, field_type, False)
+
+    return fields
+
+
+def postgres_column_to_dwh_column(_column_name: str, postgres_type: str, nullable: bool) -> dict[str, Any]:
+    struct_fields = _parse_postgres_struct_fields(postgres_type)
+    if struct_fields is not None:
+        clickhouse_type = f"Tuple({', '.join(str(field['clickhouse']) for field in struct_fields.values())})"
+        if nullable:
+            clickhouse_type = f"Nullable({clickhouse_type})"
+
+        return {
+            "clickhouse": clickhouse_type,
+            "hogql": "StructDatabaseField",
+            "valid": True,
+            "fields": struct_fields,
+        }
+
     normalized_type = postgres_type.lower()
     clickhouse_type = POSTGRES_TO_CLICKHOUSE_TYPE.get(normalized_type)
 
@@ -253,7 +370,7 @@ def postgres_column_to_dwh_column(column_name: str, postgres_type: str, nullable
     }
 
 
-def postgres_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dict[str, dict[str, str | bool]]:
+def postgres_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dict[str, dict[str, Any]]:
     return {
         column_name: postgres_column_to_dwh_column(column_name, postgres_type, nullable)
         for column_name, postgres_type, nullable in columns
