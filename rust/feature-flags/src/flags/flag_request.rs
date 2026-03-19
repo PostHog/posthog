@@ -400,6 +400,7 @@ mod tests {
     #[test]
     fn test_extract_device_id() {
         struct Case {
+            name: &'static str,
             device_id: Option<String>,
             person_properties: Option<HashMap<String, Value>>,
             expected: Option<String>,
@@ -407,11 +408,13 @@ mod tests {
 
         let cases = vec![
             Case {
+                name: "returns top-level device_id",
                 device_id: Some("top-level-device".to_string()),
                 person_properties: None,
                 expected: Some("top-level-device".to_string()),
             },
             Case {
+                name: "falls back to person_properties device_id",
                 device_id: None,
                 person_properties: Some(HashMap::from([(
                     "$device_id".to_string(),
@@ -421,6 +424,7 @@ mod tests {
             },
             // top-level takes precedence
             Case {
+                name: "prefers top-level device_id over person_properties",
                 device_id: Some("top-level-device".to_string()),
                 person_properties: Some(HashMap::from([(
                     "$device_id".to_string(),
@@ -430,6 +434,7 @@ mod tests {
             },
             // absent entirely
             Case {
+                name: "returns none when device_id is absent everywhere",
                 device_id: None,
                 person_properties: Some(HashMap::from([(
                     "other_prop".to_string(),
@@ -439,18 +444,21 @@ mod tests {
             },
             // empty string in person_properties → None
             Case {
+                name: "ignores empty string in person_properties device_id",
                 device_id: None,
                 person_properties: Some(HashMap::from([("$device_id".to_string(), json!(""))])),
                 expected: None,
             },
             // non-string device_id in person_properties is ignored
             Case {
+                name: "ignores non-string person_properties device_id",
                 device_id: None,
                 person_properties: Some(HashMap::from([("$device_id".to_string(), json!(12345))])),
                 expected: None,
             },
             // empty string at top level → should also return None / fall through
             Case {
+                name: "falls through when top-level device_id is empty",
                 device_id: Some("".to_string()),
                 person_properties: Some(HashMap::from([(
                     "$device_id".to_string(),
@@ -466,7 +474,12 @@ mod tests {
                 person_properties: case.person_properties,
                 ..Default::default()
             };
-            assert_eq!(flag_request.extract_device_id(), case.expected);
+            assert_eq!(
+                flag_request.extract_device_id(),
+                case.expected,
+                "Failed: {}",
+                case.name
+            );
         }
     }
 
