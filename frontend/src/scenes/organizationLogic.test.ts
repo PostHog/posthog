@@ -25,6 +25,22 @@ describe('organizationLogic', () => {
                 currentOrganization: { id: 'WXYZ' },
             })
         })
+
+        it('currentOrganizationId returns the id when loaded', async () => {
+            await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+            expect(logic.values.currentOrganizationId).toBe('WXYZ')
+        })
+    })
+
+    describe('currentOrganizationId throws before load', () => {
+        it('throws when currentOrganization is null', () => {
+            // Clear the user/organization context so currentOrganization starts as null
+            window.POSTHOG_APP_CONTEXT = { current_user: null } as unknown as AppContext
+            initKeaTests(false)
+            logic = organizationLogic()
+            logic.mount()
+            expect(() => logic.values.currentOrganizationId).toThrow('accessed before')
+        })
     })
 
     describe('if POSTHOG_APP_CONTEXT is undefined', () => {
