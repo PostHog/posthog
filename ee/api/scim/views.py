@@ -72,7 +72,7 @@ def _build_scim_list_response(
     queryset: QuerySet,
     start_index: int,
     count: int,
-    adapter_cls: type,
+    adapter_cls: type[PostHogSCIMUser] | type[PostHogSCIMGroup],
     organization_domain: "OrganizationDomain",
 ) -> dict:
     total_results = queryset.count()
