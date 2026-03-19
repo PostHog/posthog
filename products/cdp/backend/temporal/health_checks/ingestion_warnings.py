@@ -26,6 +26,8 @@ INGESTION_WARNINGS_CRITICAL_THRESHOLDS: dict[str, int] = {
     "cookieless_timestamp_out_of_range": 100,
 }
 
+# Ingestion warnings are written to ClickHouse during event ingestion (not detected here).
+# This query aggregates those pre-existing warnings to surface them as health issues.
 INGESTION_WARNINGS_SQL = """
 SELECT team_id, type, count() AS cnt, max(timestamp) AS last_seen_at
 FROM ingestion_warnings
