@@ -96,6 +96,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     # We could not verify that the service account we are meant to use belongs to the
     # organization this batch export is running for.
     "ServiceAccountOwnershipError",
+    # Raised when the BigQuery integration is not found.
+    "BigQueryIntegrationNotFoundError",
 )
 
 LOGGER = get_write_only_logger(__name__)
@@ -1194,6 +1196,12 @@ class BigQueryInsertInputs(BatchExportInsertInputs):
     integration_id: int | None = None
 
 
+class BigQueryIntegrationNotFoundError(Exception):
+    """Error raised when the BigQuery integration is not found."""
+
+    pass
+
+
 async def _get_google_cloud_service_account_integration(
     inputs: BigQueryInsertInputs,
 ) -> GoogleCloudServiceAccountIntegration | None:
@@ -1204,7 +1212,9 @@ async def _get_google_cloud_service_account_integration(
     try:
         integration = await Integration.objects.aget(id=inputs.integration_id, team_id=inputs.team_id)
     except Integration.DoesNotExist:
-        return None
+        raise BigQueryIntegrationNotFoundError(
+            f"Google Cloud service account integration with id '{inputs.integration_id}' not found"
+        )
     return GoogleCloudServiceAccountIntegration(integration)
 
 
