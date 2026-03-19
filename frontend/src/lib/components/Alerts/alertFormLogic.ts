@@ -115,11 +115,19 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     if (!detectorConfig || !props.insightId) {
                         return null
                     }
+                    const defaultRange =
+                        values.alertForm.calculation_interval === AlertCalculationInterval.HOURLY
+                            ? '-48h'
+                            : values.alertForm.calculation_interval === AlertCalculationInterval.WEEKLY
+                              ? '-12w'
+                              : values.alertForm.calculation_interval === AlertCalculationInterval.MONTHLY
+                                ? '-12m'
+                                : '-30d'
                     return await api.alerts.simulate({
                         insight: props.insightId,
                         detector_config: detectorConfig,
                         series_index: values.alertForm.config?.series_index ?? 0,
-                        date_from: values.simulationDateFrom ?? undefined,
+                        date_from: values.simulationDateFrom ?? defaultRange,
                     })
                 },
                 clearSimulation: () => null,

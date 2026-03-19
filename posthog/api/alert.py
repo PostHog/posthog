@@ -588,7 +588,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 series_index=series_index,
                 date_from=date_from,
             )
-        except (ValueError, RuntimeError) as e:
+        except (ValueError, RuntimeError, IndexError) as e:
             raise ValidationError(str(e))
 
         response_serializer = AlertSimulateResponseSerializer(result)
