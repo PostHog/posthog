@@ -1533,6 +1533,10 @@ export const experimentLogic = kea<experimentLogicType>([
             values.experiment && actions.reportExperimentReset(values.experiment)
             actions.setLegacyPrimaryMetricsResults([])
             actions.setLegacySecondaryMetricsResults([])
+            actions.setPrimaryMetricsResults([])
+            actions.setPrimaryMetricsResultsErrors([])
+            actions.setSecondaryMetricsResults([])
+            actions.setSecondaryMetricsResultsErrors([])
         },
         updateExperimentSuccess: async ({ experiment, payload }) => {
             actions.updateExperiments(experiment)
