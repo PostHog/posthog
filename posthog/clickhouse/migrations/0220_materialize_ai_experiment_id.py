@@ -4,7 +4,7 @@ from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 ADD_COLUMN_SHARDED_EVENTS = """
 ALTER TABLE sharded_events
 ADD COLUMN IF NOT EXISTS `mat_$ai_experiment_id` Nullable(String)
-MATERIALIZED JSONExtract(properties, '$ai_experiment_id', 'Nullable(String)')
+DEFAULT JSONExtract(properties, '$ai_experiment_id', 'Nullable(String)')
 """
 
 ADD_COLUMN_EVENTS = """
