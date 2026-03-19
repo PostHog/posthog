@@ -1,7 +1,10 @@
+from typing import cast
+
 import structlog
 
 from posthog.models import Team, User
 from posthog.rbac.user_access_control import UserAccessControl
+from posthog.scopes import APIScopeObject
 
 from products.notifications.backend.facade.enums import TargetType
 
@@ -37,8 +40,6 @@ class RecipientsResolver:
                 ).values_list("user_id", flat=True)
             )
 
-        return []
-
     def filter_by_access_control(self, user_ids: list[int], resource_type: str, team: Team) -> list[int]:
         """Filter user IDs by access control. Not overridable — always applied after resolve()."""
         try:
@@ -56,6 +57,6 @@ class RecipientsResolver:
         users = User.objects.filter(id__in=user_ids)
         for user in users:
             ac = UserAccessControl(user, team)
-            if ac.check_access_level_for_resource(resource_type, "viewer"):
+            if ac.check_access_level_for_resource(cast(APIScopeObject, resource_type), "viewer"):
                 filtered.append(user.id)
         return filtered
