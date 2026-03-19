@@ -57,6 +57,8 @@ type Model struct {
 	// Hedgehog mode: animated hedgehog walks across the output pane
 	hedgehogMode  bool
 	hedgehogX     int
+	hedgehogY     int // vertical offset from ground (positive = up)
+	hedgehogVelY  int // vertical velocity (positive = upward, decreases each tick)
 	hedgehogDir   int // +1 right, -1 left
 	hedgehogFrame int
 
@@ -210,6 +212,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.copyMode {
 			return m.handleCopyKey(msg, cmds)
+		}
+		if m.hedgehogMode {
+			return m.handleHedgehogKey(msg, cmds)
 		}
 		return m.handleNormalKey(msg, cmds)
 

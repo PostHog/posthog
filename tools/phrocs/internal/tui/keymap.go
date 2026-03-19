@@ -14,7 +14,6 @@ type keyMap struct {
 	Restart    key.Binding
 	Stop       key.Binding
 	CopyMode   key.Binding
-	CopyEsc    key.Binding
 	Search     key.Binding
 	SearchNext key.Binding
 	SearchPrev key.Binding
@@ -69,10 +68,6 @@ func defaultKeyMap() keyMap {
 		CopyMode: key.NewBinding(
 			key.WithKeys("c"),
 			key.WithHelp("c:", "copy"),
-		),
-		CopyEsc: key.NewBinding(
-			key.WithKeys("esc"),
-			key.WithHelp("esc:", "esc copy"),
 		),
 		Search: key.NewBinding(
 			key.WithKeys("/"),

@@ -40,7 +40,7 @@ func (m *Model) cyclePane(dir int) {
 
 func (m Model) handleSearchKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
 	switch {
-	case key.Matches(msg, m.keys.Quit), key.Matches(msg, m.keys.CopyEsc):
+	case key.Matches(msg, m.keys.Quit), msg.Code == tea.KeyEscape:
 		m.searchMode = false
 		m.clearSearch()
 		m = m.applySize()
@@ -80,7 +80,7 @@ func (m Model) handleSearchKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 
 func (m Model) handleCopyKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
 	switch {
-	case key.Matches(msg, m.keys.Quit), key.Matches(msg, m.keys.CopyEsc):
+	case key.Matches(msg, m.keys.Quit), msg.Code == tea.KeyEscape:
 		m.dbg("copy mode: exit")
 		m.copyMode = false
 		m.applyCopyStyle()
@@ -128,6 +128,23 @@ func (m Model) handleCopyKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, te
 		}
 		m.ensureCopyCursorVisible()
 		m.applyCopyStyle()
+	}
+	return m, tea.Batch(cmds...)
+}
+
+func (m Model) handleHedgehogKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, m.keys.Hedgehog), key.Matches(msg, m.keys.Quit), msg.Code == tea.KeyEscape:
+		m.hedgehogMode = false
+		m.dbg("hedgehog mode: exit")
+
+	case msg.Code == tea.KeySpace:
+		// Jump only when on the ground
+		if m.hedgehogY == 0 {
+			m.hedgehogVelY = 1
+			m.hedgehogY = 1
+			m.dbg("hedgehog: jump!")
+		}
 	}
 	return m, tea.Batch(cmds...)
 }

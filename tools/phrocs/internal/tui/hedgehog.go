@@ -53,7 +53,17 @@ func (m *Model) advanceHedgehog() {
 	m.hedgehogX += m.hedgehogDir
 	m.hedgehogFrame = (m.hedgehogFrame + 1) % 2
 
-	maxX := max(m.viewport.Width() - len(hedgehogFramesLeft[0][0]), 0)
+	// Apply gravity to vertical movement
+	if m.hedgehogY > 0 || m.hedgehogVelY > 0 {
+		m.hedgehogY += m.hedgehogVelY
+		m.hedgehogVelY--
+		if m.hedgehogY <= 0 {
+			m.hedgehogY = 0
+			m.hedgehogVelY = 0
+		}
+	}
+
+	maxX := max(m.viewport.Width()-len(hedgehogFramesLeft[0][0]), 0)
 	if m.hedgehogX >= maxX {
 		m.hedgehogX = maxX
 		m.hedgehogDir = -1
@@ -68,8 +78,9 @@ func (m Model) overlayHedgehog(view string) string {
 	lines := strings.Split(view, "\n")
 	vpH := m.viewport.Height()
 
-	// Place hedgehog at the bottom of the visible viewport
-	startLine := max(vpH - len(hedgehogFramesLeft[0]), 0)
+	// Place hedgehog at the bottom of the visible viewport, offset by jump height
+	spriteH := len(hedgehogFramesLeft[0])
+	startLine := max(vpH-spriteH-m.hedgehogY, 0)
 
 	// Pad lines if needed
 	for len(lines) < vpH {
