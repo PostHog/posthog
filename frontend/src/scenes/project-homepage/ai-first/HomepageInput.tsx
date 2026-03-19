@@ -281,7 +281,7 @@ function SuggestionMenubar(): JSX.Element {
     )
 }
 
-function HomePageOfframp(): JSX.Element | null {
+function HomePageOfframp(): JSX.Element {
     const { showConfigurePinnedTabsModal } = useActions(navigationLogic)
 
     return (
