@@ -228,11 +228,11 @@ All values come from environment variables via the `envconfig` crate. Defined in
 
 ### Behavioral cohorts
 
-| Variable                               | Default  | Purpose                                                                                                                  |
-| -------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Variable                               | Default  | Purpose                                                                                                                   |
+| -------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `BEHAVIORAL_COHORTS_READ_DATABASE_URL` | (empty)  | Optional PostgreSQL connection for realtime cohort membership lookups. When empty, realtime cohort evaluation is disabled |
-| `COHORT_MEMBERSHIP_CACHE_TTL_SECONDS`  | `60`     | Cache TTL for cohort membership lookups                                                                                  |
-| `COHORT_MEMBERSHIP_CACHE_MAX_ENTRIES`  | `500000` | Max entries in cohort membership cache                                                                                   |
+| `COHORT_MEMBERSHIP_CACHE_TTL_SECONDS`  | `60`     | Cache TTL for cohort membership lookups                                                                                   |
+| `COHORT_MEMBERSHIP_CACHE_MAX_ENTRIES`  | `500000` | Max entries in cohort membership cache                                                                                    |
 
 The behavioral cohorts pool uses tight limits (max 5 connections, 1s statement timeout) since it only performs simple key lookups against the `cohort_membership` table. When `BEHAVIORAL_COHORTS_READ_DATABASE_URL` is not set, a `NoOpCohortMembershipProvider` is used and all realtime cohort checks return `false` (graceful degradation).
 
@@ -272,13 +272,13 @@ The behavioral cohorts pool uses tight limits (max 5 connections, 1s statement t
 
 ### Caching
 
-| Variable                               | Default              | Purpose                          |
-| -------------------------------------- | -------------------- | -------------------------------- |
-| `COHORT_CACHE_CAPACITY_BYTES`          | `268435456` (256 MB) | Moka cache memory limit          |
-| `CACHE_TTL_SECONDS`                    | `300`                | Cohort cache TTL                 |
-| `BILLING_LIMITER_CACHE_TTL_SECS`       | `5`                  | Billing limiter cache TTL        |
-| `COHORT_MEMBERSHIP_CACHE_TTL_SECONDS`  | `60`                 | Cohort membership cache TTL      |
-| `COHORT_MEMBERSHIP_CACHE_MAX_ENTRIES`  | `500000`             | Cohort membership cache max size |
+| Variable                         | Default              | Purpose                   |
+| -------------------------------- | -------------------- | ------------------------- |
+| `COHORT_CACHE_CAPACITY_BYTES`    | `268435456` (256 MB) | Moka cache memory limit   |
+| `CACHE_TTL_SECONDS`              | `300`                | Cohort cache TTL          |
+| `BILLING_LIMITER_CACHE_TTL_SECS` | `5`                  | Billing limiter cache TTL |
+
+See [Behavioral cohorts](#behavioral-cohorts) for cohort membership cache settings.
 
 ### Observability
 
