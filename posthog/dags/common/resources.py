@@ -84,10 +84,10 @@ class BackupsClickhouseClusterResource(dagster.ConfigurableResource):
     """
     ClickHouse cluster resource that connects as the dedicated 'backups' user.
 
-    The backups user has its own ClickHouse settings profile with unlimited
-    max_execution_time, max_memory_usage, and use_concurrency_control=0
-    (required because async BACKUP commands spawn background threads that
-    don't inherit session-level settings).
+    Requires CLICKHOUSE_BACKUPS_USER and CLICKHOUSE_BACKUPS_PASSWORD env vars.
+    The backups user must have a server-side settings profile with
+    use_concurrency_control=0 (configured in users.xml via Ansible) because
+    async BACKUP threads don't inherit session-level settings.
     """
 
     client_settings: dict[str, str] = {
@@ -98,7 +98,15 @@ class BackupsClickhouseClusterResource(dagster.ConfigurableResource):
     }
 
     def create_resource(self, context: dagster.InitResourceContext) -> ClickhouseCluster:
+        assert context.log is not None
         user, password = get_clickhouse_creds(ClickHouseUser.BACKUPS)
+        from django.conf import settings as django_settings
+
+        if user == django_settings.CLICKHOUSE_USER:
+            context.log.warning(
+                "CLICKHOUSE_BACKUPS_USER not configured, falling back to default user. "
+                "Backups will not use the dedicated 'backups' profile with use_concurrency_control=0."
+            )
         return get_cluster(
             context.log,
             client_settings=self.client_settings,

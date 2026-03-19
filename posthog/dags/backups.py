@@ -484,6 +484,11 @@ def wait_for_backup(
                     description=f"Backup {backup.path} process finished but no status found in system.backup_log after {tries} attempts. "
                     f"The backup may have crashed without logging. Check the offline node for shard {backup.shard}."
                 )
+            elif most_recent_status is None:
+                context.log.warning(
+                    f"No status yet for {backup.path} in system.backup_log, attempt {tries}/3. "
+                    f"Waiting for ClickHouse to flush logs..."
+                )
 
     context.add_output_metadata(
         {
