@@ -389,7 +389,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             userLogic,
             ['hasAvailableFeature', 'user'],
             organizationLogic,
-            ['currentOrganization'],
+            ['currentOrganization', 'currentOrganizationId'],
             enabledFeaturesLogic,
             ['featureFlags as enabledFeatures'],
             defaultEvaluationContextsLogic,
@@ -1231,7 +1231,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         projectsWithCurrentFlag: {
             __default: [] as OrganizationFeatureFlag[],
             loadProjectsWithCurrentFlag: async () => {
-                const orgId = values.currentOrganization?.id
+                const orgId = values.currentOrganizationId
                 const flagKey = values.featureFlag.key
 
                 const organizationFeatureFlags = await api.organizationFeatureFlags.get(orgId, flagKey)
@@ -1255,7 +1255,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         featureFlagCopy: {
             copyFlag: async () => {
-                const orgId = values.currentOrganization?.id
+                const orgId = values.currentOrganizationId
                 const featureFlagKey = values.featureFlag.key
                 const { copyDestinationProject, currentProjectId, copySchedule } = values
 
@@ -2035,13 +2035,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ],
     }),
     urlToAction(({ actions, props, values }) => ({
-        [urls.featureFlag(props.id ?? 'new')]: (_, searchParams, ___, { method }) => {
+        [urls.featureFlag(props.id ?? 'new')]: (_, searchParams, ___, { method, initial }) => {
+            // Set editing state on initial mount or PUSH navigation
+            if (method === 'PUSH' || initial) {
+                actions.editFeatureFlag(searchParams.edit === true || searchParams.edit === 'true')
+            }
             // If the URL was pushed (user clicked on a link), reset the scene's data.
             // This avoids resetting form fields if you click back/forward.
             if (method === 'PUSH') {
-                // Set editing state based on URL parameter, or reset to prevent persisting across flags
-                actions.editFeatureFlag(searchParams.edit === true || searchParams.edit === 'true')
-
                 if (props.id) {
                     // When there is sourceId, we load the feature flag (for duplicating)
                     if (props.id === 'new' && searchParams.sourceId != null) {

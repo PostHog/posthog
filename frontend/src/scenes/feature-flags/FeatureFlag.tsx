@@ -305,20 +305,18 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         content: <FeedbackTab featureFlag={featureFlag} />,
     })
 
-    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_FF_CROSS_SELL] === 'test') {
-        tabs.push({
-            label: (
-                <div className="flex flex-row">
-                    <div>Experiments</div>
-                    <LemonTag className="ml-2 float-right uppercase" type="primary">
-                        New
-                    </LemonTag>
-                </div>
-            ),
-            key: FeatureFlagsTab.EXPERIMENTS,
-            content: <ExperimentsTab featureFlag={featureFlag} />,
-        })
-    }
+    tabs.push({
+        label: (
+            <div className="flex flex-row">
+                <div>Experiments</div>
+                <LemonTag className="ml-2 float-right uppercase" type="primary">
+                    New
+                </LemonTag>
+            </div>
+        ),
+        key: FeatureFlagsTab.EXPERIMENTS,
+        content: <ExperimentsTab featureFlag={featureFlag} />,
+    })
 
     return (
         <>
@@ -980,7 +978,11 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
                             </Link>
                         </LemonBanner>
                     )}
-                    <Dashboard id={dashboardId!.toString()} placement={DashboardPlacement.FeatureFlag} />
+                    <Dashboard
+                        id={dashboardId!.toString()}
+                        placement={DashboardPlacement.FeatureFlag}
+                        backTo={{ url: urls.featureFlag(featureFlag.id!), name: featureFlagKey }}
+                    />
                 </>
             ) : (
                 <div>

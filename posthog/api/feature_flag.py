@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import json
+import math
 import time
 import logging
 from datetime import datetime
@@ -61,7 +62,6 @@ from posthog.models.activity_logging.model_activity import ImpersonatedContext, 
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import get_all_cohort_dependencies
 from posthog.models.evaluation_context import normalize_context_name
-from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import (
     FeatureFlagDashboards,
     get_user_blast_radius,
@@ -88,6 +88,7 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS, REMOTE_CONFIG_RATE_LIMITS
 from posthog.views import format_bytes
 
+from products.experiments.backend.models.experiment import Experiment
 from products.product_tours.backend.models import ProductTour
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
@@ -164,6 +165,12 @@ LOCAL_EVALUATION_AUTH_COUNTER = Counter(
     "posthog_local_evaluation_auth_total",
     "Local evaluation requests by authentication method",
     labelnames=["method"],  # "secret_api_key", "personal_api_key", "oauth", "jwt", "session", or "other"
+)
+
+LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER = Counter(
+    "posthog_local_evaluation_personal_api_key_source_total",
+    "Local evaluation requests authenticated via personal API key, by source",
+    labelnames=["source"],  # "header", "body", "query_string"
 )
 
 _AUTH_METHOD_BY_CLASS: dict[type, str] = {
@@ -786,6 +793,57 @@ class FeatureFlagSerializer(
                 raise serializers.ValidationError("Feature flags must have at least one condition set (group).")
 
         aggregation_group_type_index = filters.get("aggregation_group_type_index", None)
+
+        # Validate filter field types to prevent serde deserialization failures in the
+        # Rust flag evaluation service. Non-conforming types poison the entire team's
+        # flag cache and cause 500s on every /flags request.
+        def _validate_rollout_percentage(value: Any, path: str, *, allow_null: bool = True) -> None:
+            if value is None:
+                if not allow_null:
+                    raise serializers.ValidationError(f"{path} must be a number, got null")
+                return
+            # Check bool before int/float because bool is a subclass of int
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                expected = "a number or null" if allow_null else "a number"
+                raise serializers.ValidationError(f"{path} must be {expected}, got {type(value).__name__}")
+            if not math.isfinite(value):
+                raise serializers.ValidationError(f"{path} must be finite, got {value}")
+            if value < 0 or value > 100:
+                raise serializers.ValidationError(f"{path} must be between 0 and 100, got {value}")
+
+        def _validate_integer(value: Any, path: str) -> None:
+            # Check bool before int because bool is a subclass of int
+            if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
+                raise serializers.ValidationError(f"{path} must be an integer or null, got {type(value).__name__}")
+
+        _validate_integer(aggregation_group_type_index, "aggregation_group_type_index")
+
+        for group_index, group in enumerate(filters.get("groups", [])):
+            variant = group.get("variant")
+            if variant is not None and not isinstance(variant, str):
+                raise serializers.ValidationError(
+                    f"groups[{group_index}].variant must be a string or null, got {type(variant).__name__}"
+                )
+
+            _validate_rollout_percentage(group.get("rollout_percentage"), f"groups[{group_index}].rollout_percentage")
+
+            _validate_integer(
+                group.get("aggregation_group_type_index"),
+                f"groups[{group_index}].aggregation_group_type_index",
+            )
+
+            for prop_index, prop in enumerate(group.get("properties", [])):
+                _validate_integer(
+                    prop.get("group_type_index"),
+                    f"groups[{group_index}].properties[{prop_index}].group_type_index",
+                )
+
+        for var_index, variant in enumerate((filters.get("multivariate") or {}).get("variants", [])):
+            _validate_rollout_percentage(
+                variant.get("rollout_percentage"),
+                f"multivariate.variants[{var_index}].rollout_percentage",
+                allow_null=False,
+            )
 
         def properties_all_match(predicate):
             return all(
@@ -2631,6 +2689,10 @@ class FeatureFlagViewSet(
 
         auth_method = _classify_auth_method(request.successful_authenticator)
         LOCAL_EVALUATION_AUTH_COUNTER.labels(method=auth_method).inc()
+
+        if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+            source = request.successful_authenticator.personal_api_key_source or "unknown"
+            LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER.labels(source=source).inc()
 
         try:
             # Check if team is quota limited for feature flags

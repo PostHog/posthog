@@ -61,8 +61,9 @@ class Command(BaseCommand):
             verify_ssl_cert=CLICKHOUSE_VERIFY,
             autocreate=False,
             randomize_replica_paths=True,
+            # don't use the egress proxy, clickhouse is internal
+            trust_env=False,
         )
-        database.request_session.trust_env = False  # bypass HTTP_PROXY for internal ClickHouse
         if database.db_exists:
             print(  # noqa: T201
                 f'Got an error creating the test ClickHouse database: database "{CLICKHOUSE_DATABASE}" already exists\n'

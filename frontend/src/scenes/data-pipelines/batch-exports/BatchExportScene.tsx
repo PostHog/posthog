@@ -269,7 +269,7 @@ function BatchExportSceneContentInner({
             ? {
                   label: 'Backfills',
                   key: 'backfills',
-                  content: <BatchExportBackfills id={id} />,
+                  content: <BatchExportBackfills id={id} batchExportConfig={batchExportConfig} />,
               }
             : null,
     ]

@@ -11,7 +11,7 @@ from posthog.test.base import (
 from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.models.raw_sessions.sessions_v3 import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_V3,
-    GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS,
+    GET_NUM_RAW_SESSIONS_ACTIVE_PARTS,
     RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3,
     RAW_SESSION_TABLE_BACKFILL_SQL_V3,
 )
@@ -711,10 +711,90 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
         # Should have all unique flag keys (not values)
         assert set(result[0]["flag_keys"]) == {"$feature/flag_a", "$feature/flag_b", "$feature/flag_c"}
 
+    def test_hosts_are_collected(self):
+        distinct_id = create_distinct_id()
+        session_id = create_session_id()
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={"$session_id": session_id, "$host": "app.example.com"},
+            timestamp="2024-03-08",
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={"$session_id": session_id, "$host": "api.example.com"},
+            timestamp="2024-03-08",
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={"$session_id": session_id, "$host": "app.example.com"},
+            timestamp="2024-03-08",
+        )
+
+        result = self.select_by_session_id(session_id)
+
+        assert set(result[0]["hosts"]) == {"app.example.com", "api.example.com"}
+
+    def test_emails_are_collected(self):
+        distinct_id = create_distinct_id()
+        session_id = create_session_id()
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={"$session_id": session_id},
+            person_properties={"email": "alice@example.com"},
+            timestamp="2024-03-08",
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={"$session_id": session_id},
+            person_properties={"email": "bob@example.com"},
+            timestamp="2024-03-08",
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={"$session_id": session_id},
+            person_properties={"email": "alice@example.com"},
+            timestamp="2024-03-08",
+        )
+
+        result = self.select_by_session_id(session_id)
+
+        assert set(result[0]["emails"]) == {"alice@example.com", "bob@example.com"}
+
+    def test_empty_hosts_and_emails(self):
+        distinct_id = create_distinct_id()
+        session_id = create_session_id()
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={"$session_id": session_id},
+            timestamp="2024-03-08",
+        )
+
+        result = self.select_by_session_id(session_id)
+
+        assert result[0]["hosts"] == []
+        assert result[0]["emails"] == []
+
     def test_get_number_of_umerged_parts(self):
         # Just test that the query succeeds without errors and returns an int.
         # We can't really guarantee anything about the number of parts on the test DB.
-        query = GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS(["202511"])
+        query = GET_NUM_RAW_SESSIONS_ACTIVE_PARTS(["202511"])
         result = sync_execute(query)
         self.assertEqual(len(result), 1)
         self.assertIsInstance(result[0][0], int)

@@ -39,6 +39,9 @@ pub const FLAG_DEFINITION_QUERY_TIME: &str = "flags_definition_query_time";
 pub const FLAG_PERSON_PROCESSING_TIME: &str = "flags_person_processing_time";
 pub const FLAG_COHORT_QUERY_TIME: &str = "flags_cohort_query_time";
 pub const FLAG_COHORT_PROCESSING_TIME: &str = "flags_cohort_processing_time";
+pub const FLAG_REALTIME_COHORT_QUERY_TIME: &str = "flags_realtime_cohort_query_time";
+pub const FLAG_REALTIME_COHORT_QUERY_ERROR_COUNTER: &str =
+    "flags_realtime_cohort_query_error_total";
 pub const FLAG_GROUP_QUERY_TIME: &str = "flags_group_query_time";
 pub const FLAG_GROUP_PROCESSING_TIME: &str = "flags_group_processing_time";
 pub const FLAG_DB_CONNECTION_TIME: &str = "flags_db_connection_time";
@@ -82,10 +85,6 @@ pub const FLAG_DEFINITIONS_ETAG_COUNTER: &str = "flags_flag_definitions_etag_tot
 // Labels: method (secret_api_key, personal_api_key) — Rust only supports these two; Python also tracks oauth, jwt, session, other
 pub const FLAG_DEFINITIONS_AUTH_COUNTER: &str = "flags_flag_definitions_auth_total";
 
-// Personal API key hash mode used for successful authentication
-// Labels: hash_mode (sha256, pbkdf2)
-pub const PERSONAL_API_KEY_HASH_MODE_COUNTER: &str = "personal_api_key_hash_mode_total";
-
 // Request-level timeout (tower TimeoutLayer killed the request before completion)
 pub const FLAG_REQUEST_TIMEOUT_COUNTER: &str = "flags_request_timeout_total";
 
@@ -94,6 +93,14 @@ pub const FLAG_ACQUIRE_TIMEOUT_COUNTER: &str = "flags_acquire_timeout_total";
 
 // Error classification
 pub const FLAG_DATABASE_ERROR_COUNTER: &str = "flags_database_error_total";
+
+// Dependency graph build path
+// Labels: path (FLAG_DEPENDENCY_GRAPH_PATH_PRECOMPUTED or FLAG_DEPENDENCY_GRAPH_PATH_GRAPH)
+pub const FLAG_DEPENDENCY_GRAPH_BUILD_COUNTER: &str = "flags_dependency_graph_build_total";
+pub const FLAG_DEPENDENCY_GRAPH_BUILD_TIME: &str = "flags_dependency_graph_build_ms";
+pub const FLAG_DEPENDENCY_GRAPH_PATH_PRECOMPUTED: &str = "precomputed";
+pub const FLAG_DEPENDENCY_GRAPH_PATH_GRAPH: &str = "graph";
+pub const FLAG_MISSING_REQUESTED_FLAG_KEY: &str = "missing_requested_flag_key";
 
 // Tombstone metric for tracking "impossible" failures that should never happen in production
 // Different failure types are tracked via the "failure_type" label

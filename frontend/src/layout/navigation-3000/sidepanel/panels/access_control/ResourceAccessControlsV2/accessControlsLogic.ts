@@ -52,23 +52,24 @@ function getEffectiveLevel(entry: AccessControlSettingsEntry, resourceKey: APISc
 }
 
 function matchesFilters(entry: AccessControlSettingsEntry, filters: AccessControlFilters): boolean {
-    if (filters.resourceKeys.length > 0) {
-        const hasEffectiveAccessToFilteredResource = filters.resourceKeys.some(
-            (rk) => getEffectiveLevel(entry, rk) !== null
-        )
-        if (!hasEffectiveAccessToFilteredResource) {
-            return false
-        }
+    const hasResourceFilter = filters.resourceKeys.length > 0
+    const hasLevelFilter = filters.ruleLevels.length > 0
+
+    if (hasResourceFilter && hasLevelFilter) {
+        // Intersection: at least one selected resource must have one of the selected levels
+        return filters.resourceKeys.some((rk) => {
+            const level = getEffectiveLevel(entry, rk)
+            return level !== null && (filters.ruleLevels as string[]).includes(level)
+        })
     }
 
-    if (filters.ruleLevels.length > 0) {
+    if (hasResourceFilter) {
+        return filters.resourceKeys.some((rk) => getEffectiveLevel(entry, rk) !== null)
+    }
+
+    if (hasLevelFilter) {
         const allKeys = ['project', ...Object.keys(entry.resources)] as APIScopeObject[]
-        const hasMatchingLevel = filters.ruleLevels.some((rl) =>
-            allKeys.some((k) => getEffectiveLevel(entry, k) === rl)
-        )
-        if (!hasMatchingLevel) {
-            return false
-        }
+        return filters.ruleLevels.some((rl) => allKeys.some((k) => getEffectiveLevel(entry, k) === rl))
     }
 
     return true
@@ -131,26 +132,26 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         }) => params,
     }),
 
-    loaders(() => ({
+    loaders(({ props }) => ({
         defaults: [
             null as AccessControlDefaultsResponse | null,
             {
                 loadDefaults: async () =>
-                    api.get<AccessControlDefaultsResponse>('api/projects/@current/access_control_defaults'),
+                    api.get<AccessControlDefaultsResponse>(`api/projects/${props.projectId}/access_control_defaults`),
             },
         ],
         rolesData: [
             null as AccessControlRolesResponse | null,
             {
                 loadRoles: async () =>
-                    api.get<AccessControlRolesResponse>('api/projects/@current/access_control_roles'),
+                    api.get<AccessControlRolesResponse>(`api/projects/${props.projectId}/access_control_roles`),
             },
         ],
         membersData: [
             null as AccessControlMembersResponse | null,
             {
                 loadMembers: async () =>
-                    api.get<AccessControlMembersResponse>('api/projects/@current/access_control_members'),
+                    api.get<AccessControlMembersResponse>(`api/projects/${props.projectId}/access_control_members`),
             },
         ],
     })),

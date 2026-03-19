@@ -1,13 +1,15 @@
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 
+import temporalio.exceptions
+
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
     BackfillPrecalculatedPersonPropertiesInputs,
-    CohortFilters,
-    PersonPropertyFilter,
     backfill_precalculated_person_properties_activity,
     flush_kafka_batch,
 )
+from posthog.temporal.messaging.filter_storage import store_filters
+from posthog.temporal.messaging.types import PersonPropertyFilter
 
 
 class TestFlushKafkaBatch:
@@ -290,35 +292,34 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
             },
         ]
 
-        # Create multiple cohort filters
-        cohort_filters = [
-            CohortFilters(
-                cohort_id=100,
-                filters=[
-                    PersonPropertyFilter(
-                        condition_hash="age_filter_25",
-                        bytecode=["mock_bytecode_age_25"],
-                    ),
-                    PersonPropertyFilter(
-                        condition_hash="country_filter_us",
-                        bytecode=["mock_bytecode_country_us"],
-                    ),
-                ],
+        # Create filters structure
+        # Cohort 100: age_filter_25, country_filter_us
+        # Cohort 200: age_filter_35
+        filters = [
+            PersonPropertyFilter(
+                condition_hash="age_filter_25",
+                bytecode=["mock_bytecode_age_25"],
+                cohort_ids=[100],
             ),
-            CohortFilters(
-                cohort_id=200,
-                filters=[
-                    PersonPropertyFilter(
-                        condition_hash="age_filter_35",
-                        bytecode=["mock_bytecode_age_35"],
-                    ),
-                ],
+            PersonPropertyFilter(
+                condition_hash="country_filter_us",
+                bytecode=["mock_bytecode_country_us"],
+                cohort_ids=[100],
+            ),
+            PersonPropertyFilter(
+                condition_hash="age_filter_35",
+                bytecode=["mock_bytecode_age_35"],
+                cohort_ids=[200],
             ),
         ]
 
+        # Store filters in filter storage
+        filter_storage_key = store_filters(filters, team_id=1)
+
         inputs = BackfillPrecalculatedPersonPropertiesInputs(
             team_id=1,
-            cohort_filters=cohort_filters,
+            filter_storage_key=filter_storage_key,
+            cohort_ids=[100, 200],
             batch_size=100,
             offset=0,
             limit=2,
@@ -363,14 +364,20 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
                 result.result = False
             return result
 
-        # Mock asyncio.to_thread to handle both flush and execute_bytecode calls
+        # Mock asyncio.to_thread to handle flush, get_filters, and execute_bytecode calls
         async def mock_to_thread(func, *args, **kwargs):
             if hasattr(func, "_mock_name") and "flush" in func._mock_name:
                 # This is the kafka flush call - just return None
                 return None
-            else:
+            elif func.__name__ == "get_filters":
+                # This is the get_filters call - return the filters we stored earlier
+                return filters
+            elif func.__name__ == "execute_bytecode":
                 # This is the execute_bytecode call
                 return mock_execute_bytecode(*args, **kwargs)
+            else:
+                # Unknown function
+                raise ValueError(f"Unexpected function in mock_to_thread: {func.__name__}")
 
         with (
             patch(
@@ -463,3 +470,195 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
 
         person_2_distinct_ids = {e["distinct_id"] for e in produced_events if e["person_id"] == "person_2"}
         assert person_2_distinct_ids == {"user_2a"}
+
+    @pytest.mark.asyncio
+    async def test_shared_condition_across_multiple_cohorts(self):
+        """Should evaluate a shared condition once and emit results to multiple cohorts."""
+        # Set up test data
+        person_data = [
+            {
+                "person_id": "person_1",
+                "properties": '{"age": 25}',
+                "distinct_ids": ["user_1"],
+            },
+        ]
+
+        # Create a shared condition that is used by both cohorts 100 and 200
+        filters = [
+            PersonPropertyFilter(
+                condition_hash="age_filter_25",
+                bytecode=["mock_bytecode_age_25"],
+                cohort_ids=[100, 200],  # This condition is shared between both cohorts
+            ),
+        ]
+
+        # Store filters in filter storage
+        filter_storage_key = store_filters(filters, team_id=1)
+
+        inputs = BackfillPrecalculatedPersonPropertiesInputs(
+            team_id=1,
+            filter_storage_key=filter_storage_key,
+            cohort_ids=[100, 200],
+            batch_size=100,
+            offset=0,
+            limit=1,
+        )
+
+        # Track how many times execute_bytecode is called
+        execute_bytecode_call_count = 0
+
+        # Mock dependencies
+        mock_kafka_producer = Mock()
+        mock_send_results = []
+
+        def mock_produce(**kwargs):
+            result = Mock()
+            result.get = Mock(return_value=None)
+            mock_send_results.append((result, kwargs))
+            return result
+
+        mock_kafka_producer.produce = Mock(side_effect=mock_produce)
+        mock_kafka_producer.flush = Mock()
+
+        mock_client = AsyncMock()
+
+        # Create an async generator for the mock
+        async def mock_stream_query(*args, **kwargs):
+            for person in person_data:
+                yield person
+
+        mock_client.stream_query_as_jsonl = mock_stream_query
+
+        # Mock HogQL execution to track calls
+        def mock_execute_bytecode(bytecode, globals_dict, timeout=None):
+            nonlocal execute_bytecode_call_count
+            execute_bytecode_call_count += 1
+
+            result = Mock()
+            person_age = globals_dict["person"]["properties"].get("age")
+
+            # Match filters based on bytecode
+            if bytecode == ["mock_bytecode_age_25"]:
+                result.result = person_age == 25
+            else:
+                result.result = False
+            return result
+
+        # Mock asyncio.to_thread
+        async def mock_to_thread(func, *args, **kwargs):
+            if hasattr(func, "_mock_name") and "flush" in func._mock_name:
+                # This is the kafka flush call
+                return None
+            elif func.__name__ == "get_filters":
+                # This is the get_filters call - return the filters we stored earlier
+                return filters
+            elif func.__name__ == "execute_bytecode":
+                # This is the execute_bytecode call
+                return mock_execute_bytecode(*args, **kwargs)
+            else:
+                # Unknown function
+                raise ValueError(f"Unexpected function in mock_to_thread: {func.__name__}")
+
+        with (
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.KafkaProducer",
+                return_value=mock_kafka_producer,
+            ),
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_client"
+            ) as mock_get_client,
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.Heartbeater"
+            ) as mock_heartbeater,
+            patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.bind_contextvars"),
+            patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.LOGGER"),
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_person_properties_backfill_success_metric"
+            ) as mock_metric,
+            patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.tags_context"),
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.asyncio.to_thread",
+                side_effect=mock_to_thread,
+            ),
+        ):
+            mock_get_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_get_client.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            mock_heartbeater_instance = Mock()
+            mock_heartbeater_instance.__aenter__ = AsyncMock(return_value=mock_heartbeater_instance)
+            mock_heartbeater_instance.__aexit__ = AsyncMock(return_value=None)
+            mock_heartbeater.return_value = mock_heartbeater_instance
+
+            mock_metric.return_value.add = Mock()
+
+            # Execute the activity
+            await backfill_precalculated_person_properties_activity(inputs)
+
+        # CRITICAL ASSERTION: The condition should be evaluated only ONCE
+        assert execute_bytecode_call_count == 1, f"Expected 1 bytecode execution, got {execute_bytecode_call_count}"
+
+        # Extract all events from mock calls
+        produced_events = []
+        for _result, call_kwargs in mock_send_results:
+            produced_events.append(call_kwargs["data"])
+
+        # Should have events for BOTH cohorts from the SAME evaluation
+        cohort_100_events = [e for e in produced_events if e["source"] == "cohort_backfill_100"]
+        cohort_200_events = [e for e in produced_events if e["source"] == "cohort_backfill_200"]
+
+        # Both cohorts should have events
+        assert len(cohort_100_events) == 1, f"Expected 1 event for cohort 100, got {len(cohort_100_events)}"
+        assert len(cohort_200_events) == 1, f"Expected 1 event for cohort 200, got {len(cohort_200_events)}"
+
+        # Both events should have the same condition hash
+        assert cohort_100_events[0]["condition"] == "age_filter_25"
+        assert cohort_200_events[0]["condition"] == "age_filter_25"
+
+        # Both events should have the same evaluation result (matches=True since age=25)
+        assert cohort_100_events[0]["matches"] is True
+        assert cohort_200_events[0]["matches"] is True
+
+        # Both events should be for the same person
+        assert cohort_100_events[0]["person_id"] == "person_1"
+        assert cohort_200_events[0]["person_id"] == "person_1"
+
+        # Verify distinct IDs are correct for both
+        assert cohort_100_events[0]["distinct_id"] == "user_1"
+        assert cohort_200_events[0]["distinct_id"] == "user_1"
+
+        # Verify sources are different
+        assert cohort_100_events[0]["source"] == "cohort_backfill_100"
+        assert cohort_200_events[0]["source"] == "cohort_backfill_200"
+
+    @pytest.mark.asyncio
+    async def test_missing_filter_storage_key_raises_non_retryable_error(self):
+        """Test that missing Redis key raises a non-retryable ApplicationError."""
+        inputs = BackfillPrecalculatedPersonPropertiesInputs(
+            team_id=1,
+            filter_storage_key="backfill_person_properties_filters:team_1_nonexistent",
+            cohort_ids=[100],
+            batch_size=100,
+            offset=0,
+            limit=1,
+        )
+
+        # Mock get_filters to return None (simulating missing/expired key)
+        with patch(
+            "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_filters"
+        ) as mock_get_filters:
+            mock_get_filters.return_value = None
+
+            # Mock asyncio.to_thread to just call the function directly for testing
+            with patch("asyncio.to_thread") as mock_to_thread:
+                mock_to_thread.side_effect = lambda func, *args: func(*args)
+
+                # Should raise non-retryable ApplicationError
+                with pytest.raises(temporalio.exceptions.ApplicationError) as exc_info:
+                    await backfill_precalculated_person_properties_activity(inputs)
+
+                error = exc_info.value
+                assert error.non_retryable is True
+                assert error.type == "MissingFilters"
+                assert "Filters not found in storage" in str(error)
+                assert "Redis payload may have expired" in str(error)
+                assert inputs.filter_storage_key in str(error)

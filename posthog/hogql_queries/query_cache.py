@@ -144,8 +144,8 @@ def is_cache_warming() -> bool:
     return (get_query_tag_value("trigger") or "").startswith("warming")
 
 
-def _cache_backend_label(team_id: int) -> str:
-    return BACKEND_CLUSTER if use_cluster_cache(team_id) else BACKEND_DEFAULT
+def _cache_backend_label() -> str:
+    return BACKEND_CLUSTER if use_cluster_cache() else BACKEND_DEFAULT
 
 
 def count_query_cache_hit(team_id: int, hit: str, trigger: str = "") -> None:
@@ -153,7 +153,7 @@ def count_query_cache_hit(team_id: int, hit: str, trigger: str = "") -> None:
     if is_cache_warming():
         return
 
-    backend = _cache_backend_label(team_id)
+    backend = _cache_backend_label()
     with get_cache_metrics_context("query_cache_hits") as metrics:
         metrics.hit_counter.labels(team_id=team_id, cache_hit=hit, trigger=trigger, backend=backend).inc()
 
@@ -180,7 +180,7 @@ class DjangoCacheQueryCacheManager(QueryCacheManagerBase):
         data_size = len(fresh_response_serialized)
 
         # Set cache with per-team size limit enforcement
-        selection = get_query_cache_selection(self.team_id)
+        selection = get_query_cache_selection()
         tracker = TeamCacheSizeTracker(
             self.team_id,
             cache_backend=selection.cache_backend,

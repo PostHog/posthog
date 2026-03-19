@@ -299,12 +299,14 @@ mod tests {
                     properties: Some(vec![]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
+                holdout: None,
             },
             deleted: false,
             active: true,
@@ -336,12 +338,14 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
+                holdout: None,
             },
             deleted: false,
             active: true,
@@ -374,6 +378,7 @@ mod tests {
                         }]),
                         rollout_percentage: Some(50.0),
                         variant: None,
+                        ..Default::default()
                     },
                     FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
@@ -386,13 +391,15 @@ mod tests {
                         }]),
                         rollout_percentage: Some(50.0),
                         variant: None,
+                        ..Default::default()
                     },
                 ],
                 multivariate: None,
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
+                holdout: None,
             },
             deleted: false,
             active: true,
@@ -434,12 +441,14 @@ mod tests {
                     ]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
+                holdout: None,
             },
             deleted: false,
             active: true,
@@ -500,6 +509,7 @@ mod tests {
                 }]),
                 rollout_percentage: Some(100.0),
                 variant: None,
+                ..Default::default()
             }];
 
             let deps = flag.extract_dependencies().unwrap();
@@ -1548,7 +1558,7 @@ mod tests {
         assert!(flag.filters.aggregation_group_type_index.is_none());
         assert!(flag.filters.payloads.is_none());
         assert!(flag.filters.super_groups.is_none());
-        assert!(flag.filters.holdout_groups.is_none());
+        assert!(flag.filters.holdout.is_none());
     }
 
     #[test]
@@ -1641,25 +1651,13 @@ mod tests {
     }
 
     #[test]
-    fn test_does_not_require_db_preparation_if_holdout_groups_set() {
+    fn test_does_not_require_db_preparation_if_holdout_set() {
+        use crate::flags::flag_models::Holdout;
         let mut flag = create_simple_flag(vec![], 100.0);
-        flag.filters.holdout_groups = Some(vec![
-            FlagPropertyGroup {
-                properties: Some(vec![]),
-                variant: Some("holdout-1".to_string()),
-                rollout_percentage: Some(10.0),
-            },
-            // Ignored, but here for testing.
-            FlagPropertyGroup {
-                properties: Some(vec![create_simple_property_filter(
-                    "some_property",
-                    PropertyType::Person,
-                    OperatorType::Exact,
-                )]),
-                rollout_percentage: Some(100.0),
-                variant: Some("holdout-2".to_string()),
-            },
-        ]);
+        flag.filters.holdout = Some(Holdout {
+            id: 1,
+            exclusion_percentage: 10.0,
+        });
 
         assert!(!flag.requires_db_preparation(&HashMap::new()));
     }
@@ -1741,6 +1739,7 @@ mod tests {
             properties: None,
             rollout_percentage: Some(100.0),
             variant: None,
+            ..Default::default()
         }];
         assert!(!flag.has_partial_rollout());
     }
@@ -1752,6 +1751,7 @@ mod tests {
             properties: None,
             rollout_percentage: Some(50.0),
             variant: None,
+            ..Default::default()
         }];
         assert!(flag.has_partial_rollout());
     }
@@ -1763,6 +1763,7 @@ mod tests {
             properties: None,
             rollout_percentage: None, // Defaults to 100%
             variant: None,
+            ..Default::default()
         }];
         assert!(!flag.has_partial_rollout());
     }
@@ -1775,11 +1776,13 @@ mod tests {
                 properties: None,
                 rollout_percentage: Some(100.0),
                 variant: None,
+                ..Default::default()
             },
             FlagPropertyGroup {
                 properties: None,
                 rollout_percentage: Some(50.0),
                 variant: None,
+                ..Default::default()
             },
         ];
         assert!(flag.has_partial_rollout());
@@ -1800,6 +1803,7 @@ mod tests {
             properties: None,
             rollout_percentage: Some(50.0),
             variant: None,
+            ..Default::default()
         }];
         // None defaults to false, so no continuity means no lookup needed
         assert!(!flag.needs_hash_key_override());
@@ -1813,6 +1817,7 @@ mod tests {
             properties: None,
             rollout_percentage: Some(100.0),
             variant: None,
+            ..Default::default()
         }];
         // 100% rollout with no variants -> doesn't need lookup
         assert!(!flag.needs_hash_key_override());
@@ -1826,6 +1831,7 @@ mod tests {
             properties: None,
             rollout_percentage: Some(50.0),
             variant: None,
+            ..Default::default()
         }];
         // Partial rollout needs consistent bucketing
         assert!(flag.needs_hash_key_override());
@@ -1839,6 +1845,7 @@ mod tests {
             properties: None,
             rollout_percentage: Some(100.0),
             variant: None,
+            ..Default::default()
         }];
         flag.filters.multivariate = Some(MultivariateFlagOptions {
             variants: vec![
@@ -1867,6 +1874,7 @@ mod tests {
             properties: None,
             rollout_percentage: Some(50.0),
             variant: None,
+            ..Default::default()
         }];
         // Group-based flags don't use hash key overrides
         assert!(!flag.needs_hash_key_override());
@@ -1881,6 +1889,7 @@ mod tests {
             properties: None,
             rollout_percentage: Some(50.0),
             variant: None,
+            ..Default::default()
         }];
         // Device ID bucketing doesn't use hash key overrides
         assert!(!flag.needs_hash_key_override());
@@ -1903,6 +1912,7 @@ mod tests {
             properties: None,
             rollout_percentage: Some(50.0), // Partial rollout
             variant: None,
+            ..Default::default()
         }];
         flag.filters.multivariate = Some(MultivariateFlagOptions {
             variants: vec![

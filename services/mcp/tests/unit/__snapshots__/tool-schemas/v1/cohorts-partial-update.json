@@ -1,0 +1,452 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "cohort_type": {
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {
+                            "description": "* `static` - static\n* `person_property` - person_property\n* `behavioral` - behavioral\n* `realtime` - realtime\n* `analytical` - analytical",
+                            "enum": ["static", "person_property", "behavioral", "realtime", "analytical"],
+                            "type": "string"
+                        },
+                        {
+                            "enum": [""],
+                            "type": "string"
+                        },
+                        {
+                            "const": null,
+                            "type": "null"
+                        }
+                    ]
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Type of cohort based on filter complexity\n\n* `static` - static\n* `person_property` - person_property\n* `behavioral` - behavioral\n* `realtime` - realtime\n* `analytical` - analytical"
+        },
+        "deleted": {
+            "type": "boolean"
+        },
+        "description": {
+            "maxLength": 1000,
+            "type": "string"
+        },
+        "filters": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "properties": {
+                            "description": "AND/OR group containing cohort filters. Named to avoid collision with analytics Group model.",
+                            "properties": {
+                                "type": {
+                                    "enum": ["AND", "OR"],
+                                    "type": "string"
+                                },
+                                "values": {
+                                    "items": {
+                                        "anyOf": [
+                                            {
+                                                "properties": {
+                                                    "bytecode": {
+                                                        "anyOf": [
+                                                            {
+                                                                "items": {},
+                                                                "type": "array"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "bytecode_error": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "conditionHash": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "event_filters": {
+                                                        "anyOf": [
+                                                            {
+                                                                "items": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "properties": {
+                                                                                "key": {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                "operator": {
+                                                                                    "anyOf": [
+                                                                                        {
+                                                                                            "type": "string"
+                                                                                        },
+                                                                                        {
+                                                                                            "type": "null"
+                                                                                        }
+                                                                                    ]
+                                                                                },
+                                                                                "type": {
+                                                                                    "enum": ["event", "element"],
+                                                                                    "type": "string"
+                                                                                },
+                                                                                "value": {}
+                                                                            },
+                                                                            "required": ["type", "key", "value"],
+                                                                            "type": "object"
+                                                                        },
+                                                                        {
+                                                                            "properties": {
+                                                                                "key": {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                "type": {
+                                                                                    "enum": ["hogql"],
+                                                                                    "type": "string"
+                                                                                },
+                                                                                "value": {
+                                                                                    "anyOf": [
+                                                                                        {},
+                                                                                        {
+                                                                                            "type": "null"
+                                                                                        }
+                                                                                    ]
+                                                                                }
+                                                                            },
+                                                                            "required": ["type", "key"],
+                                                                            "type": "object"
+                                                                        }
+                                                                    ]
+                                                                },
+                                                                "type": "array"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "event_type": {
+                                                        "type": "string"
+                                                    },
+                                                    "explicit_datetime": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "key": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "number"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "min_periods": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "number"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "negation": {
+                                                        "default": false,
+                                                        "type": "boolean"
+                                                    },
+                                                    "operator": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "operator_value": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "number"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "seq_event": {
+                                                        "anyOf": [
+                                                            {
+                                                                "anyOf": [
+                                                                    {
+                                                                        "type": "string"
+                                                                    },
+                                                                    {
+                                                                        "type": "number"
+                                                                    }
+                                                                ]
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "seq_event_type": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "seq_time_interval": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "seq_time_value": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "number"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "time_interval": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "time_value": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "number"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "total_periods": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "number"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "type": {
+                                                        "enum": ["behavioral"],
+                                                        "type": "string"
+                                                    },
+                                                    "value": {
+                                                        "type": "string"
+                                                    }
+                                                },
+                                                "required": ["type", "key", "value", "event_type"],
+                                                "type": "object"
+                                            },
+                                            {
+                                                "properties": {
+                                                    "bytecode": {
+                                                        "anyOf": [
+                                                            {
+                                                                "items": {},
+                                                                "type": "array"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "bytecode_error": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "conditionHash": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "key": {
+                                                        "enum": ["id"],
+                                                        "type": "string"
+                                                    },
+                                                    "negation": {
+                                                        "default": false,
+                                                        "type": "boolean"
+                                                    },
+                                                    "type": {
+                                                        "enum": ["cohort"],
+                                                        "type": "string"
+                                                    },
+                                                    "value": {
+                                                        "type": "number"
+                                                    }
+                                                },
+                                                "required": ["type", "key", "value"],
+                                                "type": "object"
+                                            },
+                                            {
+                                                "properties": {
+                                                    "bytecode": {
+                                                        "anyOf": [
+                                                            {
+                                                                "items": {},
+                                                                "type": "array"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "bytecode_error": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "conditionHash": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "key": {
+                                                        "type": "string"
+                                                    },
+                                                    "negation": {
+                                                        "default": false,
+                                                        "type": "boolean"
+                                                    },
+                                                    "operator": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "type": {
+                                                        "enum": ["person"],
+                                                        "type": "string"
+                                                    },
+                                                    "value": {
+                                                        "anyOf": [
+                                                            {},
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    }
+                                                },
+                                                "required": ["type", "key"],
+                                                "type": "object"
+                                            },
+                                            {}
+                                        ]
+                                    },
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["type", "values"],
+                            "type": "object"
+                        }
+                    },
+                    "required": ["properties"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "id": {
+            "description": "A unique integer value identifying this cohort.",
+            "type": "number"
+        },
+        "is_static": {
+            "type": "boolean"
+        },
+        "name": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "query": {
+            "anyOf": [
+                {},
+                {
+                    "type": "null"
+                }
+            ]
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

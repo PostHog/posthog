@@ -62,6 +62,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": mock.ANY,
             "state": "Not firing",
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "detector_config": None,
             "threshold": {
                 "configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}},
                 "created_at": mock.ANY,

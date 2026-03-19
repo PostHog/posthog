@@ -9,61 +9,78 @@ type keyMap struct {
 	ScrollDown key.Binding
 	GotoTop    key.Binding
 	GotoBottom key.Binding
-	SwapFocus  key.Binding
+	NextPane   key.Binding
+	PrevPane   key.Binding
 	Restart    key.Binding
-	Docker     key.Binding
+	Stop       key.Binding
 	CopyMode   key.Binding
-	CopyEsc    key.Binding
+	Search     key.Binding
+	SearchNext key.Binding
+	SearchPrev key.Binding
 	Quit       key.Binding
 	Help       key.Binding
+	Backspace  key.Binding
+	Hedgehog   key.Binding
+	Info       key.Binding
 }
 
 func defaultKeyMap() keyMap {
 	return keyMap{
 		PrevProc: key.NewBinding(
-			key.WithKeys("j", "up"),
+			key.WithKeys("k", "up"),
 			key.WithHelp("↑:", "prev"),
 		),
 		NextProc: key.NewBinding(
-			key.WithKeys("k", "down"),
+			key.WithKeys("j", "down"),
 			key.WithHelp("↓:", "next"),
 		),
 		ScrollUp: key.NewBinding(
 			key.WithKeys("pgup"),
-			key.WithHelp("pgup:", "scroll up"),
+			key.WithHelp("pgup:", "↥"),
 		),
 		ScrollDown: key.NewBinding(
 			key.WithKeys("pgdn"),
-			key.WithHelp("pgdn:", "scroll down"),
+			key.WithHelp("pgdn:", "↧"),
 		),
 		GotoTop: key.NewBinding(
 			key.WithKeys("home"),
-			key.WithHelp("home:", "top"),
+			key.WithHelp("home:", "⤒"),
 		),
 		GotoBottom: key.NewBinding(
 			key.WithKeys("end"),
-			key.WithHelp("end:", "bottom"),
+			key.WithHelp("end:", "⤓"),
 		),
-		SwapFocus: key.NewBinding(
+		NextPane: key.NewBinding(
 			key.WithKeys("tab"),
-			key.WithHelp("tab:", "swap pane"),
+			key.WithHelp("↹:", "next pane"),
+		),
+		PrevPane: key.NewBinding(
+			key.WithKeys("shift+tab"),
+			key.WithHelp("⇧↹:", "prev pane"),
 		),
 		Restart: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r:", "restart"),
 		),
-		Docker: key.NewBinding(
-			key.WithKeys("d"),
-			key.WithHelp("d:", "lazydocker"),
-			key.WithDisabled(),
+		Stop: key.NewBinding(
+			key.WithKeys("s"),
+			key.WithHelp("s:", "stop"),
 		),
 		CopyMode: key.NewBinding(
 			key.WithKeys("c"),
-			key.WithHelp("c:", "copy mode"),
+			key.WithHelp("c:", "copy"),
 		),
-		CopyEsc: key.NewBinding(
-			key.WithKeys("esc"),
-			key.WithHelp("esc:", "esc copy"),
+		Search: key.NewBinding(
+			key.WithKeys("/"),
+			key.WithHelp("/:", "search"),
+		),
+		SearchNext: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("↵:", "next match"),
+		),
+		SearchPrev: key.NewBinding(
+			key.WithKeys("shift+enter"),
+			key.WithHelp("⇧↵:", "prev match"),
 		),
 		Quit: key.NewBinding(
 			key.WithKeys("q", "ctrl+c"),
@@ -73,11 +90,23 @@ func defaultKeyMap() keyMap {
 			key.WithKeys("?"),
 			key.WithHelp("?:", "help"),
 		),
+		Backspace: key.NewBinding(
+			key.WithKeys("backspace"),
+			key.WithHelp("⌫:", "del char"),
+		),
+		Hedgehog: key.NewBinding(
+			key.WithKeys("h"),
+			key.WithHelp("h:", "hedgehog"),
+		),
+		Info: key.NewBinding(
+			key.WithKeys("i"),
+			key.WithHelp("i:", "info"),
+		),
 	}
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.NextProc, k.PrevProc, k.SwapFocus, k.CopyMode, k.Restart, k.Quit, k.Help}
+	return []key.Binding{k.NextProc, k.NextPane, k.Search, k.CopyMode, k.Restart, k.Stop, k.Quit, k.Help}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
@@ -85,8 +114,9 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.NextProc, k.PrevProc},
 		{k.ScrollUp, k.ScrollDown},
 		{k.GotoTop, k.GotoBottom},
-		{k.Restart, k.SwapFocus, k.Docker},
-		{k.CopyMode, k.CopyEsc},
-		{k.Quit, k.Help},
+		{k.NextPane, k.PrevPane},
+		{k.Restart, k.Stop, k.Info},
+		{k.Search, k.SearchNext, k.SearchPrev},
+		{k.CopyMode, k.Quit, k.Help},
 	}
 }
