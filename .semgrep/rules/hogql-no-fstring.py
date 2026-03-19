@@ -527,12 +527,7 @@ class TestTaintNestedAttrVulnerable:
 
 
 # ============================================================================
-# hogql-injection-taint: SHOULD NOT FIND - Nested attr sanitized
-# ============================================================================
-
-
-# ============================================================================
-# hogql-injection-taint: SHOULD NOT FIND - Excluded internal objects
+# hogql-injection-taint: SHOULD NOT FIND - Nested attr (sanitized / excluded)
 # ============================================================================
 
 
