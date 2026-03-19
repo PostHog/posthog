@@ -1,13 +1,14 @@
 import re
 import socket
 from ipaddress import IPv6Address, ip_address
-from typing import TYPE_CHECKING, Any, Union
+from typing import TYPE_CHECKING, Any, Protocol, Union
 from urllib.parse import urlparse
 
 from django.db.models import Q
 
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
+    DatabaseField,
     DateDatabaseField,
     DateTimeDatabaseField,
     DecimalDatabaseField,
@@ -22,6 +23,12 @@ from posthog.hogql.database.models import (
 
 if TYPE_CHECKING:
     from products.data_warehouse.backend.models import DataWarehouseSavedQuery, DataWarehouseTable
+
+
+class DatabaseFieldFactory(Protocol):
+    __name__: str
+
+    def __call__(self, *args: Any, **kwargs: Any) -> DatabaseField: ...
 
 
 def get_view_or_table_by_name(team, name) -> Union["DataWarehouseSavedQuery", "DataWarehouseTable", None]:
@@ -137,7 +144,7 @@ def clean_type(column_type: str) -> str:
     return column_type
 
 
-CLICKHOUSE_HOGQL_MAPPING = {
+CLICKHOUSE_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
     "UUID": StringDatabaseField,
     "String": StringDatabaseField,
     "Nothing": UnknownDatabaseField,
@@ -167,7 +174,7 @@ CLICKHOUSE_HOGQL_MAPPING = {
     "Enum8": StringDatabaseField,
 }
 
-STR_TO_HOGQL_MAPPING = {
+STR_TO_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
     "BooleanDatabaseField": BooleanDatabaseField,
     "DateDatabaseField": DateDatabaseField,
     "DateTimeDatabaseField": DateTimeDatabaseField,
@@ -335,19 +342,19 @@ def _parse_postgres_struct_fields(postgres_type: str) -> dict[str, dict[str, Any
 def postgres_column_to_dwh_column(_column_name: str, postgres_type: str, nullable: bool) -> dict[str, Any]:
     struct_fields = _parse_postgres_struct_fields(postgres_type)
     if struct_fields is not None:
-        clickhouse_type = f"Tuple({', '.join(str(field['clickhouse']) for field in struct_fields.values())})"
+        struct_clickhouse_type = f"Tuple({', '.join(str(field['clickhouse']) for field in struct_fields.values())})"
         if nullable:
-            clickhouse_type = f"Nullable({clickhouse_type})"
+            struct_clickhouse_type = f"Nullable({struct_clickhouse_type})"
 
         return {
-            "clickhouse": clickhouse_type,
+            "clickhouse": struct_clickhouse_type,
             "hogql": "StructDatabaseField",
             "valid": True,
             "fields": struct_fields,
         }
 
     normalized_type = postgres_type.lower()
-    clickhouse_type = POSTGRES_TO_CLICKHOUSE_TYPE.get(normalized_type)
+    clickhouse_type: str | None = POSTGRES_TO_CLICKHOUSE_TYPE.get(normalized_type)
 
     if clickhouse_type is None:
         if normalized_type.startswith("timestamp"):

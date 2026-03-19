@@ -76,7 +76,7 @@ ExtractErrors = {
     "The operation is not valid for the object's storage class": "Some files in the bucket are archived (e.g. Glacier or S3 Intelligent-Tiering archive). Restore them to Standard storage or narrow the URL pattern to exclude archived files.",
 }
 
-type DataWarehouseTableColumns = dict[str, dict[str, Any]] | dict[str, str]
+type DataWarehouseTableColumns = dict[str, dict[str, Any]]
 
 
 class DataWarehouseTableManager(models.Manager):
@@ -163,7 +163,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     def validate_column_type(self, column_key) -> bool:
         from posthog.hogql.query import execute_hogql_query
 
-        if column_key not in self.columns.keys():
+        columns = self.columns or {}
+        if column_key not in columns:
             raise Exception(f"Column {column_key} does not exist on table: {self.name}")
 
         try:
@@ -188,6 +189,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         self,
         safe_expose_ch_error: bool = True,
     ) -> DataWarehouseTableColumns:
+        result: list[tuple[str, ...]] | None = None
         placeholder_context = HogQLContext(team_id=self.team.pk)
         s3_table_func = build_function_call(
             url=self.url_pattern,
@@ -260,7 +262,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                     # Pause execution slightly to not overload clickhouse
                     time.sleep(2**i)
 
-        if result is None or isinstance(result, int):
+        if result is None:
             raise Exception("No columns types provided by clickhouse in get_columns")
 
         columns = {
@@ -403,14 +405,12 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         # Support for 'old' style columns
         if isinstance(column_definition, str):
             hogql_type_str = clickhouse_type.partition("(")[0]
-            hogql_type = CLICKHOUSE_HOGQL_MAPPING[hogql_type_str]
-        else:
-            hogql_type = STR_TO_HOGQL_MAPPING.get(
-                str(column_definition.get("hogql", "UnknownDatabaseField")),
-                STR_TO_HOGQL_MAPPING["UnknownDatabaseField"],
-            )
+            return CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column_name, nullable=is_nullable)
 
-        return hogql_type(name=column_name, nullable=is_nullable)
+        return STR_TO_HOGQL_MAPPING.get(
+            str(column_definition.get("hogql", "UnknownDatabaseField")),
+            STR_TO_HOGQL_MAPPING["UnknownDatabaseField"],
+        )(name=column_name, nullable=is_nullable)
 
     def hogql_definition(
         self, modifiers: Optional[HogQLQueryModifiers] = None
@@ -498,10 +498,11 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         return table_def
 
     def get_clickhouse_column_type(self, column_name: str) -> Optional[str]:
-        clickhouse_type = self.columns.get(column_name, None)
+        columns = self.columns or {}
+        clickhouse_type = columns.get(column_name, None)
 
-        if isinstance(clickhouse_type, dict) and self.columns[column_name].get("clickhouse"):
-            clickhouse_type = self.columns[column_name].get("clickhouse")
+        if isinstance(clickhouse_type, dict) and columns[column_name].get("clickhouse"):
+            clickhouse_type = columns[column_name].get("clickhouse")
 
             if clickhouse_type.startswith("Nullable("):
                 clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
