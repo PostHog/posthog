@@ -14,8 +14,6 @@ jobs:
         runs-on: depot-ubuntu-22.04-4
         if: github.repository == 'PostHog/posthog'
 
-        environment: crates-io
-
         permissions:
             contents: read
             id-token: write
