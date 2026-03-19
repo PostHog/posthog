@@ -5,6 +5,9 @@ on:
         paths:
             - .github/workflows/**
 
+permissions:
+    contents: read
+
 jobs:
     check-timeouts:
         runs-on: ubuntu-latest
