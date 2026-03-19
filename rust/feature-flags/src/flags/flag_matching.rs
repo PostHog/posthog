@@ -1823,7 +1823,12 @@ impl FeatureFlagMatcher {
             .collect();
 
         // Ensure group type mappings are loaded before preparing group data
-        self.initialize_group_type_mappings_if_needed(flags).await;
+        //
+        // TODO: we should use Rust type system to bubble up errors instead of using booleans
+        // This should be handled by https://github.com/PostHog/posthog/pull/51534
+        if self.initialize_group_type_mappings_if_needed(flags).await {
+            return Err(FlagError::GroupTypeMappingFetchFailed);
+        }
 
         // Then prepare group mappings and properties
         // This should be _wicked_ fast since it's async and is just pulling from a cache that's already in memory
@@ -2134,13 +2139,7 @@ impl FeatureFlagMatcher {
 
         match self.group_type_cache.get_mappings(self.team_id).await {
             Ok(mapping) if mapping.is_empty() => {
-                let reason = "no_group_type_mappings";
-                tracing::error!("No group type mappings found for team {}", self.team_id);
-                common_metrics::inc(
-                    FLAG_EVALUATION_ERROR_COUNTER,
-                    &[("reason".to_string(), reason.to_string())],
-                    1,
-                );
+                tracing::warn!("No group type mappings found for team {}", self.team_id);
                 // Empty mappings are not an error — the team simply has no group types configured.
                 // Group-based flags won't match, but person flags in the same batch should succeed
                 // without surfacing errorsWhileComputingFlags to the client.

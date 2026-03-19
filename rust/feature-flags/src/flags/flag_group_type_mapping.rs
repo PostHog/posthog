@@ -189,6 +189,8 @@ impl GroupTypeCacheManager {
             .await
             .map_err(|arc_err| FlagError::from((*arc_err).clone()));
 
+        // NB: Under coalescing, concurrent cold-key callers all see was_cached=false,
+        // inflating misses. This only happens on cold start / TTL expiry and is acceptable.
         if was_cached {
             common_metrics::inc(GROUP_TYPE_CACHE_HIT_COUNTER, &[], 1);
         } else {

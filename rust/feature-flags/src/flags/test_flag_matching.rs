@@ -6,16 +6,11 @@ mod tests {
     use std::sync::Arc;
     use uuid::Uuid;
 
-    use async_trait::async_trait;
-
     use crate::{
         api::types::{FlagValue, LegacyFlagsResponse},
         cohorts::cohort_cache_manager::CohortCacheManager,
         flags::{
-            flag_group_type_mapping::{
-                GroupTypeCacheManager, GroupTypeFetchError, GroupTypeMapping,
-                GroupTypeMappingFetcher,
-            },
+            flag_group_type_mapping::GroupTypeCacheManager,
             flag_match_reason::FeatureFlagMatchReason,
             flag_matching::{FeatureFlagMatch, FeatureFlagMatcher},
             flag_matching_utils::{
@@ -30,30 +25,12 @@ mod tests {
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
         utils::{
             graph_utils::PrecomputedDependencyGraph,
-            test_utils::{create_test_flag, create_test_flag_that_depends_on_flag, TestContext},
+            test_utils::{
+                create_test_flag, create_test_flag_that_depends_on_flag, mock_group_type_cache,
+                TestContext,
+            },
         },
     };
-
-    struct MockGroupTypeFetcher {
-        mapping: GroupTypeMapping,
-    }
-
-    #[async_trait]
-    impl GroupTypeMappingFetcher for MockGroupTypeFetcher {
-        async fn fetch(
-            &self,
-            _team_id: common_types::TeamId,
-        ) -> Result<GroupTypeMapping, GroupTypeFetchError> {
-            Ok(self.mapping.clone())
-        }
-    }
-
-    fn mock_group_type_cache(types_to_indexes: HashMap<String, i32>) -> Arc<GroupTypeCacheManager> {
-        let fetcher = MockGroupTypeFetcher {
-            mapping: GroupTypeMapping::new(types_to_indexes),
-        };
-        Arc::new(GroupTypeCacheManager::new_with_fetcher(fetcher, None, None))
-    }
 
     fn empty_group_type_cache() -> Arc<GroupTypeCacheManager> {
         mock_group_type_cache(HashMap::new())

@@ -12,9 +12,7 @@ use crate::{
         CohortMembershipError, CohortMembershipProvider, NoOpCohortMembershipProvider,
     },
     config::Config,
-    flags::flag_group_type_mapping::{
-        GroupTypeCacheManager, GroupTypeFetchError, GroupTypeMapping, GroupTypeMappingFetcher,
-    },
+    flags::flag_group_type_mapping::GroupTypeCacheManager,
     flags::{
         flag_analytics::SURVEY_TARGETING_FLAG_PREFIX,
         flag_models::{
@@ -29,8 +27,9 @@ use crate::{
     },
     properties::property_models::{OperatorType, PropertyFilter, PropertyType},
     utils::test_utils::{
-        insert_flags_for_team_in_redis, setup_hypercache_reader, setup_pg_reader_client,
-        setup_pg_writer_client, setup_redis_client, setup_team_hypercache_reader, TestContext,
+        insert_flags_for_team_in_redis, mock_group_type_cache, setup_hypercache_reader,
+        setup_pg_reader_client, setup_pg_writer_client, setup_redis_client,
+        setup_team_hypercache_reader, TestContext,
     },
 };
 use async_trait::async_trait;
@@ -46,27 +45,6 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{collections::HashMap, net::IpAddr, sync::Arc};
 use uuid::Uuid;
-
-struct MockGroupTypeFetcher {
-    mapping: GroupTypeMapping,
-}
-
-#[async_trait]
-impl GroupTypeMappingFetcher for MockGroupTypeFetcher {
-    async fn fetch(
-        &self,
-        _team_id: common_types::TeamId,
-    ) -> Result<GroupTypeMapping, GroupTypeFetchError> {
-        Ok(self.mapping.clone())
-    }
-}
-
-fn mock_group_type_cache(types_to_indexes: HashMap<String, i32>) -> Arc<GroupTypeCacheManager> {
-    let fetcher = MockGroupTypeFetcher {
-        mapping: GroupTypeMapping::new(types_to_indexes),
-    };
-    Arc::new(GroupTypeCacheManager::new_with_fetcher(fetcher, None, None))
-}
 
 #[derive(Debug, Default)]
 struct CountingCohortMembershipProvider {
