@@ -40,11 +40,6 @@ export interface ReviewQueueItemFilters {
 
 export type ReviewQueueEditorMode = 'create' | 'rename'
 
-export interface QueuePickerResult {
-    queueId: string
-    createdQueue: boolean
-}
-
 export interface LLMAnalyticsReviewQueuesLogicProps {
     tabId?: string
 }
@@ -72,6 +67,14 @@ const ALLOWED_QUEUE_ORDER_BY_VALUES = new Set([
     '-created_at',
 ])
 const ALLOWED_QUEUE_ITEM_ORDER_BY_VALUES = new Set(['created_at', '-created_at', 'updated_at', '-updated_at'])
+
+function findQueueById(queues: PaginatedReviewQueueListApi, queueId: string | null): ReviewQueueApi | null {
+    if (!queueId) {
+        return null
+    }
+
+    return queues.results.find((queue) => queue.id === queueId) ?? null
+}
 
 function cleanQueueFilters(values: Record<string, unknown>): ReviewQueueFilters {
     const orderByValue = values.queue_order_by ?? values.order_by
@@ -145,6 +148,7 @@ export const llmAnalyticsReviewQueuesLogic = kea<llmAnalyticsReviewQueuesLogicTy
         }),
         loadQueues: (debounce: boolean = true) => ({ debounce }),
         selectQueue: (queueId: string | null) => ({ queueId }),
+        setSelectedQueue: (queue: ReviewQueueApi | null) => ({ queue }),
         setQueueItemFilters: (
             filters: Partial<ReviewQueueItemFilters>,
             merge: boolean = true,
@@ -165,12 +169,6 @@ export const llmAnalyticsReviewQueuesLogic = kea<llmAnalyticsReviewQueuesLogicTy
         deleteQueue: (queue: ReviewQueueApi) => ({ queue }),
         requestRemoveQueueItem: (item: ReviewQueueItemApi) => ({ item }),
         removeQueueItem: (item: ReviewQueueItemApi) => ({ item }),
-        openQueuePicker: (initialTraceIds: string[] = [], defaultQueueId: string | null = null) => ({
-            initialTraceIds,
-            defaultQueueId,
-        }),
-        closeQueuePicker: true,
-        handleQueuePickerSuccess: (result: QueuePickerResult) => ({ result }),
     }),
 
     reducers({
@@ -189,6 +187,15 @@ export const llmAnalyticsReviewQueuesLogic = kea<llmAnalyticsReviewQueuesLogicTy
             null as string | null,
             {
                 selectQueue: (_, { queueId }) => queueId,
+            },
+        ],
+        selectedQueue: [
+            null as ReviewQueueApi | null,
+            {
+                selectQueue: (state, { queueId }) => (state?.id === queueId ? state : null),
+                setSelectedQueue: (_, { queue }) => queue,
+                submitQueueEditorSuccess: (state, { queue }) => (state?.id === queue.id ? queue : state),
+                deleteQueue: (state, { queue }) => (state?.id === queue.id ? null : state),
             },
         ],
         rawQueueItemFilters: [
@@ -234,30 +241,6 @@ export const llmAnalyticsReviewQueuesLogic = kea<llmAnalyticsReviewQueuesLogicTy
                 submitQueueEditorSuccess: () => false,
                 submitQueueEditorFailure: () => false,
                 closeQueueEditor: () => false,
-            },
-        ],
-        isQueuePickerOpen: [
-            false,
-            {
-                openQueuePicker: () => true,
-                closeQueuePicker: () => false,
-                handleQueuePickerSuccess: () => false,
-            },
-        ],
-        queuePickerInitialTraceIds: [
-            [] as string[],
-            {
-                openQueuePicker: (_, { initialTraceIds }) => initialTraceIds,
-                closeQueuePicker: () => [],
-                handleQueuePickerSuccess: () => [],
-            },
-        ],
-        queuePickerDefaultQueueId: [
-            null as string | null,
-            {
-                openQueuePicker: (_, { defaultQueueId }) => defaultQueueId,
-                closeQueuePicker: () => null,
-                handleQueuePickerSuccess: () => null,
             },
         ],
         hasLoadedQueuesOnce: [
@@ -327,9 +310,21 @@ export const llmAnalyticsReviewQueuesLogic = kea<llmAnalyticsReviewQueuesLogicTy
                 cleanQueueItemFilters(rawQueueItemFilters || {}),
         ],
         activeQueue: [
-            (s) => [s.queues, s.selectedQueueId],
-            (queues: PaginatedReviewQueueListApi, selectedQueueId: string | null): ReviewQueueApi | null =>
-                queues.results.find((queue) => queue.id === selectedQueueId) ?? null,
+            (s) => [s.queues, s.selectedQueueId, s.selectedQueue],
+            (
+                queues: PaginatedReviewQueueListApi,
+                selectedQueueId: string | null,
+                selectedQueue: ReviewQueueApi | null
+            ): ReviewQueueApi | null =>
+                findQueueById(queues, selectedQueueId) ??
+                (selectedQueue?.id === selectedQueueId ? selectedQueue : null),
+        ],
+        visibleQueues: [
+            (s) => [s.queues, s.activeQueue],
+            (queues: PaginatedReviewQueueListApi, activeQueue: ReviewQueueApi | null): ReviewQueueApi[] =>
+                activeQueue && !queues.results.some((queue) => queue.id === activeQueue.id)
+                    ? [activeQueue, ...queues.results]
+                    : queues.results,
         ],
         queueSorting: [
             (s) => [s.queueFilters],
@@ -429,8 +424,21 @@ export const llmAnalyticsReviewQueuesLogic = kea<llmAnalyticsReviewQueuesLogicTy
             }
 
             if (!queueId) {
+                actions.setSelectedQueue(null)
                 await asyncActions.loadQueueItems(false)
                 return
+            }
+
+            const selectedQueue = findQueueById(values.queues, queueId)
+
+            if (selectedQueue) {
+                actions.setSelectedQueue(selectedQueue)
+            } else {
+                try {
+                    actions.setSelectedQueue(await reviewQueuesApi.getQueue(queueId))
+                } catch {
+                    actions.setSelectedQueue(null)
+                }
             }
 
             if (values.queueItemFilters.page !== 1) {
@@ -441,15 +449,41 @@ export const llmAnalyticsReviewQueuesLogic = kea<llmAnalyticsReviewQueuesLogicTy
         },
 
         loadQueuesSuccess: async ({ queues }) => {
+            const urlSelectedQueueId = cleanSelectedQueueId(router.values.searchParams)
+            const targetQueueId = values.selectedQueueId ?? urlSelectedQueueId
+
             if (queues.results.length === 0) {
-                if (values.selectedQueueId) {
+                if (targetQueueId) {
                     actions.selectQueue(null)
                 }
                 return
             }
 
-            if (!values.selectedQueueId || !queues.results.some((queue) => queue.id === values.selectedQueueId)) {
+            if (targetQueueId && values.selectedQueueId !== targetQueueId) {
+                actions.selectQueue(targetQueueId)
+                return
+            }
+
+            if (!targetQueueId) {
                 actions.selectQueue(queues.results[0].id)
+                return
+            }
+
+            const selectedQueue = findQueueById(queues, targetQueueId)
+
+            if (selectedQueue) {
+                actions.setSelectedQueue(selectedQueue)
+                return
+            }
+
+            if (values.selectedQueue?.id === targetQueueId) {
+                return
+            }
+
+            try {
+                actions.setSelectedQueue(await reviewQueuesApi.getQueue(targetQueueId))
+            } catch {
+                actions.setSelectedQueue(null)
             }
         },
 
@@ -551,15 +585,6 @@ export const llmAnalyticsReviewQueuesLogic = kea<llmAnalyticsReviewQueuesLogicTy
             } catch (error) {
                 lemonToast.error(getApiErrorDetail(error) || 'Failed to remove trace from the queue.')
             }
-        },
-
-        handleQueuePickerSuccess: async ({ result: { queueId, createdQueue } }) => {
-            if (createdQueue) {
-                actions.setQueueFilters({ search: '', page: 1 }, true, false)
-            }
-
-            actions.selectQueue(queueId)
-            await asyncActions.loadQueues(false)
         },
     })),
 

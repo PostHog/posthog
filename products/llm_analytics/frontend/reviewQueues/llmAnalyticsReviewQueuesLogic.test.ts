@@ -1,6 +1,10 @@
-import { MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from '~/lib/api.mock'
 
+import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { addProjectIdIfMissing } from 'lib/utils/router-utils'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
@@ -24,6 +28,7 @@ const MOCK_CREATED_BY = {
 jest.mock('./reviewQueuesApi', () => ({
     reviewQueuesApi: {
         listQueues: jest.fn(),
+        getQueue: jest.fn(),
         listQueueItems: jest.fn(),
         createQueue: jest.fn(),
         updateQueue: jest.fn(),
@@ -63,6 +68,15 @@ describe('llmAnalyticsReviewQueuesLogic', () => {
                     team: MOCK_DEFAULT_TEAM.id,
                 },
             ],
+        })
+        mockReviewQueuesApi.getQueue.mockResolvedValue({
+            id: 'queue_99',
+            name: 'Escalations',
+            pending_item_count: 4,
+            created_at: '2026-03-13T12:00:00Z',
+            updated_at: '2026-03-13T12:00:00Z',
+            created_by: MOCK_CREATED_BY,
+            team: MOCK_DEFAULT_TEAM.id,
         })
         mockReviewQueuesApi.listQueueItems.mockResolvedValue({
             count: 1,
@@ -106,23 +120,71 @@ describe('llmAnalyticsReviewQueuesLogic', () => {
         expect(logic.values.activeQueue?.name).toBe('Support')
     })
 
-    it('reloads queue items after adding traces to the active queue', async () => {
+    it('keeps a selected queue active even when it is not in the current list page', async () => {
         const logic = llmAnalyticsReviewQueuesLogic()
         logic.mount()
 
         await expectLogic(logic).toFinishAllListeners()
 
-        mockReviewQueuesApi.listQueues.mockClear()
-        mockReviewQueuesApi.listQueueItems.mockClear()
-
         await expectLogic(logic, () => {
-            logic.actions.handleQueuePickerSuccess({ queueId: 'queue_1', createdQueue: false })
+            logic.actions.selectQueue('queue_99')
         }).toFinishAllListeners()
 
-        expect(mockReviewQueuesApi.listQueues).toHaveBeenCalledTimes(1)
-        expect(mockReviewQueuesApi.listQueueItems).toHaveBeenCalledTimes(1)
+        expect(mockReviewQueuesApi.getQueue).toHaveBeenCalledWith('queue_99')
+        expect(logic.values.selectedQueueId).toBe('queue_99')
+        expect(logic.values.activeQueue?.id).toBe('queue_99')
+        expect(logic.values.activeQueue?.name).toBe('Escalations')
+        expect(logic.values.visibleQueues.map((queue) => queue.id)).toEqual(['queue_99', 'queue_1', 'queue_2'])
+
+        await expectLogic(logic, () => {
+            logic.actions.loadQueuesSuccess({
+                count: 2,
+                next: null,
+                previous: null,
+                results: [
+                    {
+                        id: 'queue_1',
+                        name: 'Support',
+                        pending_item_count: 2,
+                        created_at: '2026-03-13T12:00:00Z',
+                        updated_at: '2026-03-13T12:00:00Z',
+                        created_by: MOCK_CREATED_BY,
+                        team: MOCK_DEFAULT_TEAM.id,
+                    },
+                    {
+                        id: 'queue_2',
+                        name: 'Billing',
+                        pending_item_count: 1,
+                        created_at: '2026-03-13T12:00:00Z',
+                        updated_at: '2026-03-13T12:00:00Z',
+                        created_by: MOCK_CREATED_BY,
+                        team: MOCK_DEFAULT_TEAM.id,
+                    },
+                ],
+            })
+        }).toFinishAllListeners()
+
+        expect(logic.values.selectedQueueId).toBe('queue_99')
+        expect(logic.values.activeQueue?.id).toBe('queue_99')
+        expect(logic.values.activeQueue?.name).toBe('Escalations')
+        expect(logic.values.visibleQueues.map((queue) => queue.id)).toEqual(['queue_99', 'queue_1', 'queue_2'])
+    })
+
+    it('prefers queue_id from the URL during the initial page load', async () => {
+        const reviewsUrl = combineUrl(urls.llmAnalyticsReviews(), { queue_id: 'queue_99' })
+        router.actions.push(addProjectIdIfMissing(reviewsUrl.url, MOCK_TEAM_ID))
+
+        const logic = llmAnalyticsReviewQueuesLogic()
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.selectedQueueId).toBe('queue_99')
+        expect(logic.values.activeQueue?.id).toBe('queue_99')
+        expect(logic.values.activeQueue?.name).toBe('Escalations')
+        expect(logic.values.visibleQueues.map((queue) => queue.id)).toEqual(['queue_99', 'queue_1', 'queue_2'])
         expect(mockReviewQueuesApi.listQueueItems).toHaveBeenCalledWith({
-            queue_id: 'queue_1',
+            queue_id: 'queue_99',
             search: undefined,
             order_by: 'created_at',
             offset: 0,

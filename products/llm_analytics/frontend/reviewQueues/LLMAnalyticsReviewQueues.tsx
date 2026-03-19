@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import {
     LemonButton,
@@ -18,7 +18,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 
-import { createdAtColumn, updatedAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
+import { createdAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { urls } from '~/scenes/urls'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -28,7 +28,6 @@ import {
     REVIEW_QUEUE_ITEMS_PER_PAGE,
     REVIEW_QUEUES_PER_PAGE,
 } from './llmAnalyticsReviewQueuesLogic'
-import { ReviewQueuePickerModal } from './ReviewQueuePickerModal'
 
 export function LLMAnalyticsReviewQueues({ tabId }: { tabId?: string }): JSX.Element {
     const logic = useMountedLogic(llmAnalyticsReviewQueuesLogic({ tabId }))
@@ -42,13 +41,11 @@ export function LLMAnalyticsReviewQueues({ tabId }: { tabId?: string }): JSX.Ele
         submitQueueEditor,
         requestDeleteQueue,
         requestRemoveQueueItem,
-        openQueuePicker,
-        closeQueuePicker,
-        handleQueuePickerSuccess,
     } = useActions(logic)
     const {
         queues,
         queuesLoading,
+        visibleQueues,
         queueFilters,
         queueSorting,
         queuePagination,
@@ -65,22 +62,20 @@ export function LLMAnalyticsReviewQueues({ tabId }: { tabId?: string }): JSX.Ele
         queueEditorTitle,
         queueEditorName,
         queueEditorSubmitting,
-        isQueuePickerOpen,
-        queuePickerInitialTraceIds,
-        queuePickerDefaultQueueId,
         hasLoadedQueuesOnce,
     } = useValues(logic)
+    const { searchParams } = useValues(router)
 
     const queueColumns: LemonTableColumns<ReviewQueueApi> = [
         {
-            title: 'Queue',
+            title: 'Name',
             dataIndex: 'name',
             key: 'name',
-            width: '55%',
+            width: '72%',
             render: function renderQueueName(_, queue) {
                 return (
                     <div className="space-y-1 min-w-0">
-                        <div className="font-semibold truncate">{queue.name}</div>
+                        <div className="font-semibold whitespace-normal break-words">{queue.name}</div>
                         <div className="text-xs text-muted">{queue.pending_item_count} pending traces</div>
                     </div>
                 )
@@ -95,7 +90,6 @@ export function LLMAnalyticsReviewQueues({ tabId }: { tabId?: string }): JSX.Ele
                 return <span className="font-medium">{queue.pending_item_count}</span>
             },
         },
-        updatedAtColumn<ReviewQueueApi>() as LemonTableColumn<ReviewQueueApi, keyof ReviewQueueApi | undefined>,
     ]
 
     const queueItemColumns: LemonTableColumns<ReviewQueueItemApi> = [
@@ -104,16 +98,20 @@ export function LLMAnalyticsReviewQueues({ tabId }: { tabId?: string }): JSX.Ele
             dataIndex: 'trace_id',
             key: 'trace_id',
             width: '45%',
-            render: function renderTraceId(traceId) {
+            render: function renderTraceId(traceId, item) {
                 const value = String(traceId || '')
+                const currentIndex = queueItems.results.findIndex((queueItem) => queueItem.id === item.id)
+                const nextTraceId = currentIndex >= 0 ? queueItems.results[currentIndex + 1]?.trace_id : undefined
 
                 return (
                     <Link
                         to={
                             combineUrl(urls.llmAnalyticsTrace(value), {
+                                ...searchParams,
                                 back_to: 'reviews',
                                 human_reviews_tab: undefined,
                                 queue_id: selectedQueueId || undefined,
+                                queue_next_trace_id: nextTraceId,
                             }).url
                         }
                         className="font-mono text-xs"
@@ -186,7 +184,7 @@ export function LLMAnalyticsReviewQueues({ tabId }: { tabId?: string }): JSX.Ele
                         value={queueFilters.search}
                         onChange={(value) => setQueueFilters({ search: value })}
                         className="min-w-64"
-                        data-attr="review-queues-search-input"
+                        data-attr="llma-review-queues-search-input"
                     />
                     <div className="text-muted-alt">{queueCountLabel}</div>
                 </div>
@@ -200,19 +198,6 @@ export function LLMAnalyticsReviewQueues({ tabId }: { tabId?: string }): JSX.Ele
                             New queue
                         </LemonButton>
                     </AccessControlAction>
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            onClick={() => openQueuePicker([], selectedQueueId)}
-                            data-attr="review-queues-add-traces-button"
-                        >
-                            Add traces
-                        </LemonButton>
-                    </AccessControlAction>
                 </div>
             </div>
 
@@ -220,7 +205,7 @@ export function LLMAnalyticsReviewQueues({ tabId }: { tabId?: string }): JSX.Ele
                 <div className="border rounded bg-bg-light">
                     <InsightEmptyState
                         heading="No review queues yet"
-                        detail="Create a queue and start collecting pending traces for human review."
+                        detail="Create a queue, then add traces from the trace page when they need human review."
                     />
                     <div className="flex items-center justify-center gap-2 px-4 pb-6">
                         <AccessControlAction
@@ -231,25 +216,17 @@ export function LLMAnalyticsReviewQueues({ tabId }: { tabId?: string }): JSX.Ele
                                 New queue
                             </LemonButton>
                         </AccessControlAction>
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.LlmAnalytics}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
-                            <LemonButton type="primary" onClick={() => openQueuePicker()}>
-                                Add traces
-                            </LemonButton>
-                        </AccessControlAction>
                     </div>
                 </div>
             ) : (
-                <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)]">
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(19rem,23rem)_minmax(0,1fr)]">
                     <div className="border rounded bg-bg-light">
-                        <div className="px-4 pt-4 text-sm font-medium">Queues</div>
+                        <div className="px-4 pt-4 pb-3 text-sm font-medium">Queues</div>
                         <LemonTable
                             id="queue"
                             loading={queuesLoading}
                             columns={queueColumns}
-                            dataSource={queues.results}
+                            dataSource={visibleQueues}
                             pagination={queuePagination}
                             sorting={queueSorting}
                             onSort={(newSorting) =>
@@ -282,9 +259,13 @@ export function LLMAnalyticsReviewQueues({ tabId }: { tabId?: string }): JSX.Ele
                             <div className="space-y-4 p-4">
                                 <div className="flex gap-3 items-start justify-between flex-wrap">
                                     <div className="space-y-2 min-w-0">
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                            <h3 className="text-lg font-semibold truncate">{activeQueue.name}</h3>
-                                            <LemonTag type="muted">{activeQueue.pending_item_count} pending</LemonTag>
+                                        <div className="flex items-start gap-2.5 flex-wrap">
+                                            <h3 className="text-lg leading-tight font-semibold truncate">
+                                                {activeQueue.name}
+                                            </h3>
+                                            <LemonTag type="muted" className="mt-0.5 shrink-0">
+                                                {activeQueue.pending_item_count} pending
+                                            </LemonTag>
                                         </div>
                                         <div className="text-sm text-muted">
                                             Traces stay here until someone reviews them. Once reviewed, they leave the
@@ -293,18 +274,6 @@ export function LLMAnalyticsReviewQueues({ tabId }: { tabId?: string }): JSX.Ele
                                     </div>
 
                                     <div className="flex items-center gap-2">
-                                        <AccessControlAction
-                                            resourceType={AccessControlResourceType.LlmAnalytics}
-                                            minAccessLevel={AccessControlLevel.Editor}
-                                        >
-                                            <LemonButton
-                                                type="primary"
-                                                size="small"
-                                                onClick={() => openQueuePicker([], activeQueue.id)}
-                                            >
-                                                Add traces
-                                            </LemonButton>
-                                        </AccessControlAction>
                                         <AccessControlAction
                                             resourceType={AccessControlResourceType.LlmAnalytics}
                                             minAccessLevel={AccessControlLevel.Editor}
@@ -339,7 +308,7 @@ export function LLMAnalyticsReviewQueues({ tabId }: { tabId?: string }): JSX.Ele
                                         value={queueItemFilters.search}
                                         onChange={(value) => setQueueItemFilters({ search: value })}
                                         className="min-w-64"
-                                        data-attr="review-queue-items-search-input"
+                                        data-attr="llma-review-queue-items-search-input"
                                     />
                                     <div className="text-muted-alt">{queueItemCountLabel}</div>
                                 </div>
@@ -366,22 +335,8 @@ export function LLMAnalyticsReviewQueues({ tabId }: { tabId?: string }): JSX.Ele
                                         <div className="py-6">
                                             <InsightEmptyState
                                                 heading="No pending traces in this queue"
-                                                detail="Add traces to this queue when you want someone to review them."
+                                                detail="Use Add to queue on a trace page to send it here."
                                             />
-                                            <div className="flex items-center justify-center">
-                                                <AccessControlAction
-                                                    resourceType={AccessControlResourceType.LlmAnalytics}
-                                                    minAccessLevel={AccessControlLevel.Editor}
-                                                >
-                                                    <LemonButton
-                                                        type="primary"
-                                                        size="small"
-                                                        onClick={() => openQueuePicker([], activeQueue.id)}
-                                                    >
-                                                        Add traces
-                                                    </LemonButton>
-                                                </AccessControlAction>
-                                            </div>
                                         </div>
                                     }
                                 />
@@ -410,7 +365,7 @@ export function LLMAnalyticsReviewQueues({ tabId }: { tabId?: string }): JSX.Ele
                                 placeholder="Support escalations"
                                 autoFocus
                                 fullWidth
-                                data-attr="review-queue-name-input"
+                                data-attr="llma-review-queue-name-input"
                             />
                             <div className="text-xs text-muted">
                                 Use a short, recognizable name so teammates know what belongs in this queue.
@@ -431,15 +386,6 @@ export function LLMAnalyticsReviewQueues({ tabId }: { tabId?: string }): JSX.Ele
                         </LemonButton>
                     </LemonModalFooter>
                 </LemonModal>
-            ) : null}
-
-            {isQueuePickerOpen ? (
-                <ReviewQueuePickerModal
-                    defaultQueueId={queuePickerDefaultQueueId}
-                    initialTraceIds={queuePickerInitialTraceIds}
-                    onClose={closeQueuePicker}
-                    onSuccess={handleQueuePickerSuccess}
-                />
             ) : null}
         </div>
     )

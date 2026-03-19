@@ -1,108 +1,126 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { useState } from 'react'
 
-import { LemonButton, LemonInputSelect, LemonModal, LemonTextArea, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonDropdown, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { LemonModalContent, LemonModalFooter, LemonModalHeader } from 'lib/lemon-ui/LemonModal/LemonModal'
+import { AccessControlAction } from 'lib/components/AccessControlAction'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { reviewQueuePickerModalLogic, type ReviewQueuePickerModalProps } from './reviewQueuePickerModalLogic'
 
 export function ReviewQueuePickerModal({
     confirmLabel = 'Add to queue',
-    title = 'Add traces to queue',
+    buttonType = 'secondary',
+    buttonSize = 'small',
     ...props
-}: ReviewQueuePickerModalProps): JSX.Element {
-    const logic = useMountedLogic(reviewQueuePickerModalLogic(props))
-    const { setSelectedQueueKey, setTraceIdsInput, submit } = useActions(logic)
-    const {
-        queues,
-        queuesLoading,
-        selectedQueueValue,
-        selectedQueue,
-        isCreatingQueue,
-        traceIdsInput,
-        parsedTraceIds,
-        isSubmitting,
-    } = useValues(logic)
+}: ReviewQueuePickerModalProps & {
+    buttonType?: 'primary' | 'secondary' | 'tertiary'
+    buttonSize?: 'xsmall' | 'small' | 'medium'
+}): JSX.Element {
+    const [isOpen, setIsOpen] = useState(false)
+    const [search, setSearch] = useState('')
+    const logic = useMountedLogic(
+        reviewQueuePickerModalLogic({
+            ...props,
+            onClose: () => {
+                setIsOpen(false)
+                props.onClose?.()
+            },
+        })
+    )
+    const { setSelectedQueueKey, submit } = useActions(logic)
+    const { queues, queuesLoading, isSubmitting } = useValues(logic)
+    const normalizedSearch = search.trim().toLowerCase()
+    const filteredQueues = normalizedSearch
+        ? queues.results.filter((queue) => queue.name.toLowerCase().includes(normalizedSearch))
+        : queues.results
+    const hasExactQueueMatch = queues.results.some((queue) => queue.name.trim().toLowerCase() === normalizedSearch)
+    const canCreateQueue = !!normalizedSearch && !hasExactQueueMatch
+
+    const overlay = (
+        <div className="w-xs">
+            <LemonInput
+                value={search}
+                onChange={setSearch}
+                placeholder="Find a queue"
+                autoFocus
+                disabled={isSubmitting}
+                data-attr="llma-review-queue-search"
+            />
+            <LemonDivider className="my-0 mt-2" />
+            <div className="max-h-64 overflow-y-auto py-2 space-y-2">
+                {queuesLoading ? (
+                    <>
+                        <LemonSkeleton active className="h-4 w-full" />
+                        <LemonSkeleton active className="h-4 w-full" />
+                        <LemonSkeleton active className="h-4 w-full" />
+                    </>
+                ) : filteredQueues.length > 0 ? (
+                    filteredQueues.map((queue) => (
+                        <LemonButton
+                            key={queue.id}
+                            fullWidth
+                            size="small"
+                            disabled={isSubmitting}
+                            onClick={() => {
+                                setSelectedQueueKey(queue.id)
+                                submit(queue.id)
+                            }}
+                            data-attr="llma-review-queue-select"
+                        >
+                            <span className="line-clamp-1">{queue.name}</span>
+                        </LemonButton>
+                    ))
+                ) : (
+                    <p className="px-2 text-sm text-muted">
+                        {normalizedSearch ? 'No queues found.' : 'No queues yet.'}
+                    </p>
+                )}
+            </div>
+            <LemonDivider className="my-0 mb-2" />
+            <LemonButton
+                fullWidth
+                size="small"
+                type="secondary"
+                disabled={!canCreateQueue || isSubmitting}
+                onClick={() => {
+                    submit(search.trim())
+                }}
+                data-attr="llma-review-queue-create"
+            >
+                {canCreateQueue ? `Create "${search.trim()}"` : 'Type a queue name to create one'}
+            </LemonButton>
+        </div>
+    )
 
     return (
-        <LemonModal isOpen onClose={() => props.onClose?.()} simple maxWidth="36rem">
-            <LemonModalHeader>{title}</LemonModalHeader>
+        <LemonDropdown
+            overlay={overlay}
+            visible={isOpen}
+            onVisibilityChange={(nextOpen) => {
+                setIsOpen(nextOpen)
 
-            <LemonModalContent className="space-y-4">
-                <div className="space-y-2">
-                    <div className="text-sm font-medium">Queue</div>
-                    <LemonInputSelect<string>
-                        mode="single"
-                        value={selectedQueueValue}
-                        onChange={(values) => setSelectedQueueKey(values[0] ? String(values[0]) : null)}
-                        options={queues.results.map((queue) => ({
-                            key: queue.id,
-                            value: queue.id,
-                            label: queue.name,
-                            labelComponent: (
-                                <div className="flex items-center justify-between gap-3 min-w-0">
-                                    <span className="truncate">{queue.name}</span>
-                                    <span className="shrink-0 text-xs text-muted">
-                                        {queue.pending_item_count} pending
-                                    </span>
-                                </div>
-                            ),
-                        }))}
-                        allowCustomValues
-                        formatCreateLabel={(input) => `Create queue "${input.trim()}"`}
-                        placeholder="Select a queue or create one"
-                        fullWidth
-                        emptyStateComponent={
-                            <div className="px-3 py-2 text-sm text-muted">
-                                {queuesLoading ? (
-                                    <div className="flex items-center gap-2">
-                                        <Spinner textColored />
-                                        <span>Loading queues...</span>
-                                    </div>
-                                ) : (
-                                    'No queues yet. Type a name to create the first one.'
-                                )}
-                            </div>
-                        }
-                    />
-                    <div className="text-xs text-muted">
-                        {isCreatingQueue
-                            ? 'A new queue will be created when you submit.'
-                            : selectedQueue
-                              ? `${selectedQueue.pending_item_count} pending traces in this queue.`
-                              : 'Choose an existing queue or create one inline.'}
-                    </div>
-                </div>
-
-                <div className="space-y-2">
-                    <div className="text-sm font-medium">Trace IDs</div>
-                    <LemonTextArea
-                        value={traceIdsInput}
-                        onChange={(value) => setTraceIdsInput(value)}
-                        placeholder="Paste one or more trace IDs"
-                        rows={8}
-                        className="font-mono text-xs"
-                        data-attr="review-queue-trace-ids-input"
-                    />
-                    <div className="text-xs text-muted">
-                        Separate trace IDs with new lines, commas, or spaces. {parsedTraceIds.length} ready to add.
-                    </div>
-                </div>
-            </LemonModalContent>
-
-            <LemonModalFooter>
-                <LemonButton type="secondary" onClick={() => props.onClose?.()} disabled={isSubmitting}>
-                    Cancel
-                </LemonButton>
+                if (!nextOpen) {
+                    setSearch('')
+                }
+            }}
+            closeOnClickInside={false}
+        >
+            <AccessControlAction
+                resourceType={AccessControlResourceType.LlmAnalytics}
+                minAccessLevel={AccessControlLevel.Editor}
+            >
                 <LemonButton
-                    type="primary"
-                    onClick={() => submit()}
+                    type={buttonType}
+                    size={buttonSize}
+                    onClick={() => setIsOpen(!isOpen)}
                     loading={isSubmitting}
-                    data-attr="review-queue-submit-button"
+                    data-attr="llma-trace-add-to-queue-button"
                 >
                     {confirmLabel}
                 </LemonButton>
-            </LemonModalFooter>
-        </LemonModal>
+            </AccessControlAction>
+        </LemonDropdown>
     )
 }

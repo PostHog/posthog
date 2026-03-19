@@ -22,6 +22,7 @@ jest.mock('./reviewQueuesApi', () => ({
         listQueuePickerOptions: jest.fn(),
         createQueue: jest.fn(),
         createQueueItem: jest.fn(),
+        updateQueueItem: jest.fn(),
     },
 }))
 
@@ -33,7 +34,7 @@ describe('reviewQueuePickerModalLogic', () => {
         jest.resetAllMocks()
     })
 
-    it('creates a queue inline and adds all provided traces', async () => {
+    it('creates a queue inline and adds the current trace', async () => {
         const onSuccess = jest.fn()
         const onClose = jest.fn()
 
@@ -64,7 +65,7 @@ describe('reviewQueuePickerModalLogic', () => {
         })
 
         const logic = reviewQueuePickerModalLogic({
-            initialTraceIds: ['trace_1', 'trace_2'],
+            traceId: 'trace_1',
             onSuccess,
             onClose,
         })
@@ -79,15 +80,71 @@ describe('reviewQueuePickerModalLogic', () => {
         }).toFinishAllListeners()
 
         expect(mockReviewQueuesApi.createQueue).toHaveBeenCalledWith({ name: 'Support escalations' })
-        expect(mockReviewQueuesApi.createQueueItem).toHaveBeenNthCalledWith(1, {
+        expect(mockReviewQueuesApi.createQueueItem).toHaveBeenCalledWith({
             queue_id: 'queue_new',
             trace_id: 'trace_1',
         })
-        expect(mockReviewQueuesApi.createQueueItem).toHaveBeenNthCalledWith(2, {
-            queue_id: 'queue_new',
-            trace_id: 'trace_2',
-        })
         expect(onSuccess).toHaveBeenCalledWith({ queueId: 'queue_new', createdQueue: true })
         expect(onClose).toHaveBeenCalled()
+    })
+
+    it('moves an existing queued trace to another queue', async () => {
+        const onSuccess = jest.fn()
+
+        mockReviewQueuesApi.listQueuePickerOptions.mockResolvedValue({
+            count: 2,
+            next: null,
+            previous: null,
+            results: [
+                {
+                    id: 'queue_1',
+                    name: 'Support',
+                    pending_item_count: 2,
+                    created_at: '2026-03-13T12:00:00Z',
+                    updated_at: '2026-03-13T12:00:00Z',
+                    created_by: MOCK_CREATED_BY,
+                    team: MOCK_DEFAULT_TEAM.id,
+                },
+                {
+                    id: 'queue_2',
+                    name: 'Billing',
+                    pending_item_count: 1,
+                    created_at: '2026-03-13T12:00:00Z',
+                    updated_at: '2026-03-13T12:00:00Z',
+                    created_by: MOCK_CREATED_BY,
+                    team: MOCK_DEFAULT_TEAM.id,
+                },
+            ],
+        })
+        mockReviewQueuesApi.updateQueueItem.mockResolvedValue({
+            id: 'item_1',
+            queue_id: 'queue_2',
+            queue_name: 'Billing',
+            trace_id: 'trace_1',
+            created_at: '2026-03-13T12:00:00Z',
+            updated_at: '2026-03-13T12:00:00Z',
+            created_by: MOCK_CREATED_BY,
+            team: MOCK_DEFAULT_TEAM.id,
+        })
+
+        const logic = reviewQueuePickerModalLogic({
+            traceId: 'trace_1',
+            queueItemId: 'item_1',
+            defaultQueueId: 'queue_1',
+            onSuccess,
+        })
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.submit('queue_2')
+        }).toFinishAllListeners()
+
+        expect(mockReviewQueuesApi.updateQueueItem).toHaveBeenCalledWith('item_1', {
+            queue_id: 'queue_2',
+        })
+        expect(mockReviewQueuesApi.createQueueItem).not.toHaveBeenCalled()
+        expect(onSuccess).toHaveBeenCalledWith({ queueId: 'queue_2', createdQueue: false })
     })
 })

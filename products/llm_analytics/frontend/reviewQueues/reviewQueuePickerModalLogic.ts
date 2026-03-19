@@ -2,17 +2,16 @@ import { actions, afterMount, kea, key, listeners, path, props, reducers, select
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
-import { pluralize } from '~/lib/utils'
 
-import type { PaginatedReviewQueueListApi, ReviewQueueApi, ReviewQueueItemApi } from '../generated/api.schemas'
+import type { PaginatedReviewQueueListApi, ReviewQueueApi } from '../generated/api.schemas'
 import type { reviewQueuePickerModalLogicType } from './reviewQueuePickerModalLogicType'
 import { reviewQueuesApi } from './reviewQueuesApi'
-import { formatTraceIdsInput, getApiErrorDetail, parseTraceIdsInput } from './reviewQueueUtils'
+import { getApiErrorDetail } from './reviewQueueUtils'
 
 export interface ReviewQueuePickerModalProps {
     defaultQueueId?: string | null
-    initialTraceIds?: string[]
-    mode?: 'add'
+    queueItemId?: string | null
+    traceId: string
     onClose?: () => void
     onSuccess?: (result: { queueId: string; createdQueue: boolean }) => void
     title?: string
@@ -29,13 +28,12 @@ const EMPTY_QUEUE_LIST: PaginatedReviewQueueListApi = {
 export const reviewQueuePickerModalLogic = kea<reviewQueuePickerModalLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'reviewQueues', 'reviewQueuePickerModalLogic']),
     props({} as ReviewQueuePickerModalProps),
-    key((props) => `${props.defaultQueueId || 'none'}-${(props.initialTraceIds || []).join(',')}`),
+    key((props) => `${props.traceId}-${props.queueItemId || 'new'}-${props.defaultQueueId || 'none'}`),
 
     actions({
         loadQueues: true,
         setSelectedQueueKey: (queueKey: string | null) => ({ queueKey }),
-        setTraceIdsInput: (traceIdsInput: string) => ({ traceIdsInput }),
-        submit: true,
+        submit: (queueKey: string | null = null) => ({ queueKey }),
         submitSuccess: (queueId: string, createdQueue: boolean) => ({ queueId, createdQueue }),
         submitFailure: true,
     }),
@@ -45,12 +43,6 @@ export const reviewQueuePickerModalLogic = kea<reviewQueuePickerModalLogicType>(
             null as string | null,
             {
                 setSelectedQueueKey: (_, { queueKey }) => queueKey,
-            },
-        ],
-        traceIdsInput: [
-            '',
-            {
-                setTraceIdsInput: (_, { traceIdsInput }) => traceIdsInput,
             },
         ],
         isSubmitting: [
@@ -73,10 +65,6 @@ export const reviewQueuePickerModalLogic = kea<reviewQueuePickerModalLogicType>(
     })),
 
     selectors({
-        parsedTraceIds: [
-            (s) => [s.traceIdsInput],
-            (traceIdsInput: string): string[] => parseTraceIdsInput(traceIdsInput),
-        ],
         selectedQueueValue: [
             (s) => [s.selectedQueueKey],
             (selectedQueueKey: string | null): string[] | null => (selectedQueueKey ? [selectedQueueKey] : null),
@@ -114,9 +102,8 @@ export const reviewQueuePickerModalLogic = kea<reviewQueuePickerModalLogicType>(
             }
         },
 
-        submit: async () => {
-            const selectedQueueKey = values.selectedQueueKey?.trim() || ''
-            const traceIds = values.parsedTraceIds
+        submit: async ({ queueKey }) => {
+            const selectedQueueKey = queueKey?.trim() || values.selectedQueueKey?.trim() || ''
 
             if (!selectedQueueKey) {
                 actions.submitFailure()
@@ -124,18 +111,13 @@ export const reviewQueuePickerModalLogic = kea<reviewQueuePickerModalLogicType>(
                 return
             }
 
-            if (traceIds.length === 0) {
-                actions.submitFailure()
-                lemonToast.error('Add at least one trace ID.')
-                return
-            }
-
             try {
+                const selectedQueue = values.queues.results.find((queue) => queue.id === selectedQueueKey) ?? null
                 let queueId = selectedQueueKey
-                let queueName = values.selectedQueue?.name || selectedQueueKey
+                let queueName = selectedQueue?.name || selectedQueueKey
                 let createdQueue = false
 
-                if (!values.selectedQueue) {
+                if (!selectedQueue) {
                     const queue = await reviewQueuesApi.createQueue({ name: selectedQueueKey })
                     queueId = queue.id
                     queueName = queue.name
@@ -144,32 +126,18 @@ export const reviewQueuePickerModalLogic = kea<reviewQueuePickerModalLogicType>(
                     actions.loadQueues()
                 }
 
-                const results = await Promise.allSettled(
-                    traceIds.map((traceId) => reviewQueuesApi.createQueueItem({ queue_id: queueId, trace_id: traceId }))
-                )
-
-                const succeeded = results.filter(
-                    (result): result is PromiseFulfilledResult<ReviewQueueItemApi> => result.status === 'fulfilled'
-                )
-                const failed = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
-
-                if (succeeded.length === 0) {
-                    throw failed[0]?.reason || new Error('Failed to add traces to the queue.')
-                }
-
-                if (failed.length > 0) {
-                    lemonToast.success(`Added ${succeeded.length} of ${traceIds.length} traces to "${queueName}".`)
-                    lemonToast.error(
-                        getApiErrorDetail(failed[0].reason) || 'Some traces could not be added to the queue.'
-                    )
+                if (props.queueItemId) {
+                    await reviewQueuesApi.updateQueueItem(props.queueItemId, { queue_id: queueId })
+                    lemonToast.success(`Moved to "${queueName}".`)
                 } else {
-                    lemonToast.success(`Added ${pluralize(succeeded.length, 'trace')} to "${queueName}".`)
+                    await reviewQueuesApi.createQueueItem({ queue_id: queueId, trace_id: props.traceId })
+                    lemonToast.success(`Added to "${queueName}".`)
                 }
 
                 actions.submitSuccess(queueId, createdQueue)
             } catch (error) {
                 actions.submitFailure()
-                lemonToast.error(getApiErrorDetail(error) || 'Failed to add traces to a review queue.')
+                lemonToast.error(getApiErrorDetail(error) || 'Failed to update the trace queue.')
             }
         },
 
@@ -179,8 +147,7 @@ export const reviewQueuePickerModalLogic = kea<reviewQueuePickerModalLogicType>(
         },
     })),
 
-    afterMount(({ actions, props }) => {
-        actions.setTraceIdsInput(formatTraceIdsInput(props.initialTraceIds || []))
+    afterMount(({ actions }) => {
         actions.loadQueues()
     }),
 ])

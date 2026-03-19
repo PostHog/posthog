@@ -4,16 +4,19 @@ import {
     llmAnalyticsReviewQueueItemsCreate,
     llmAnalyticsReviewQueueItemsDestroy,
     llmAnalyticsReviewQueueItemsList,
+    llmAnalyticsReviewQueueItemsPartialUpdate,
     llmAnalyticsReviewQueuesCreate,
     llmAnalyticsReviewQueuesDestroy,
     llmAnalyticsReviewQueuesList,
     llmAnalyticsReviewQueuesPartialUpdate,
+    llmAnalyticsReviewQueuesRetrieve,
 } from '../generated/api'
 import type {
     LlmAnalyticsReviewQueueItemsListParams,
     LlmAnalyticsReviewQueuesListParams,
     PaginatedReviewQueueItemListApi,
     PaginatedReviewQueueListApi,
+    PatchedReviewQueueItemUpdateApi,
     ReviewQueueApi,
     ReviewQueueCreateApi,
     ReviewQueueItemApi,
@@ -40,6 +43,10 @@ export const reviewQueuesApi = {
         return llmAnalyticsReviewQueuesCreate(getCurrentProjectId(), data)
     },
 
+    getQueue(id: string): Promise<ReviewQueueApi> {
+        return llmAnalyticsReviewQueuesRetrieve(getCurrentProjectId(), id)
+    },
+
     updateQueue(id: string, data: ReviewQueueCreateApi): Promise<ReviewQueueApi> {
         return llmAnalyticsReviewQueuesPartialUpdate(getCurrentProjectId(), id, data)
     },
@@ -54,6 +61,10 @@ export const reviewQueuesApi = {
 
     createQueueItem(data: ReviewQueueItemCreateApi): Promise<ReviewQueueItemApi> {
         return llmAnalyticsReviewQueueItemsCreate(getCurrentProjectId(), data)
+    },
+
+    updateQueueItem(id: string, data: PatchedReviewQueueItemUpdateApi): Promise<ReviewQueueItemApi> {
+        return llmAnalyticsReviewQueueItemsPartialUpdate(getCurrentProjectId(), id, data)
     },
 
     deleteQueueItem(id: string): Promise<void> {
