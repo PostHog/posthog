@@ -73,11 +73,6 @@ func (s *StatsInRedis) GetSessionCount(ctx context.Context, token string) (int64
 	return s.getCount(ctx, key, sessionKeyTTL, "session_count")
 }
 
-// Client returns the underlying Redis client.
-func (s *StatsInRedis) Client() rueidis.Client {
-	return s.client
-}
-
 // Close closes the underlying Redis connection.
 func (s *StatsInRedis) Close() {
 	s.client.Close()
