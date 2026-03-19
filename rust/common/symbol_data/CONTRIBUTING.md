@@ -22,7 +22,6 @@ using trusted publishing (OIDC — no API tokens required).
 
    The tag **must** match the version in `Cargo.toml` — the workflow verifies this before publishing.
 
-
 3. **Monitor the publish** — the [publish-symbol-data-crate](/.github/workflows/publish-symbol-data-crate.yml) workflow
    runs automatically on the tag push.
 
