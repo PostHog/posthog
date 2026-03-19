@@ -165,8 +165,12 @@ export const integrationsLogic = kea<integrationsLogicType>([
                         'Your request to connect to GitHub has been sent to the organization owners. They will need to complete the installation.'
                     )
                 }
-            } catch {
-                lemonToast.error(`Something went wrong. Please try again.`)
+            } catch (e: any) {
+                if (e.status === 403) {
+                    lemonToast.error('You need at least Admin access to connect integrations.')
+                } else {
+                    lemonToast.error(`Something went wrong. Please try again.`)
+                }
             } finally {
                 router.actions.replace(replaceUrl)
             }
@@ -204,8 +208,12 @@ export const integrationsLogic = kea<integrationsLogicType>([
                     actions.loadIntegrations()
                     lemonToast.success(`Integration successful.`)
                 }
-            } catch {
-                lemonToast.error(`Something went wrong. Please try again.`)
+            } catch (e: any) {
+                if (e.status === 403) {
+                    lemonToast.error('You need at least Admin access to connect integrations.')
+                } else {
+                    lemonToast.error(`Something went wrong. Please try again.`)
+                }
             } finally {
                 router.actions.replace(replaceUrl)
             }
