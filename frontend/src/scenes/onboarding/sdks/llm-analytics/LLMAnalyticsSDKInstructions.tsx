@@ -8,6 +8,7 @@ import { AutoGenInstallation } from '@posthog/shared-onboarding/llm-analytics/au
 import { AzureOpenAIInstallation } from '@posthog/shared-onboarding/llm-analytics/azure-openai'
 import { CerebrasInstallation } from '@posthog/shared-onboarding/llm-analytics/cerebras'
 import { CohereInstallation } from '@posthog/shared-onboarding/llm-analytics/cohere'
+import { ConvexInstallation } from '@posthog/shared-onboarding/llm-analytics/convex'
 import { CrewAIInstallation } from '@posthog/shared-onboarding/llm-analytics/crewai'
 import { DeepSeekInstallation } from '@posthog/shared-onboarding/llm-analytics/deepseek'
 import { DSPyInstallation } from '@posthog/shared-onboarding/llm-analytics/dspy'
@@ -182,6 +183,10 @@ const LLMPortkeyInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: PortkeyInstallation,
     snippets: PROVIDER_SNIPPETS,
 })
+const LLMConvexInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ConvexInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
 const LLMCohereInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: CohereInstallation,
     snippets: PROVIDER_SNIPPETS,
@@ -234,6 +239,7 @@ export const LLMAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.CEREBRAS]: LLMCerebrasInstructionsWrapper,
     [SDKKey.PERPLEXITY]: LLMPerplexityInstructionsWrapper,
     [SDKKey.PORTKEY]: LLMPortkeyInstructionsWrapper,
+    [SDKKey.CONVEX]: LLMConvexInstructionsWrapper,
     [SDKKey.COHERE]: LLMCohereInstructionsWrapper,
     [SDKKey.HUGGING_FACE]: LLMHuggingFaceInstructionsWrapper,
     [SDKKey.XAI]: LLMXAIInstructionsWrapper,

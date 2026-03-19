@@ -392,6 +392,13 @@ export const ALL_SDKS: SDK[] = [
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/mirascope',
     },
     {
+        name: 'Convex',
+        key: SDKKey.CONVEX,
+        tags: [SDKTag.FRAMEWORK],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/convex_d8dcddcd63.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/convex',
+    },
+    {
         name: 'Cerebras',
         key: SDKKey.CEREBRAS,
         tags: [SDKTag.MODEL_PROVIDER],

@@ -5888,6 +5888,7 @@ export enum SDKKey {
     BUBBLE = 'bubble',
     CEREBRAS = 'cerebras',
     COHERE = 'cohere',
+    CONVEX = 'convex',
     CREWAI = 'crewai',
     DJANGO = 'django',
     DEEPSEEK = 'deepseek',
