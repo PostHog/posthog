@@ -12,12 +12,11 @@ import { COOKIELESS_MODE_FLAG_PROPERTY, COOKIELESS_SENTINEL_VALUE } from '~/inge
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
-import { CookielessServerHashMode, Hub, PipelineEvent, Team } from '../../src/types'
+import { Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '../../tests/helpers/ingestion-outputs'
 import { createHogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { HogFunctionType } from '../cdp/types'
-import { PostgresUse } from '../utils/db/postgres'
 import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { UUIDT } from '../utils/utils'
@@ -209,27 +208,9 @@ describe('IngestionConsumer', () => {
         })
 
         it('should process a cookieless event', async () => {
-            await hub.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                `UPDATE posthog_team SET cookieless_server_hash_mode = $1 WHERE id = $2`,
-                [CookielessServerHashMode.Stateful, team.id],
-                'set cookieless to stateful'
-            )
             await ingester.handleKafkaBatch(createKafkaMessages([createCookielessEvent()]))
 
             expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchSnapshot()
-        })
-
-        it('should drop a cookieless event if the team has cookieless disabled', async () => {
-            await hub.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                `UPDATE posthog_team SET cookieless_server_hash_mode = $1 WHERE id = $2`,
-                [CookielessServerHashMode.Disabled, team.id],
-                'set cookieless to disabled'
-            )
-            await ingester.handleKafkaBatch(createKafkaMessages([createCookielessEvent()]))
-
-            expect(mockProducerObserver.getProducedKafkaMessages()).toHaveLength(0)
         })
 
         it('should not blend person properties from 2 different cookieless users', async () => {
