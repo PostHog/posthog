@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { ActivityTab, AnyPropertyFilter } from '~/types'
+import { ActivityTab, AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
 const DATE_RANGE_LABELS: Record<string, string> = {
     '-7d': '7 days',
@@ -22,6 +22,7 @@ const NEXT_DATE_RANGE: Record<string, string> = {
 export function MatchResultBanner({
     matchResult,
     properties,
+    filterType = FilterLogicalOperator.And,
     suffix,
     dateRange = '-7d',
     onIncreaseDateRange,
@@ -29,6 +30,7 @@ export function MatchResultBanner({
 }: {
     matchResult: { exceptionCount: number; issueCount: number }
     properties: AnyPropertyFilter[]
+    filterType?: FilterLogicalOperator
     suffix: (issuesLink: JSX.Element, dateRangeLabel: string) => JSX.Element
     dateRange?: string
     onIncreaseDateRange?: () => void
@@ -51,7 +53,7 @@ export function MatchResultBanner({
     }
 
     const issuesUrl = urls.errorTracking({
-        filterGroup: { type: 'AND', values: [{ type: 'AND', values: properties }] },
+        filterGroup: { type: filterType, values: [{ type: filterType, values: properties }] },
         dateRange: { date_from: dateRange, date_to: null },
     })
 

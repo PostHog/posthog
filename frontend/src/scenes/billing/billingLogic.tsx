@@ -180,7 +180,7 @@ export const billingLogic = kea<billingLogicType>([
             preflightLogic,
             ['preflight'],
             organizationLogic,
-            ['currentOrganization'],
+            ['currentOrganization', 'currentOrganizationId'],
         ],
         actions: [
             userLogic,
@@ -859,7 +859,7 @@ export const billingLogic = kea<billingLogicType>([
                     if (values.featureFlags[hideProductFlag as FeatureFlagKey] === true) {
                         return false
                     }
-                    if (isBillingAlertDismissed(values.currentOrganization?.id, x.type, billingPeriodEnd)) {
+                    if (isBillingAlertDismissed(values.currentOrganizationId, x.type, billingPeriodEnd)) {
                         return false
                     }
                     return true
@@ -878,7 +878,7 @@ export const billingLogic = kea<billingLogicType>([
                         const billingPeriodEnd =
                             values.billing?.billing_period?.current_period_end?.format('YYYY-MM-DD')
                         for (const product of productsOverLimit) {
-                            storeBillingAlertDismissal(values.currentOrganization?.id, product.type, billingPeriodEnd)
+                            storeBillingAlertDismissal(values.currentOrganizationId, product.type, billingPeriodEnd)
                         }
                         actions.setBillingAlert(null)
                     },
@@ -900,12 +900,7 @@ export const billingLogic = kea<billingLogicType>([
                         return false
                     }
                     if (
-                        isBillingAlertDismissed(
-                            values.currentOrganization?.id,
-                            x.type,
-                            billingPeriodEnd,
-                            '-approaching'
-                        )
+                        isBillingAlertDismissed(values.currentOrganizationId, x.type, billingPeriodEnd, '-approaching')
                     ) {
                         return false
                     }
@@ -926,7 +921,7 @@ export const billingLogic = kea<billingLogicType>([
                             values.billing?.billing_period?.current_period_end?.format('YYYY-MM-DD')
                         for (const product of productsApproachingLimit) {
                             storeBillingAlertDismissal(
-                                values.currentOrganization?.id,
+                                values.currentOrganizationId,
                                 product.type,
                                 billingPeriodEnd,
                                 '-approaching'

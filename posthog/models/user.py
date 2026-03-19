@@ -4,7 +4,6 @@ from typing import Any, Optional, TypedDict
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
-from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from django_deprecate_fields import deprecate_field
@@ -19,7 +18,6 @@ from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
 
 from .organization import Organization, OrganizationMembership
-from .personal_api_key import PersonalAPIKey, hash_key_value
 from .team import Team
 from .utils import UUIDTClassicModel, generate_random_token, sane_repr
 
@@ -137,20 +135,6 @@ class UserManager(BaseUserManager):
             user = self.create_user(email=email, password=password, first_name=first_name, **extra_fields)
             user.join(organization=organization, level=level)
             return user
-
-    def get_from_personal_api_key(self, key_value: str) -> Optional["User"]:
-        try:
-            personal_api_key: PersonalAPIKey = (
-                PersonalAPIKey.objects.select_related("user")
-                .filter(user__is_active=True)
-                .get(secure_value=hash_key_value(key_value))
-            )
-        except PersonalAPIKey.DoesNotExist:
-            return None
-        else:
-            personal_api_key.last_used_at = timezone.now()
-            personal_api_key.save()
-            return personal_api_key.user
 
 
 def events_column_config_default() -> dict[str, Any]:

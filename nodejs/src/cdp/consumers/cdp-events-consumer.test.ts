@@ -252,7 +252,7 @@ describe.each([
                     mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
                 ).toMatchObject([
                     {
-                        key: expect.any(String),
+                        key: null,
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
                             app_source: 'hog_function',
@@ -265,7 +265,7 @@ describe.each([
                         },
                     },
                     {
-                        key: expect.any(String),
+                        key: null,
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
                             app_source: 'hog_function',
@@ -282,7 +282,7 @@ describe.each([
                         ? []
                         : [
                               {
-                                  key: expect.any(String),
+                                  key: null,
                                   topic: 'clickhouse_app_metrics2_test',
                                   value: {
                                       app_source: 'hog_function',
@@ -535,7 +535,7 @@ describe.each([
                 await processor.processBatch([globals])
                 expect(mockProducerObserver.getProducedKafkaMessages()).toMatchObject([
                     {
-                        key: expect.any(String),
+                        key: null,
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
                             app_source: 'hog_function',

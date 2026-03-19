@@ -255,7 +255,7 @@ class ExperimentQueryRunner(QueryRunner):
             modifiers=create_default_modifiers_for_team(self.team),
             settings=HogQLGlobalSettings(
                 max_execution_time=self.max_execution_time,
-                allow_experimental_analyzer=True,
+                enable_analyzer=True,
                 max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
             ),
             workload=self.workload,

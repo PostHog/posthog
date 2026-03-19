@@ -440,7 +440,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
         },
         addNewVariant: () => {
             if (values.experimentForm) {
-                const nextVariantName = `variant #${Object.keys(values.experimentForm.variants || {}).length}`
+                const nextVariantName = `test-${Object.keys(values.experimentForm.variants || {}).length - 1}`
 
                 if (values.experimentForm.variants == undefined) {
                     values.experimentForm.variants = {}

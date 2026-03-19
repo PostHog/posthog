@@ -1,8 +1,9 @@
-import { afterMount, kea, listeners, path, selectors } from 'kea'
+import { afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import type { HealthIssueSummary } from 'scenes/health/types'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { unifiedHealthMenuLogicType } from './unifiedHealthMenuLogicType'
 
@@ -10,13 +11,14 @@ const REFRESH_INTERVAL = 60 * 1000 * 5
 
 export const unifiedHealthMenuLogic = kea<unifiedHealthMenuLogicType>([
     path(['lib', 'components', 'HealthMenu', 'unifiedHealthMenuLogic']),
-    loaders(() => ({
+    connect(() => ({ values: [teamLogic, ['currentTeamIdStrict']] })),
+    loaders(({ values }) => ({
         healthSummary: [
             null as HealthIssueSummary | null,
             {
                 loadHealthSummary: async (): Promise<HealthIssueSummary | null> => {
                     try {
-                        return await api.get('api/environments/@current/health_issues/summary/')
+                        return await api.get(`api/environments/${values.currentTeamIdStrict}/health_issues/summary/`)
                     } catch {
                         return null
                     }
