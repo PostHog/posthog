@@ -11,6 +11,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
+import { IconX } from '@posthog/icons'
 import { LemonTable, lemonToast } from '@posthog/lemon-ui'
 
 import {
@@ -31,13 +32,11 @@ import { resolveVariableColor } from 'lib/charts/utils/color'
 import { createXAxisTickCallback } from 'lib/charts/utils/dates'
 import { getGraphColors, getSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useChart } from 'lib/hooks/useChart'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hexToRGBA, uuid } from 'lib/utils'
-import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
+import { unpinTooltip, useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ChartSettings, GoalLine, YAxisSettings } from '~/queries/schema/schema-general'
@@ -131,13 +130,15 @@ export const LineGraph = ({
     goalLines = [],
     className,
 }: LineGraphProps): JSX.Element => {
-    const { tooltipId, getTooltip, showTooltip, hideTooltip, positionTooltip } = useInsightTooltip()
+    const { tooltipId, getTooltip, showTooltip, hideTooltip, positionTooltip, pinTooltip } = useInsightTooltip({
+        isPinnable: true,
+    })
+
     const { ref: containerRef, height } = useResizeObserver()
 
     const logicKey = useMemo(() => uuid(), [])
     const { hoveredDatasetIndex } = useValues(lineGraphLogic({ key: logicKey }))
     const { setHoveredDatasetIndex } = useActions(lineGraphLogic({ key: logicKey }))
-    const { featureFlags } = useValues(featureFlagLogic)
     const { timezone } = useValues(teamLogic)
     const isShiftPressed = useKeyHeld('Shift')
 
@@ -340,13 +341,12 @@ export const LineGraph = ({
             }
 
             const isDateAxis = xSeriesData.column.type.name === 'DATE' || xSeriesData.column.type.name === 'DATETIME'
-            const xAxisTickCallback =
-                featureFlags[FEATURE_FLAGS.DASHBOARD_TILE_REDESIGN] && isDateAxis
-                    ? createXAxisTickCallback({
-                          allDays: xSeriesData.data,
-                          timezone,
-                      })
-                    : undefined
+            const xAxisTickCallback = isDateAxis
+                ? createXAxisTickCallback({
+                      allDays: xSeriesData.data,
+                      timezone,
+                  })
+                : undefined
 
             const options: ChartOptions = {
                 responsive: true,
@@ -437,23 +437,25 @@ export const LineGraph = ({
                                     (series) => series.data[referenceDataPoint.dataIndex] !== null
                                 )
 
-                                const tooltipData = filteredSeriesData.map((series, index) => {
-                                    const seriesName =
-                                        series?.settings?.display?.label ||
-                                        ('column' in series ? series.column.name : series.name)
-                                    const seriesIndex = isHighlightBarMode ? referenceDataPoint.datasetIndex : index
-                                    return {
-                                        series: seriesName,
-                                        data: formatDataWithSettings(
-                                            series.data[referenceDataPoint.dataIndex],
-                                            series.settings
-                                        ),
-                                        rawData: series.data[referenceDataPoint.dataIndex],
-                                        dataIndex: referenceDataPoint.dataIndex,
-                                        seriesIndex: seriesIndex,
-                                        stackedSeriesTotalAtIndex,
-                                    }
-                                })
+                                const tooltipData = filteredSeriesData
+                                    .map((series, index) => {
+                                        const seriesName =
+                                            series?.settings?.display?.label ||
+                                            ('column' in series ? series.column.name : series.name)
+                                        const seriesIndex = isHighlightBarMode ? referenceDataPoint.datasetIndex : index
+                                        return {
+                                            series: seriesName,
+                                            data: formatDataWithSettings(
+                                                series.data[referenceDataPoint.dataIndex],
+                                                series.settings
+                                            ),
+                                            rawData: series.data[referenceDataPoint.dataIndex],
+                                            dataIndex: referenceDataPoint.dataIndex,
+                                            seriesIndex: seriesIndex,
+                                            stackedSeriesTotalAtIndex,
+                                        }
+                                    })
+                                    .sort((a, b) => b.rawData! - a.rawData!)
 
                                 let totalLabel: string | null = null
                                 const tooltipTotalData = ySeriesData.filter(
@@ -478,8 +480,18 @@ export const LineGraph = ({
 
                                 tooltipRoot.render(
                                     <div className="InsightTooltip">
-                                        <div className="px-5 py-2 text-xs font-semibold border-b border-primary">
-                                            {xSeriesData.data[referenceDataPoint.dataIndex]}
+                                        <div className="flex items-center justify-between pl-5 pr-2 py-2 text-xs font-semibold border-b border-primary">
+                                            <span>{xSeriesData.data[referenceDataPoint.dataIndex]}</span>
+                                            {pinTooltip && (
+                                                <button
+                                                    type="button"
+                                                    className="InsightTooltip__close ml-5 p-0.5 rounded hover:bg-fill-button-tertiary-hover cursor-pointer"
+                                                    style={{ opacity: 0 }}
+                                                    onClick={() => unpinTooltip(tooltipId)}
+                                                >
+                                                    <IconX className="w-3 h-3" />
+                                                </button>
+                                            )}
                                         </div>
                                         <div className="max-h-64 overflow-y-auto">
                                             <LemonTable
@@ -580,6 +592,33 @@ export const LineGraph = ({
                         }
                     }
                 },
+                onClick: (_event: ChartEvent, _elements: ActiveElement[], chart: Chart) => {
+                    if (!pinTooltip) {
+                        return
+                    }
+
+                    // Show the crosshair on click if it was enabled initially
+                    if ((chart as any).crosshair) {
+                        ;(chart as any).crosshair.enabled = true
+                    }
+
+                    const events = [...(chart.options.events ?? [])]
+                    chart.options.events = []
+                    chart.update('none')
+                    showTooltip()
+
+                    pinTooltip(() => {
+                        // Hide crosshair on tooltip unpin
+                        if ((chart as any).crosshair) {
+                            ;(chart as any).crosshair.enabled = false
+                        }
+
+                        // Reset chart back to initial events
+                        chart.options.events = events
+                        chart.setActiveElements([])
+                        chart.update('none')
+                    })
+                },
                 scales: {
                     x: {
                         display: true,
@@ -644,6 +683,7 @@ export const LineGraph = ({
             chartSettings,
             dashboardId,
             getTooltip,
+            pinTooltip,
             isHighlightBarMode,
             hoveredDatasetIndex,
             timezone,

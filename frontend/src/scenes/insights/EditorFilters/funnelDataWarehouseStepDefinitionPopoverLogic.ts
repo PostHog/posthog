@@ -16,11 +16,11 @@ import { InsightLogicProps } from '~/types'
 
 import type { funnelDataWarehouseStepDefinitionPopoverLogicType } from './funnelDataWarehouseStepDefinitionPopoverLogicType'
 
-export type FunnelFieldKey = 'id_field' | 'timestamp_field' | 'distinct_id_field'
+export type FunnelFieldKey = 'id_field' | 'timestamp_field' | 'aggregation_target_field'
 
-export const EDITABLE_FIELD_ORDER: FunnelFieldKey[] = ['distinct_id_field', 'timestamp_field', 'id_field']
+export const EDITABLE_FIELD_ORDER: FunnelFieldKey[] = ['aggregation_target_field', 'timestamp_field', 'id_field']
 const ALLOWED_COLUMN_TYPES_BY_FIELD_KEY: Record<FunnelFieldKey, DatabaseSerializedFieldType[]> = {
-    distinct_id_field: ['string'],
+    aggregation_target_field: ['string'],
     timestamp_field: ['datetime', 'date', 'string'],
     id_field: ['string', 'integer', 'decimal', 'float'],
 }
@@ -52,7 +52,7 @@ export const funnelDataWarehouseStepDefinitionPopoverLogic = kea<funnelDataWareh
     }),
     reducers({
         activeFieldKey: [
-            'distinct_id_field' as FunnelFieldKey,
+            'aggregation_target_field' as FunnelFieldKey,
             {
                 setActiveFieldKey: (_, { activeFieldKey }) => activeFieldKey,
             },

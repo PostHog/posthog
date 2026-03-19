@@ -150,6 +150,7 @@ class UsageReportCounters:
     event_explorer_api_duration_ms: int
 
     # Surveys
+    survey_count: int
     survey_responses_count_in_period: int
 
     # Data Warehouse
@@ -1722,6 +1723,24 @@ def capture_report(
             properties={"error": str(err)},
         )
 
+    # Update organization group properties so they can be used for email campaigns
+    try:
+        pha_client.group_identify(
+            group_type="organization",
+            group_key=organization_id,
+            properties={
+                "member_count": full_report_dict.get("organization_user_count", 0),
+                "project_count": full_report_dict.get("team_count", 0),
+                "dashboard_count": full_report_dict.get("dashboard_count", 0),
+                "ff_count": full_report_dict.get("ff_count", 0),
+                "survey_count": full_report_dict.get("survey_count", 0),
+            },
+        )
+    except Exception as err:
+        logger.exception(
+            f"Failed to update organization group properties for {organization_id}: {str(err)}",
+        )
+
     # There are some billing-related flags we wanna set in customer.io
     # and for that to work properly we need to make sure we include that
     # for every single person in the organization, otherwise we might end up
@@ -1882,6 +1901,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         ),
         "teams_with_ff_count": list(
             FeatureFlag.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
+        ),
+        "teams_with_survey_count": list(
+            Survey.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
         ),
         "teams_with_ff_active_count": list(
             FeatureFlag.objects.filter(active=True).values("team_id").annotate(total=Count("id")).order_by("team_id")
@@ -2112,6 +2134,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         event_explorer_api_bytes_read=all_data["teams_with_event_explorer_api_bytes_read"].get(team.id, 0),
         event_explorer_api_rows_read=all_data["teams_with_event_explorer_api_rows_read"].get(team.id, 0),
         event_explorer_api_duration_ms=all_data["teams_with_event_explorer_api_duration_ms"].get(team.id, 0),
+        survey_count=all_data["teams_with_survey_count"].get(team.id, 0),
         survey_responses_count_in_period=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
         rows_synced_in_period=all_data["teams_with_rows_synced_in_period"].get(team.id, 0),
         free_historical_rows_synced_in_period=all_data["teams_with_free_historical_rows_synced_in_period"].get(

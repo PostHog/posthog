@@ -72,6 +72,8 @@ pub struct FeatureFlagEvaluationContext {
     pub skip_writes: bool,
     /// Provider for realtime/behavioral cohort membership lookups.
     pub cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
+    /// Whether to enable realtime cohort evaluation.
+    pub enable_realtime_cohort_evaluation: bool,
 }
 
 /// SDK type classification based on user-agent parsing.

@@ -265,6 +265,9 @@ pub struct FeatureFlagMatcher {
     /// Provider for realtime/behavioral cohort membership lookups.
     /// Queries the behavioral cohorts database for cohorts with CohortType::Realtime or Behavioral.
     cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
+    /// Whether to enable realtime cohort evaluation.
+    /// When false, realtime cohorts are treated as non-members.
+    enable_realtime_cohort_evaluation: bool,
 }
 
 /// Lightweight snapshot of a flag's identity fields, saved before moving
@@ -312,6 +315,7 @@ impl FeatureFlagMatcher {
             rayon_dispatcher: None,
             skip_writes: false,
             filtered_out_flag_ids: HashSet::new(),
+            enable_realtime_cohort_evaluation: false,
         }
     }
 
@@ -335,6 +339,11 @@ impl FeatureFlagMatcher {
         provider: Arc<dyn CohortMembershipProvider>,
     ) -> Self {
         self.cohort_membership_provider = provider;
+        self
+    }
+
+    pub fn with_realtime_cohort_evaluation(mut self, enable: bool) -> Self {
+        self.enable_realtime_cohort_evaluation = enable;
         self
     }
 
@@ -1887,6 +1896,12 @@ impl FeatureFlagMatcher {
         // Get static cohort IDs
         // NOTE: relies on `is_static` and `uses_realtime_membership()` being mutually exclusive
         // (a cohort with is_static=true should never have CohortType::Realtime/Behavioral).
+        debug_assert!(
+            !cohorts
+                .iter()
+                .any(|c| c.is_static && c.uses_realtime_membership()),
+            "Cohort cannot be both static and realtime"
+        );
         let static_cohort_ids: Vec<CohortId> = cohorts
             .iter()
             .filter(|c| c.is_static)
@@ -1928,11 +1943,15 @@ impl FeatureFlagMatcher {
         // Fetch realtime cohort memberships for Realtime/Behavioral cohorts.
         // This is a separate DB call to the behavioral cohorts database, isolated from
         // the static cohort path above which uses the persons_reader pool.
-        let realtime_cohort_ids: Vec<CohortId> = cohorts
-            .iter()
-            .filter(|c| c.uses_realtime_membership())
-            .map(|c| c.id)
-            .collect();
+        let realtime_cohort_ids: Vec<CohortId> = if self.enable_realtime_cohort_evaluation {
+            cohorts
+                .iter()
+                .filter(|c| c.uses_realtime_membership())
+                .map(|c| c.id)
+                .collect()
+        } else {
+            Vec::new()
+        };
 
         if !realtime_cohort_ids.is_empty() {
             with_canonical_log(|log| {

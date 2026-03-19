@@ -54,14 +54,14 @@ describe('PostgresPersonRepository', () => {
 
     describe('fetchPerson()', () => {
         it('returns undefined if person does not exist', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await repository.fetchPerson(team.id, 'some_id')
 
             expect(person).toEqual(undefined)
         })
 
         it('returns person object if person exists', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const createdPerson = await createTestPerson(team.id, 'some_id', { foo: 'bar' })
             const person = await repository.fetchPerson(team.id, 'some_id')
 
@@ -79,7 +79,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('throws error when both forUpdate and useReadReplica are true', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
 
             await expect(
                 repository.fetchPerson(team.id, 'some_id', { forUpdate: true, useReadReplica: true })
@@ -87,7 +87,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('uses read replica when useReadReplica is true', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const createdPerson = await createTestPerson(team.id, 'some_id', { foo: 'bar' })
 
             // Mock the postgres query to verify it's called with the right parameters
@@ -124,7 +124,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('uses write connection when useReadReplica is false', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const createdPerson = await createTestPerson(team.id, 'some_id', { foo: 'bar' })
 
             // Mock the postgres query to verify it's called with the right parameters
@@ -161,7 +161,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('adds FOR UPDATE clause when forUpdate is true', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
 
             // Mock the postgres query to verify the SQL contains FOR UPDATE
             const mockQuery = jest.spyOn(postgres, 'query').mockResolvedValue({
@@ -185,7 +185,7 @@ describe('PostgresPersonRepository', () => {
 
     describe('createPerson()', () => {
         it('creates a person with basic properties', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const uuid = new UUIDT().toString()
             const properties = { name: 'John Doe', email: 'john@example.com' }
 
@@ -217,7 +217,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('creates a person with multiple distinct IDs', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const uuid = new UUIDT().toString()
             const properties = { name: 'Jane Doe' }
 
@@ -266,7 +266,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('throws error when trying to create a person with the same distinct ID twice', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const distinctId = 'duplicate-distinct-id'
             const uuid1 = new UUIDT().toString()
             const uuid2 = new UUIDT().toString()
@@ -319,7 +319,7 @@ describe('PostgresPersonRepository', () => {
 
     describe('addDistinctId()', () => {
         it('should add distinct ID to person', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'existing-distinct-id', { name: 'John Doe' })
             const newDistinctId = 'new-distinct-id'
             const version = 1
@@ -341,7 +341,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle adding distinct ID with different version', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'existing-distinct-id', { name: 'John Doe' })
             const newDistinctId = 'another-distinct-id'
             const version = 5
@@ -365,7 +365,7 @@ describe('PostgresPersonRepository', () => {
 
     describe('deletePerson()', () => {
         it('should delete person from postgres', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const uuid = new UUIDT().toString()
             const result = await repository.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, {
                 distinctId: 'delete-test-distinct',
@@ -411,7 +411,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle deleting person that does not exist', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const nonExistentPerson = {
                 id: '999999',
                 uuid: new UUIDT().toString(),
@@ -435,7 +435,7 @@ describe('PostgresPersonRepository', () => {
 
     describe('moveDistinctIds()', () => {
         it('should move distinct IDs from source to target person', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const sourcePerson = await createTestPerson(team.id, 'source-distinct-id', { name: 'Source Person' })
             const targetPerson = await createTestPerson(team.id, 'target-distinct-id', { name: 'Target Person' })
 
@@ -466,7 +466,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it.skip('should handle target person not found', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const sourcePerson = await createTestPerson(team.id, 'source-distinct-id', { name: 'Source Person' })
             const nonExistentTargetPerson = {
                 id: '999999',
@@ -491,7 +491,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle source person not found', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const targetPerson = await createTestPerson(team.id, 'target-distinct-id', { name: 'Target Person' })
             const nonExistentSourcePerson = {
                 id: '888888',
@@ -516,7 +516,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should respect per-call move limit when provided', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const limitedRepository = new PostgresPersonRepository(postgres, {})
 
             const sourcePerson = await createTestPerson(team.id, 'source-distinct-id', { name: 'Source Person' })
@@ -562,7 +562,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should move all distinct IDs when no limit is configured', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const unlimitedRepository = new PostgresPersonRepository(postgres, {}) // No limit
 
             const sourcePerson = await createTestPerson(team.id, 'source-unlimited', { name: 'Source Person' })
@@ -593,7 +593,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should move distinct IDs in deterministic order when per-call limit is set', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const limitedRepository = new PostgresPersonRepository(postgres, {})
 
             const sourcePerson = await createTestPerson(team.id, 'source-deterministic', { name: 'Source Person' })
@@ -648,7 +648,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should move all distinct IDs when person has fewer than the per-call limit', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const limitedRepository = new PostgresPersonRepository(postgres, {})
 
             const sourcePerson = await createTestPerson(team.id, 'source-below-limit', { name: 'Source Person' })
@@ -695,7 +695,7 @@ describe('PostgresPersonRepository', () => {
 
     describe('fetchPersonDistinctIds()', () => {
         it('should fetch all distinct IDs when no limit is specified', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-distinct-id', { name: 'Test Person' })
 
             // Add more distinct IDs
@@ -713,7 +713,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should fetch limited distinct IDs when limit is specified', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-limit-distinct', { name: 'Test Person' })
 
             // Add more distinct IDs
@@ -729,7 +729,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should return distinct IDs in deterministic order', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'order-test-distinct', { name: 'Test Person' })
 
             // Add distinct IDs in non-alphabetical order
@@ -746,7 +746,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle limit larger than available distinct IDs', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'large-limit-distinct', { name: 'Test Person' })
 
             // Add only 2 more distinct IDs (total of 3)
@@ -762,7 +762,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should work with transactions', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'tx-distinct', { name: 'Test Person' })
 
             await repository.addDistinctId(person, 'tx-distinct-2', 1)
@@ -783,7 +783,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should fetch persons by distinct IDs from multiple teams', async () => {
-            const team1 = await getFirstTeam(hub)
+            const team1 = await getFirstTeam(hub.postgres)
             const team2Id = await createTeam(postgres, team1.organization_id)
 
             // Create persons in different teams
@@ -822,7 +822,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle non-existent distinct IDs gracefully', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'existing-distinct', { name: 'Existing Person' })
 
             const teamPersons = [
@@ -839,7 +839,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle single team person lookup', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'single-distinct', { name: 'Single Person' })
 
             const teamPersons = [{ teamId: team.id as any, distinctId: 'single-distinct' }]
@@ -854,7 +854,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle duplicate team/distinctId pairs', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'duplicate-distinct', { name: 'Duplicate Person' })
 
             const teamPersons = [
@@ -871,7 +871,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should include all required fields in InternalPersonWithDistinctId', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'fields-test', { name: 'Fields Test', age: 25 })
 
             const teamPersons = [{ teamId: team.id as any, distinctId: 'fields-test' }]
@@ -906,7 +906,7 @@ describe('PostgresPersonRepository', () => {
             ['single team', 1],
             ['multiple teams', 2],
         ])('should fetch persons by person IDs (%s)', async (_label, teamCount) => {
-            const team1 = await getFirstTeam(hub)
+            const team1 = await getFirstTeam(hub.postgres)
             const team2Id = teamCount > 1 ? await createTeam(postgres, team1.organization_id) : team1.id
 
             const person1 = await createTestPerson(team1.id, 'pid-test-1', { name: 'Person 1' })
@@ -926,7 +926,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should not return persons from a different team even if their IDs were referenced', async () => {
-            const team1 = await getFirstTeam(hub)
+            const team1 = await getFirstTeam(hub.postgres)
             const team2Id = await createTeam(postgres, team1.organization_id)
 
             const team1Person = await createTestPerson(team1.id, 'cross-team-1', { name: 'Team 1 Person' })
@@ -943,7 +943,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle non-existent person IDs gracefully', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'existing-person', { name: 'Existing' })
             const nonExistentId = new UUIDT().toString()
 
@@ -957,7 +957,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should deduplicate repeated (teamId, personId) pairs', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'dedup-person', { name: 'Dedup' })
 
             const result = await repository.fetchPersonsByPersonIds([
@@ -972,7 +972,7 @@ describe('PostgresPersonRepository', () => {
 
     describe('addPersonlessDistinctId', () => {
         it('should insert personless distinct ID successfully', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const distinctId = 'test-distinct-new'
 
             const result = await repository.addPersonlessDistinctId(team.id, distinctId)
@@ -992,7 +992,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should return existing is_merged value when distinct ID already exists', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const distinctId = 'test-distinct-existing'
 
             // First insert
@@ -1015,7 +1015,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle different team IDs correctly', async () => {
-            const team1 = await getFirstTeam(hub)
+            const team1 = await getFirstTeam(hub.postgres)
             const team2Id = await createTeam(hub.postgres, team1.organization_id)
             const distinctId = 'shared-distinct-id'
 
@@ -1051,7 +1051,7 @@ describe('PostgresPersonRepository', () => {
 
     describe('addPersonlessDistinctIdForMerge', () => {
         it('should insert personless distinct ID for merge successfully', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const distinctId = 'test-distinct-merge-new'
 
             const result = await repository.addPersonlessDistinctIdForMerge(team.id, distinctId)
@@ -1071,7 +1071,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should update existing record to merged when distinct ID already exists', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const distinctId = 'test-distinct-merge-existing'
 
             // First insert as regular personless distinct ID
@@ -1102,7 +1102,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle transaction parameter correctly', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const distinctId = 'test-distinct-merge-transaction'
 
             // Use a transaction
@@ -1135,7 +1135,7 @@ describe('PostgresPersonRepository', () => {
 
     describe('addPersonlessDistinctIdsBatch', () => {
         it('should insert multiple personless distinct IDs in batch', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const entries = [
                 { teamId: team.id, distinctId: 'batch-distinct-1' },
                 { teamId: team.id, distinctId: 'batch-distinct-2' },
@@ -1161,7 +1161,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle duplicate distinct IDs in batch (deduplicates)', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const entries = [
                 { teamId: team.id, distinctId: 'dup-distinct' },
                 { teamId: team.id, distinctId: 'dup-distinct' },
@@ -1177,7 +1177,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should return is_merged=true for already merged distinct IDs', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const mergedDistinctId = 'already-merged-distinct'
 
             // First, insert and mark as merged
@@ -1202,7 +1202,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle multiple teams in same batch', async () => {
-            const team1 = await getFirstTeam(hub)
+            const team1 = await getFirstTeam(hub.postgres)
             const team2Id = await createTeam(hub.postgres, team1.organization_id)
 
             const entries = [
@@ -1220,7 +1220,7 @@ describe('PostgresPersonRepository', () => {
 
     describe('personPropertiesSize', () => {
         it('should return properties size for existing person', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-distinct', {
                 name: 'John Doe',
                 email: 'john@example.com',
@@ -1238,7 +1238,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should return 0 for non-existent person', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const fakePersonId = '999999' // Use a numeric ID instead of UUID
             const size = await repository.personPropertiesSize(fakePersonId, team.id)
 
@@ -1246,7 +1246,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle different persons correctly', async () => {
-            const team1 = await getFirstTeam(hub)
+            const team1 = await getFirstTeam(hub.postgres)
             const team2Id = await createTeam(hub.postgres, team1.organization_id)
 
             // Create person in team 1
@@ -1265,7 +1265,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should return larger size for person with more properties', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
 
             // Create person with minimal properties
             const minimalPerson = await createTestPerson(team.id, 'minimal-person', { name: 'Minimal' })
@@ -1306,7 +1306,7 @@ describe('PostgresPersonRepository', () => {
 
     describe('updatePerson', () => {
         it('should update person properties successfully', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-distinct', { name: 'John', age: 25 })
 
             const update = { properties: { name: 'Jane', age: 30, city: 'New York' } }
@@ -1327,7 +1327,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should update is_identified field', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
 
             const update = { is_identified: true }
@@ -1342,7 +1342,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle version conflicts correctly', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
 
             // First update
@@ -1366,7 +1366,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle transaction parameter correctly', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
 
             await postgres.transaction(PostgresUse.PERSONS_WRITE, 'test-transaction', async (tx) => {
@@ -1388,7 +1388,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle tag parameter correctly', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
 
             const update = { properties: { name: 'Jane' } }
@@ -1403,7 +1403,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should throw NoRowsUpdatedError when person does not exist', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const nonExistentPerson: InternalPerson = {
                 id: '1234567890',
                 team_id: team.id,
@@ -1425,7 +1425,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle updatePersonAssertVersion with optimistic concurrency control', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
 
             // Create a PersonUpdate object
@@ -1463,7 +1463,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle updatePersonAssertVersion with version mismatch', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
 
             // Create a PersonUpdate with an outdated version
@@ -1501,7 +1501,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle updatePersonAssertVersion with non-existent person', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
 
             // Create a PersonUpdate for a non-existent person
             const personUpdate = {
@@ -1533,7 +1533,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should merge properties_to_set into properties when updating', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-merge-set', { existing: 'value', to_update: 'old' })
 
             const personUpdate = {
@@ -1571,7 +1571,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should apply properties_to_unset when updating', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-unset', {
                 keep: 'value',
                 remove_me: 'will be removed',
@@ -1609,7 +1609,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle combined properties_to_set and properties_to_unset', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-combined', {
                 keep: 'value',
                 remove: 'will go',
@@ -1668,7 +1668,7 @@ describe('PostgresPersonRepository', () => {
         }
 
         beforeEach(async () => {
-            team = await getFirstTeam(hub)
+            team = await getFirstTeam(hub.postgres)
             const result = await repository.createPerson(
                 TIMESTAMP,
                 {},
@@ -1941,7 +1941,7 @@ describe('PostgresPersonRepository', () => {
 
         describe('createPerson with oversized properties', () => {
             it('should throw PersonPropertiesSizeViolationError when properties exceed size limit', async () => {
-                const team = await getFirstTeam(hub)
+                const team = await getFirstTeam(hub.postgres)
                 const uuid = new UUIDT().toString()
                 const oversizedProperties = {
                     description: 'x'.repeat(200),
@@ -1992,7 +1992,7 @@ describe('PostgresPersonRepository', () => {
 
         describe('updatePerson with oversized properties', () => {
             it('should trim existing oversized person properties and update successfully', async () => {
-                const team = await getFirstTeam(hub)
+                const team = await getFirstTeam(hub.postgres)
 
                 const normalPerson = await createTestPerson(team.id, 'test-oversized-update', {
                     name: 'John',
@@ -2025,7 +2025,7 @@ describe('PostgresPersonRepository', () => {
             })
 
             it('should reject update when current person is under limit but update would exceed it', async () => {
-                const team = await getFirstTeam(hub)
+                const team = await getFirstTeam(hub.postgres)
                 const normalPerson = await createTestPerson(team.id, 'test-normal-person', { name: 'John' })
 
                 const mockPersonPropertiesSize = jest
@@ -2067,7 +2067,7 @@ describe('PostgresPersonRepository', () => {
             })
 
             it('should fail gracefully when trimming fails', async () => {
-                const team = await getFirstTeam(hub)
+                const team = await getFirstTeam(hub.postgres)
                 const normalPerson = await createTestPerson(team.id, 'test-trim-failure', {
                     name: 'John',
                     description: 'x'.repeat(120),
@@ -2122,7 +2122,7 @@ describe('PostgresPersonRepository', () => {
             })
 
             it('should fail when protected properties alone exceed size limit and cannot be trimmed', async () => {
-                const team = await getFirstTeam(hub)
+                const team = await getFirstTeam(hub.postgres)
 
                 const largeProtectedProperties = {
                     name: 'John Doe with a very long name that takes up significant space',
@@ -2224,7 +2224,7 @@ describe('PostgresPersonRepository', () => {
 
         describe('updatePersonAssertVersion with oversized properties', () => {
             it('should throw PersonPropertiesSizeViolationError when properties exceed size limit', async () => {
-                const team = await getFirstTeam(hub)
+                const team = await getFirstTeam(hub.postgres)
                 const person = await createTestPerson(team.id, 'test-assert-oversized', { name: 'John' })
 
                 const originalQuery = postgres.query.bind(postgres)
@@ -2275,7 +2275,7 @@ describe('PostgresPersonRepository', () => {
 
         describe('new metrics and error handling', () => {
             it('should increment personPropertiesSizeViolationCounter with correct labels', async () => {
-                const team = await getFirstTeam(hub)
+                const team = await getFirstTeam(hub.postgres)
                 const uuid = new UUIDT().toString()
                 const oversizedProperties = {
                     description: 'x'.repeat(200),
@@ -2320,7 +2320,7 @@ describe('PostgresPersonRepository', () => {
             })
 
             it('should increment oversizedPersonPropertiesTrimmedCounter when trimming succeeds', async () => {
-                const team = await getFirstTeam(hub)
+                const team = await getFirstTeam(hub.postgres)
                 const person = await createTestPerson(team.id, 'test-trimming-metrics', {
                     name: 'John',
                     description: 'x'.repeat(120),
@@ -2421,7 +2421,7 @@ describe('PostgresPersonRepository', () => {
 
     describe('calculate properties size feature flag', () => {
         it('should have identical output whether properties size calculation is enabled or disabled', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
 
             const person1 = await createTestPerson(team.id, 'test-distinct-1', {
                 name: 'John',
@@ -2481,7 +2481,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should have identical behavior for updatePersonAssertVersion regardless of logging configuration', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
 
             const person1 = await createTestPerson(team.id, 'test-assert-1', { name: 'John', data: 'x'.repeat(2000) })
             const person2 = await createTestPerson(team.id, 'test-assert-2', { name: 'John', data: 'x'.repeat(2000) })
@@ -2539,7 +2539,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should work with default options (no logging)', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const defaultRepository = new PostgresPersonRepository(postgres, {
                 calculatePropertiesSize: 0,
                 personPropertiesDbConstraintLimitBytes: 1024 * 1024,
@@ -2595,7 +2595,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should track JSON field sizes on createPerson', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const properties = { name: 'Alice', email: 'alice@example.com', age: 25 }
             const propertiesLastUpdatedAt = { name: '2024-01-15T10:30:00.000Z', email: '2024-01-15T10:30:00.000Z' }
             const propertiesLastOperation = { name: PropertyUpdateOperation.Set, email: PropertyUpdateOperation.Set }
@@ -2641,7 +2641,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should track JSON field sizes on updatePerson with properties', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-metrics-update', { name: 'Bob' })
 
             // Clear observe calls from createTestPerson
@@ -2684,7 +2684,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should only track metrics for fields being updated', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-metrics-partial', { name: 'Charlie' })
 
             // Clear observe calls from createTestPerson
@@ -2709,7 +2709,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle large properties correctly', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const largeProperties = {
                 name: 'David',
                 large_field: 'z'.repeat(100000), // 100KB of data
@@ -2755,7 +2755,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should not record metrics when update is empty', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-metrics-empty', { name: 'Eve' })
 
             // Clear observe calls from createTestPerson
@@ -2774,8 +2774,8 @@ describe('PostgresPersonRepository', () => {
 })
 
 // Helper function from the original test file
-async function getFirstTeam(hub: Hub): Promise<Team> {
-    const teams = await hub.postgres.query(
+async function getFirstTeam(postgres: PostgresRouter): Promise<Team> {
+    const teams = await postgres.query(
         PostgresUse.COMMON_WRITE,
         'SELECT * FROM posthog_team LIMIT 1',
         [],

@@ -8,7 +8,7 @@ from django.db.models import Prefetch, Q
 import structlog
 import temporalio
 from dateutil import parser
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -296,10 +296,12 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             # Fallback during migration phase of going from source -> schema as the source of truth for syncs
             return instance.status
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_latest_error(self, instance: ExternalDataSource):
         schema_with_error = instance.schemas.filter(latest_error__isnull=False).first()
         return schema_with_error.latest_error if schema_with_error else None
 
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_schemas(self, instance: ExternalDataSource):
         return ExternalDataSchemaSerializer(instance.schemas, many=True, read_only=True, context=self.context).data
 
@@ -600,6 +602,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     if requires_incremental_fields and new_source_model.supports_scheduled_sync
                     else {"schema_metadata": schema_metadata}
                 ),
+                description=source_schema.description if source_schema else None,
             )
 
             if new_source_model.is_direct_postgres and should_sync:
@@ -758,12 +761,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Could not fetch schemas from source."},
             )
+        descriptions = {s.name: s.description for s in schemas}
         with transaction.atomic():
             ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
             schemas_created, schemas_deleted = sync_old_schemas_with_new_schemas(
                 schema_names,
                 source_id=str(instance.id),
                 team_id=self.team_id,
+                descriptions=descriptions,
             )
 
             if instance.is_direct_postgres:
@@ -834,6 +839,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 else None,
                 "sync_type": None,
                 "rows": schema.row_count,
+                "description": schema.description,
             }
             for schema in schemas
         ]

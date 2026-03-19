@@ -192,6 +192,12 @@ Product teams own their definitions and control which operations are exposed as 
    e.g. `feature-flags-list`, `experiments-create`, `surveys-delete`.
    The domain groups related tools together and the action describes the operation.
 
+   **Tool name length limit:** Some MCP clients (notably Cursor) enforce a 60-character
+   combined limit on `server_name:tool_name`. Since our server name is `posthog` (7 chars),
+   tool names must be **52 characters or fewer**.
+   CI runs `pnpm --filter=@posthog/mcp lint-tool-names` to enforce this.
+   If you hit the limit, shorten the domain prefix or use a more concise action name.
+
    ```yaml
    category: Human readable name # shown in tool registry
    feature: snake_case_name # product identifier

@@ -1661,11 +1661,11 @@ dependencies = [
  "envconfig",
  "flate2",
  "futures",
- "health",
  "hex",
  "httparse",
  "hyper 1.8.1",
  "hyper-util",
+ "lifecycle",
  "limiters",
  "lz-str",
  "metrics",
@@ -6237,6 +6237,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
+name = "personhog-common"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "http 1.4.0",
+ "metrics",
+ "pin-project",
+ "sqlx",
+ "tokio",
+ "tonic 0.12.3",
+ "tower 0.4.13",
+]
+
+[[package]]
 name = "personhog-coordination"
 version = "0.1.0"
 dependencies = [
@@ -6299,6 +6313,8 @@ dependencies = [
  "common-metrics",
  "envconfig",
  "lifecycle",
+ "metrics-exporter-prometheus",
+ "personhog-common",
  "personhog-proto",
  "rand 0.8.5",
  "serde_json",
@@ -6319,20 +6335,18 @@ dependencies = [
  "async-trait",
  "axum 0.7.9",
  "common-alloc",
- "common-metrics",
  "dashmap 6.1.0",
  "envconfig",
- "http 1.4.0",
  "lifecycle",
  "metrics",
+ "metrics-exporter-prometheus",
+ "personhog-common",
  "personhog-proto",
- "pin-project",
  "rand 0.8.5",
  "serde_json",
  "tokio",
  "tokio-stream",
  "tonic 0.12.3",
- "tower 0.4.13",
  "tracing",
  "tracing-subscriber",
 ]
@@ -6657,10 +6671,11 @@ dependencies = [
 
 [[package]]
 name = "posthog-symbol-data"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde",
  "thiserror 2.0.18",
+ "zstd",
 ]
 
 [[package]]

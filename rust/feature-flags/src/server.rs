@@ -369,6 +369,8 @@ pub async fn serve<F>(
         );
     }
 
+    let service_mode = config.service_mode.clone();
+
     let app = router::router(
         redis_client,
         dedicated_redis_client,
@@ -389,7 +391,11 @@ pub async fn serve<F>(
         config,
     );
 
-    tracing::info!("listening on {:?}", listener.local_addr().unwrap());
+    tracing::info!(
+        service_mode = ?service_mode,
+        "listening on {:?}",
+        listener.local_addr().unwrap()
+    );
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),

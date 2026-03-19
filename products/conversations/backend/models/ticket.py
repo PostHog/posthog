@@ -63,6 +63,10 @@ class Ticket(UUIDTModel):
     slack_thread_ts = models.CharField(max_length=64, null=True, blank=True)  # Slack thread timestamp (thread ID)
     slack_team_id = models.CharField(max_length=64, null=True, blank=True)  # Slack workspace/team ID
 
+    # Email channel fields (only set for channel_source="email")
+    email_subject = models.CharField(max_length=500, null=True, blank=True)
+    email_from = models.EmailField(null=True, blank=True)
+
     # Session context (captured when ticket is created)
     session_id = models.CharField(max_length=64, null=True, blank=True)  # PostHog session ID
     session_context = models.JSONField(default=dict, blank=True)  # session_replay_url, current_url, etc.

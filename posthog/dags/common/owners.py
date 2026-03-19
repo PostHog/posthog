@@ -7,9 +7,10 @@ class JobOwners(str, Enum):
     TEAM_CLICKHOUSE = "team-clickhouse"
     TEAM_DATA_STACK = "team-data-stack"
     TEAM_ERROR_TRACKING = "team-error-tracking"
-    TEAM_EXPERIMENTS = "team-experiments"
+
     TEAM_GROWTH = "team-growth"
     TEAM_INGESTION = "team-ingestion"
+    TEAM_LOGS = "team-logs"
     TEAM_LLM_ANALYTICS = "team-llm-analytics"
     TEAM_POSTHOG_AI = "team-posthog-ai"
     TEAM_REVENUE_ANALYTICS = "team-revenue-analytics"

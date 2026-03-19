@@ -11,7 +11,7 @@ from django.shortcuts import get_object_or_404
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from prometheus_client import Counter
@@ -204,6 +204,7 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
 class MinimalPersonSerializer(PersonSerializer):
     distinct_ids = serializers.SerializerMethodField()
 
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
     def get_distinct_ids(self, person):
         return person.distinct_ids[:10]
 
