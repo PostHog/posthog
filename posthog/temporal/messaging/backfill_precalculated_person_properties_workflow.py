@@ -141,17 +141,11 @@ class BackfillPrecalculatedPersonPropertiesInputs:
     limit: int | None = None  # Total persons to process (None = all)
 
     @property
-    def total_filters(self) -> int:
-        """Total number of unique filters."""
-        return self.filter_count
-
-    @property
     def properties_to_log(self) -> dict[str, Any]:
         return {
             "team_id": self.team_id,
             "cohort_count": len(self.cohort_ids),
             "cohort_ids": self.cohort_ids,
-            "filter_count": self.filter_count,
             "filter_storage_key": self.filter_storage_key,
             "batch_size": self.batch_size,
             "offset": self.offset,
