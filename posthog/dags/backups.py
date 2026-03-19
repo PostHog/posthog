@@ -16,6 +16,7 @@ from dagster_aws.s3 import S3Resource
 from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.dags.common import JobOwners, check_for_concurrent_runs
+from posthog.dags.common.resources import BackupsClickhouseClusterResource
 
 NO_SHARD_PATH = "noshard"
 MAX_WAIT_TRIES = 30
@@ -584,6 +585,7 @@ def cleanup_old_backups(
 
 @dagster.job(
     executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 2}),
+    resource_defs={"cluster": BackupsClickhouseClusterResource()},
 )
 def sharded_backup():
     """
@@ -607,6 +609,7 @@ def sharded_backup():
 
 @dagster.job(
     executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 8}),
+    resource_defs={"cluster": BackupsClickhouseClusterResource()},
 )
 def non_sharded_backup():
     """
