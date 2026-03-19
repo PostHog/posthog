@@ -859,20 +859,21 @@ class FeatureFlagSerializer(
         # Derive the flag-level field from condition sets for backward compatibility.
         # If all condition sets share the same value, use that; otherwise reject.
         # Mixed aggregation types are not yet supported by the evaluation engine.
+        # Empty groups are valid on updates (e.g. scheduled changes), so skip this check.
         condition_aggregations = [c.get("aggregation_group_type_index") for c in filters["groups"]]
-        if condition_aggregations and all(a == condition_aggregations[0] for a in condition_aggregations):
+        if condition_aggregations:
+            if not all(a == condition_aggregations[0] for a in condition_aggregations):
+                raise serializers.ValidationError(
+                    "Mixed aggregation types across condition sets are not yet supported. "
+                    "All condition sets must use the same aggregation type."
+                )
             filters["aggregation_group_type_index"] = condition_aggregations[0]
-        else:
-            raise serializers.ValidationError(
-                "Mixed aggregation types across condition sets are not yet supported. "
-                "All condition sets must use the same aggregation type."
-            )
 
         # Check Early Access Feature constraint: no condition set can use group
         # aggregation if the flag is linked to an Early Access Feature.
-        has_any_group_aggregation = any(c.get("aggregation_group_type_index") is not None for c in filters["groups"])
+        resolved_aggregation = filters.get("aggregation_group_type_index")
         if (
-            has_any_group_aggregation
+            resolved_aggregation is not None
             and self.instance is not None
             and hasattr(self.instance, "features")
             and self.instance.features.count() > 0
@@ -882,7 +883,6 @@ class FeatureFlagSerializer(
             )
 
         # Validate properties per condition set against that condition set's aggregation.
-        has_any_person_aggregation = any(c.get("aggregation_group_type_index") is None for c in filters["groups"])
         for condition in filters["groups"]:
             condition_aggregation = condition.get("aggregation_group_type_index")
             condition_props = condition.get("properties", [])
@@ -909,10 +909,9 @@ class FeatureFlagSerializer(
                         )
 
         # Validate flag property operators across all condition sets
-        if has_any_person_aggregation:
+        if resolved_aggregation is None:
             flag_props_valid = all(
-                Property(**prop_dict).type != "flag"
-                or Property(**prop_dict).operator == PropertyOperator.FLAG_EVALUATES_TO
+                (p := Property(**prop_dict)).type != "flag" or p.operator == PropertyOperator.FLAG_EVALUATES_TO
                 for condition in filters["groups"]
                 for prop_dict in condition.get("properties", [])
             )

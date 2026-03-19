@@ -5107,7 +5107,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def test_validation_mixed_aggregation_types_rejected(self):
         """Test that mixed aggregation types across condition sets are rejected"""
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -5144,7 +5146,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def test_per_condition_aggregation_normalization(self):
         """Test that flag-level aggregation is distributed to condition sets without one"""
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -5169,7 +5173,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def test_per_condition_aggregation_roundtrip(self):
         """Test that per-condition aggregation values persist through create/read"""
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
 
         # Create with explicit per-condition value
         create_response = self.client.post(
