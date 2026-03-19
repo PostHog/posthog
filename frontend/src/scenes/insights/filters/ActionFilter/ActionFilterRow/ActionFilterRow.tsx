@@ -5,7 +5,7 @@ import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { BuiltLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import {
     IconCopy,
@@ -1061,6 +1061,22 @@ function useMathSelectorOptions({
     const [countPerActorMathTypeShown, setCountPerActorMathTypeShown] = useState<CountPerActorMathType>(
         isCountPerActorMath(math) ? math : CountPerActorMathType.Average
     )
+
+    // Sync internal state with the math prop when it changes externally (e.g., undo/redo,
+    // URL changes, or after the filter update round-trips through the query). Without this,
+    // the LemonSelect option value can desync from the actual math type, preventing the
+    // dropdown from reflecting or triggering further changes correctly.
+    useEffect(() => {
+        if (isPropertyValueMath(math)) {
+            setPropertyMathTypeShown(math)
+        }
+    }, [math])
+
+    useEffect(() => {
+        if (isCountPerActorMath(math)) {
+            setCountPerActorMathTypeShown(math)
+        }
+    }, [math])
 
     const [uniqueActorsShown, setUniqueActorsShown] = useState<string>(
         getActiveActor('unique_group', mathGroupTypeIndex)
