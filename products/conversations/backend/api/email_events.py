@@ -19,6 +19,7 @@ from products.conversations.backend.models.ticket import Ticket
 logger = structlog.get_logger(__name__)
 
 INBOUND_TOKEN_PATTERN = re.compile(r"^team-([a-f0-9]+)@")
+MAX_EMAIL_BODY_LENGTH = 50_000
 
 
 def _extract_inbound_token(recipient: str) -> str | None:
@@ -121,15 +122,19 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
         sender_name = sender_email.split("@")[0] if sender_email else "Unknown"
 
     # 7. Get content (stripped by Mailgun to remove quotes/signatures)
-    content = request.POST.get("stripped-text", "") or request.POST.get("body-plain", "")
+    content = (request.POST.get("stripped-text", "") or request.POST.get("body-plain", ""))[:MAX_EMAIL_BODY_LENGTH]
     subject = request.POST.get("subject", "")
 
     # 8-10. Create ticket/comment/mapping in a transaction
     try:
         with transaction.atomic():
+            ticket: Ticket | None = None
             if existing_ticket:
-                ticket = existing_ticket
-            else:
+                ticket = Ticket.objects.select_for_update().filter(id=existing_ticket.id, team=team).first()
+                if not ticket:
+                    existing_ticket = None
+
+            if not ticket:
                 ticket = Ticket.objects.create_with_number(
                     team=team,
                     channel_source=Channel.EMAIL,
@@ -144,6 +149,8 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
                     email_from=sender_email,
                     unread_team_count=1,
                 )
+
+            assert ticket is not None
 
             item_context = {
                 "author_type": "customer",
