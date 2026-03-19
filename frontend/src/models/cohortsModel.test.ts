@@ -170,4 +170,84 @@ describe('cohortsModel', () => {
                 })
         })
     })
+
+    describe('processCohort', () => {
+        it('wraps flat criteria into nested group format', () => {
+            const { processCohort } = require('./cohortsModel')
+
+            const flatCohort = {
+                id: 3,
+                name: 'Flat format cohort',
+                filters: {
+                    properties: {
+                        type: 'AND',
+                        values: [
+                            {
+                                type: 'behavioral',
+                                key: 'purchase',
+                                value: 'performed_event',
+                                event_type: 'events',
+                                operator: 'gte',
+                                operator_value: 2,
+                                time_value: 30,
+                                time_interval: 'day',
+                                negation: false,
+                            },
+                        ],
+                    },
+                },
+            } as unknown as CohortType
+
+            const result = processCohort(flatCohort)
+
+            // Flat criteria should be wrapped in a group with type AND and values array
+            const group = result.filters.properties.values[0]
+            expect(group).toHaveProperty('type', FilterLogicalOperator.And)
+            expect(group).toHaveProperty('values')
+            expect((group as any).values).toHaveLength(1)
+            expect((group as any).values[0]).toMatchObject({
+                type: 'behavioral',
+                key: 'purchase',
+                value: 'performed_event',
+            })
+        })
+
+        it('leaves already nested criteria unchanged', () => {
+            const { processCohort } = require('./cohortsModel')
+
+            const nestedCohort = {
+                id: 4,
+                name: 'Nested format cohort',
+                filters: {
+                    properties: {
+                        type: 'AND',
+                        values: [
+                            {
+                                type: 'AND',
+                                values: [
+                                    {
+                                        type: 'behavioral',
+                                        key: 'purchase',
+                                        value: 'performed_event',
+                                        event_type: 'events',
+                                        explicit_datetime: '-30d',
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            } as unknown as CohortType
+
+            const result = processCohort(nestedCohort)
+
+            const group = result.filters.properties.values[0]
+            expect(group).toHaveProperty('type', 'AND')
+            expect((group as any).values).toHaveLength(1)
+            expect((group as any).values[0]).toMatchObject({
+                type: 'behavioral',
+                key: 'purchase',
+            })
+        })
+    })
 })
