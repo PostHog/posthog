@@ -616,7 +616,7 @@ class HogQLPrinter(Visitor[str]):
                 )
             )
         elif func_meta := find_hogql_aggregation(node.name):
-            if node.name in {"percentile_cont", "percentile_disc"} and node.within_group is None:
+            if func_meta.requires_within_group and node.within_group is None:
                 raise QueryError(f"Aggregation '{node.name}' requires WITHIN GROUP")
             if node.within_group is not None and self.dialect == "clickhouse":
                 raise QueryError(f"Aggregation '{node.name}' with WITHIN GROUP is not supported in ClickHouse dialect")
@@ -664,7 +664,7 @@ class HogQLPrinter(Visitor[str]):
                 else f"({'DISTINCT ' if node.distinct else ''}{', '.join(arg_strings)})"
             )
 
-            if node.within_group is not None and node.name not in {"percentile_cont", "percentile_disc"}:
+            if node.within_group is not None and not func_meta.requires_within_group:
                 raise QueryError(f"Aggregation '{node.name}' does not support WITHIN GROUP")
 
             return (
