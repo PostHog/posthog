@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -251,6 +252,16 @@ PERSON_PROPERTY_ALLOWLIST = frozenset(
     }
 )
 
+PRIORITY_PERSON_PROPERTIES = (
+    "email",
+    "name",
+    "first_name",
+    "last_name",
+    "plan",
+    "company",
+    "organization",
+)
+
 MAX_PERSON_PROPERTIES = 30
 
 
@@ -276,15 +287,27 @@ def _format_person_context(properties: dict) -> str:
     if not properties:
         return ""
 
-    filtered: dict[str, str] = {}
-    for key, value in properties.items():
+    def _is_usable(key: str, value: object) -> bool:
         if value is None or value == "":
-            continue
+            return False
         if key.startswith("$") and key not in PERSON_PROPERTY_ALLOWLIST:
-            continue
-        filtered[key] = str(value)
+            return False
+        return True
+
+    filtered: dict[str, str] = {}
+
+    for key in PRIORITY_PERSON_PROPERTIES:
+        if key in properties and _is_usable(key, properties[key]):
+            filtered[key] = str(properties[key])
+
+    for key, value in properties.items():
         if len(filtered) >= MAX_PERSON_PROPERTIES:
             break
+        if key in filtered:
+            continue
+        if not _is_usable(key, value):
+            continue
+        filtered[key] = str(value)
 
     if not filtered:
         return ""
@@ -315,9 +338,11 @@ class AISuggestPipeline:
         self.client = get_llm_client(product="django")
         self.conversation_text = format_conversation(ticket, messages)
 
-        self.core_memory_text = _load_core_memory(team)
-        person_properties = _load_person_properties(team, ticket.distinct_id)
-        self.customer_context_text = _format_person_context(person_properties)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            mem_future = pool.submit(_load_core_memory, team)
+            person_future = pool.submit(_load_person_properties, team, ticket.distinct_id)
+            self.core_memory_text = mem_future.result()
+            self.customer_context_text = _format_person_context(person_future.result())
 
         self.refined_query: RefinedQuerySchema | None = None
         self.retrieved_context: str | None = None

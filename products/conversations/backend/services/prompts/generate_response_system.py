@@ -53,6 +53,6 @@ def build_generate_response_system_prompt(
         )
 
     return GENERATE_RESPONSE_SYSTEM_PROMPT_TEMPLATE.format(
-        core_memory_section=core_memory_section,
-        customer_context_section=customer_context_section,
+        core_memory_section=core_memory_section.replace("{", "{{").replace("}", "}}"),
+        customer_context_section=customer_context_section.replace("{", "{{").replace("}", "}}"),
     )
