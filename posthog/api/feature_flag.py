@@ -1361,6 +1361,12 @@ class FeatureFlagSerializer(
             else:
                 encrypt_flag_payloads(validated_data)
 
+        # Opportunistically strip legacy holdout_groups key (replaced by holdout in Phase 1-4)
+        previous_filters = validated_data.get("filters") or instance.filters
+        if previous_filters and "holdout_groups" in previous_filters:
+            previous_filters.pop("holdout_groups")
+            validated_data["filters"] = previous_filters
+
         version = request.data.get("version", -1)
 
         with transaction.atomic():
