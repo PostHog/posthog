@@ -3,7 +3,6 @@ use async_trait::async_trait;
 use aws_sdk_s3::config::Builder;
 use aws_sdk_s3::Client as S3Client;
 use chrono::{DateTime, Datelike, Utc};
-use health::HealthHandle;
 use metrics::{counter, histogram};
 use std::env;
 use std::sync::Arc;
@@ -29,7 +28,7 @@ struct Inner {
     bucket: String,
     prefix: String,
     buffer: Arc<Mutex<EventBuffer>>,
-    liveness: HealthHandle,
+    liveness: lifecycle::Handle,
 }
 
 pub struct S3Sink {
@@ -75,7 +74,7 @@ impl S3Sink {
         bucket: String,
         prefix: String,
         s3_endpoint: Option<String>,
-        liveness: HealthHandle,
+        liveness: lifecycle::Handle,
     ) -> anyhow::Result<S3Sink> {
         info!("Initializing S3 sink with bucket: {bucket}");
 
@@ -108,6 +107,7 @@ impl S3Sink {
 
         // Create weak reference for background task
         let inner_weak = Arc::downgrade(&inner);
+        let shutdown_handle = inner.liveness.clone();
 
         // Spawn background task with shutdown handling
         task::spawn(async move {
@@ -118,16 +118,16 @@ impl S3Sink {
                         // Try to upgrade weak reference - if it fails, the S3Sink has been dropped
                         let inner = match inner_weak.upgrade() {
                             Some(inner) => inner,
-                            None => break, // Exit loop if S3Sink was dropped
+                            None => break,
                         };
 
                         let mut buffer = inner.buffer.lock().await;
                         if buffer.should_flush() {
                             let mut old_buffer = {
-                                // Replace the current buffer with a brand-new one.
+                                // Replace the current buffer with a brand-new one
                                 std::mem::replace(&mut *buffer, EventBuffer::new())
                             };
-                            // drop the old buffer so the lock is freed and we can keep writing
+                            // Drop the lock so writers can continue while we flush
                             drop(buffer);
                             let result = inner.flush_buffer(&mut old_buffer).await;
                             if result.is_ok() {
@@ -136,12 +136,26 @@ impl S3Sink {
                             drop(old_buffer.tx.send(result));
                         }
 
-                        // if we haven't written any events the healthcheck will stall
+                        // If we haven't written any events the healthcheck will stall;
                         // force healthcheck at least every HEALTH_INTERVAL
                         if last_healthcheck.elapsed() >= HEALTH_INTERVAL {
                             inner.healthcheck().await;
                             last_healthcheck = Instant::now();
                         }
+                    }
+                    _ = shutdown_handle.shutdown_recv() => {
+                        // Final flush of any buffered events before exit
+                        if let Some(inner) = inner_weak.upgrade() {
+                            let mut buffer = inner.buffer.lock().await;
+                            if buffer.event_count > 0 {
+                                let mut old_buffer =
+                                    std::mem::replace(&mut *buffer, EventBuffer::new());
+                                drop(buffer);
+                                let result = inner.flush_buffer(&mut old_buffer).await;
+                                drop(old_buffer.tx.send(result));
+                            }
+                        }
+                        break;
                     }
                 }
             }
@@ -162,7 +176,7 @@ impl Inner {
             .await
             .is_ok()
         {
-            self.liveness.report_healthy().await;
+            self.liveness.report_healthy();
         };
     }
 
@@ -247,7 +261,7 @@ impl Inner {
                 counter!("capture_s3_events_written_total").increment(event_count as u64);
                 counter!("capture_s3_bytes_written_total").increment(written_bytes as u64);
                 histogram!("capture_s3_batch_size").record(event_count as f64);
-                self.liveness.report_healthy().await;
+                self.liveness.report_healthy();
                 Ok(())
             }
             Err(err) => {
@@ -292,14 +306,20 @@ mod tests {
     use crate::utils::uuid_v7;
     use crate::v0_request::{DataType, ProcessedEventMetadata};
     use common_types::CapturedEvent;
-    use health::HealthRegistry;
-    use time::Duration as TimeDuration;
+    use tokio_util::sync::CancellationToken;
 
     async fn setup_test_sink() -> S3Sink {
-        let registry = HealthRegistry::new("test");
-        let handle = registry
-            .register("s3".to_string(), TimeDuration::seconds(30))
-            .await;
+        let shutdown_token = CancellationToken::new();
+        let mut manager = lifecycle::Manager::builder("test")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .with_shutdown_token(shutdown_token)
+            .build();
+        let handle = manager.register(
+            "s3",
+            lifecycle::ComponentOptions::new().with_liveness_deadline(Duration::from_secs(30)),
+        );
+        let _monitor = manager.monitor_background();
 
         // Use environment variables for test configuration
         env::set_var("AWS_ACCESS_KEY_ID", "object_storage_root_user");

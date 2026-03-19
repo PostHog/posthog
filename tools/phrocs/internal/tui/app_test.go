@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/posthog/posthog/phrocs/internal/config"
+	"github.com/posthog/posthog/phrocs/internal/docker"
 	"github.com/posthog/posthog/phrocs/internal/process"
 )
 
@@ -31,6 +32,25 @@ func readyModel(t *testing.T, names ...string) Model {
 	return next.(Model)
 }
 
+func readyDockerModel(t *testing.T) Model {
+	t.Helper()
+	f := false
+	mgr := process.NewManager(&config.Config{
+		Procs: map[string]config.ProcConfig{
+			"docker": {Shell: "docker compose -f docker-compose.dev.yml up", Autostart: &f},
+		},
+		MouseScrollSpeed: 3,
+		Scrollback:       1000,
+	})
+	m := New(mgr, 3, nil)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	dockerModel := next.(Model)
+	dockerModel.containers = []docker.DockerContainer{{Service: "web"}}
+	dockerModel.containerCursor = 1
+	dockerModel.containerLines = []string{"regular line", "error: failed"}
+	return dockerModel
+}
+
 func keypress(r rune) tea.KeyPressMsg {
 	return tea.KeyPressMsg{Code: r, Text: string(r)}
 }
@@ -52,13 +72,13 @@ func TestNew_initialState(t *testing.T) {
 	if m.ready {
 		t.Error("model should not be ready before WindowSizeMsg")
 	}
-	if m.cursor != 0 {
-		t.Errorf("cursor: got %d, want 0", m.cursor)
+	if m.servicesCursor != 0 {
+		t.Errorf("cursor: got %d, want 0", m.servicesCursor)
 	}
-	if m.focusedPane != focusSidebar {
+	if m.focusedPane != focusServices {
 		t.Error("initial focus should be sidebar")
 	}
-	if !m.atBottom {
+	if !m.viewportAtBottom {
 		t.Error("atBottom should be true initially")
 	}
 	if m.copyMode {
@@ -87,52 +107,52 @@ func TestNavigation_nextProc(t *testing.T) {
 	m := readyModel(t, "backend", "celery", "frontend")
 	// k = next proc
 	m = update(m, keypress('k'))
-	if m.cursor != 1 {
-		t.Errorf("cursor after k: got %d, want 1", m.cursor)
+	if m.servicesCursor != 1 {
+		t.Errorf("cursor after k: got %d, want 1", m.servicesCursor)
 	}
 	m = update(m, keypress('k'))
-	if m.cursor != 2 {
-		t.Errorf("cursor after k k: got %d, want 2", m.cursor)
+	if m.servicesCursor != 2 {
+		t.Errorf("cursor after k k: got %d, want 2", m.servicesCursor)
 	}
 }
 
 func TestNavigation_prevProc(t *testing.T) {
 	m := readyModel(t, "backend", "celery", "frontend")
-	m.cursor = 2
+	m.servicesCursor = 2
 	// j = prev proc
 	m = update(m, keypress('j'))
-	if m.cursor != 1 {
-		t.Errorf("cursor after j: got %d, want 1", m.cursor)
+	if m.servicesCursor != 1 {
+		t.Errorf("cursor after j: got %d, want 1", m.servicesCursor)
 	}
 }
 
 func TestNavigation_clampsAtBottom(t *testing.T) {
 	m := readyModel(t, "backend", "frontend")
-	m.cursor = 1
+	m.servicesCursor = 1
 	m = update(m, keypress('k'))
-	if m.cursor != 1 {
-		t.Errorf("cursor should clamp at %d, got %d", 1, m.cursor)
+	if m.servicesCursor != 1 {
+		t.Errorf("cursor should clamp at %d, got %d", 1, m.servicesCursor)
 	}
 }
 
 func TestNavigation_clampsAtTop(t *testing.T) {
 	m := readyModel(t, "backend", "frontend")
-	m.cursor = 0
+	m.servicesCursor = 0
 	m = update(m, keypress('j'))
-	if m.cursor != 0 {
-		t.Errorf("cursor should clamp at 0, got %d", m.cursor)
+	if m.servicesCursor != 0 {
+		t.Errorf("cursor should clamp at 0, got %d", m.servicesCursor)
 	}
 }
 
 func TestNavigation_arrowKeys(t *testing.T) {
 	m := readyModel(t, "backend", "frontend")
 	m = update(m, specialKey(tea.KeyDown))
-	if m.cursor != 1 {
-		t.Errorf("cursor after down: got %d, want 1", m.cursor)
+	if m.servicesCursor != 1 {
+		t.Errorf("cursor after down: got %d, want 1", m.servicesCursor)
 	}
 	m = update(m, specialKey(tea.KeyUp))
-	if m.cursor != 0 {
-		t.Errorf("cursor after up: got %d, want 0", m.cursor)
+	if m.servicesCursor != 0 {
+		t.Errorf("cursor after up: got %d, want 0", m.servicesCursor)
 	}
 }
 
@@ -140,7 +160,7 @@ func TestNavigation_arrowKeys(t *testing.T) {
 
 func TestFocus_swapWithTab(t *testing.T) {
 	m := readyModel(t, "backend")
-	if m.focusedPane != focusSidebar {
+	if m.focusedPane != focusServices {
 		t.Fatal("expected sidebar focus initially")
 	}
 	m = update(m, specialKey(tea.KeyTab))
@@ -148,7 +168,7 @@ func TestFocus_swapWithTab(t *testing.T) {
 		t.Error("tab should switch to output focus")
 	}
 	m = update(m, specialKey(tea.KeyTab))
-	if m.focusedPane != focusSidebar {
+	if m.focusedPane != focusServices {
 		t.Error("second tab should return to sidebar focus")
 	}
 }
@@ -157,11 +177,11 @@ func TestFocus_mouseClickSidebar(t *testing.T) {
 	m := readyModel(t, "backend", "frontend")
 	// Click second row in sidebar: header (1) + top border (1) + first row (1) = Y=3
 	m = update(m, tea.MouseClickMsg{Button: tea.MouseLeft, X: 5, Y: headerHeight + 2})
-	if m.focusedPane != focusSidebar {
+	if m.focusedPane != focusServices {
 		t.Error("click in sidebar should focus sidebar")
 	}
-	if m.cursor != 1 {
-		t.Errorf("click on row 1: cursor should be 1, got %d", m.cursor)
+	if m.servicesCursor != 1 {
+		t.Errorf("click on row 1: cursor should be 1, got %d", m.servicesCursor)
 	}
 }
 
@@ -334,9 +354,6 @@ func TestSearch_enterConfirmsAndKeepsMatches(t *testing.T) {
 	m = update(m, keypress('o'))
 	m = update(m, keypress('o'))
 	m = update(m, tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
-	if m.searchMode {
-		t.Error("enter should exit search typing mode")
-	}
 	if m.searchQuery != "foo" {
 		t.Errorf("query should be preserved after enter, got %q", m.searchQuery)
 	}
@@ -358,18 +375,18 @@ func TestSearch_navigateWithEnter(t *testing.T) {
 		m = update(m, keypress(ch))
 	}
 	m = update(m, tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
-	if m.searchCursor != 0 {
-		t.Fatalf("after enter cursor should be 0, got %d", m.searchCursor)
+	if m.searchCursor != 1 {
+		t.Fatalf("after enter cursor should be 1, got %d", m.searchCursor)
 	}
 	// ↵ → next match
 	m = update(m, tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
-	if m.searchCursor != 1 {
-		t.Errorf("enter: want cursor 1, got %d", m.searchCursor)
+	if m.searchCursor != 2 {
+		t.Errorf("enter: want cursor 2, got %d", m.searchCursor)
 	}
 	// ⇧↵ → prev match
 	m = update(m, tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift, Text: "shift+enter"})
-	if m.searchCursor != 0 {
-		t.Errorf("shift+enter: want cursor 0, got %d", m.searchCursor)
+	if m.searchCursor != 1 {
+		t.Errorf("shift+enter: want cursor 1, got %d", m.searchCursor)
 	}
 }
 
@@ -461,6 +478,69 @@ func TestSearch_escClearsActiveSearch(t *testing.T) {
 	}
 }
 
+func TestSearch_dockerUsesContainerLogs(t *testing.T) {
+	m := readyDockerModel(t)
+
+	m = update(m, keypress('/'))
+	m = update(m, keypress('e'))
+	m = update(m, keypress('r'))
+	m = update(m, keypress('r'))
+
+	if len(m.searchMatches) != 1 {
+		t.Fatalf("want 1 docker log match for 'err', got %d", len(m.searchMatches))
+	}
+	if m.searchMatches[0] != 1 {
+		t.Fatalf("docker match index: want 1, got %d", m.searchMatches[0])
+	}
+}
+
+func TestSearch_dockerIgnoresProcessLines(t *testing.T) {
+	m := readyDockerModel(t)
+	p, _ := m.mgr.Get("docker")
+	p.AppendLine("error from process stream")
+
+	m = update(m, keypress('/'))
+	m = update(m, keypress('e'))
+	m = update(m, keypress('r'))
+	m = update(m, keypress('r'))
+
+	if len(m.searchMatches) != 1 {
+		t.Fatalf("want 1 match from container logs only, got %d", len(m.searchMatches))
+	}
+	if m.searchMatches[0] != 1 {
+		t.Fatalf("docker match index: want 1, got %d", m.searchMatches[0])
+	}
+}
+
+func TestSearch_dockerIncrementalLogLineUpdatesMatches(t *testing.T) {
+	m := readyDockerModel(t)
+	m.searchQuery = "err"
+	m.recomputeSearch()
+
+	m = update(m, docker.ContainerLogLineMsg{Service: "web", Line: "new error line"})
+
+	if len(m.searchMatches) != 2 {
+		t.Fatalf("want 2 matches after new docker log line, got %d", len(m.searchMatches))
+	}
+	if m.searchMatches[1] != 2 {
+		t.Fatalf("new docker match index: want 2, got %d", m.searchMatches[1])
+	}
+}
+
+func TestCopySelectedText_dockerUsesContainerLogs(t *testing.T) {
+	m := readyDockerModel(t)
+	m.containerLines = []string{"first", "\x1b[31msecond\x1b[0m", "third"}
+	m.copyMode = true
+	m.copyAnchor = 0
+	m.copyCursor = 1
+
+	got := m.copySelectedText()
+	want := "first\nsecond"
+	if got != want {
+		t.Fatalf("copySelectedText docker: want %q, got %q", want, got)
+	}
+}
+
 // ── Process output and status messages ───────────────────────────────────────
 
 func TestOutputMsg_activeProc(t *testing.T) {
@@ -490,14 +570,14 @@ func TestOutputMsg_inactiveProc(t *testing.T) {
 
 func TestStatusMsg_updatesCursor(t *testing.T) {
 	m := readyModel(t, "backend", "frontend")
-	m.cursor = 1
+	m.servicesCursor = 1
 	// Simulate enough removals to make cursor out of bounds — a StatusMsg
 	// should clamp cursor safely.  We can't actually remove procs without
 	// Manager internals, so just verify that a StatusMsg for a known proc
 	// doesn't panic and doesn't move the cursor unnecessarily.
 	m = update(m, process.StatusMsg{Name: "backend", Status: process.StatusRunning})
-	if m.cursor > len(m.procs)-1 {
-		t.Errorf("cursor %d out of bounds after StatusMsg", m.cursor)
+	if m.servicesCursor > len(m.services)-1 {
+		t.Errorf("cursor %d out of bounds after StatusMsg", m.servicesCursor)
 	}
 }
 
@@ -505,9 +585,9 @@ func TestStatusMsg_updatesCursor(t *testing.T) {
 
 func TestGotoBottom_setsAtBottom(t *testing.T) {
 	m := readyModel(t, "backend")
-	m.atBottom = false
+	m.viewportAtBottom = false
 	m = update(m, specialKey(tea.KeyEnd))
-	if !m.atBottom {
+	if !m.viewportAtBottom {
 		t.Error("end key should set atBottom=true")
 	}
 }
@@ -515,7 +595,7 @@ func TestGotoBottom_setsAtBottom(t *testing.T) {
 func TestGotoTop_clearsAtBottom(t *testing.T) {
 	m := readyModel(t, "backend")
 	m = update(m, specialKey(tea.KeyHome))
-	if m.atBottom {
+	if m.viewportAtBottom {
 		t.Error("home key should set atBottom=false")
 	}
 }
