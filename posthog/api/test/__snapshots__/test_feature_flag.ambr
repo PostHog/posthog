@@ -477,6 +477,7 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
@@ -732,6 +733,7 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
@@ -761,6 +763,7 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
@@ -1015,6 +1018,7 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
@@ -1229,6 +1233,7 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
@@ -1402,6 +1407,7 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
@@ -1880,6 +1886,7 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
@@ -2149,6 +2156,7 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"

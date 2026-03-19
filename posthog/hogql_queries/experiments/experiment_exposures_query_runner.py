@@ -32,13 +32,13 @@ from posthog.hogql_queries.experiments.experiment_query_runner import DEFAULT_EX
 from posthog.hogql_queries.experiments.exposure_query_logic import get_entity_key
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.experiment import Experiment
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
     ensure_precomputed,
 )
+from products.experiments.backend.models.experiment import Experiment
 
 logger = structlog.get_logger(__name__)
 

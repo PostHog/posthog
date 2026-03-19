@@ -204,7 +204,7 @@ export function DashboardItems(): JSX.Element {
                         onResizeStop={() => {
                             setResizingItem(null)
                             if (dashboard?.id) {
-                                reportDashboardTileRepositioned(dashboard.id, 'resized')
+                                reportDashboardTileRepositioned(dashboard.id, 'resized', effectiveZoom)
                             }
                         }}
                         onDragStart={() => {
@@ -266,7 +266,7 @@ export function DashboardItems(): JSX.Element {
                                 isDragging.current = false
                             }, 250)
                             if (dashboard?.id) {
-                                reportDashboardTileRepositioned(dashboard.id, 'moved')
+                                reportDashboardTileRepositioned(dashboard.id, 'moved', effectiveZoom)
                             }
                         }}
                     >

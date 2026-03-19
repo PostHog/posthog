@@ -127,6 +127,31 @@ class TestDeleteOrganizationDataAndNotifyTask(BaseTest):
         self.assertFalse(DataWarehouseSavedQuery.objects.filter(id=saved_query.id).exists())
         self.assertFalse(Node.objects.filter(id=node.id).exists())
 
+    @patch("posthog.email.is_email_available", return_value=False)
+    def test_deletes_organization_when_user_already_deleted(self, mock_email: Any) -> None:
+        org = Organization.objects.create(name="Org to delete")
+        org.members.add(self.user)
+        team = Team.objects.create(organization=org, name="Team in org")
+        org_id = str(org.id)
+        team_id = team.id
+        project_id = team.project_id
+        user_id = self.user.id
+
+        # Simulate the user deleting their account before the async task runs
+        self.user.delete()
+
+        delete_organization_data_and_notify_task(
+            team_ids=[team_id],
+            organization_id=org_id,
+            user_id=user_id,
+            organization_name="Org to delete",
+            project_names=["Team in org"],
+        )
+
+        self.assertFalse(Organization.objects.filter(id=org_id).exists())
+        self.assertFalse(Team.objects.filter(id=team_id).exists())
+        self.assertFalse(Project.objects.filter(id=project_id).exists())
+
     @patch("posthog.tasks.email.send_organization_deleted_email")
     @patch("posthog.email.is_email_available", return_value=True)
     def test_sends_email_when_available(self, mock_email_available: Any, mock_send_email: Any) -> None:

@@ -405,6 +405,29 @@ export const experimentsDuplicateCreate = async (
     })
 }
 
+/**
+ * Launch a draft experiment.
+
+Validates the experiment is in draft state, activates its linked feature flag,
+sets start_date to the current server time, and transitions the experiment to running.
+Returns 400 if the experiment has already been launched or if the feature flag
+configuration is invalid (e.g. missing "control" variant or fewer than 2 variants).
+ */
+export const getExperimentsLaunchCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/launch/`
+}
+
+export const experimentsLaunchCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentApi> => {
+    return apiMutator<ExperimentApi>(getExperimentsLaunchCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getExperimentsRecalculateTimeseriesCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/recalculate_timeseries/`
 }

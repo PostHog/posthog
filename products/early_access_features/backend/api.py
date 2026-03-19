@@ -5,7 +5,7 @@ from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 
 import structlog
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -52,6 +52,7 @@ class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
+    @extend_schema_field(serializers.DictField(help_text="Feature flag payload for this early access feature"))
     def get_payload(self, obj):
         return obj.payload if obj.payload else {}
 
@@ -78,6 +79,7 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "feature_flag", "created_at"]
 
+    @extend_schema_field(serializers.DictField(help_text="Feature flag payload for this early access feature"))
     def get_payload(self, obj):
         return obj.payload if obj.payload else {}
 

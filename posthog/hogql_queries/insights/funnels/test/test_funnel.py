@@ -4461,6 +4461,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
                 date_to="2024-03-24",
             ),
         )
+        assert isinstance(query.series[0], EventsNode)  # for mypy
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
         self.assertEqual(results[0]["count"], 1)

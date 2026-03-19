@@ -259,6 +259,11 @@ export interface HogFlowTemplateActionApi {
     output_variable?: unknown | null
 }
 
+/**
+ * @nullable
+ */
+export type HogFlowTemplateApiCreatedBy = { [key: string]: unknown } | null | null
+
 export type HogFlowTemplateApiVariablesItem = { [key: string]: string }
 
 /**
@@ -278,7 +283,8 @@ export interface HogFlowTemplateApi {
     tags?: string[]
     scope: HogFlowTemplateScopeEnumApi
     readonly created_at: string
-    readonly created_by: string
+    /** @nullable */
+    readonly created_by: HogFlowTemplateApiCreatedBy
     readonly updated_at: string
     trigger?: unknown
     trigger_masking?: HogFlowMaskingApi | null
@@ -303,6 +309,11 @@ export interface PaginatedHogFlowTemplateListApi {
     results: HogFlowTemplateApi[]
 }
 
+/**
+ * @nullable
+ */
+export type PatchedHogFlowTemplateApiCreatedBy = { [key: string]: unknown } | null | null
+
 export type PatchedHogFlowTemplateApiVariablesItem = { [key: string]: string }
 
 /**
@@ -322,7 +333,8 @@ export interface PatchedHogFlowTemplateApi {
     tags?: string[]
     scope?: HogFlowTemplateScopeEnumApi
     readonly created_at?: string
-    readonly created_by?: string
+    /** @nullable */
+    readonly created_by?: PatchedHogFlowTemplateApiCreatedBy
     readonly updated_at?: string
     trigger?: unknown
     trigger_masking?: HogFlowMaskingApi | null

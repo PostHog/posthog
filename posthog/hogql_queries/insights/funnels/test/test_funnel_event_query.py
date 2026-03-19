@@ -8,11 +8,11 @@ import sqlparse
 
 from posthog.schema import (
     ActionsNode,
-    DataWarehouseNode,
     DataWarehousePropertyFilter,
     EventPropertyFilter,
     EventsNode,
     FilterLogicalOperator,
+    FunnelsDataWarehouseNode,
     FunnelsQuery,
     GroupNode,
 )
@@ -123,8 +123,8 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2025-11-12")
     def test_single_dwh_table(self):
-        dwh_node = DataWarehouseNode(
-            distinct_id_field="user_id",
+        dwh_node = FunnelsDataWarehouseNode(
+            aggregation_target_field="user_id",
             timestamp_field="created_at",
             table_name="payments",
             id="payments",
@@ -148,8 +148,8 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2025-11-12")
     def test_single_dwh_table_string_timestamp(self):
-        dwh_node = DataWarehouseNode(
-            distinct_id_field="user_id",
+        dwh_node = FunnelsDataWarehouseNode(
+            aggregation_target_field="user_id",
             timestamp_field="created_at_str",
             table_name="payments_string_timestamp",
             id="payments_string_timestamp",
@@ -180,29 +180,29 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
                     event="$pageview",
                     properties=[EventPropertyFilter(key="$browser", value=["Opera"], operator="exact")],
                 ),
-                DataWarehouseNode(
+                FunnelsDataWarehouseNode(
                     id="table_one",
                     table_name="table_one",
                     id_field="id",
-                    distinct_id_field="user_id",
+                    aggregation_target_field="user_id",
                     timestamp_field="created_at",
                     properties=[DataWarehousePropertyFilter(key="some_prop", value="some_value", operator="exact")],
                 ),
-                DataWarehouseNode(
+                FunnelsDataWarehouseNode(
                     id="table_two",
                     table_name="table_two",
                     id_field="some_id",
-                    distinct_id_field="some_user_id",
+                    aggregation_target_field="some_user_id",
                     timestamp_field="ts",
                     properties=[
                         DataWarehousePropertyFilter(key="another_prop", value="another_value", operator="exact")
                     ],
                 ),
-                DataWarehouseNode(
+                FunnelsDataWarehouseNode(
                     id="table_one",
                     table_name="table_one",
                     id_field="id",
-                    distinct_id_field="user_id",
+                    aggregation_target_field="user_id",
                     timestamp_field="created_at",
                     properties=[DataWarehousePropertyFilter(key="other_prop", value="other_value", operator="exact")],
                 ),
