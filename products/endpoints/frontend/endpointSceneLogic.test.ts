@@ -1,9 +1,9 @@
 import { router } from 'kea-router'
-import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
+import { expectLogic } from '~/test/keaTestUtils'
 
 import { endpointSceneLogic, EndpointTab } from './endpointSceneLogic'
 

@@ -1,6 +1,7 @@
 import { combineUrl, router } from 'kea-router'
 
 import { sceneLogic } from 'scenes/sceneLogic'
+import type { SceneTab } from 'scenes/sceneTypes'
 
 export function getTabSceneParams(tabId: string): {
     searchParams: Record<string, any>
@@ -32,20 +33,22 @@ export function updateTabUrl(
 
     const nextLocation = combineUrl(pathname, searchParams, hashParams)
     sceneLogic.actions.setTabs(
-        sceneLogic.values.tabs.map((tab) =>
-            tab.id === tabId
-                ? {
-                      ...tab,
-                      pathname: nextLocation.pathname,
-                      search: nextLocation.search,
-                      hash: nextLocation.hash,
-                      sceneParams: {
-                          ...tab.sceneParams,
-                          searchParams,
-                          hashParams,
-                      },
-                  }
-                : tab
+        sceneLogic.values.tabs.map(
+            (tab): SceneTab =>
+                tab.id === tabId
+                    ? {
+                          ...tab,
+                          pathname: nextLocation.pathname,
+                          search: nextLocation.search,
+                          hash: nextLocation.hash,
+                          sceneParams: {
+                              ...tab.sceneParams,
+                              params: tab.sceneParams?.params ?? {},
+                              searchParams,
+                              hashParams,
+                          },
+                      }
+                    : tab
         )
     )
 }
