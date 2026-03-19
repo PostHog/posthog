@@ -1822,12 +1822,13 @@ impl FeatureFlagMatcher {
             .map(|c| c.id)
             .collect();
 
-        // Ensure group type mappings are loaded before preparing group data
-        //
-        // TODO: we should use Rust type system to bubble up errors instead of using booleans
-        // This should be handled by https://github.com/PostHog/posthog/pull/51534
+        // Load group type mappings if needed. Errors are intentionally not propagated here:
+        // in the batch path (evaluate_flags_with_overrides), a group type mapping failure
+        // should not poison person-based flags in the same batch. prepare_group_data
+        // gracefully returns an empty map when self.group_type_mapping is None, so
+        // group-based flags will fail individually rather than taking down the whole batch.
         if self.initialize_group_type_mappings_if_needed(flags).await {
-            return Err(FlagError::GroupTypeMappingFetchFailed);
+            tracing::warn!("Failed to init group type mappings");
         }
 
         // Then prepare group mappings and properties
