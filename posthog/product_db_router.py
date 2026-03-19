@@ -16,23 +16,21 @@ def get_product_db_routes() -> tuple[ProductDBRoute, ...]:
 class ProductDBRouter:
     def __init__(self, routes: tuple[ProductDBRoute, ...] | None = None):
         configured_routes = routes if routes is not None else get_product_db_routes()
-        self.routes = tuple(
-            route
-            for route in configured_routes
-            if route.database in settings.DATABASES and route.reader_database in settings.DATABASES
+        self.routes = tuple(route for route in configured_routes if f"{route.database}_db_writer" in settings.DATABASES)
+        self._product_db_aliases = frozenset(
+            alias for route in self.routes for alias in (f"{route.database}_db_writer", f"{route.database}_db_reader")
         )
-        self._product_db_aliases = frozenset(route.database for route in self.routes)
 
     def db_for_read(self, model, **hints):
         for route in self.routes:
             if route.routes_model(model):
-                return route.reader_database
+                return f"{route.database}_db_reader"
         return None
 
     def db_for_write(self, model, **hints):
         for route in self.routes:
             if route.routes_model(model):
-                return route.database
+                return f"{route.database}_db_writer"
         return None
 
     def allow_relation(self, obj1, obj2, **hints):
@@ -44,9 +42,8 @@ class ProductDBRouter:
     def allow_migrate(self, db, app_label, model_name=None, **hints):
         for route in self.routes:
             if app_label == route.app_label:
-                return db == route.database
+                return db == f"{route.database}_db_writer"
 
-        # Non-routed apps must not migrate into product databases
         if db in self._product_db_aliases:
             return False
 
@@ -65,8 +62,8 @@ def check_product_db_routes(app_configs, **kwargs):
         if existing is not None and existing != route.database:
             errors.append(
                 Error(
-                    f"product db route for '{route.app_label}' points to multiple writer aliases",
-                    hint="Ensure each product app has exactly one writer alias in db_routing.yaml",
+                    f"product db route for '{route.app_label}' points to multiple databases",
+                    hint="Ensure each product app has exactly one database in db_routing.yaml",
                     id="posthog.E003",
                 )
             )

@@ -10,22 +10,21 @@ if [ ! -f "$ROUTING_FILE" ]; then
     exit 0
 fi
 
-awk -F': ' '/^\s*database:/{print $2}' "$ROUTING_FILE" | tr -d '"' | tr -d "'" | while read -r db_alias; do
-    [ -n "$db_alias" ] || continue
+# Extract unique database names from db_routing.yaml
+awk -F': ' '/^\s*database:/{print $2}' "$ROUTING_FILE" | tr -d '"' | tr -d "'" | sort -u | while read -r db_name; do
+    [ -n "$db_name" ] || continue
 
-    alias_without_suffix=${db_alias%_db_writer}
-    alias_without_suffix=${alias_without_suffix%_writer}
-    db_name="posthog_${alias_without_suffix}"
+    local_db_name="posthog_${db_name}"
 
-    echo "Checking if database '$db_name' exists..."
-    db_exists=$(psql -U "$POSTGRES_USER" -tAc "SELECT 1 FROM pg_database WHERE datname='${db_name}'")
+    echo "Checking if database '$local_db_name' exists..."
+    db_exists=$(psql -U "$POSTGRES_USER" -tAc "SELECT 1 FROM pg_database WHERE datname='${local_db_name}'")
 
     if [ -z "$db_exists" ]; then
-        echo "Creating database '$db_name'..."
-        psql -U "$POSTGRES_USER" -c "CREATE DATABASE ${db_name};"
-        psql -U "$POSTGRES_USER" -c "GRANT ALL PRIVILEGES ON DATABASE ${db_name} TO $POSTGRES_USER;"
-        echo "Database '$db_name' created successfully"
+        echo "Creating database '$local_db_name'..."
+        psql -U "$POSTGRES_USER" -c "CREATE DATABASE ${local_db_name};"
+        psql -U "$POSTGRES_USER" -c "GRANT ALL PRIVILEGES ON DATABASE ${local_db_name} TO $POSTGRES_USER;"
+        echo "Database '$local_db_name' created successfully"
     else
-        echo "Database '$db_name' already exists"
+        echo "Database '$local_db_name' already exists"
     fi
 done

@@ -2,8 +2,8 @@ import os
 import json
 import time
 from contextlib import suppress
-from pathlib import Path
 from functools import lru_cache
+from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -177,54 +177,40 @@ if persons_db_writer_url:
     DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
 
 
-def _database_alias_to_env_var(alias: str) -> str:
-    return f"{alias.upper()}_URL"
-
-
-def _default_local_db_name_for_alias(alias: str) -> str:
-    alias_without_suffix = alias.removesuffix("_db_writer").removesuffix("_writer")
-    return f"posthog_{alias_without_suffix}"
-
-
-def _get_product_route_writer_url(route) -> str | None:
-    writer_env_var = _database_alias_to_env_var(route.database)
-    writer_url = os.getenv(writer_env_var)
-    if writer_url:
-        return writer_url
-
-    if DEBUG and not TEST:
-        default_product_db_name = _default_local_db_name_for_alias(route.database)
-        return f"postgres://{PG_USER}:{PG_PASSWORD}@localhost:5432/{default_product_db_name}"
-
-    return None
-
-
-def _configure_product_route_database(alias: str, default_url: str) -> None:
-    DATABASES[alias] = dj_database_url.config(
-        env=_database_alias_to_env_var(alias), default=default_url, conn_max_age=0
-    )
-    DATABASES[alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
-    if DISABLE_SERVER_SIDE_CURSORS:
-        DATABASES[alias]["DISABLE_SERVER_SIDE_CURSORS"] = True
-
-
 product_routes = load_product_db_routes(Path(__file__).resolve().parents[2])
-configured_product_db_aliases: set[str] = set()
+configured_product_databases: set[str] = set()
 
 for route in product_routes:
-    writer_url = _get_product_route_writer_url(route)
+    if route.database in configured_product_databases:
+        continue
+
+    db = route.database
+    writer_env = f"PRODUCT_DB_{db.upper()}_WRITER_URL"
+    reader_env = f"PRODUCT_DB_{db.upper()}_READER_URL"
+    writer_alias = f"{db}_db_writer"
+    reader_alias = f"{db}_db_reader"
+
+    writer_url = os.getenv(writer_env)
+    if not writer_url and DEBUG and not TEST:
+        writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@localhost:5432/posthog_{db}"
+
     if not writer_url:
         continue
 
-    if route.database not in configured_product_db_aliases:
-        _configure_product_route_database(route.database, writer_url)
-        configured_product_db_aliases.add(route.database)
+    DATABASES[writer_alias] = dj_database_url.parse(writer_url, conn_max_age=0)
+    DATABASES[writer_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
 
-    if route.reader_database not in configured_product_db_aliases:
-        _configure_product_route_database(route.reader_database, writer_url)
-        configured_product_db_aliases.add(route.reader_database)
+    reader_url = os.getenv(reader_env, writer_url)
+    DATABASES[reader_alias] = dj_database_url.parse(reader_url, conn_max_age=0)
+    DATABASES[reader_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
 
-if configured_product_db_aliases:
+    if DISABLE_SERVER_SIDE_CURSORS:
+        DATABASES[writer_alias]["DISABLE_SERVER_SIDE_CURSORS"] = True
+        DATABASES[reader_alias]["DISABLE_SERVER_SIDE_CURSORS"] = True
+
+    configured_product_databases.add(db)
+
+if configured_product_databases:
     DATABASE_ROUTERS.insert(0, "posthog.product_db_router.ProductDBRouter")
 
 # Opt-in to using the read replica

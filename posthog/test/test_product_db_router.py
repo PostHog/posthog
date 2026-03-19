@@ -6,7 +6,14 @@ from django.test import SimpleTestCase, override_settings
 from posthog.product_db_config import ProductDBRoute, load_product_db_routes
 from posthog.product_db_router import ProductDBRouter, check_product_db_routes, get_product_db_routes
 
+FAKE_PRODUCT_DATABASES = {
+    "default": {},
+    "visual_review_db_writer": {},
+    "visual_review_db_reader": {},
+}
 
+
+@override_settings(DATABASES=FAKE_PRODUCT_DATABASES)
 class TestProductDBRouter(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
@@ -14,8 +21,7 @@ class TestProductDBRouter(SimpleTestCase):
             routes=(
                 ProductDBRoute(
                     app_label="visual_review",
-                    database="visual_review_db_writer",
-                    reader_database="visual_review_db_reader",
+                    database="visual_review",
                     source="products/db_routing.yaml",
                 ),
             )
@@ -39,8 +45,7 @@ class TestProductDBRouter(SimpleTestCase):
             routes=(
                 ProductDBRoute(
                     app_label="visual_review",
-                    database="visual_review_db_writer",
-                    reader_database="visual_review_db_reader",
+                    database="visual_review",
                     source="products/db_routing.yaml",
                 ),
             )
@@ -58,7 +63,7 @@ class TestProductDBRouteLoading(SimpleTestCase):
         visual_review_routes = [route for route in routes if route.app_label == "visual_review"]
 
         self.assertEqual(len(visual_review_routes), 1)
-        self.assertEqual(visual_review_routes[0].database, "visual_review_db_writer")
+        self.assertEqual(visual_review_routes[0].database, "visual_review")
         self.assertTrue(visual_review_routes[0].source.endswith("products/db_routing.yaml"))
 
 

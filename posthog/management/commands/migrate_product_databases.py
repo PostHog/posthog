@@ -54,19 +54,20 @@ class Command(BaseCommand):
         get_product_db_routes.cache_clear()
         routes = get_product_db_routes()
 
-        aliases_to_apps: dict[str, set[str]] = defaultdict(set)
+        db_to_apps: dict[str, set[str]] = defaultdict(set)
         for route in routes:
-            if route.database in settings.DATABASES:
-                aliases_to_apps[route.database].add(route.app_label)
+            writer_alias = f"{route.database}_db_writer"
+            if writer_alias in settings.DATABASES:
+                db_to_apps[writer_alias].add(route.app_label)
 
-        if not aliases_to_apps:
+        if not db_to_apps:
             self.stdout.write("No configured product databases found.")
             return
 
-        for alias, app_labels in sorted(aliases_to_apps.items()):
+        for writer_alias, app_labels in sorted(db_to_apps.items()):
             if options["ensure_databases"]:
-                ensure_database_exists(alias)
+                ensure_database_exists(writer_alias)
 
-            self.stdout.write(f"Running product migrations on database '{alias}'")
+            self.stdout.write(f"Running product migrations on database '{writer_alias}'")
             for app_label in sorted(app_labels):
-                call_command("migrate", app_label, database=alias, interactive=False, verbosity=1)
+                call_command("migrate", app_label, database=writer_alias, interactive=False, verbosity=1)

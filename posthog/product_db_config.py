@@ -12,7 +12,6 @@ PRODUCT_DB_ROUTING_FILE = "products/db_routing.yaml"
 class ProductDBRoute:
     app_label: str
     database: str
-    reader_database: str
     source: str
 
     def routes_model(self, model: object) -> bool:
@@ -35,7 +34,6 @@ def load_product_db_routes(base_dir: Path | str) -> tuple[ProductDBRoute, ...]:
     for route_config in config.get("routes", []):
         app_label = str(route_config.get("app_label", "")).strip()
         database = str(route_config.get("database", "")).strip()
-        reader_database = str(route_config.get("reader_database", database)).strip()
 
         if not app_label or not database:
             continue
@@ -44,7 +42,6 @@ def load_product_db_routes(base_dir: Path | str) -> tuple[ProductDBRoute, ...]:
             ProductDBRoute(
                 app_label=app_label,
                 database=database,
-                reader_database=reader_database,
                 source=str(config_path),
             )
         )
