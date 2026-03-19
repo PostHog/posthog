@@ -65,7 +65,7 @@ class TestCreateNotification(BaseTest):
     def test_resolve_unknown_target_type_raises(self):
         resolver = RecipientsResolver()
         with pytest.raises(ValueError, match="Unknown target type"):
-            resolver.resolve("nonexistent_type", "123", self.team.id)
+            resolver.resolve("nonexistent_type", "123", self.team.id)  # type: ignore[arg-type]
 
     @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=False)
     def test_feature_flag_disabled_returns_none(self, mock_ff):
