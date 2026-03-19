@@ -663,7 +663,7 @@ export function EditAlertModal({
                             </div>
                         </div>
                         {alertMode === 'detector' && alertForm.detector_config && (
-                            <div className="flex gap-1 items-center">
+                            <div className="flex gap-1 items-center border rounded p-1">
                                 <LemonSelect
                                     size="small"
                                     value={
@@ -672,7 +672,12 @@ export function EditAlertModal({
                                     onChange={(value) => setSimulationDateFrom(value)}
                                     options={getSimulationRangeOptions(alertForm.calculation_interval)}
                                 />
-                                <LemonButton type="secondary" onClick={simulateAlert} loading={simulationResultLoading}>
+                                <LemonButton
+                                    type="secondary"
+                                    onClick={simulateAlert}
+                                    loading={simulationResultLoading}
+                                    tooltip="Run the detector on historical data to preview which points would be flagged as anomalies"
+                                >
                                     Simulate
                                 </LemonButton>
                             </div>
