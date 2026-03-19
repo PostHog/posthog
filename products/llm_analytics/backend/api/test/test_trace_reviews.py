@@ -111,7 +111,7 @@ class TestTraceReviewsApi(APIBaseTest):
         self.assertIsNone(review.comment)
         self.assertEqual(review.scores.count(), 0)
 
-    def test_creating_review_soft_deletes_pending_queue_item(self):
+    def test_creating_review_soft_deletes_pending_queue_item_without_queue_context(self):
         queue = self._create_queue()
         item = self._create_queue_item(queue=queue, trace_id="trace_123")
 
@@ -122,7 +122,22 @@ class TestTraceReviewsApi(APIBaseTest):
         self.assertTrue(item.deleted)
         self.assertIsNotNone(item.deleted_at)
 
-    def test_updating_review_soft_deletes_pending_queue_item(self):
+    def test_creating_review_soft_deletes_matching_pending_queue_item_with_queue_context(self):
+        queue = self._create_queue()
+        item = self._create_queue_item(queue=queue, trace_id="trace_123")
+
+        response = self.client.post(
+            self._endpoint(),
+            {"trace_id": "trace_123", "queue_id": str(queue.id)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        item.refresh_from_db()
+        self.assertTrue(item.deleted)
+        self.assertIsNotNone(item.deleted_at)
+
+    def test_updating_review_soft_deletes_pending_queue_item_without_queue_context(self):
         review = self._create_review(trace_id="trace_123", comment="Before")
         queue = self._create_queue()
         item = self._create_queue_item(queue=queue, trace_id="trace_123")
@@ -130,6 +145,22 @@ class TestTraceReviewsApi(APIBaseTest):
         response = self.client.patch(
             f"{self._endpoint()}{review.id}/",
             {"comment": "After"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        item.refresh_from_db()
+        self.assertTrue(item.deleted)
+        self.assertIsNotNone(item.deleted_at)
+
+    def test_updating_review_soft_deletes_matching_pending_queue_item_with_queue_context(self):
+        review = self._create_review(trace_id="trace_123", comment="Before")
+        queue = self._create_queue()
+        item = self._create_queue_item(queue=queue, trace_id="trace_123")
+
+        response = self.client.patch(
+            f"{self._endpoint()}{review.id}/",
+            {"comment": "After", "queue_id": str(queue.id)},
             format="json",
         )
 

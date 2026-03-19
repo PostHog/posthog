@@ -53,7 +53,7 @@ export class ResultHandlingPipeline<
         for (const resultWithContext of results) {
             const stepName = resultWithContext.context.lastStep || 'unknown'
             const { result: resultType, details } = resultDetails(resultWithContext.result)
-            ingestionPipelineResultCounter.labels({ result: resultType, step_name: stepName, details }).inc()
+            ingestionPipelineResultCounter.labels({ result: resultType, last_step_name: stepName, details }).inc()
 
             if (isOkResult(resultWithContext.result)) {
                 processedResults.push(resultWithContext)

@@ -131,6 +131,7 @@ settingExpr: identifier EQ_SINGLE literal;
 windowExpr: winPartitionByClause? winOrderByClause? winFrameClause?;
 winPartitionByClause: PARTITION BY columnExprList;
 winOrderByClause: ORDER BY orderExprList;
+withinGroupClause: WITHIN GROUP LPAREN orderByClause RPAREN;
 winFrameClause: (ROWS | RANGE) winFrameExtend;
 winFrameExtend
     : winFrameBound                             # frameStart
@@ -166,6 +167,7 @@ columnExpr
     | TRIM LPAREN (BOTH | LEADING | TRAILING) string FROM columnExpr RPAREN               # ColumnExprTrim
     | identifier (LPAREN columnExprs=columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList=columnExprList? RPAREN)? OVER LPAREN windowExpr RPAREN # ColumnExprWinFunction
     | identifier (LPAREN columnExprs=columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList=columnExprList? RPAREN)? OVER identifier               # ColumnExprWinFunctionTarget
+    | identifier LPAREN columnExprs=columnExprList? RPAREN withinGroupClause                                                                        # ColumnExprFunctionWithinGroup
     | identifier (LPAREN columnExprs=columnExprList? RPAREN)? LPAREN DISTINCT? columnArgList=columnExprList? RPAREN                                 # ColumnExprFunction
     | columnExpr LPAREN selectSetStmt RPAREN                                              # ColumnExprCallSelect
     | columnExpr LPAREN columnExprList? RPAREN                                            # ColumnExprCall
@@ -310,7 +312,7 @@ keyword
     | PRECEDING | PREWHERE | RANGE | RECURSIVE | RETURN | RIGHT | ROLLUP | ROW
     | ROWS | SAMPLE | SELECT | SEMI | SETTINGS | SUBSTRING
     | THEN | TIES | TIMESTAMP | TOTALS | TRAILING | TRIM | TRUNCATE | TO | TOP
-    | UNBOUNDED | UNION | USING | VALUES | WHEN | WHERE | WINDOW | WITH
+    | UNBOUNDED | UNION | USING | VALUES | WHEN | WHERE | WINDOW | WITH | WITHIN
     ;
 keywordForAlias
     : DATE | FIRST | ID | KEY

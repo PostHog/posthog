@@ -972,7 +972,8 @@ class TestExperimentService(APIBaseTest):
         service.update_experiment(experiment, {"holdout": holdout})
 
         experiment.feature_flag.refresh_from_db()
-        assert experiment.feature_flag.filters["holdout_groups"] == holdout.filters
+        assert experiment.feature_flag.filters["holdout"] == {"id": holdout.id, "exclusion_percentage": 10}
+        assert "holdout_groups" not in experiment.feature_flag.filters
 
     # ------------------------------------------------------------------
     # Duplicate experiment

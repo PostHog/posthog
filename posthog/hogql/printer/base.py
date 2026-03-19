@@ -616,6 +616,11 @@ class HogQLPrinter(Visitor[str]):
                 )
             )
         elif func_meta := find_hogql_aggregation(node.name):
+            if func_meta.requires_within_group and node.within_group is None:
+                raise QueryError(f"Aggregation '{node.name}' requires WITHIN GROUP")
+            if node.within_group is not None and self.dialect == "clickhouse":
+                raise QueryError(f"Aggregation '{node.name}' with WITHIN GROUP is not supported in ClickHouse dialect")
+
             validate_function_args(
                 node.args,
                 func_meta.min_args,
@@ -646,11 +651,26 @@ class HogQLPrinter(Visitor[str]):
 
             arg_strings = [self.visit(arg) for arg in node.args]
             params = [self.visit(param) for param in node.params] if node.params is not None else None
+            within_group = (
+                f" WITHIN GROUP (ORDER BY {', '.join(self.visit(expr) for expr in node.within_group)})"
+                if node.within_group
+                else ""
+            )
 
             params_part = f"({', '.join(params)})" if params is not None else ""
-            args_part = f"({'DISTINCT ' if node.distinct else ''}{', '.join(arg_strings)})"
+            args_part = (
+                ""
+                if node.within_group is not None and len(arg_strings) == 0 and not node.distinct
+                else f"({'DISTINCT ' if node.distinct else ''}{', '.join(arg_strings)})"
+            )
 
-            return f"{node.name if self.dialect == 'hogql' else func_meta.clickhouse_name}{params_part}{args_part}"
+            if node.within_group is not None and not func_meta.requires_within_group:
+                raise QueryError(f"Aggregation '{node.name}' does not support WITHIN GROUP")
+
+            return (
+                f"{node.name if self.dialect == 'hogql' else func_meta.clickhouse_name}"
+                f"{params_part}{args_part}{within_group}"
+            )
 
         elif func_meta := find_hogql_function(node.name):
             validate_function_args(

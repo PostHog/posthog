@@ -468,22 +468,22 @@ describe('ResultHandlingPipeline', () => {
             // Verify all results were recorded with correct step names
             expect(mockIngestionPipelineResultCounter.labels).toHaveBeenCalledWith({
                 result: 'ok',
-                step_name: 'validationStep',
+                last_step_name: 'validationStep',
                 details: '',
             })
             expect(mockIngestionPipelineResultCounter.labels).toHaveBeenCalledWith({
                 result: 'drop',
-                step_name: 'filterStep',
+                last_step_name: 'filterStep',
                 details: 'dropped item',
             })
             expect(mockIngestionPipelineResultCounter.labels).toHaveBeenCalledWith({
                 result: 'redirect',
-                step_name: 'routingStep',
+                last_step_name: 'routingStep',
                 details: 'overflow-topic(preserve_key=true)',
             })
             expect(mockIngestionPipelineResultCounter.labels).toHaveBeenCalledWith({
                 result: 'dlq',
-                step_name: 'processingStep',
+                last_step_name: 'processingStep',
                 details: 'dlq item',
             })
         })
@@ -509,7 +509,7 @@ describe('ResultHandlingPipeline', () => {
             // Verify result was recorded with 'unknown' step name
             expect(mockIngestionPipelineResultCounter.labels).toHaveBeenCalledWith({
                 result: 'ok',
-                step_name: 'unknown',
+                last_step_name: 'unknown',
                 details: '',
             })
         })
