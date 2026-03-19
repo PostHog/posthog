@@ -113,10 +113,18 @@ class TestErrorTracking(BaseTest):
         issue_two = self.create_issue(["fingerprint_two"])
 
         spike_one = ErrorTrackingSpikeEvent.objects.create(
-            team=self.team, issue=issue_one, detected_at=datetime.now(), computed_baseline=5.0, current_bucket_value=100
+            team=self.team,
+            issue=issue_one,
+            detected_at=datetime.now(),
+            computed_baseline=5.0,
+            current_bucket_value=100,
         )
         spike_two = ErrorTrackingSpikeEvent.objects.create(
-            team=self.team, issue=issue_two, detected_at=datetime.now(), computed_baseline=10.0, current_bucket_value=200
+            team=self.team,
+            issue=issue_two,
+            detected_at=datetime.now(),
+            computed_baseline=10.0,
+            current_bucket_value=200,
         )
 
         issue_two.merge(issue_ids=[issue_one.id])
