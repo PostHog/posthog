@@ -93,7 +93,6 @@ jobs:
                     exit 1
                   fi
 
-            
             - name: Check generated UI apps are up to date
               run: |
                   cd services/mcp && pnpm run generate:ui-apps
