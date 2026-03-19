@@ -1,5 +1,3 @@
-import './ButtonTileCard.scss'
-
 import clsx from 'clsx'
 import { useActions } from 'kea'
 import { router } from 'kea-router'
@@ -93,7 +91,7 @@ function ButtonTileCardInternal(
 
             <div
                 className={clsx(
-                    'ButtonTileCard__body w-full p-4',
+                    'flex flex-1 items-start w-full p-4',
                     !shouldHideMoreButton && 'pr-14',
                     button_tile.placement === 'right' ? 'md:justify-end' : 'justify-start',
                     onDragHandleMouseDown && 'cursor-grab'
