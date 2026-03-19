@@ -514,11 +514,13 @@ def generate_insight_name(query: InsightVizNode, team: Team) -> str:
             },
         )
 
-        if len(content) > 100:
-            return content[:97] + "..."
+        name = content.strip().strip('"').strip("'")
+        if len(name) > 100:
+            return name[:97] + "..."
 
-        return content
+        return name
 
     except Exception:
+        # TODO: Fallback to <event> <math> & <event> <math> naming
         logger.exception("ai_name_generation_failed")
         return ""
