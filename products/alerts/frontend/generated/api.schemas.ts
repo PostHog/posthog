@@ -159,6 +159,24 @@ export interface TrendsAlertConfigApi {
     type?: TrendsAlertConfigApiType
 }
 
+export interface PreprocessingConfigApi {
+    /**
+     * Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)
+     * @nullable
+     */
+    diffs_n?: number | null
+    /**
+     * Number of lag features. 0 = none, >0 = include n lagged values (default: 0)
+     * @nullable
+     */
+    lags_n?: number | null
+    /**
+     * Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)
+     * @nullable
+     */
+    smooth_n?: number | null
+}
+
 export type ZScoreDetectorConfigApiType = (typeof ZScoreDetectorConfigApiType)[keyof typeof ZScoreDetectorConfigApiType]
 
 export const ZScoreDetectorConfigApiType = {
@@ -166,6 +184,8 @@ export const ZScoreDetectorConfigApiType = {
 } as const
 
 export interface ZScoreDetectorConfigApi {
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfigApi | null
     /**
      * Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)
      * @nullable
@@ -186,6 +206,8 @@ export const MADDetectorConfigApiType = {
 } as const
 
 export interface MADDetectorConfigApi {
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfigApi | null
     /**
      * Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)
      * @nullable
@@ -211,6 +233,8 @@ export interface IQRDetectorConfigApi {
      * @nullable
      */
     multiplier?: number | null
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfigApi | null
     type?: IQRDetectorConfigApiType
     /**
      * Rolling window size for calculating quartiles (default: 30)
@@ -232,12 +256,191 @@ export interface ThresholdDetectorConfigApi {
      * @nullable
      */
     lower_bound?: number | null
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfigApi | null
     type?: ThresholdDetectorConfigApiType
     /**
      * Upper bound - values above this are anomalies
      * @nullable
      */
     upper_bound?: number | null
+}
+
+export type ECODDetectorConfigApiType = (typeof ECODDetectorConfigApiType)[keyof typeof ECODDetectorConfigApiType]
+
+export const ECODDetectorConfigApiType = {
+    Ecod: 'ecod',
+} as const
+
+export interface ECODDetectorConfigApi {
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfigApi | null
+    /**
+     * Anomaly probability threshold (default: 0.9)
+     * @nullable
+     */
+    threshold?: number | null
+    type?: ECODDetectorConfigApiType
+}
+
+export type COPODDetectorConfigApiType = (typeof COPODDetectorConfigApiType)[keyof typeof COPODDetectorConfigApiType]
+
+export const COPODDetectorConfigApiType = {
+    Copod: 'copod',
+} as const
+
+export interface COPODDetectorConfigApi {
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfigApi | null
+    /**
+     * Anomaly probability threshold (default: 0.9)
+     * @nullable
+     */
+    threshold?: number | null
+    type?: COPODDetectorConfigApiType
+}
+
+export type IsolationForestDetectorConfigApiType =
+    (typeof IsolationForestDetectorConfigApiType)[keyof typeof IsolationForestDetectorConfigApiType]
+
+export const IsolationForestDetectorConfigApiType = {
+    IsolationForest: 'isolation_forest',
+} as const
+
+export interface IsolationForestDetectorConfigApi {
+    /**
+     * Number of trees in the forest (default: 100)
+     * @nullable
+     */
+    n_estimators?: number | null
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfigApi | null
+    /**
+     * Anomaly probability threshold (default: 0.9)
+     * @nullable
+     */
+    threshold?: number | null
+    type?: IsolationForestDetectorConfigApiType
+}
+
+export type MethodApi = (typeof MethodApi)[keyof typeof MethodApi]
+
+export const MethodApi = {
+    Largest: 'largest',
+    Mean: 'mean',
+    Median: 'median',
+} as const
+
+export type KNNDetectorConfigApiType = (typeof KNNDetectorConfigApiType)[keyof typeof KNNDetectorConfigApiType]
+
+export const KNNDetectorConfigApiType = {
+    Knn: 'knn',
+} as const
+
+export interface KNNDetectorConfigApi {
+    /** Distance method: 'largest', 'mean', 'median' (default: 'largest') */
+    method?: MethodApi | null
+    /**
+     * Number of neighbors to consider (default: 5)
+     * @nullable
+     */
+    n_neighbors?: number | null
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfigApi | null
+    /**
+     * Anomaly probability threshold (default: 0.9)
+     * @nullable
+     */
+    threshold?: number | null
+    type?: KNNDetectorConfigApiType
+}
+
+export type HBOSDetectorConfigApiType = (typeof HBOSDetectorConfigApiType)[keyof typeof HBOSDetectorConfigApiType]
+
+export const HBOSDetectorConfigApiType = {
+    Hbos: 'hbos',
+} as const
+
+export interface HBOSDetectorConfigApi {
+    /**
+     * Number of histogram bins (default: 10)
+     * @nullable
+     */
+    n_bins?: number | null
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfigApi | null
+    /**
+     * Anomaly probability threshold (default: 0.9)
+     * @nullable
+     */
+    threshold?: number | null
+    type?: HBOSDetectorConfigApiType
+}
+
+export type LOFDetectorConfigApiType = (typeof LOFDetectorConfigApiType)[keyof typeof LOFDetectorConfigApiType]
+
+export const LOFDetectorConfigApiType = {
+    Lof: 'lof',
+} as const
+
+export interface LOFDetectorConfigApi {
+    /**
+     * Number of neighbors for LOF (default: 20)
+     * @nullable
+     */
+    n_neighbors?: number | null
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfigApi | null
+    /**
+     * Anomaly probability threshold (default: 0.9)
+     * @nullable
+     */
+    threshold?: number | null
+    type?: LOFDetectorConfigApiType
+}
+
+export type OCSVMDetectorConfigApiType = (typeof OCSVMDetectorConfigApiType)[keyof typeof OCSVMDetectorConfigApiType]
+
+export const OCSVMDetectorConfigApiType = {
+    Ocsvm: 'ocsvm',
+} as const
+
+export interface OCSVMDetectorConfigApi {
+    /**
+     * SVM kernel type (default: "rbf")
+     * @nullable
+     */
+    kernel?: string | null
+    /**
+     * Upper bound on training errors fraction (default: 0.1)
+     * @nullable
+     */
+    nu?: number | null
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfigApi | null
+    /**
+     * Anomaly probability threshold (default: 0.9)
+     * @nullable
+     */
+    threshold?: number | null
+    type?: OCSVMDetectorConfigApiType
+}
+
+export type PCADetectorConfigApiType = (typeof PCADetectorConfigApiType)[keyof typeof PCADetectorConfigApiType]
+
+export const PCADetectorConfigApiType = {
+    Pca: 'pca',
+} as const
+
+export interface PCADetectorConfigApi {
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfigApi | null
+    /**
+     * Anomaly probability threshold (default: 0.9)
+     * @nullable
+     */
+    threshold?: number | null
+    type?: PCADetectorConfigApiType
 }
 
 export type EnsembleOperatorApi = (typeof EnsembleOperatorApi)[keyof typeof EnsembleOperatorApi]
@@ -265,91 +468,14 @@ export interface EnsembleDetectorConfigApi {
         | COPODDetectorConfigApi
         | IsolationForestDetectorConfigApi
         | KNNDetectorConfigApi
+        | HBOSDetectorConfigApi
+        | LOFDetectorConfigApi
+        | OCSVMDetectorConfigApi
+        | PCADetectorConfigApi
     )[]
     /** How to combine sub-detector results */
     operator: EnsembleOperatorApi
     type?: EnsembleDetectorConfigApiType
-}
-
-export type ECODDetectorConfigApiType = (typeof ECODDetectorConfigApiType)[keyof typeof ECODDetectorConfigApiType]
-
-export const ECODDetectorConfigApiType = {
-    Ecod: 'ecod',
-} as const
-
-export interface ECODDetectorConfigApi {
-    /**
-     * Anomaly probability threshold (default: 0.9)
-     * @nullable
-     */
-    threshold?: number | null
-    type?: ECODDetectorConfigApiType
-}
-
-export type COPODDetectorConfigApiType = (typeof COPODDetectorConfigApiType)[keyof typeof COPODDetectorConfigApiType]
-
-export const COPODDetectorConfigApiType = {
-    Copod: 'copod',
-} as const
-
-export interface COPODDetectorConfigApi {
-    /**
-     * Anomaly probability threshold (default: 0.9)
-     * @nullable
-     */
-    threshold?: number | null
-    type?: COPODDetectorConfigApiType
-}
-
-export type IsolationForestDetectorConfigApiType =
-    (typeof IsolationForestDetectorConfigApiType)[keyof typeof IsolationForestDetectorConfigApiType]
-
-export const IsolationForestDetectorConfigApiType = {
-    IsolationForest: 'isolation_forest',
-} as const
-
-export interface IsolationForestDetectorConfigApi {
-    /**
-     * Anomaly probability threshold (default: 0.9)
-     * @nullable
-     */
-    threshold?: number | null
-    /**
-     * Number of trees in the forest (default: 100)
-     * @nullable
-     */
-    n_estimators?: number | null
-    type?: IsolationForestDetectorConfigApiType
-}
-
-export type MethodApi = (typeof MethodApi)[keyof typeof MethodApi]
-
-export const MethodApi = {
-    Largest: 'largest',
-    Mean: 'mean',
-    Median: 'median',
-} as const
-
-export type KNNDetectorConfigApiType = (typeof KNNDetectorConfigApiType)[keyof typeof KNNDetectorConfigApiType]
-
-export const KNNDetectorConfigApiType = {
-    Knn: 'knn',
-} as const
-
-export interface KNNDetectorConfigApi {
-    /**
-     * Anomaly probability threshold (default: 0.9)
-     * @nullable
-     */
-    threshold?: number | null
-    /** Distance method: 'largest', 'mean', 'median' (default: 'largest') */
-    method?: MethodApi | null
-    /**
-     * Number of neighbors to consider (default: 5)
-     * @nullable
-     */
-    n_neighbors?: number | null
-    type?: KNNDetectorConfigApiType
 }
 
 /**
@@ -365,6 +491,10 @@ export type DetectorConfigApi =
     | COPODDetectorConfigApi
     | IsolationForestDetectorConfigApi
     | KNNDetectorConfigApi
+    | HBOSDetectorConfigApi
+    | LOFDetectorConfigApi
+    | OCSVMDetectorConfigApi
+    | PCADetectorConfigApi
 
 /**
  * * `hourly` - hourly

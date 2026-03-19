@@ -4383,6 +4383,29 @@ export namespace Schemas {
       window?: number | null;
     }
 
+    export type IQRDetectorConfigType = typeof IQRDetectorConfigType[keyof typeof IQRDetectorConfigType];
+
+
+    export const IQRDetectorConfigType = {
+      Iqr: 'iqr',
+    } as const;
+
+    export interface IQRDetectorConfig {
+      /**
+       * IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)
+       * @nullable
+       */
+      multiplier?: number | null;
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      type?: IQRDetectorConfigType;
+      /**
+       * Rolling window size for calculating quartiles (default: 30)
+       * @nullable
+       */
+      window?: number | null;
+    }
+
     export type ThresholdDetectorConfigType = typeof ThresholdDetectorConfigType[keyof typeof ThresholdDetectorConfigType];
 
 
@@ -4406,6 +4429,191 @@ export namespace Schemas {
       upper_bound?: number | null;
     }
 
+    export type ECODDetectorConfigType = typeof ECODDetectorConfigType[keyof typeof ECODDetectorConfigType];
+
+
+    export const ECODDetectorConfigType = {
+      Ecod: 'ecod',
+    } as const;
+
+    export interface ECODDetectorConfig {
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      /**
+       * Anomaly probability threshold (default: 0.9)
+       * @nullable
+       */
+      threshold?: number | null;
+      type?: ECODDetectorConfigType;
+    }
+
+    export type COPODDetectorConfigType = typeof COPODDetectorConfigType[keyof typeof COPODDetectorConfigType];
+
+
+    export const COPODDetectorConfigType = {
+      Copod: 'copod',
+    } as const;
+
+    export interface COPODDetectorConfig {
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      /**
+       * Anomaly probability threshold (default: 0.9)
+       * @nullable
+       */
+      threshold?: number | null;
+      type?: COPODDetectorConfigType;
+    }
+
+    export type IsolationForestDetectorConfigType = typeof IsolationForestDetectorConfigType[keyof typeof IsolationForestDetectorConfigType];
+
+
+    export const IsolationForestDetectorConfigType = {
+      IsolationForest: 'isolation_forest',
+    } as const;
+
+    export interface IsolationForestDetectorConfig {
+      /**
+       * Number of trees in the forest (default: 100)
+       * @nullable
+       */
+      n_estimators?: number | null;
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      /**
+       * Anomaly probability threshold (default: 0.9)
+       * @nullable
+       */
+      threshold?: number | null;
+      type?: IsolationForestDetectorConfigType;
+    }
+
+    export type Method = typeof Method[keyof typeof Method];
+
+
+    export const Method = {
+      Largest: 'largest',
+      Mean: 'mean',
+      Median: 'median',
+    } as const;
+
+    export type KNNDetectorConfigType = typeof KNNDetectorConfigType[keyof typeof KNNDetectorConfigType];
+
+
+    export const KNNDetectorConfigType = {
+      Knn: 'knn',
+    } as const;
+
+    export interface KNNDetectorConfig {
+      /** Distance method: 'largest', 'mean', 'median' (default: 'largest') */
+      method?: Method | null;
+      /**
+       * Number of neighbors to consider (default: 5)
+       * @nullable
+       */
+      n_neighbors?: number | null;
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      /**
+       * Anomaly probability threshold (default: 0.9)
+       * @nullable
+       */
+      threshold?: number | null;
+      type?: KNNDetectorConfigType;
+    }
+
+    export type HBOSDetectorConfigType = typeof HBOSDetectorConfigType[keyof typeof HBOSDetectorConfigType];
+
+
+    export const HBOSDetectorConfigType = {
+      Hbos: 'hbos',
+    } as const;
+
+    export interface HBOSDetectorConfig {
+      /**
+       * Number of histogram bins (default: 10)
+       * @nullable
+       */
+      n_bins?: number | null;
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      /**
+       * Anomaly probability threshold (default: 0.9)
+       * @nullable
+       */
+      threshold?: number | null;
+      type?: HBOSDetectorConfigType;
+    }
+
+    export type LOFDetectorConfigType = typeof LOFDetectorConfigType[keyof typeof LOFDetectorConfigType];
+
+
+    export const LOFDetectorConfigType = {
+      Lof: 'lof',
+    } as const;
+
+    export interface LOFDetectorConfig {
+      /**
+       * Number of neighbors for LOF (default: 20)
+       * @nullable
+       */
+      n_neighbors?: number | null;
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      /**
+       * Anomaly probability threshold (default: 0.9)
+       * @nullable
+       */
+      threshold?: number | null;
+      type?: LOFDetectorConfigType;
+    }
+
+    export type OCSVMDetectorConfigType = typeof OCSVMDetectorConfigType[keyof typeof OCSVMDetectorConfigType];
+
+
+    export const OCSVMDetectorConfigType = {
+      Ocsvm: 'ocsvm',
+    } as const;
+
+    export interface OCSVMDetectorConfig {
+      /**
+       * SVM kernel type (default: "rbf")
+       * @nullable
+       */
+      kernel?: string | null;
+      /**
+       * Upper bound on training errors fraction (default: 0.1)
+       * @nullable
+       */
+      nu?: number | null;
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      /**
+       * Anomaly probability threshold (default: 0.9)
+       * @nullable
+       */
+      threshold?: number | null;
+      type?: OCSVMDetectorConfigType;
+    }
+
+    export type PCADetectorConfigType = typeof PCADetectorConfigType[keyof typeof PCADetectorConfigType];
+
+
+    export const PCADetectorConfigType = {
+      Pca: 'pca',
+    } as const;
+
+    export interface PCADetectorConfig {
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      /**
+       * Anomaly probability threshold (default: 0.9)
+       * @nullable
+       */
+      threshold?: number | null;
+      type?: PCADetectorConfigType;
+    }
+
     export type EnsembleOperator = typeof EnsembleOperator[keyof typeof EnsembleOperator];
 
 
@@ -4423,7 +4631,7 @@ export namespace Schemas {
 
     export interface EnsembleDetectorConfig {
       /** Sub-detector configurations (minimum 2) */
-      detectors: (ZScoreDetectorConfig | MADDetectorConfig | ThresholdDetectorConfig)[];
+      detectors: (ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig)[];
       /** How to combine sub-detector results */
       operator: EnsembleOperator;
       type?: EnsembleDetectorConfigType;
@@ -4432,7 +4640,7 @@ export namespace Schemas {
     /**
      * Detector configuration types
      */
-    export type DetectorConfig = EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | ThresholdDetectorConfig;
+    export type DetectorConfig = EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig;
 
     /**
      * * `hourly` - hourly
