@@ -456,11 +456,3 @@ class PostHogSCIMUser(SCIMUser):
         return User.objects.filter(organization_membership__organization=organization_domain.organization).order_by(
             "id"
         )
-
-    @classmethod
-    def get_for_organization(cls, organization_domain: OrganizationDomain) -> list["PostHogSCIMUser"]:
-        """
-        Get all users for a specific organization domain.
-        """
-        users = User.objects.filter(organization_membership__organization=organization_domain.organization)
-        return [cls(user, organization_domain) for user in users]
