@@ -24,6 +24,7 @@ class WebhookHogFunctionCreateResult:
     hog_function: HogFunction | None = None
     webhook_url: str = ""
     error: str | None = None
+    hog_function_created: bool = False
 
 
 def get_or_create_webhook_hog_function(
@@ -62,7 +63,7 @@ def get_or_create_webhook_hog_function(
     if extra_inputs:
         inputs.update({key: {"value": value} for key, value in extra_inputs.items()})
 
-    hog_function, _ = HogFunction.objects.update_or_create(
+    hog_function, created = HogFunction.objects.update_or_create(
         team=team,
         type="warehouse_source_webhook",
         inputs__source_id__value=source_id,

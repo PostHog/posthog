@@ -284,7 +284,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 logger.warning("Failed to create webhook hog function", error=hog_fn_result.error)
                 return
 
-            create_and_register_webhook(source_impl, config, hog_fn_result, schema.team_id)
+            if hog_fn_result.hog_function_created:
+                # Only register the webhook if we're creating the hog function when it didn't exist previously
+                create_and_register_webhook(source_impl, config, hog_fn_result, schema.team_id)
         except Exception as e:
             logger.exception("Failed to create webhook during schema update", error=str(e))
 
