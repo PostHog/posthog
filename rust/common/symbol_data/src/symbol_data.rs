@@ -92,14 +92,12 @@ where
     match version {
         V1_VERSION => {
             assert_at_least_as_long_as(v1_header_len(), data.len())?;
-            assert_has_magic(&data)?;
-            assert_data_type_v1(&data, T::data_type())?;
+            assert_data_type_impl(&data, T::data_type())?;
             T::from_bytes(data[v1_header_len()..].to_vec())
         }
         VERSION => {
             assert_at_least_as_long_as(v2_header_len(), data.len())?;
-            assert_has_magic(&data)?;
-            assert_data_type_v2(&data, T::data_type())?;
+            assert_data_type_impl(&data, T::data_type())?;
             let compression = Compression::try_from(data[v2_header_len() - 1])?;
             let payload = &data[v2_header_len()..];
             let decompressed = match compression {
@@ -144,28 +142,13 @@ fn assert_has_magic(buffer: &[u8]) -> Result<(), Error> {
 }
 
 pub fn assert_data_type(buffer: &[u8], expected_type: SymbolDataType) -> Result<(), Error> {
-    let version = read_version(buffer)?;
-    match version {
-        V1_VERSION => assert_data_type_v1(buffer, expected_type),
-        _ => assert_data_type_v2(buffer, expected_type),
-    }
+    // read_version validates magic and minimum length
+    let _version = read_version(buffer)?;
+    assert_data_type_impl(buffer, expected_type)
 }
 
-fn assert_data_type_v1(buffer: &[u8], expected_type: SymbolDataType) -> Result<(), Error> {
-    let hlen = v1_header_len();
-    let data_type = u32::from_le_bytes(buffer[hlen - 4..hlen].try_into().unwrap());
-    if data_type != expected_type as u32 {
-        Err(Error::InvalidDataType(
-            data_type,
-            format!("{expected_type:?}"),
-        ))
-    } else {
-        Ok(())
-    }
-}
-
-fn assert_data_type_v2(buffer: &[u8], expected_type: SymbolDataType) -> Result<(), Error> {
-    // In v2, the type field is at the same offset as v1 (after MAGIC + VERSION)
+fn assert_data_type_impl(buffer: &[u8], expected_type: SymbolDataType) -> Result<(), Error> {
+    // Type field sits at the same offset in both v1 and v2 (after MAGIC + VERSION)
     let type_offset = MAGIC.len() + 4;
     let data_type = u32::from_le_bytes(buffer[type_offset..type_offset + 4].try_into().unwrap());
     if data_type != expected_type as u32 {

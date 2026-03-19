@@ -3,6 +3,10 @@ use posthog_symbol_data::{
     ProguardMapping, SourceAndMap,
 };
 
+const MAGIC_LEN: usize = b"posthog_error_tracking".len();
+const VERSION_OFFSET: usize = MAGIC_LEN;
+const COMPRESSION_OFFSET: usize = MAGIC_LEN + 4 + 4; // after MAGIC + VERSION + TYPE
+
 #[test]
 fn test_source_and_map_reading() {
     // This file is v1 format - validates backward compatibility
@@ -11,66 +15,76 @@ fn test_source_and_map_reading() {
 }
 
 #[test]
-fn test_v2_compressed_roundtrip() {
+fn test_v2_compressed_header() {
     let input = SourceAndMap {
         minified_source: "minified_source".to_string(),
         sourcemap: "sourcemap".to_string(),
     };
 
     let bytes = write_symbol_data(input.clone()).unwrap();
-    // Verify it's v2 (version field at offset 22)
-    let version = u32::from_le_bytes(bytes[22..26].try_into().unwrap());
+    let version =
+        u32::from_le_bytes(bytes[VERSION_OFFSET..VERSION_OFFSET + 4].try_into().unwrap());
     assert_eq!(version, 2);
-    // Verify compression byte is 1 (zstd)
-    assert_eq!(bytes[30], 1);
+    assert_eq!(bytes[COMPRESSION_OFFSET], 1); // zstd
 
     let output = read_symbol_data::<SourceAndMap>(bytes).unwrap();
     assert_eq!(input, output);
 }
 
 #[test]
-fn test_v2_uncompressed_roundtrip() {
+fn test_v2_uncompressed_header() {
     let input = SourceAndMap {
         minified_source: "minified_source".to_string(),
         sourcemap: "sourcemap".to_string(),
     };
 
     let bytes = write_symbol_data_uncompressed(input.clone()).unwrap();
-    // Verify it's v2
-    let version = u32::from_le_bytes(bytes[22..26].try_into().unwrap());
+    let version =
+        u32::from_le_bytes(bytes[VERSION_OFFSET..VERSION_OFFSET + 4].try_into().unwrap());
     assert_eq!(version, 2);
-    // Verify compression byte is 0 (none)
-    assert_eq!(bytes[30], 0);
+    assert_eq!(bytes[COMPRESSION_OFFSET], 0); // none
 
     let output = read_symbol_data::<SourceAndMap>(bytes).unwrap();
     assert_eq!(input, output);
 }
 
-#[test]
-fn test_v2_compressed_hermes_map() {
-    let input = HermesMap {
+macro_rules! roundtrip_test {
+    ($name:ident, $ty:ty, $value:expr) => {
+        #[test]
+        fn $name() {
+            let input = $value;
+            let bytes = write_symbol_data(input.clone()).unwrap();
+            let output = read_symbol_data::<$ty>(bytes).unwrap();
+            assert_eq!(input, output);
+        }
+    };
+}
+
+roundtrip_test!(
+    test_v2_roundtrip_source_and_map,
+    SourceAndMap,
+    SourceAndMap {
+        minified_source: "minified_source".to_string(),
+        sourcemap: "sourcemap".to_string(),
+    }
+);
+roundtrip_test!(
+    test_v2_roundtrip_hermes_map,
+    HermesMap,
+    HermesMap {
         sourcemap: "hermes map data".to_string(),
-    };
-
-    let bytes = write_symbol_data(input.clone()).unwrap();
-    let output = read_symbol_data::<HermesMap>(bytes).unwrap();
-    assert_eq!(input, output);
-}
-
-#[test]
-fn test_v2_compressed_proguard_mapping() {
-    let input = ProguardMapping {
+    }
+);
+roundtrip_test!(
+    test_v2_roundtrip_proguard_mapping,
+    ProguardMapping,
+    ProguardMapping {
         content: "proguard mapping data".to_string(),
-    };
-
-    let bytes = write_symbol_data(input.clone()).unwrap();
-    let output = read_symbol_data::<ProguardMapping>(bytes).unwrap();
-    assert_eq!(input, output);
-}
+    }
+);
 
 #[test]
 fn test_v2_compressed_large_payload() {
-    // Verify compression works well on large, repetitive data
     let large_source = "a".repeat(100_000);
     let large_map = "b".repeat(100_000);
     let input = SourceAndMap {
@@ -79,7 +93,6 @@ fn test_v2_compressed_large_payload() {
     };
 
     let bytes = write_symbol_data(input.clone()).unwrap();
-    // Compressed output should be significantly smaller than uncompressed
     let uncompressed_bytes = write_symbol_data_uncompressed(input.clone()).unwrap();
     assert!(bytes.len() < uncompressed_bytes.len() / 2);
 
