@@ -99,10 +99,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                             )}
                             {!isLayoutNavCollapsed && (
                                 <span
-                                    className={cn(
-                                        'truncate',
-                                        isAiFirst && 'text-secondary group-hover:text-primary'
-                                    )}
+                                    className={cn('truncate', isAiFirst && 'text-secondary group-hover:text-primary')}
                                 >
                                     {isAuthenticatedTeam(currentTeam)
                                         ? (projectNameWithoutFirstEmoji ?? 'Project')
