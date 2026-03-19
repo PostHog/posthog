@@ -11406,6 +11406,7 @@ export namespace Schemas {
 
     export const DataWarehouseSyncInterval = {
       '5min': '5min',
+      '15min': '15min',
       '30min': '30min',
       '1hour': '1hour',
       '6hour': '6hour',
