@@ -1,0 +1,217 @@
+{
+  "id": "019ce1ff-cff1-0000-c9b5-6efb8119db5d",
+  "name": "Alert for unresolved tickets",
+  "description": "Escalate support tickets that remain unresolved after a set time. The workflow waits (for example 24 hours) and then checks whether the ticket status has changed. To enable this check, make sure your ticket events include a ticket ID or status property. This lets the workflow determine whether the ticket is still open and send a Slack alert if it hasn’t been updated.",
+  "version": 1,
+  "created_at": "2026-03-12T12:22:44.465478Z",
+  "created_by": {
+    "id": 310726,
+    "uuid": "01999f57-b220-0000-5e66-8410527daa3c",
+    "distinct_id": "A9CjZG1AUbA0EKdinlV8Hm7oieSx9iPaHFsJRtXrBdc",
+    "first_name": "Sara",
+    "last_name": "Miteva",
+    "email": "sara@posthog.com",
+    "is_email_verified": true,
+    "hedgehog_config": null,
+    "role_at_organization": null
+  },
+  "updated_at": "2026-03-12T12:25:25.017844Z",
+  "trigger": {
+    "type": "event",
+    "filters": {
+      "source": "events",
+      "events": [
+        {
+          "id": "$conversation_ticket_created",
+          "name": "New ticket created",
+          "type": "events"
+        }
+      ],
+      "bytecode": [
+        "_H",
+        1,
+        32,
+        "$conversation_ticket_created",
+        32,
+        "event",
+        1,
+        1,
+        11
+      ]
+    }
+  },
+  "trigger_masking": null,
+  "conversion": {
+    "filters": [],
+    "bytecode": [],
+    "window_minutes": null
+  },
+  "exit_condition": "exit_only_at_end",
+  "edges": [
+    {
+      "to": "action_delay_4ccab81d-3926-4e78-b16a-034da1e22170",
+      "from": "trigger_node",
+      "type": "continue"
+    },
+    {
+      "to": "action_conditional_branch_2a58b0f3-b240-4e77-8efd-8b4a27d58c09",
+      "from": "action_delay_4ccab81d-3926-4e78-b16a-034da1e22170",
+      "type": "continue"
+    },
+    {
+      "to": "exit_node",
+      "from": "action_conditional_branch_2a58b0f3-b240-4e77-8efd-8b4a27d58c09",
+      "type": "continue"
+    },
+    {
+      "to": "action_function_431166ee-1322-4d35-8186-958120346fc2",
+      "from": "action_conditional_branch_2a58b0f3-b240-4e77-8efd-8b4a27d58c09",
+      "type": "branch",
+      "index": 0
+    },
+    {
+      "from": "action_function_431166ee-1322-4d35-8186-958120346fc2",
+      "to": "exit_node",
+      "type": "continue"
+    }
+  ],
+  "actions": [
+    {
+      "id": "trigger_node",
+      "name": "Support ticket is created",
+      "description": "A user has created a new support ticket.",
+      "on_error": null,
+      "created_at": 0,
+      "updated_at": 0,
+      "filters": null,
+      "type": "trigger",
+      "config": {
+        "type": "event",
+        "filters": {
+          "source": "events",
+          "events": [
+            {
+              "id": "$conversation_ticket_created",
+              "name": "New ticket created",
+              "type": "events"
+            }
+          ],
+          "bytecode": [
+            "_H",
+            1,
+            32,
+            "$conversation_ticket_created",
+            32,
+            "event",
+            1,
+            1,
+            11
+          ]
+        }
+      },
+      "output_variable": null
+    },
+    {
+      "id": "action_function_431166ee-1322-4d35-8186-958120346fc2",
+      "name": "Message in Slack channel",
+      "description": "Connect the right Slack channel and notify your support team.",
+      "on_error": null,
+      "created_at": 1773317149872,
+      "updated_at": 1773317149872,
+      "filters": null,
+      "type": "function",
+      "config": {
+        "inputs": {
+          "slack_workspace": {
+            "value": 54567,
+            "templating": "hog"
+          },
+          "channel": {
+            "templating": "hog"
+          },
+          "icon_emoji": {
+            "value": ":hedgehog:",
+            "templating": "hog"
+          },
+          "username": {
+            "value": "PostHog",
+            "templating": "hog"
+          },
+          "blocks": {
+            "value": "[\n  {\n    \"type\": \"section\",\n    \"text\": {\n      \"type\": \"mrkdwn\",\n      \"text\": \"⚠️ *Unresolved support ticket*\\n\\nA support ticket is still open after 24 hours.\"\n    }\n  },\n  {\n    \"type\": \"actions\",\n    \"elements\": [\n      {\n        \"type\": \"button\",\n        \"text\": {\n          \"type\": \"plain_text\",\n          \"text\": \"Open ticket\"\n        },\n        \"url\": \"{source.url}\"\n      }\n    ]\n  }\n]",
+            "templating": "hog"
+          },
+          "text": {
+            "value": "*{ticket_id}* is still unresolved",
+            "templating": "hog"
+          }
+        },
+        "template_id": "template-slack"
+      },
+      "output_variable": null
+    },
+    {
+      "id": "action_delay_4ccab81d-3926-4e78-b16a-034da1e22170",
+      "name": "Delay",
+      "description": "Wait for 3 days.",
+      "on_error": null,
+      "created_at": 1773318178078,
+      "updated_at": 1773318178078,
+      "type": "delay",
+      "config": {
+        "delay_duration": "3d"
+      },
+      "output_variable": null
+    },
+    {
+      "id": "action_conditional_branch_2a58b0f3-b240-4e77-8efd-8b4a27d58c09",
+      "name": "Ticket still open?",
+      "description": "Choose your ticket event and see if the status has changed.",
+      "on_error": null,
+      "created_at": 1773318199345,
+      "updated_at": 1773318199345,
+      "type": "conditional_branch",
+      "config": {
+        "conditions": [
+          {
+            "filters": {
+              "source": "events",
+              "bytecode": [
+                "_H",
+                1,
+                29
+              ]
+            }
+          }
+        ]
+      },
+      "output_variable": null
+    },
+    {
+      "id": "exit_node",
+      "name": "Exit",
+      "description": "User moved through the workflow without errors.",
+      "on_error": null,
+      "created_at": 0,
+      "updated_at": 0,
+      "filters": null,
+      "type": "exit",
+      "config": {
+        "reason": "Default exit"
+      },
+      "output_variable": null
+    }
+  ],
+  "abort_action": null,
+  "variables": [],
+  "billable_action_types": [
+    "function"
+  ],
+  "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/Template_cover_11_bd57631532.jpg",
+  "tags": [
+    "support",
+    "support ticket",
+    "slack"
+  ],
+  "scope": "global"
+}
