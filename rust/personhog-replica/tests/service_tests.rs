@@ -13,6 +13,7 @@ use personhog_proto::personhog::types::v1::{
     GetPersonsRequest, GroupIdentifier, GroupKey, TeamDistinctId, UpsertHashKeyOverridesRequest,
 };
 use personhog_replica::service::PersonHogReplicaService;
+use rstest::rstest;
 use tonic::Request;
 
 /// Test context that wraps TestContext and adds a service instance.
@@ -286,8 +287,14 @@ async fn test_get_distinct_ids_for_person() {
     ctx.cleanup().await.ok();
 }
 
+#[rstest]
+#[case(Some(2), 2)]
+#[case(Some(0), 3)]
 #[tokio::test]
-async fn test_get_distinct_ids_for_person_with_limit() {
+async fn test_get_distinct_ids_for_person_with_limit(
+    #[case] limit: Option<i64>,
+    #[case] expected_count: usize,
+) {
     let ctx = ServiceTestContext::new().await;
     let person = ctx.insert_person("did_1", None).await.unwrap();
     ctx.add_distinct_id_to_person(person.id, "did_2")
@@ -297,44 +304,17 @@ async fn test_get_distinct_ids_for_person_with_limit() {
         .await
         .unwrap();
 
-    // Without limit: should return all 3
     let response = ctx
         .service
         .get_distinct_ids_for_person(Request::new(GetDistinctIdsForPersonRequest {
             team_id: ctx.team_id,
             person_id: person.id,
             read_options: None,
-            limit: None,
+            limit,
         }))
         .await
         .expect("RPC failed");
-    assert_eq!(response.into_inner().distinct_ids.len(), 3);
-
-    // With limit: should return only 2
-    let response = ctx
-        .service
-        .get_distinct_ids_for_person(Request::new(GetDistinctIdsForPersonRequest {
-            team_id: ctx.team_id,
-            person_id: person.id,
-            read_options: None,
-            limit: Some(2),
-        }))
-        .await
-        .expect("RPC failed");
-    assert_eq!(response.into_inner().distinct_ids.len(), 2);
-
-    // With limit of 0: should behave as no limit (return all 3)
-    let response = ctx
-        .service
-        .get_distinct_ids_for_person(Request::new(GetDistinctIdsForPersonRequest {
-            team_id: ctx.team_id,
-            person_id: person.id,
-            read_options: None,
-            limit: Some(0),
-        }))
-        .await
-        .expect("RPC failed");
-    assert_eq!(response.into_inner().distinct_ids.len(), 3);
+    assert_eq!(response.into_inner().distinct_ids.len(), expected_count);
 
     ctx.cleanup().await.ok();
 }
@@ -609,13 +589,19 @@ async fn test_get_distinct_ids_for_persons() {
     ctx.cleanup().await.ok();
 }
 
+#[rstest]
+#[case(Some(1), 1, 1)]
+#[case(Some(0), 3, 2)]
 #[tokio::test]
-async fn test_get_distinct_ids_for_persons_with_limit() {
+async fn test_get_distinct_ids_for_persons_with_limit(
+    #[case] limit_per_person: Option<i64>,
+    #[case] expected_p1: usize,
+    #[case] expected_p2: usize,
+) {
     let ctx = ServiceTestContext::new().await;
     let person1 = ctx.insert_person("p1_did_1", None).await.unwrap();
     let person2 = ctx.insert_person("p2_did_1", None).await.unwrap();
 
-    // Add extra distinct IDs to both persons
     ctx.add_distinct_id_to_person(person1.id, "p1_did_2")
         .await
         .unwrap();
@@ -626,14 +612,13 @@ async fn test_get_distinct_ids_for_persons_with_limit() {
         .await
         .unwrap();
 
-    // Without limit: person1 has 3, person2 has 2
     let response = ctx
         .service
         .get_distinct_ids_for_persons(Request::new(GetDistinctIdsForPersonsRequest {
             team_id: ctx.team_id,
             person_ids: vec![person1.id, person2.id],
             read_options: None,
-            limit_per_person: None,
+            limit_per_person,
         }))
         .await
         .expect("RPC failed");
@@ -641,44 +626,8 @@ async fn test_get_distinct_ids_for_persons_with_limit() {
     let results = response.into_inner().person_distinct_ids;
     let p1 = results.iter().find(|p| p.person_id == person1.id).unwrap();
     let p2 = results.iter().find(|p| p.person_id == person2.id).unwrap();
-    assert_eq!(p1.distinct_ids.len(), 3);
-    assert_eq!(p2.distinct_ids.len(), 2);
-
-    // With limit of 1: each person should have at most 1
-    let response = ctx
-        .service
-        .get_distinct_ids_for_persons(Request::new(GetDistinctIdsForPersonsRequest {
-            team_id: ctx.team_id,
-            person_ids: vec![person1.id, person2.id],
-            read_options: None,
-            limit_per_person: Some(1),
-        }))
-        .await
-        .expect("RPC failed");
-
-    let results = response.into_inner().person_distinct_ids;
-    let p1 = results.iter().find(|p| p.person_id == person1.id).unwrap();
-    let p2 = results.iter().find(|p| p.person_id == person2.id).unwrap();
-    assert_eq!(p1.distinct_ids.len(), 1);
-    assert_eq!(p2.distinct_ids.len(), 1);
-
-    // With limit of 0: should behave as no limit
-    let response = ctx
-        .service
-        .get_distinct_ids_for_persons(Request::new(GetDistinctIdsForPersonsRequest {
-            team_id: ctx.team_id,
-            person_ids: vec![person1.id, person2.id],
-            read_options: None,
-            limit_per_person: Some(0),
-        }))
-        .await
-        .expect("RPC failed");
-
-    let results = response.into_inner().person_distinct_ids;
-    let p1 = results.iter().find(|p| p.person_id == person1.id).unwrap();
-    let p2 = results.iter().find(|p| p.person_id == person2.id).unwrap();
-    assert_eq!(p1.distinct_ids.len(), 3);
-    assert_eq!(p2.distinct_ids.len(), 2);
+    assert_eq!(p1.distinct_ids.len(), expected_p1);
+    assert_eq!(p2.distinct_ids.len(), expected_p2);
 
     ctx.cleanup().await.ok();
 }

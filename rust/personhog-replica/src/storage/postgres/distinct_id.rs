@@ -28,7 +28,7 @@ impl DistinctIdLookup for PostgresStorage {
         let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
         let rows = match limit {
-            Some(l) if l > 0 => {
+            Some(l) => {
                 sqlx::query_as!(
                     DistinctIdWithVersion,
                     r#"
@@ -98,7 +98,7 @@ impl DistinctIdLookup for PostgresStorage {
         let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
         let rows = match limit_per_person {
-            Some(l) if l > 0 => {
+            Some(l) => {
                 sqlx::query_as!(
                     DistinctIdMapping,
                     r#"

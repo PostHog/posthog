@@ -6317,6 +6317,7 @@ dependencies = [
  "personhog-common",
  "personhog-proto",
  "rand 0.8.5",
+ "rstest",
  "serde_json",
  "sqlx",
  "thiserror 2.0.18",
