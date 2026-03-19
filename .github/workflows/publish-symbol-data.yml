@@ -1,0 +1,62 @@
+name: Publish posthog-symbol-data to crates.io
+
+on:
+    push:
+        tags:
+            - 'posthog-symbol-data/v*'
+
+env:
+    CARGO_TERM_COLOR: always
+
+jobs:
+    publish:
+        name: Publish to crates.io
+        runs-on: depot-ubuntu-22.04-4
+        if: github.repository == 'PostHog/posthog'
+
+        environment: crates-io
+
+        permissions:
+            contents: read
+            id-token: write
+
+        defaults:
+            run:
+                working-directory: rust
+
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  sparse-checkout: |
+                      rust/common/symbol_data/
+                  sparse-checkout-cone-mode: false
+                  clean: false
+
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              with:
+                  toolchain: 1.91.1
+
+            - name: Verify tag matches crate version
+              run: |
+                  TAG_VERSION="${GITHUB_REF_NAME#posthog-symbol-data/v}"
+                  CRATE_VERSION=$(grep '^version' common/symbol_data/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+                  if [ "$TAG_VERSION" != "$CRATE_VERSION" ]; then
+                      echo "::error::Tag version ($TAG_VERSION) does not match crate version ($CRATE_VERSION)"
+                      exit 1
+                  fi
+                  echo "Publishing posthog-symbol-data v$CRATE_VERSION"
+
+            - name: Obtain crates.io publish token via OIDC
+              id: oidc
+              run: |
+                  OIDC_TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+                      "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https://crates.io" | jq -r '.value')
+                  CRATES_TOKEN=$(curl -sS -X POST "https://crates.io/api/v1/tokens/oidc" \
+                      -H "Content-Type: application/json" \
+                      -d "{\"oidc_token\":\"$OIDC_TOKEN\"}" | jq -r '.token')
+                  echo "::add-mask::$CRATES_TOKEN"
+                  echo "token=$CRATES_TOKEN" >> "$GITHUB_OUTPUT"
+
+            - name: Publish to crates.io
+              run: cargo publish -p posthog-symbol-data --token "${{ steps.oidc.outputs.token }}"
