@@ -141,9 +141,11 @@ func (m Model) handleInfoKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea.
 
 	case key.Matches(msg, m.keys.Info), msg.Code == tea.KeyEscape:
 		m.infoMode = false
-		m.viewport.SetContent(m.buildContent())
-		m.viewport.GotoBottom()
-		m.viewportAtBottom = true
+		if !m.isDockerMode() {
+			m.viewport.SetContent(m.buildContent())
+			m.viewport.GotoBottom()
+			m.viewportAtBottom = true
+		}
 		m.dbg("info mode: exit")
 
 	default:

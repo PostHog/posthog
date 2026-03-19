@@ -127,10 +127,6 @@ func (m Model) renderOutput() string {
 	if m.focusedPane == focusOutput {
 		style = borderFocusedStyle
 	}
-	if m.infoMode {
-		content := lipgloss.JoinHorizontal(lipgloss.Top, m.viewportWithIndicator())
-		return style.Render(content)
-	}
 	content := lipgloss.JoinHorizontal(lipgloss.Top, m.viewportWithIndicator())
 	return style.Render(content)
 }
@@ -219,7 +215,6 @@ func (m Model) renderFooter() string {
 }
 
 // Rebuilds the info content and sets it on the viewport.
-// Each line is truncated to the viewport width to prevent wrapping.
 func (m *Model) refreshInfoContent() {
 	info := m.renderInfo()
 	lines := strings.Split(info, "\n")
