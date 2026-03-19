@@ -306,9 +306,9 @@ class SCIMUsersView(SCIMBaseView):
 
         try:
             start_index, count = _parse_scim_pagination(request)
-        except ValueError:
+        except ValueError as e:
             return Response(
-                {"schemas": [constants.SchemaURI.ERROR], "status": 400, "detail": "Invalid pagination parameters"},
+                {"schemas": [constants.SchemaURI.ERROR], "status": 400, "detail": str(e)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -472,9 +472,9 @@ class SCIMGroupsView(SCIMBaseView):
 
         try:
             start_index, count = _parse_scim_pagination(request)
-        except ValueError:
+        except ValueError as e:
             return Response(
-                {"schemas": [constants.SchemaURI.ERROR], "status": 400, "detail": "Invalid pagination parameters"},
+                {"schemas": [constants.SchemaURI.ERROR], "status": 400, "detail": str(e)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
