@@ -6,6 +6,8 @@ import datetime as dt
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 import pyarrow as pa
 from google.auth.exceptions import RefreshError
 from google.cloud import bigquery
@@ -15,7 +17,9 @@ from posthog.models.integration import GoogleCloudServiceAccountIntegration
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryField,
     Boto3CredentialsSupplier,
+    InvalidCredentialsError,
     ServiceAccountOwnershipError,
+    ensure_our_google_cloud_credentials_are_valid,
     get_service_account_description,
     verify_impersonated_service_account_ownership,
 )
@@ -161,3 +165,19 @@ async def test_verify_impersonated_service_account_ownership_raises(
         )
 
     assert f"posthog:{str(aorganization.id)}" in str(excinfo.value)
+
+
+@SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
+@pytest.mark.asyncio
+@pytest.mark.parametrize("integration", ["impersonated"], indirect=True)
+@pytest.mark.parametrize("service_account_description", ["any"], indirect=True)
+async def test_ensure_our_google_cloud_credentials_are_valid(
+    aorganization,
+    ateam,
+    integration,
+    service_account_description,
+):
+    """Test ensuring our credentials are valid will raise when they are not."""
+    with override_settings(BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT="garbage"):
+        with pytest.raises(InvalidCredentialsError):
+            await ensure_our_google_cloud_credentials_are_valid()

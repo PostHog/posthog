@@ -17,6 +17,7 @@ import requests
 import google.auth
 import google.auth.aws
 import google.auth.exceptions
+import google.auth.transport.requests
 import google.auth.impersonated_credentials
 from google.api_core.exceptions import (
     Forbidden,
@@ -405,6 +406,20 @@ def get_our_google_cloud_credentials() -> google.auth.impersonated_credentials.C
         lifetime=3600,
     )
     return our_credentials
+
+
+class InvalidCredentialsError(Exception):
+    def __init__(self):
+        super().__init__("Failed to acquire PostHog Google Cloud credentials")
+
+
+async def ensure_our_google_cloud_credentials_are_valid():
+    """Raise `InvalidCredentialsError` if we cannot refresh our credentials."""
+    our_credentials = get_our_google_cloud_credentials()
+    try:
+        await asyncio.to_thread(our_credentials.refresh, google.auth.transport.requests.Request())
+    except Exception as e:
+        raise InvalidCredentialsError from e
 
 
 async def get_service_account_description(
@@ -1319,6 +1334,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                 await verify_impersonated_service_account_ownership(
                     google_cloud_integration.service_account_email, inputs.team_id
                 )
+                await ensure_our_google_cloud_credentials_are_valid()
             bq_client = BigQueryClient.from_service_account_integration(google_cloud_integration)
 
         else:
