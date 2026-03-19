@@ -46,10 +46,15 @@ export class BaseBatchPipeline<TInput, TIntermediate, TOutput, CInput, COutput =
         let stepResults: PipelineResult<TOutput>[] = []
         if (successfulValues.length > 0) {
             const end = pipelineStepDurationHistogram.startTimer({ step_name: this.stepName, step_type: 'batch' })
-            stepResults = await instrumentFn({ key: this.stepName, sendException: false, measureTime: false }, () =>
-                this.currentStep(successfulValues)
-            )
-            end({ result: 'batch' })
+            try {
+                stepResults = await instrumentFn({ key: this.stepName, sendException: false, measureTime: false }, () =>
+                    this.currentStep(successfulValues)
+                )
+                end({ result: 'batch' })
+            } catch (e) {
+                end({ result: 'exception' })
+                throw e
+            }
             if (stepResults.length !== successfulValues.length) {
                 throw new Error(
                     `Batch pipeline step ${this.stepName} returned different number of results than input values: ${stepResults.length} !== ${successfulValues.length}`
