@@ -252,9 +252,7 @@ describe('CyclotronJobQueue', () => {
             return queue
         }
 
-        const createResult = (
-            queueSource: CyclotronJobQueueSource
-        ): CyclotronJobInvocationResult => ({
+        const createResult = (queueSource: CyclotronJobQueueSource): CyclotronJobInvocationResult => ({
             invocation: {
                 ...createInvocation({ ...createHogExecutionGlobals(), inputs: {} }, exampleHogFunction),
                 queueSource,
