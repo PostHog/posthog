@@ -11,6 +11,7 @@ PRODUCTS_DIR = REPO_ROOT / "products"
 TACH_TOML = REPO_ROOT / "tach.toml"
 FRONTEND_PACKAGE_JSON = REPO_ROOT / "frontend" / "package.json"
 DJANGO_SETTINGS = REPO_ROOT / "posthog" / "settings" / "web.py"
+DB_ROUTING_YAML = PRODUCTS_DIR / "db_routing.yaml"
 
 
 def load_structure() -> dict:

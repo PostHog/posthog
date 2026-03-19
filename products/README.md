@@ -189,8 +189,9 @@ This automatically:
 
 ### Env vars (prod)
 
-Set `PRODUCT_DB_VISUAL_REVIEW_WRITER_URL` (and optionally `PRODUCT_DB_VISUAL_REVIEW_READER_URL`).
-If neither is set, the route is silently skipped and everything stays on `default`.
+Infrastructure (Aurora cluster, PgBouncer, secrets, env vars) is managed by the charts repo — no manual setup needed. Ask #team-infrastructure if adding a new product database.
+
+If the env var isn't set, the route is silently skipped and everything stays on `default`.
 
 Locally (`DEBUG=1`), it auto-connects to `posthog_visual_review` on localhost.
 

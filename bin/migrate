@@ -149,13 +149,8 @@ fi
 # Product database migrations via Django.
 # When product routes are configured, run each routed app's migrations against
 # its target writer database alias.
-if run_scope "product-dbs" || run_scope "postgres"; then
-    PRODUCT_DB_MIGRATE_CMD="python manage.py migrate_product_databases"
-    if [ "${DEBUG:-0}" = "1" ]; then
-        PRODUCT_DB_MIGRATE_CMD="$PRODUCT_DB_MIGRATE_CMD --ensure-databases"
-    fi
-
-    $PRODUCT_DB_MIGRATE_CMD
+if run_scope "postgres"; then
+    python manage.py migrate_product_databases
     if [ $? -ne 0 ]; then
         echo "Error in migrate_product_databases, exiting."
         exit 1

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import click
 
-from .paths import DJANGO_SETTINGS, FRONTEND_PACKAGE_JSON, PRODUCTS_DIR, TACH_TOML, load_structure
+from .paths import DB_ROUTING_YAML, DJANGO_SETTINGS, FRONTEND_PACKAGE_JSON, PRODUCTS_DIR, TACH_TOML, load_structure
 
 
 def flatten_structure(files: dict, prefix: str = "", result: dict | None = None) -> dict[str, dict]:
@@ -101,6 +101,21 @@ def _add_to_django_settings(product_name: str, *, dry_run: bool) -> None:
     _register_in_file(DJANGO_SETTINGS, "Django settings", app_config, write, dry_run=dry_run)
 
 
+def _add_to_db_routing(product_name: str, *, dry_run: bool) -> None:
+    route_entry = f"    - app_label: {product_name}\n      database: {product_name}\n"
+
+    def write(content: str) -> str:
+        return content.rstrip() + "\n" + route_entry
+
+    _register_in_file(
+        DB_ROUTING_YAML,
+        "products/db_routing.yaml",
+        f"app_label: {product_name}",
+        write,
+        dry_run=dry_run,
+    )
+
+
 _VALID_PRODUCT_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
@@ -165,3 +180,4 @@ def bootstrap_product(name: str, dry_run: bool, force: bool) -> None:
     _add_to_tach_toml(name, dry_run=dry_run)
     _add_to_frontend_package_json(name, dry_run=dry_run)
     _add_to_django_settings(name, dry_run=dry_run)
+    _add_to_db_routing(name, dry_run=dry_run)
