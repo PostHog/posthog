@@ -622,6 +622,7 @@ export interface ConversationsSettings {
     slack_channel_id?: string | null
     slack_channel_name?: string | null
     slack_ticket_emoji?: string | null
+    email_enabled?: boolean
 }
 
 export interface LogsSettings {

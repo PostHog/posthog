@@ -1,6 +1,7 @@
 import { Menu } from '@base-ui/react/menu'
 import { Menubar } from '@base-ui/react/menubar'
 import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useEffect, useMemo, useRef } from 'react'
 
 import {
@@ -54,11 +55,13 @@ function IdleInput(): JSX.Element {
                 <input
                     ref={inputRef}
                     id="homepage-input"
+                    data-attr="homepage-input"
                     value={query}
                     onChange={(e) => {
                         const value = e.target.value
                         // Typing / or @ as the first character enters AI mode without sending
                         if (value === '/' || value === '@') {
+                            posthog.capture('homepage ai mode entered', { trigger: value })
                             enterAiMode(value)
                             return
                         }
@@ -67,10 +70,12 @@ function IdleInput(): JSX.Element {
                     onKeyDown={(e) => {
                         if (e.key === 'Enter' && query.trim()) {
                             e.preventDefault()
+                            posthog.capture('homepage query submitted', { mode: 'ai' })
                             submitQuery('ai')
                         }
                         if (e.key === 'Tab' && query.trim()) {
                             e.preventDefault()
+                            posthog.capture('homepage query submitted', { mode: 'search' })
                             submitQuery('search')
                         }
                     }}
@@ -83,11 +88,21 @@ function IdleInput(): JSX.Element {
                         <ButtonPrimitive
                             size="xs"
                             className="text-tertiary hover:text-primary"
-                            onClick={() => submitQuery('search')}
+                            onClick={() => {
+                                posthog.capture('homepage query submitted', { mode: 'search' })
+                                submitQuery('search')
+                            }}
                         >
                             <span className="text-xxs">Tab to search</span>
                         </ButtonPrimitive>
-                        <ButtonPrimitive size="xs" onClick={() => submitQuery('ai')} variant="panel">
+                        <ButtonPrimitive
+                            size="xs"
+                            onClick={() => {
+                                posthog.capture('homepage query submitted', { mode: 'ai' })
+                                submitQuery('ai')
+                            }}
+                            variant="panel"
+                        >
                             <span className="text-xxs">Enter to ask AI</span>
                         </ButtonPrimitive>
                     </div>
@@ -97,7 +112,14 @@ function IdleInput(): JSX.Element {
                 <div className="px-4 w-full">
                     <div className="w-full bg-surface-tertiary justify-between rounded-b-lg px-1 pt-0.5 pb-1 font-medium select-none flex items-center gap-1 border-l border-r border-b">
                         <div className="flex items-center gap-0.5">
-                            <ButtonPrimitive size="xs" className="text-tertiary" onClick={() => enterAiMode('/')}>
+                            <ButtonPrimitive
+                                size="xs"
+                                className="text-tertiary"
+                                onClick={() => {
+                                    posthog.capture('homepage ai mode entered', { trigger: '/' })
+                                    enterAiMode('/')
+                                }}
+                            >
                                 <KeyboardShortcut forwardslash /> <span className="text-xxs">For commands</span>
                             </ButtonPrimitive>
                         </div>
@@ -201,11 +223,19 @@ function SuggestionMenu({ icon, label, suggestions, anchor }: SuggestionMenuProp
                                     onMouseEnter={() => setHoveredSuggestion(suggestion)}
                                     onMouseLeave={() => setHoveredSuggestion(null)}
                                     onClick={() => {
+                                        posthog.capture('homepage suggestion clicked', {
+                                            suggestion,
+                                            category: label,
+                                        })
                                         setQuery(suggestion)
                                         submitQuery('ai')
                                     }}
                                     render={
-                                        <ButtonPrimitive menuItem className="group">
+                                        <ButtonPrimitive
+                                            menuItem
+                                            className="group"
+                                            data-attr={`homepage-suggestion-${label.toLowerCase()}`}
+                                        >
                                             {suggestion}
                                             <IconChevronRight className="size-4 ml-auto opacity-50 group-hover:opacity-100" />
                                         </ButtonPrimitive>

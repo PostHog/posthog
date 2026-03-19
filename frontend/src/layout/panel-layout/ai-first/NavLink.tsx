@@ -15,9 +15,11 @@ interface NavLinkProps {
     label: string
     icon: React.ReactNode
     isCollapsed: boolean
+    'data-attr'?: string
+    onClick?: () => void
 }
 
-export function NavLink({ to, label, icon, isCollapsed }: NavLinkProps): JSX.Element {
+export function NavLink({ to, label, icon, isCollapsed, 'data-attr': dataAttr, onClick }: NavLinkProps): JSX.Element {
     const { showConfigurePinnedTabsModal } = useActions(navigationLogic)
     const { pathname } = useValues(panelLayoutLogic)
 
@@ -39,6 +41,8 @@ export function NavLink({ to, label, icon, isCollapsed }: NavLinkProps): JSX.Ele
                     hasSideActionRight: isHomePage && !isCollapsed,
                 }}
                 to={to}
+                data-attr={dataAttr}
+                onClick={onClick}
                 tooltip={isCollapsed ? label : undefined}
                 tooltipPlacement="right"
             >

@@ -41,6 +41,7 @@ import {
 } from './config/redis-pools'
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
 import { CookielessManager } from './ingestion/cookieless/cookieless-manager'
+import { ErrorTrackingConsumer } from './ingestion/error-tracking/error-tracking-consumer'
 import { IngestionConsumer, IngestionConsumerDeps } from './ingestion/ingestion-consumer'
 import { IngestionTestingConsumer } from './ingestion/ingestion-testing-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
@@ -132,7 +133,11 @@ export class PluginServer {
 
         const capabilities = getPluginServerCapabilities(this.config)
 
-        const needsIngestion = !!(capabilities.ingestionV2Combined || capabilities.ingestionV2)
+        const needsIngestion = !!(
+            capabilities.ingestionV2Combined ||
+            capabilities.ingestionV2 ||
+            capabilities.errorTrackingIngestion
+        )
 
         const needsCdp = !!(
             capabilities.cdpProcessedEvents ||
@@ -453,6 +458,40 @@ export class PluginServer {
                         teamManager,
                         quotaLimiting: cdpLogsServices!.quotaLimiting,
                     })
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
+            if (capabilities.errorTrackingIngestion) {
+                serviceLoaders.push(async () => {
+                    const config = {
+                        groupId: this.config.ERROR_TRACKING_CONSUMER_GROUP_ID,
+                        topic: this.config.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC,
+                        dlqTopic: this.config.ERROR_TRACKING_CONSUMER_DLQ_TOPIC,
+                        overflowTopic: this.config.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC,
+                        outputTopic: this.config.ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC,
+                        cymbalBaseUrl: this.config.ERROR_TRACKING_CYMBAL_BASE_URL,
+                        cymbalTimeoutMs: this.config.ERROR_TRACKING_CYMBAL_TIMEOUT_MS,
+                        lane: this.config.INGESTION_LANE ?? 'main',
+                        overflowBucketCapacity: this.config.ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY,
+                        overflowBucketReplenishRate: this.config.ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE,
+                        statefulOverflowEnabled: this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_ENABLED,
+                        statefulOverflowRedisTTLSeconds: this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
+                        statefulOverflowLocalCacheTTLSeconds:
+                            this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
+                        pipeline: this.config.INGESTION_PIPELINE ?? 'error_tracking',
+                    }
+                    const deps = {
+                        kafkaProducer: this.kafkaProducer!,
+                        kafkaMetricsProducer: this.kafkaMetricsProducer!,
+                        teamManager,
+                        hogTransformer: createHogTransformerService(this.config, hogTransformerDeps!),
+                        groupTypeManager: ingestionServices!.groupTypeManager,
+                        redisPool: this.redisPool!,
+                        personRepository: ingestionCdpServices!.personRepository,
+                    }
+                    const consumer = new ErrorTrackingConsumer(config, deps)
                     await consumer.start()
                     return consumer.service
                 })
