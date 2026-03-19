@@ -1,5 +1,4 @@
 import threading
-from collections.abc import Callable
 from time import perf_counter
 from typing import Optional
 
@@ -7,17 +6,11 @@ import structlog
 import posthoganalytics
 from celery import current_task, shared_task
 from prometheus_client import Counter, Histogram
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.event_usage import EventSource, groups
 from posthog.models import ExportedAsset
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
-from posthog.tasks.exports.failure_handler import (
-    EXCEPTIONS_TO_RETRY,
-    USER_QUERY_ERRORS,
-    ExportCancelled,
-    classify_failure_type,
-)
+from posthog.tasks.exports.failure_handler import USER_QUERY_ERRORS, ExportCancelled, classify_failure_type
 from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
@@ -39,20 +32,6 @@ EXPORT_TIMER = Histogram(
     labelnames=["type"],
     buckets=(1, 5, 10, 30, 60, 120, 240, 300, 360, 420, 480, 540, 600, float("inf")),
 )
-
-
-def _create_retry_logger(exported_asset: ExportedAsset) -> Callable[[RetryCallState], None]:
-    def _log_retry(retry_state: RetryCallState) -> None:
-        logger.info(
-            "export_asset.retrying",
-            exported_asset_id=exported_asset.id,
-            insight_id=exported_asset.insight_id,
-            team_id=exported_asset.team_id,
-            attempt=retry_state.attempt_number,
-            error=str(retry_state.outcome.exception()) if retry_state.outcome else None,
-        )
-
-    return _log_retry
 
 
 def _record_export_failure(exported_asset: ExportedAsset, e: Exception) -> None:
@@ -87,9 +66,8 @@ def export_asset(
         "created_by", "team", "team__organization"
     ).get(pk=exported_asset_id)
 
-    # Retries are handled by tenacity inside export_asset_direct, not by Celery.
-    # This ensures consistent retry behavior whether the export is triggered
-    # synchronously (API) or asynchronously (Celery).
+    # Retries are handled by Temporal at the activity level.
+    # The Celery path is a legacy fallback until one-off exports are fully migrated.
     try:
         export_asset_direct(exported_asset, limit=limit, max_height_pixels=max_height_pixels)
     except Exception:
@@ -145,13 +123,6 @@ def export_asset_direct(
 
     export_source = source or EventSource.EXPORT
 
-    @retry(
-        retry=retry_if_exception_type(EXCEPTIONS_TO_RETRY),
-        stop=stop_after_attempt(4),
-        wait=wait_exponential_jitter(initial=2, max=10),
-        before_sleep=_create_retry_logger(exported_asset),
-        reraise=True,
-    )
     def _do_export() -> None:
         _check_cancelled()
         if exported_asset.export_format in (ExportedAsset.ExportFormat.CSV, ExportedAsset.ExportFormat.XLSX):
