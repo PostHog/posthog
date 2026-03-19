@@ -605,7 +605,10 @@ def prepare_run_config(config: BackupConfig) -> dagster.RunConfig:
 
 
 def run_backup_request(
-    table: str, incremental: bool, context: dagster.ScheduleEvaluationContext
+    table: str,
+    incremental: bool,
+    context: dagster.ScheduleEvaluationContext,
+    owner: JobOwners = JobOwners.TEAM_CLICKHOUSE,
 ) -> Optional[dagster.RunRequest]:
     skip_reason = check_for_concurrent_runs(
         context,
@@ -630,7 +633,7 @@ def run_backup_request(
         tags={
             "backup_type": "incremental" if incremental else "full",
             "table": table,
-            "owner": JobOwners.TEAM_CLICKHOUSE.value,
+            "owner": owner.value,
         },
     )
 
@@ -698,7 +701,7 @@ def incremental_non_sharded_backup_schedule(context: dagster.ScheduleEvaluationC
 def full_logs_backup_schedule(context: dagster.ScheduleEvaluationContext):
     """Launch a full backup for logs tables"""
     for table in LOGS_TABLES:
-        request = run_backup_request(table, incremental=False, context=context)
+        request = run_backup_request(table, incremental=False, context=context, owner=JobOwners.TEAM_LOGS)
         if request:
             yield request
 
@@ -711,6 +714,6 @@ def full_logs_backup_schedule(context: dagster.ScheduleEvaluationContext):
 def incremental_logs_backup_schedule(context: dagster.ScheduleEvaluationContext):
     """Launch an incremental backup for logs tables"""
     for table in LOGS_TABLES:
-        request = run_backup_request(table, incremental=True, context=context)
+        request = run_backup_request(table, incremental=True, context=context, owner=JobOwners.TEAM_LOGS)
         if request:
             yield request
