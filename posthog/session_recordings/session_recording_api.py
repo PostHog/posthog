@@ -57,7 +57,12 @@ from posthog.schema import (
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
-from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
+from posthog.auth import (
+    JwtAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    SharingAccessTokenAuthentication,
+)
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
@@ -143,11 +148,25 @@ LOADING_V2_LTS_COUNTER = Counter(
 SESSION_RECORDING_THROTTLED = Counter(
     "session_recording_api_throttled_total",
     "Throttled responses from the session recording API",
-    labelnames=["location", "is_personal_api_key"],
+    labelnames=["location", "auth_type"],
 )
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+def _request_auth_type(request) -> str:
+    authenticator = getattr(request, "successful_authenticator", None)
+    if isinstance(authenticator, PersonalAPIKeyAuthentication):
+        return "personal_api_key"
+    if isinstance(authenticator, SharingAccessTokenAuthentication):
+        return "shared"
+    if isinstance(authenticator, OAuthAccessTokenAuthentication):
+        return "oauth"
+    if isinstance(authenticator, JwtAuthentication):
+        return "jwt"
+    return "logged_in"
+
 
 # Type alias to avoid shadowing by SessionRecordingViewSet.list method
 BlockList = list[Any]
@@ -478,12 +497,14 @@ def stream_from(url: str, headers: dict | None = None) -> Generator[requests.Res
         session.close()
 
 
-SNAPSHOTS_TIER_CACHE_TTL_SECONDS = 12 * 60 * 60
+REPLAY_TIER_CACHE_TTL_SECONDS = 12 * 60 * 60
+# backward compat alias
+SNAPSHOTS_TIER_CACHE_TTL_SECONDS = REPLAY_TIER_CACHE_TTL_SECONDS
 
 SNAPSHOT_DEFAULT_TIER = "free"
 
 
-def _snapshot_rates() -> dict[str, dict[str, str]]:
+def snapshot_rates() -> dict[str, dict[str, str]]:
     return {
         "free": {
             "snapshots_burst": settings.SNAPSHOT_RATE_FREE_BURST,
@@ -500,12 +521,32 @@ def _snapshot_rates() -> dict[str, dict[str, str]]:
     }
 
 
-SNAPSHOT_RATES = _snapshot_rates()
+SNAPSHOT_RATES = snapshot_rates()
+
+
+def listing_rates() -> dict[str, dict[str, str]]:
+    return {
+        "free": {
+            "listing_burst": settings.LISTING_RATE_FREE_BURST,
+            "listing_sustained": settings.LISTING_RATE_FREE_SUSTAINED,
+        },
+        "paid": {
+            "listing_burst": settings.LISTING_RATE_PAID_BURST,
+            "listing_sustained": settings.LISTING_RATE_PAID_SUSTAINED,
+        },
+        "enterprise": {
+            "listing_burst": settings.LISTING_RATE_ENTERPRISE_BURST,
+            "listing_sustained": settings.LISTING_RATE_ENTERPRISE_SUSTAINED,
+        },
+    }
+
+
+LISTING_RATES = listing_rates()
 
 _ENTERPRISE_FEATURE_KEYS = {AvailableFeature.SAML, AvailableFeature.SCIM}
 
 
-def _org_tier_from_features(features: list[dict[str, Any]] | None) -> str:
+def org_tier_from_features(features: list[dict[str, Any]] | None) -> str:
     if not features:
         return "free"
     feature_keys = {f.get("key") for f in features if isinstance(f, dict)}
@@ -515,31 +556,34 @@ def _org_tier_from_features(features: list[dict[str, Any]] | None) -> str:
 
 
 def get_cached_org_tier(team_id: int) -> str:
-    cache_key = f"snapshots_org_tier_{team_id}"
+    cache_key = f"replay_org_tier_{team_id}"
     tier = cache.get(cache_key)
     if tier is not None:
         return tier
 
     features = Organization.objects.filter(team=team_id).values_list("available_product_features", flat=True).first()
 
-    tier = _org_tier_from_features(features)
-    cache.set(cache_key, tier, SNAPSHOTS_TIER_CACHE_TTL_SECONDS)
+    tier = org_tier_from_features(features)
+    cache.set(cache_key, tier, REPLAY_TIER_CACHE_TTL_SECONDS)
     return tier
 
 
-class _TierAwareSnapshotThrottle(PersonalApiKeyRateThrottle):
+class _TierAwareReplayThrottle(PersonalApiKeyRateThrottle):
+    def _get_rates(self) -> dict[str, dict[str, str]]:
+        raise NotImplementedError("Subclasses must implement _get_rates")
+
     def _apply_tier_rates(self, tier: str) -> None:
         if self.scope is None:
-            raise ValueError("_TierAwareSnapshotThrottle subclasses must set scope")
+            raise ValueError("_TierAwareReplayThrottle subclasses must set scope")
         base_scope = self.scope
-        rates = _snapshot_rates()
+        rates = self._get_rates()
         resolved_tier = tier if tier in rates else SNAPSHOT_DEFAULT_TIER
         self.rate = rates[resolved_tier][base_scope]
         self.num_requests, self.duration = self.parse_rate(self.rate)
         self.scope = f"{base_scope}_{resolved_tier}"
 
     def _is_personal_api_key_request(self, request) -> bool:
-        return isinstance(getattr(request, "successful_authenticator", None), PersonalAPIKeyAuthentication)
+        return _request_auth_type(request) == "personal_api_key"
 
     def allow_request(self, request, view):
         if self._is_personal_api_key_request(request):
@@ -548,19 +592,41 @@ class _TierAwareSnapshotThrottle(PersonalApiKeyRateThrottle):
                 tier = get_cached_org_tier(team_id) if team_id else SNAPSHOT_DEFAULT_TIER
                 self._apply_tier_rates(tier)
             except Exception:
-                logger.exception("snapshot_throttle_tier_lookup_failed")
+                logger.exception("replay_throttle_tier_lookup_failed")
                 self._apply_tier_rates(SNAPSHOT_DEFAULT_TIER)
         return super().allow_request(request, view)
 
 
-class SnapshotsBurstRateThrottle(_TierAwareSnapshotThrottle):
+class SnapshotsBurstRateThrottle(_TierAwareReplayThrottle):
     scope = "snapshots_burst"
     rate = SNAPSHOT_RATES[SNAPSHOT_DEFAULT_TIER]["snapshots_burst"]
 
+    def _get_rates(self) -> dict[str, dict[str, str]]:
+        return snapshot_rates()
 
-class SnapshotsSustainedRateThrottle(_TierAwareSnapshotThrottle):
+
+class SnapshotsSustainedRateThrottle(_TierAwareReplayThrottle):
     scope = "snapshots_sustained"
     rate = SNAPSHOT_RATES[SNAPSHOT_DEFAULT_TIER]["snapshots_sustained"]
+
+    def _get_rates(self) -> dict[str, dict[str, str]]:
+        return snapshot_rates()
+
+
+class ListingBurstRateThrottle(_TierAwareReplayThrottle):
+    scope = "listing_burst"
+    rate = LISTING_RATES[SNAPSHOT_DEFAULT_TIER]["listing_burst"]
+
+    def _get_rates(self) -> dict[str, dict[str, str]]:
+        return listing_rates()
+
+
+class ListingSustainedRateThrottle(_TierAwareReplayThrottle):
+    scope = "listing_sustained"
+    rate = LISTING_RATES[SNAPSHOT_DEFAULT_TIER]["listing_sustained"]
+
+    def _get_rates(self) -> dict[str, dict[str, str]]:
+        return listing_rates()
 
 
 def _length_prefix_blocks(blocks: list[bytes]) -> bytes:
@@ -623,20 +689,22 @@ class SessionRecordingViewSet(
     def safely_get_object(self, queryset) -> SessionRecording:
         return SessionRecording.get_or_build(session_id=self.kwargs["pk"], team=self.team)
 
+    def get_throttles(self):
+        if self.action == "list":
+            return [*super().get_throttles(), ListingBurstRateThrottle(), ListingSustainedRateThrottle()]
+        return super().get_throttles()
+
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         tag_queries(product=Product.REPLAY)
         user_distinct_id = cast(User, request.user).distinct_id
-        is_personal_api_key = isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication)
+        auth_type = _request_auth_type(request)
 
         try:
             with tracer.start_as_current_span("list_recordings", kind=trace.SpanKind.SERVER):
                 try:
                     trace.get_current_span().set_attribute("team_id", self.team_id)
                     trace.get_current_span().set_attribute("distinct_id", user_distinct_id or "unknown")
-                    trace.get_current_span().set_attribute(
-                        "is_personal_api_key",
-                        is_personal_api_key,
-                    )
+                    trace.get_current_span().set_attribute("auth_type", auth_type)
                 except Exception as e:
                     # if this fails, we don't want to fail the request
                     # so we log it and continue
@@ -672,18 +740,14 @@ class SessionRecordingViewSet(
 
                     return response
         except CHQueryErrorTooManySimultaneousQueries:
-            SESSION_RECORDING_THROTTLED.labels(
-                location="too_many_simultaneous_queries", is_personal_api_key=str(is_personal_api_key).lower()
-            ).inc()
+            SESSION_RECORDING_THROTTLED.labels(location="too_many_simultaneous_queries", auth_type=auth_type).inc()
             raise Throttled(detail="Too many simultaneous queries. Try again later.")
         except (ServerException, Exception) as e:
             if isinstance(e, exceptions.ValidationError):
                 raise
 
             if isinstance(e, ServerException) and "CHQueryErrorTimeoutExceeded" in str(e):
-                SESSION_RECORDING_THROTTLED.labels(
-                    location="query_timeout_exceeded", is_personal_api_key=str(is_personal_api_key).lower()
-                ).inc()
+                SESSION_RECORDING_THROTTLED.labels(location="query_timeout_exceeded", auth_type=auth_type).inc()
                 raise Throttled(detail="Query timeout exceeded. Try again later.")
 
             posthoganalytics.capture_exception(
@@ -1045,7 +1109,12 @@ class SessionRecordingViewSet(
         methods=["GET"],
         detail=True,
         renderer_classes=[SurrogatePairSafeJSONRenderer],
-        throttle_classes=[SnapshotsBurstRateThrottle, SnapshotsSustainedRateThrottle],
+        throttle_classes=[
+            ClickHouseBurstRateThrottle,
+            ClickHouseSustainedRateThrottle,
+            SnapshotsBurstRateThrottle,
+            SnapshotsSustainedRateThrottle,
+        ],
     )
     def snapshots(self, request: request.Request, **kwargs):
         """
@@ -1063,7 +1132,8 @@ class SessionRecordingViewSet(
         trace.get_current_span().set_attribute("team_id", self.team_id)
         trace.get_current_span().set_attribute("session_id", str(recording.session_id))
 
-        is_personal_api_key = isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication)
+        auth_type = _request_auth_type(request)
+        is_personal_api_key = auth_type == "personal_api_key"
         serializer = SessionRecordingSnapshotsRequestSerializer(
             data=request.GET.dict(),
             context={"is_personal_api_key": is_personal_api_key, "if_none_match": request.headers.get("If-None-Match")},

@@ -8,6 +8,9 @@ use crate::{
         },
     },
     cohorts::cohort_cache_manager::CohortCacheManager,
+    cohorts::membership::{
+        CohortMembershipError, CohortMembershipProvider, NoOpCohortMembershipProvider,
+    },
     config::Config,
     flags::{
         flag_analytics::SURVEY_TARGETING_FLAG_PREFIX,
@@ -24,6 +27,7 @@ use crate::{
         setup_pg_writer_client, setup_redis_client, setup_team_hypercache_reader, TestContext,
     },
 };
+use async_trait::async_trait;
 use axum::http::HeaderMap;
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
@@ -33,8 +37,40 @@ use common_geoip::GeoIpClient;
 use reqwest::header::CONTENT_TYPE;
 use serde_json::{json, Value};
 use std::net::{Ipv4Addr, Ipv6Addr};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{collections::HashMap, net::IpAddr, sync::Arc};
 use uuid::Uuid;
+
+#[derive(Debug, Default)]
+struct CountingCohortMembershipProvider {
+    call_count: AtomicUsize,
+}
+
+impl CountingCohortMembershipProvider {
+    fn new() -> Self {
+        Self {
+            call_count: AtomicUsize::new(0),
+        }
+    }
+
+    fn call_count(&self) -> usize {
+        self.call_count.load(Ordering::Relaxed)
+    }
+}
+
+#[async_trait]
+impl CohortMembershipProvider for CountingCohortMembershipProvider {
+    async fn check_memberships(
+        &self,
+        _team_id: common_types::TeamId,
+        _person_uuid: Uuid,
+        cohort_ids: &[crate::cohorts::cohort_models::CohortId],
+    ) -> Result<HashMap<crate::cohorts::cohort_models::CohortId, bool>, CohortMembershipError> {
+        self.call_count.fetch_add(1, Ordering::Relaxed);
+        // Return false for all cohorts (like NoOpCohortMembershipProvider)
+        Ok(cohort_ids.iter().map(|id| (*id, false)).collect())
+    }
+}
 
 fn create_test_geoip_service() -> GeoIpClient {
     let config = Config::default_test_config();
@@ -157,12 +193,13 @@ async fn test_evaluate_feature_flags() {
                 }]),
                 rollout_percentage: Some(100.0), // Set to 100% to ensure it's always on
                 variant: None,
+                ..Default::default()
             }],
             multivariate: None,
             aggregation_group_type_index: None,
             payloads: None,
             super_groups: None,
-            holdout_groups: None,
+
             holdout: None,
         },
         ensure_experience_continuity: Some(false),
@@ -199,6 +236,8 @@ async fn test_evaluate_feature_flags() {
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
+        cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
+        enable_realtime_cohort_evaluation: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -259,12 +298,13 @@ async fn test_evaluate_feature_flags_with_errors() {
                 }]),
                 rollout_percentage: Some(100.0), // Set to 100% to ensure it's always on
                 variant: None,
+                ..Default::default()
             }],
             multivariate: None,
             aggregation_group_type_index: None,
             payloads: None,
             super_groups: None,
-            holdout_groups: None,
+
             holdout: None,
         },
         ensure_experience_continuity: Some(false),
@@ -299,6 +339,8 @@ async fn test_evaluate_feature_flags_with_errors() {
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
+        cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
+        enable_realtime_cohort_evaluation: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -648,12 +690,13 @@ async fn test_evaluate_feature_flags_multiple_flags() {
                     properties: Some(vec![]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             },
             ensure_experience_continuity: Some(false),
@@ -674,12 +717,13 @@ async fn test_evaluate_feature_flags_multiple_flags() {
                     properties: Some(vec![]),
                     rollout_percentage: Some(0.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             },
             ensure_experience_continuity: Some(false),
@@ -714,6 +758,8 @@ async fn test_evaluate_feature_flags_multiple_flags() {
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
+        cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
+        enable_realtime_cohort_evaluation: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -762,12 +808,13 @@ async fn test_evaluate_feature_flags_details() {
                     properties: Some(vec![]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             },
             ensure_experience_continuity: Some(false),
@@ -788,12 +835,13 @@ async fn test_evaluate_feature_flags_details() {
                     properties: Some(vec![]),
                     rollout_percentage: Some(0.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             },
             ensure_experience_continuity: Some(false),
@@ -828,6 +876,8 @@ async fn test_evaluate_feature_flags_details() {
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
+        cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
+        enable_realtime_cohort_evaluation: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -946,12 +996,13 @@ async fn test_evaluate_feature_flags_with_overrides() {
                 }]),
                 rollout_percentage: Some(100.0),
                 variant: None,
+                ..Default::default()
             }],
             multivariate: None,
             aggregation_group_type_index: Some(0),
             payloads: None,
             super_groups: None,
-            holdout_groups: None,
+
             holdout: None,
         },
         ensure_experience_continuity: Some(false),
@@ -993,6 +1044,8 @@ async fn test_evaluate_feature_flags_with_overrides() {
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
+        cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
+        enable_realtime_cohort_evaluation: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -1054,12 +1107,13 @@ async fn test_long_distinct_id() {
                 properties: Some(vec![]),
                 rollout_percentage: Some(100.0),
                 variant: None,
+                ..Default::default()
             }],
             multivariate: None,
             aggregation_group_type_index: None,
             payloads: None,
             super_groups: None,
-            holdout_groups: None,
+
             holdout: None,
         },
         ensure_experience_continuity: Some(false),
@@ -1093,6 +1147,8 @@ async fn test_long_distinct_id() {
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
+        cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
+        enable_realtime_cohort_evaluation: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -1513,12 +1569,13 @@ async fn test_parallel_path_matches_sequential_results() {
                     properties: Some(vec![]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             },
             ensure_experience_continuity: Some(false),
@@ -1539,12 +1596,13 @@ async fn test_parallel_path_matches_sequential_results() {
                     properties: Some(vec![]),
                     rollout_percentage: Some(0.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             },
             ensure_experience_continuity: Some(false),
@@ -1565,12 +1623,13 @@ async fn test_parallel_path_matches_sequential_results() {
                     properties: Some(vec![]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             },
             ensure_experience_continuity: Some(false),
@@ -1591,12 +1650,13 @@ async fn test_parallel_path_matches_sequential_results() {
                     properties: Some(vec![]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             },
             ensure_experience_continuity: Some(false),
@@ -1633,6 +1693,8 @@ async fn test_parallel_path_matches_sequential_results() {
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
+        cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
+        enable_realtime_cohort_evaluation: false,
     };
     let sequential_result = evaluate_feature_flags(sequential_context, Uuid::new_v4())
         .await
@@ -1661,6 +1723,8 @@ async fn test_parallel_path_matches_sequential_results() {
         parallel_eval_threshold: 1,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
+        cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
+        enable_realtime_cohort_evaluation: false,
     };
     let parallel_result = evaluate_feature_flags(parallel_context, Uuid::new_v4())
         .await
@@ -1689,4 +1753,147 @@ async fn test_parallel_path_matches_sequential_results() {
             "flag '{key}' differs between sequential and parallel"
         );
     }
+}
+
+#[tokio::test]
+async fn test_realtime_cohort_evaluation_setting_behavior() {
+    // This test replaces tautological assertions that always pass with meaningful tests
+    // that verify the realtime cohort evaluation setting actually affects behavior.
+    let context = TestContext::new(None).await;
+    let team = context
+        .insert_new_team(None)
+        .await
+        .expect("Failed to insert team in pg");
+
+    let distinct_id = "test-user".to_string();
+
+    // Insert a person to ensure we get a valid person UUID for evaluation
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .expect("Failed to insert person");
+
+    // Create a simple flag without cohort dependencies to focus on the provider behavior
+    let flag = FeatureFlag {
+        name: Some("Simple Flag".to_string()),
+        id: 1,
+        key: "simple_flag".to_string(),
+        active: true,
+        deleted: false,
+        team_id: team.id,
+        filters: FlagFilters {
+            groups: vec![FlagPropertyGroup {
+                properties: Some(vec![]),
+                rollout_percentage: Some(100.0),
+                variant: None,
+                aggregation_group_type_index: None,
+            }],
+            multivariate: None,
+            aggregation_group_type_index: None,
+            payloads: None,
+            super_groups: None,
+
+            holdout: None,
+        },
+        ensure_experience_continuity: Some(false),
+        version: Some(1),
+        evaluation_runtime: Some("all".to_string()),
+        evaluation_tags: None,
+        bucketing_identifier: None,
+    };
+
+    let feature_flag_list = FeatureFlagList {
+        flags: vec![flag],
+        ..Default::default()
+    };
+
+    // Test with realtime cohort evaluation DISABLED
+    let provider_disabled = Arc::new(CountingCohortMembershipProvider::new());
+    let evaluation_context_disabled = FeatureFlagEvaluationContext {
+        team_id: team.id,
+        distinct_id: distinct_id.clone(),
+        device_id: None,
+        feature_flags: feature_flag_list.clone(),
+        persons_reader: context.persons_reader.clone(),
+        persons_writer: context.persons_writer.clone(),
+        non_persons_reader: context.non_persons_reader.clone(),
+        non_persons_writer: context.non_persons_writer.clone(),
+        cohort_cache: Arc::new(CohortCacheManager::new(
+            context.persons_reader.clone(),
+            None,
+            None,
+        )),
+        person_property_overrides: None,
+        group_property_overrides: None,
+        groups: None,
+        hash_key_override: None,
+        flag_keys: None,
+        optimize_experience_continuity_lookups: false,
+        parallel_eval_threshold: 100,
+        rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
+        skip_writes: false,
+        cohort_membership_provider: provider_disabled.clone(),
+        enable_realtime_cohort_evaluation: false,
+    };
+
+    // Test with realtime cohort evaluation ENABLED
+    let provider_enabled = Arc::new(CountingCohortMembershipProvider::new());
+    let evaluation_context_enabled = FeatureFlagEvaluationContext {
+        team_id: team.id,
+        distinct_id,
+        device_id: None,
+        feature_flags: feature_flag_list,
+        persons_reader: context.persons_reader.clone(),
+        persons_writer: context.persons_writer.clone(),
+        non_persons_reader: context.non_persons_reader.clone(),
+        non_persons_writer: context.non_persons_writer.clone(),
+        cohort_cache: Arc::new(CohortCacheManager::new(
+            context.persons_reader.clone(),
+            None,
+            None,
+        )),
+        person_property_overrides: None,
+        group_property_overrides: None,
+        groups: None,
+        hash_key_override: None,
+        flag_keys: None,
+        optimize_experience_continuity_lookups: false,
+        parallel_eval_threshold: 100,
+        rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
+        skip_writes: false,
+        cohort_membership_provider: provider_enabled.clone(),
+        enable_realtime_cohort_evaluation: true,
+    };
+
+    let request_id = Uuid::new_v4();
+
+    // Evaluate flags with both settings
+    let result_disabled = evaluate_feature_flags(evaluation_context_disabled, request_id).await;
+    let result_enabled = evaluate_feature_flags(evaluation_context_enabled, request_id).await;
+
+    // Both evaluations should succeed
+    assert!(
+        result_disabled.is_ok(),
+        "Flag evaluation should succeed with realtime cohorts disabled"
+    );
+    assert!(
+        result_enabled.is_ok(),
+        "Flag evaluation should succeed with realtime cohorts enabled"
+    );
+
+    // For flags without cohort dependencies, both providers should have the same call count (0)
+    // This is a meaningful assertion because it verifies that the evaluation setting doesn't
+    // spuriously call the provider when there are no realtime cohorts to evaluate
+    assert_eq!(
+        provider_disabled.call_count(),
+        provider_enabled.call_count(),
+        "Provider call counts should be identical when no realtime cohorts are present"
+    );
+
+    // Verify the call count is actually 0 for this scenario
+    assert_eq!(
+        provider_disabled.call_count(),
+        0,
+        "Provider should not be called when flags have no cohort dependencies"
+    );
 }

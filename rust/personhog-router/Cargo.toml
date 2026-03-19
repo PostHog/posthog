@@ -5,22 +5,20 @@ edition = "2021"
 publish = false
 
 [dependencies]
+personhog-common = { path = "../personhog-common" }
 personhog-proto = { path = "../personhog-proto" }
-common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
+metrics-exporter-prometheus = { workspace = true }
 lifecycle = { path = "../common/lifecycle" }
 
 async-trait = { workspace = true }
 axum = { workspace = true }
 dashmap = { workspace = true }
 envconfig = { workspace = true }
-http = { workspace = true }
 metrics = { workspace = true }
-pin-project = "1.1"
 rand = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
-tower = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 

@@ -69,7 +69,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             groupsModel,
             ['groupTypes', 'groupsAccessStatus'],
             sceneLogic,
-            ['sceneConfig'],
+            ['sceneConfig', 'activeSceneId'],
             navigationLogic,
             ['mobileLayout'],
             sessionRecordingSavedFiltersLogic,
@@ -355,19 +355,36 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             },
         ],
         mode: [
-            (s) => [s.sceneConfig, s.isCurrentOrganizationUnavailable, s.zenMode],
-            (sceneConfig, isCurrentOrganizationUnavailable, zenMode): Navigation3000Mode => {
+            (s) => [
+                s.sceneConfig,
+                s.isCurrentOrganizationUnavailable,
+                s.zenMode,
+                s.activeSceneId,
+                featureFlagLogic.selectors.featureFlags,
+            ],
+            (
+                sceneConfig,
+                isCurrentOrganizationUnavailable,
+                zenMode,
+                activeSceneId,
+                featureFlags
+            ): Navigation3000Mode => {
                 if (zenMode) {
                     return 'zen'
                 }
                 if (isCurrentOrganizationUnavailable) {
                     return 'minimal'
                 }
-                return sceneConfig?.layout === 'plain' && !sceneConfig.allowUnauthenticated
-                    ? 'minimal'
-                    : sceneConfig?.layout !== 'plain'
-                      ? 'full'
-                      : 'none'
+                if (sceneConfig?.layout === 'plain' && !sceneConfig.allowUnauthenticated) {
+                    if (
+                        activeSceneId === Scene.Onboarding &&
+                        featureFlags[FEATURE_FLAGS.ONBOARDING_NAVBAR] === 'hide'
+                    ) {
+                        return 'none'
+                    }
+                    return 'minimal'
+                }
+                return sceneConfig?.layout !== 'plain' ? 'full' : 'none'
             },
         ],
         isNavShown: [

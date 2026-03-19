@@ -327,6 +327,7 @@ jobs:
               with:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
+                  cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install SAML dependencies
@@ -500,6 +501,7 @@ jobs:
               with:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
+                  cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install SAML (python3-saml) dependencies
@@ -815,6 +817,9 @@ jobs:
                   npm_config_fetch_retry_maxtimeout: 60000
               run: pnpm --filter=@posthog/root --filter=@posthog/frontend... --filter=@posthog/mcp... install --frozen-lockfile
 
+            - name: Add OpenAPI Problem Matcher
+              run: echo "::add-matcher::.github/openapi-problem-matcher.json"
+
             - name: Check and update OpenAPI types
               env:
                   EVENT_NAME: ${{ github.event_name }}
@@ -879,6 +884,7 @@ jobs:
                   git add products/*/mcp/*.yaml 2>/dev/null || true
                   git add services/mcp/definitions/*.yaml 2>/dev/null || true
                   git add services/mcp/src/api/generated.ts 2>/dev/null || true
+                  git add services/mcp/src/generated/ 2>/dev/null || true
                   git add services/mcp/schema/generated-tool-definitions.json 2>/dev/null || true
                   git add services/mcp/schema/tool-definitions-all.json 2>/dev/null || true
                   git add services/mcp/src/tools/generated/ 2>/dev/null || true
@@ -1047,6 +1053,7 @@ jobs:
               with:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
+                  cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install SAML (python3-saml) dependencies
@@ -1579,6 +1586,7 @@ jobs:
               with:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
+                  cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install SAML (python3-saml) dependencies

@@ -27,6 +27,11 @@ pub struct FlagPropertyGroup {
     pub rollout_percentage: Option<f64>,
     #[serde(default)]
     pub variant: Option<String>,
+    /// Per-condition-set aggregation group type index. When present, this condition
+    /// set uses the specified group type for hashing and property evaluation. When
+    /// absent/null, the condition set uses person-level aggregation (distinct_id).
+    #[serde(default)]
+    pub aggregation_group_type_index: Option<i32>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -74,21 +79,8 @@ pub struct FlagFilters {
     /// fallback to regular conditions.
     #[serde(default)]
     pub super_groups: Option<Vec<FlagPropertyGroup>>,
-    /// The holdout group (though the type can hold multiple, we only evaluate the first one)
-    /// is a condition that defines a set of users intentionally excluded from a test or
-    /// experiment to serve as a baseline or control group. The group is defined as a percentage
-    /// which is held back by hashing the distinct identifier of the user. Here's an example:
-    /// "holdout_groups": [
-    /// {
-    ///     "variant": "holdout-1",
-    ///     "properties": [],
-    ///     "rollout_percentage": 10
-    ///   }
-    /// ]
-    #[serde(default)]
-    pub holdout_groups: Option<Vec<FlagPropertyGroup>>,
-    /// New holdout format: `{"id": 42, "exclusion_percentage": 10}`.
-    /// Preferred over `holdout_groups` when present (Phase 2 of holdout migration).
+    /// Holdout format: `{"id": 42, "exclusion_percentage": 10}`.
+    /// Defines a set of users intentionally excluded from a test or experiment.
     #[serde(default)]
     pub holdout: Option<Holdout>,
 }

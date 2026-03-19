@@ -321,12 +321,13 @@ mod tests {
                             }]),
                             rollout_percentage: Some(50.0),
                             variant: None,
+                            ..Default::default()
                         }],
                         multivariate: None,
                         aggregation_group_type_index: None,
                         payloads: None,
                         super_groups: None,
-                        holdout_groups: None,
+
                         holdout: None,
                     },
                     deleted: false,
@@ -348,7 +349,7 @@ mod tests {
                         aggregation_group_type_index: None,
                         payloads: None,
                         super_groups: None,
-                        holdout_groups: None,
+
                         holdout: None,
                     },
                     deleted: false,
@@ -376,12 +377,13 @@ mod tests {
                             }]),
                             rollout_percentage: Some(100.0),
                             variant: None,
+                            ..Default::default()
                         }],
                         multivariate: None,
                         aggregation_group_type_index: None,
                         payloads: None,
                         super_groups: None,
-                        holdout_groups: None,
+
                         holdout: None,
                     },
                     deleted: false,
@@ -500,12 +502,13 @@ mod tests {
                             }]),
                             rollout_percentage: Some(50.0 + i as f64),
                             variant: None,
+                            ..Default::default()
                         }],
                         multivariate: None,
                         aggregation_group_type_index: None,
                         payloads: None,
                         super_groups: None,
-                        holdout_groups: None,
+
                         holdout: None,
                     },
                     ensure_experience_continuity: Some(false),

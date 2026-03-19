@@ -34,10 +34,12 @@ export enum PluginServerMode {
     cdp_legacy_on_event = 'cdp-legacy-on-event',
     evaluation_scheduler = 'evaluation-scheduler',
     ingestion_logs = 'ingestion-logs',
+    ingestion_error_tracking = 'ingestion-error-tracking',
     cdp_batch_hogflow_requests = 'cdp-batch-hogflow-requests',
     cdp_cyclotron_v2_janitor = 'cdp-cyclotron-v2-janitor',
     recording_api = 'recording-api',
     ingestion_v2_testing = 'ingestion-v2-testing',
+    ingestion_traces = 'ingestion-traces',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
