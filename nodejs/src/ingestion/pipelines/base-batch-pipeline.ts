@@ -1,5 +1,6 @@
 import { instrumentFn } from '../../common/tracing/tracing-utils'
 import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { pipelineStepDurationHistogram } from './metrics'
 import { PipelineResultWithContext } from './pipeline.interface'
 import { PipelineResult, PipelineResultOk, isOkResult } from './results'
 
@@ -44,9 +45,11 @@ export class BaseBatchPipeline<TInput, TIntermediate, TOutput, CInput, COutput =
         // Apply current step to successful values
         let stepResults: PipelineResult<TOutput>[] = []
         if (successfulValues.length > 0) {
+            const end = pipelineStepDurationHistogram.startTimer({ step_name: this.stepName, step_type: 'batch' })
             stepResults = await instrumentFn({ key: this.stepName, sendException: false }, () =>
                 this.currentStep(successfulValues)
             )
+            end()
             if (stepResults.length !== successfulValues.length) {
                 throw new Error(
                     `Batch pipeline step ${this.stepName} returned different number of results than input values: ${stepResults.length} !== ${successfulValues.length}`
