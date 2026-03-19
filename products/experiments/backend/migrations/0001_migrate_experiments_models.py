@@ -46,7 +46,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
-        ("posthog", "1053_backfill_experiment_saved_metric_uuids"),
+        ("posthog", "1055_cohort_last_backfill_person_properties_at"),
     ]
 
     operations = [
