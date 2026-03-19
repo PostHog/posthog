@@ -408,7 +408,9 @@ def get_our_google_cloud_credentials() -> google.auth.impersonated_credentials.C
     return our_credentials
 
 
-class InvalidCredentialsError(Exception):
+class GoogleCloudCredentialsError(Exception):
+    """Raised when we cannot acquire PostHog Google Cloud credentials."""
+
     def __init__(self):
         super().__init__("Failed to acquire PostHog Google Cloud credentials")
 
@@ -419,7 +421,7 @@ async def ensure_our_google_cloud_credentials_are_valid():
     try:
         await asyncio.to_thread(our_credentials.refresh, google.auth.transport.requests.Request())
     except Exception as e:
-        raise InvalidCredentialsError from e
+        raise GoogleCloudCredentialsError from e
 
 
 async def get_service_account_description(
