@@ -1,5 +1,5 @@
 """
-Tests for signal handlers in posthog/models/remote_config.py.
+Tests for signal handlers in posthog/storage/team_access_cache_signal_handlers.py.
 """
 
 from unittest.mock import MagicMock, patch
@@ -9,12 +9,12 @@ from django.test import TestCase
 from parameterized import parameterized
 
 from posthog.models.organization import OrganizationMembership
-from posthog.models.remote_config import organization_membership_deleted, user_saved
 from posthog.models.user import User
+from posthog.storage.team_access_cache_signal_handlers import organization_membership_deleted, user_saved
 
 
 class TestUserSavedSignalHandler(TestCase):
-    """Test the user_saved signal handler in remote_config.py."""
+    """Test the user_saved signal handler in team_access_cache_signal_handlers.py."""
 
     @parameterized.expand(
         [
@@ -51,7 +51,7 @@ class TestUserSavedSignalHandler(TestCase):
         else:
             mock_on_commit.assert_not_called()
 
-    @patch("posthog.models.remote_config.logger")
+    @patch("posthog.storage.team_access_cache_signal_handlers.logger")
     @patch("django.db.transaction.on_commit")
     def test_user_saved_logs_debug_when_skipping_update(self, mock_on_commit, mock_logger):
         """Test that user_saved logs debug message when skipping cache update."""
@@ -142,7 +142,7 @@ class TestUserSavedSignalHandler(TestCase):
 
 
 class TestOrganizationMembershipDeletedSignalHandler(TestCase):
-    """Test the organization_membership_deleted signal handler in remote_config.py."""
+    """Test the organization_membership_deleted signal handler in team_access_cache_signal_handlers.py."""
 
     @patch("django.db.transaction.on_commit")
     def test_organization_membership_deleted_calls_update_when_user_removed(self, mock_on_commit):

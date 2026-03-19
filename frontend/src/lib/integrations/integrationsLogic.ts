@@ -8,6 +8,7 @@ import api, { getCookie } from 'lib/api'
 import { globalSetupLogic } from 'lib/components/ProductSetup'
 import { fromParamsGivenUrl, isKeyOf } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { integrationsGithubReposRetrieve } from '~/generated/core/api'
@@ -22,7 +23,7 @@ import { ICONS } from './utils'
 export const integrationsLogic = kea<integrationsLogicType>([
     path(['lib', 'integrations', 'integrationsLogic']),
     connect(() => ({
-        values: [preflightLogic, ['siteUrlMisconfigured', 'preflight']],
+        values: [preflightLogic, ['siteUrlMisconfigured', 'preflight'], teamLogic, ['currentProjectId']],
         actions: [globalSetupLogic, ['markTaskAsCompleted']],
     })),
 
@@ -125,7 +126,10 @@ export const integrationsLogic = kea<integrationsLogicType>([
             {} as Record<number, GitHubRepoApi[]>,
             {
                 loadGitHubRepositories: async ({ integrationId }) => {
-                    const response = await integrationsGithubReposRetrieve('@current', integrationId)
+                    const response = await integrationsGithubReposRetrieve(
+                        String(values.currentProjectId),
+                        integrationId
+                    )
                     return {
                         ...values.githubRepositories,
                         [integrationId]: response.repositories || [],
