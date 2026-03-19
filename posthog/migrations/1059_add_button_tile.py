@@ -95,9 +95,7 @@ class Migration(migrations.Migration):
             database_operations=[
                 migrations.RunSQL(
                     sql="""
-                        ALTER TABLE "posthog_dashboardtile" ADD COLUMN "button_tile_id" uuid NULL
-                        CONSTRAINT "posthog_dashboardtil_button_tile_id_acf9543d_fk_posthog_b"
-                        REFERENCES "posthog_buttontile"("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
+                        ALTER TABLE "posthog_dashboardtile" ADD COLUMN "button_tile_id" uuid NULL CONSTRAINT "posthog_dashboardtil_button_tile_id_acf9543d_fk_posthog_b" REFERENCES "posthog_buttontile"("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
                         SET CONSTRAINTS "posthog_dashboardtil_button_tile_id_acf9543d_fk_posthog_b" IMMEDIATE; -- existing-table-constraint-ignore
                     """,
                     reverse_sql='ALTER TABLE "posthog_dashboardtile" DROP COLUMN IF EXISTS "button_tile_id";',
