@@ -318,7 +318,7 @@ impl ServerHandle {
 
             let group_type_cache = Arc::new(
                 feature_flags::flags::flag_group_type_mapping::GroupTypeCacheManager::new(
-                    non_persons_reader.clone(),
+                    persons_reader.clone(),
                     Some(config.group_type_cache_max_entries),
                     Some(config.group_type_cache_ttl_seconds),
                 ),

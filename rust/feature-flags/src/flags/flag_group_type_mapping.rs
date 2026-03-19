@@ -101,13 +101,10 @@ impl PostgresGroupTypeMappingFetcher {
 #[async_trait]
 impl GroupTypeMappingFetcher for PostgresGroupTypeMappingFetcher {
     async fn fetch(&self, team_id: TeamId) -> Result<GroupTypeMapping, GroupTypeFetchError> {
-        let mut conn = get_connection_with_metrics(
-            &self.reader,
-            "non_persons_reader",
-            "fetch_group_type_mapping",
-        )
-        .await
-        .map_err(|_| GroupTypeFetchError::DatabaseUnavailable)?;
+        let mut conn =
+            get_connection_with_metrics(&self.reader, "persons_reader", "fetch_group_type_mapping")
+                .await
+                .map_err(|_| GroupTypeFetchError::DatabaseUnavailable)?;
 
         let query = r#"
             SELECT group_type, group_type_index

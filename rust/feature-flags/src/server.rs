@@ -121,7 +121,7 @@ pub async fn serve<F>(
     ));
 
     let group_type_cache = Arc::new(GroupTypeCacheManager::new(
-        database_pools.non_persons_reader.clone(),
+        database_pools.persons_reader.clone(),
         Some(config.group_type_cache_max_entries),
         Some(config.group_type_cache_ttl_seconds),
     ));
