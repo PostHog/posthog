@@ -1426,7 +1426,7 @@ class TestSignalHandlerCacheWarming(TestCase):
     @patch("posthog.storage.team_access_cache_signal_handlers.warm_team_token_cache")
     def test_team_signal_handlers_warm_caches(self, mock_warm_cache):
         """Test that team signal handlers warm caches instead of just invalidating."""
-        from posthog.storage.team_access_cache_signal_handlers import update_team_authentication_cache
+        from posthog.storage.team_access_cache_signal_handlers import _update_team_authentication_cache
 
         # Create mock Team
         mock_team = MagicMock()
@@ -1436,14 +1436,14 @@ class TestSignalHandlerCacheWarming(TestCase):
         mock_team._state.adding = False  # Not being created
 
         # Test save handler (not created)
-        update_team_authentication_cache(instance=mock_team, created=False)
+        _update_team_authentication_cache(instance=mock_team, created=False)
 
         # Verify cache warming was called (not just invalidation)
         mock_warm_cache.assert_called_once_with("phs_team_token_123")
 
         # Test that it doesn't warm cache for new teams (created=True)
         mock_warm_cache.reset_mock()
-        update_team_authentication_cache(instance=mock_team, created=True)
+        _update_team_authentication_cache(instance=mock_team, created=True)
 
         # Should not warm cache for new teams
         mock_warm_cache.assert_not_called()
@@ -1455,7 +1455,7 @@ class TestSignalHandlerCacheWarming(TestCase):
         from posthog.models.team.team import Team
         from posthog.models.user import User
         from posthog.models.utils import generate_random_token_personal, mask_key_value
-        from posthog.storage.team_access_cache_signal_handlers import update_team_authentication_cache_on_delete
+        from posthog.storage.team_access_cache_signal_handlers import _update_team_authentication_cache_on_delete
 
         # Create organization with multiple teams
         org = Organization.objects.create(name="Test Org for Team Deletion")
@@ -1542,7 +1542,7 @@ class TestSignalHandlerCacheWarming(TestCase):
         mock_deleted_team.api_token = deleted_team_api_token
         mock_deleted_team.pk = deleted_team_id
 
-        update_team_authentication_cache_on_delete(instance=mock_deleted_team)
+        _update_team_authentication_cache_on_delete(instance=mock_deleted_team)
 
         # Verify the deleted team's cache is invalidated
         cache_delete_after = team_access_tokens_hypercache.get_from_cache(deleted_team_api_token)
@@ -1657,13 +1657,13 @@ class TestSignalHandlerCacheWarming(TestCase):
         # Since we're in a test transaction, manually trigger cache invalidation for each team
         from unittest.mock import MagicMock
 
-        from posthog.storage.team_access_cache_signal_handlers import update_team_authentication_cache_on_delete
+        from posthog.storage.team_access_cache_signal_handlers import _update_team_authentication_cache_on_delete
 
         for i, api_token in enumerate(deleted_team_api_tokens):
             mock_team = MagicMock()
             mock_team.api_token = api_token
             mock_team.pk = teams_to_delete[i].id if i < len(teams_to_delete) else i
-            update_team_authentication_cache_on_delete(instance=mock_team)
+            _update_team_authentication_cache_on_delete(instance=mock_team)
 
         # Verify all caches for deleted org's teams are invalidated
         for api_token in deleted_team_api_tokens:
@@ -1740,12 +1740,12 @@ class TestSignalHandlerCacheWarming(TestCase):
         # Since we're in a test transaction, manually trigger the cache invalidation
         from unittest.mock import MagicMock
 
-        from posthog.storage.team_access_cache_signal_handlers import update_team_authentication_cache_on_delete
+        from posthog.storage.team_access_cache_signal_handlers import _update_team_authentication_cache_on_delete
 
         mock_deleted_team = MagicMock()
         mock_deleted_team.api_token = deleted_team_api_token
         mock_deleted_team.pk = deleted_team_id
-        update_team_authentication_cache_on_delete(instance=mock_deleted_team)
+        _update_team_authentication_cache_on_delete(instance=mock_deleted_team)
 
         # The PersonalAPIKey still exists in the database with scoped_teams including the deleted team ID
         key.refresh_from_db()
@@ -1901,7 +1901,7 @@ class TestSignalHandlerCacheWarming(TestCase):
         self, update_fields, created, adding_state, should_warm_cache, description, mock_warm_cache
     ):
         """Test team signal handler behavior for various update_fields scenarios."""
-        from posthog.storage.team_access_cache_signal_handlers import update_team_authentication_cache
+        from posthog.storage.team_access_cache_signal_handlers import _update_team_authentication_cache
 
         # Create mock Team
         mock_team = MagicMock()
@@ -1911,7 +1911,7 @@ class TestSignalHandlerCacheWarming(TestCase):
         mock_team._state.adding = adding_state
 
         # Call the signal handler
-        update_team_authentication_cache(instance=mock_team, created=created, update_fields=update_fields)
+        _update_team_authentication_cache(instance=mock_team, created=created, update_fields=update_fields)
 
         # Verify cache warming behavior
         if should_warm_cache:

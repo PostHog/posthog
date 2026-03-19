@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -133,6 +134,9 @@ func (m Model) renderOutput() string {
 // Overlays a -line counter in the top-right corner of the viewport
 func (m Model) viewportWithIndicator() string {
 	view := m.viewport.View()
+	if m.hedgehogMode {
+		view = m.overlayHedgehog(view)
+	}
 	total := m.viewport.TotalLineCount()
 	if total <= m.viewport.Height() {
 		return view
@@ -172,6 +176,11 @@ func (m Model) renderFooter() string {
 		return footerStyle.Width(m.width - 2).Render(
 			lipgloss.NewStyle().Foreground(colorBlue).Render(hint),
 		)
+	} else if m.infoMode {
+		hint := "-- INFO --  i/esc: close"
+		return footerStyle.Width(m.width - 2).Render(
+			lipgloss.NewStyle().Foreground(colorYellow).Render(hint),
+		)
 	} else if m.searchMode {
 		var matchInfo string
 		if m.searchQuery == "" {
@@ -203,4 +212,117 @@ func (m Model) renderFooter() string {
 		content = m.help.ShortHelpView(m.keys.ShortHelp())
 	}
 	return footerStyle.Width(m.width - 2).Render(content)
+}
+
+// Rebuilds the info content and sets it on the viewport.
+func (m *Model) refreshInfoContent() {
+	info := m.renderInfo()
+	lines := strings.Split(info, "\n")
+	m.viewport.SetContent(strings.Join(lines, "\n"))
+}
+
+func (m Model) renderInfo() string {
+	p := m.activeProc()
+	if p == nil {
+		return ""
+	}
+	snap := p.Snapshot()
+
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(colorYellow)
+	labelStyle := lipgloss.NewStyle().Foreground(colorGrey).Width(20)
+	valueStyle := lipgloss.NewStyle().Foreground(colorWhite)
+
+	row := func(label, value string) string {
+		return labelStyle.Render(label) + valueStyle.Render(value)
+	}
+
+	var lines []string
+	lines = append(lines, "")
+
+	// Status
+	icon := statusIconChar(p.Status())
+	iconColor := statusIconColor(p.Status())
+	styledIcon := lipgloss.NewStyle().Foreground(iconColor).Render(icon)
+	lines = append(lines, labelStyle.Render("  Status")+styledIcon+" "+valueStyle.Render(snap.Status))
+
+	// PID
+	if snap.PID > 0 {
+		lines = append(lines, row("  PID", fmt.Sprintf("%d", snap.PID)))
+	}
+
+	// Ready
+	readyStr := "no"
+	if snap.Ready {
+		readyStr = "yes"
+	}
+	lines = append(lines, row("  Ready", readyStr))
+
+	// Exit code
+	if snap.ExitCode != nil {
+		lines = append(lines, row("  Exit code", fmt.Sprintf("%d", *snap.ExitCode)))
+	}
+
+	// Timing
+	lines = append(lines, "")
+	lines = append(lines, titleStyle.Render("  Timing"))
+
+	if !snap.StartedAt.IsZero() {
+		lines = append(lines, row("  Started", snap.StartedAt.Format(time.RFC3339)))
+		lines = append(lines, row("  Uptime", formatDuration(time.Since(snap.StartedAt))))
+	}
+	if snap.StartupDurationS != nil {
+		lines = append(lines, row("  Startup", fmt.Sprintf("%.1fs", *snap.StartupDurationS)))
+	}
+
+	// Resources (only if metrics have been sampled)
+	if snap.MemRSSMB != nil {
+		lines = append(lines, "")
+		lines = append(lines, titleStyle.Render("  Resources"))
+
+		lines = append(lines, row("  Memory (RSS)", fmt.Sprintf("%.1f MB", *snap.MemRSSMB)))
+		if snap.PeakMemRSSMB != nil {
+			lines = append(lines, row("  Peak memory", fmt.Sprintf("%.1f MB", *snap.PeakMemRSSMB)))
+		}
+		if snap.CPUPercent != nil {
+			lines = append(lines, row("  CPU", fmt.Sprintf("%.1f%%", *snap.CPUPercent)))
+		}
+		if snap.CPUTimeS != nil {
+			lines = append(lines, row("  CPU time", fmt.Sprintf("%.1fs", *snap.CPUTimeS)))
+		}
+		if snap.ThreadCount != nil {
+			lines = append(lines, row("  Threads", fmt.Sprintf("%d", *snap.ThreadCount)))
+		}
+		if snap.ChildProcessCount != nil {
+			lines = append(lines, row("  Children", fmt.Sprintf("%d", *snap.ChildProcessCount)))
+		}
+		if snap.FDCount != nil {
+			lines = append(lines, row("  File descriptors", fmt.Sprintf("%d", *snap.FDCount)))
+		}
+	}
+
+	// Config
+	lines = append(lines, "")
+	lines = append(lines, titleStyle.Render("  Config"))
+	lines = append(lines, row("  Command", p.Cfg.Shell))
+	if p.Cfg.ReadyPattern != "" {
+		lines = append(lines, row("  Ready pattern", p.Cfg.ReadyPattern))
+	}
+	if p.Cfg.Autorestart {
+		lines = append(lines, row("  Autorestart", "yes"))
+	}
+
+	// Buffered lines
+	lines = append(lines, row("  Buffered lines", fmt.Sprintf("%d", len(p.Lines()))))
+
+	return strings.Join(lines, "\n")
+}
+
+func formatDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%.0fs", d.Seconds())
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm %ds", int(d.Minutes()), int(d.Seconds())%60)
+	}
+	return fmt.Sprintf("%dh %dm", int(d.Hours()), int(d.Minutes())%60)
 }
