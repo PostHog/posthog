@@ -49,7 +49,7 @@ export class BaseBatchPipeline<TInput, TIntermediate, TOutput, CInput, COutput =
             stepResults = await instrumentFn({ key: this.stepName, sendException: false, measureTime: false }, () =>
                 this.currentStep(successfulValues)
             )
-            end()
+            end({ result: 'batch' })
             if (stepResults.length !== successfulValues.length) {
                 throw new Error(
                     `Batch pipeline step ${this.stepName} returned different number of results than input values: ${stepResults.length} !== ${successfulValues.length}`

@@ -1,7 +1,7 @@
 import { instrumentFn } from '../../common/tracing/tracing-utils'
 import { pipelineStepDurationHistogram } from './metrics'
 import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
-import { PipelineResult, isOkResult } from './results'
+import { PipelineResult, PipelineResultType, isOkResult } from './results'
 import { ProcessingStep } from './steps'
 
 export class StepPipeline<TInput, TIntermediate, TOutput, C> implements Pipeline<TInput, TOutput, C> {
@@ -33,7 +33,7 @@ export class StepPipeline<TInput, TIntermediate, TOutput, C> implements Pipeline
         const currentResult = await instrumentFn({ key: this.stepName, sendException: false, measureTime: false }, () =>
             this.currentStep(previousResult.value)
         )
-        end()
+        end({ result: PipelineResultType[currentResult.type].toLowerCase() })
         return {
             result: currentResult,
             context: {
