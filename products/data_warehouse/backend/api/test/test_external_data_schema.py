@@ -97,6 +97,7 @@ class TestExternalDataSchema(APIBaseTest):
             "incremental_available": False,
             "append_available": True,
             "full_refresh_available": True,
+            "supports_webhooks": False,
         }
 
     def test_incremental_fields_missing_source_type(self):
@@ -191,6 +192,7 @@ class TestExternalDataSchema(APIBaseTest):
             "incremental_available": True,
             "append_available": True,
             "full_refresh_available": True,
+            "supports_webhooks": False,
         }
 
     def test_update_schema_change_sync_type(self):
@@ -283,6 +285,7 @@ class TestExternalDataSchema(APIBaseTest):
         mock_hog_fn_result = WebhookHogFunctionCreateResult(
             hog_function=mock_hog_function,
             webhook_url="https://test.com/webhook",
+            hog_function_created=True,
         )
         mock_webhook_schemas = [
             SourceSchema(name="Charge", supports_incremental=True, supports_append=True, supports_webhooks=True),

@@ -69,7 +69,10 @@ def get_or_create_webhook_hog_function(
             type="warehouse_source_webhook",
             inputs__source_id__value=source_id,
         )
-        existing_mapping = existing_hog.inputs.get("schema_mapping", {}).get("value", {})
+        if existing_hog.inputs:
+            existing_mapping = existing_hog.inputs.get("schema_mapping", {}).get("value", {})
+        else:
+            existing_mapping = {}
     except HogFunction.DoesNotExist:
         existing_mapping = {}
 
@@ -96,7 +99,7 @@ def get_or_create_webhook_hog_function(
 
     if merged_mapping != schema_mapping:
         hog_function.inputs = {
-            **hog_function.inputs,
+            **(hog_function.inputs or {}),
             "schema_mapping": {"value": merged_mapping},
         }
         hog_function.save(update_fields=["inputs", "encrypted_inputs"])

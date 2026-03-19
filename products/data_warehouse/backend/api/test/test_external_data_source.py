@@ -1514,6 +1514,7 @@ class TestExternalDataSource(APIBaseTest):
                     "append_available": True,
                     "incremental_field": "id",
                     "sync_type": None,
+                    "supports_webhooks": False,
                 }
             ]
 
@@ -1564,6 +1565,7 @@ class TestExternalDataSource(APIBaseTest):
                     "append_available": True,
                     "incremental_field": "id",
                     "sync_type": None,
+                    "supports_webhooks": False,
                 }
             ]
 
