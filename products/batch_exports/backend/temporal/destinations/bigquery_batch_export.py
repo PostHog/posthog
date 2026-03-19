@@ -378,8 +378,11 @@ class ServiceAccountNotFoundError(Exception):
 
 
 class ServiceAccountOwnershipError(Exception):
-    def __init__(self, email: str):
-        super().__init__(f"Could not verify that service account '{email}' is owned by your organization")
+    def __init__(self, email: str, organization_id: str):
+        super().__init__(
+            f"Could not verify that service account '{email}' is owned by your organization. "
+            f"Have you added 'posthog:{organization_id}' to your service account's description?"
+        )
 
 
 def get_our_google_cloud_credentials() -> google.auth.impersonated_credentials.Credentials:
@@ -469,7 +472,7 @@ async def verify_impersonated_service_account_ownership(
         await asyncio.sleep(initial_interval * (backoff_factor**attempt))
         attempt += 1
 
-    raise ServiceAccountOwnershipError(service_account_email)
+    raise ServiceAccountOwnershipError(service_account_email, str(organization_id))
 
 
 def impersonate_service_account(

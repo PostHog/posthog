@@ -155,7 +155,9 @@ async def test_verify_impersonated_service_account_ownership_raises(
 ):
     """Test verifying ownership of impersonated service account fails when description is set to 'any'."""
     service_account_integration = GoogleCloudServiceAccountIntegration(integration)
-    with pytest.raises(ServiceAccountOwnershipError):
+    with pytest.raises(ServiceAccountOwnershipError) as excinfo:
         await verify_impersonated_service_account_ownership(
             service_account_integration.service_account_email, ateam.id, max_attempts=1
         )
+
+    assert f"posthog:{str(aorganization.id)}" in str(excinfo.value)
