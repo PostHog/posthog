@@ -229,28 +229,17 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                 left=field,
                 right=ast.Constant(value=None),
             )
-        elif operator == "gt":
+        elif operator in ("gt", "lt", "gte", "lte"):
+            numeric_field = ast.Call(name="toFloat", args=[field])
+            op_map = {
+                "gt": ast.CompareOperationOp.Gt,
+                "lt": ast.CompareOperationOp.Lt,
+                "gte": ast.CompareOperationOp.GtEq,
+                "lte": ast.CompareOperationOp.LtEq,
+            }
             return ast.CompareOperation(
-                op=ast.CompareOperationOp.Gt,
-                left=field,
-                right=ast.Constant(value=value),
-            )
-        elif operator == "lt":
-            return ast.CompareOperation(
-                op=ast.CompareOperationOp.Lt,
-                left=field,
-                right=ast.Constant(value=value),
-            )
-        elif operator == "gte":
-            return ast.CompareOperation(
-                op=ast.CompareOperationOp.GtEq,
-                left=field,
-                right=ast.Constant(value=value),
-            )
-        else:  # operator == "lte"
-            return ast.CompareOperation(
-                op=ast.CompareOperationOp.LtEq,
-                left=field,
+                op=op_map[operator],
+                left=numeric_field,
                 right=ast.Constant(value=value),
             )
 
