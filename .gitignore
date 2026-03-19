@@ -132,6 +132,8 @@ target/*
 
 # Ignore user's Cursor rules
 .cursor/**/user*.mdc
+# Ignore Cursor plans
+.cursor/**/*.plan.md
 CLAUDE.local.md
 
 # Ignore file for clearing demo data on local

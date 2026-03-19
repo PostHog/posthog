@@ -3535,6 +3535,96 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["status"], "draft")
 
+    # ------------------------------------------------------------------
+    # Launch endpoint
+    # ------------------------------------------------------------------
+
+    def test_launch_experiment_endpoint(self):
+        # Create a draft experiment with metrics
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Launch Endpoint Test",
+                "feature_flag_key": "launch-endpoint-flag",
+                "metrics": [
+                    {
+                        "kind": "ExperimentTrendsQuery",
+                        "count_query": {
+                            "kind": "TrendsQuery",
+                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                        },
+                    }
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+        self.assertEqual(response.json()["status"], "draft")
+
+        # Verify flag is inactive
+        flag = FeatureFlag.objects.get(key="launch-endpoint-flag", team=self.team)
+        self.assertFalse(flag.active)
+
+        # Launch the experiment
+        launch_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/launch/",
+        )
+        self.assertEqual(launch_response.status_code, status.HTTP_200_OK)
+
+        data = launch_response.json()
+        self.assertEqual(data["status"], "running")
+        self.assertIsNotNone(data["start_date"])
+
+        # Verify flag is now active
+        flag.refresh_from_db()
+        self.assertTrue(flag.active)
+
+    def test_launch_experiment_endpoint_already_running(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Already Running Endpoint",
+                "feature_flag_key": "already-running-endpoint",
+                "start_date": "2024-01-01T10:00",
+                "metrics": [
+                    {
+                        "kind": "ExperimentTrendsQuery",
+                        "count_query": {
+                            "kind": "TrendsQuery",
+                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                        },
+                    }
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        launch_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/launch/",
+        )
+        self.assertEqual(launch_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_launch_experiment_endpoint_without_metrics(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "No Metrics Endpoint",
+                "feature_flag_key": "no-metrics-endpoint",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        launch_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/launch/",
+        )
+        self.assertEqual(launch_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(launch_response.json()["status"], "running")
+
 
 class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
     def _generate_experiment(self, start_date="2024-01-01T10:23", extra_parameters=None):
