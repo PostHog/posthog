@@ -622,6 +622,7 @@ export interface ConversationsSettings {
     slack_channel_id?: string | null
     slack_channel_name?: string | null
     slack_ticket_emoji?: string | null
+    email_enabled?: boolean
 }
 
 export interface LogsSettings {
@@ -3823,6 +3824,7 @@ export interface FeatureFlagGroupType {
     users_affected?: number
     sort_key?: string | null // Client-side only stable id for sorting.
     description?: string | null
+    aggregation_group_type_index?: integer | null
 }
 
 export interface MultivariateFlagVariant {

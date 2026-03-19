@@ -160,6 +160,16 @@ CONSTANCE_CONFIG = {
         "Used to validate incoming webhook events for the Support Slack bot.",
         str,
     ),
+    "CONVERSATIONS_EMAIL_INBOUND_DOMAIN": (
+        get_from_env("CONVERSATIONS_EMAIL_INBOUND_DOMAIN", default=""),
+        "Mailgun receiving domain for inbound email routing, e.g. mg.posthog.com.",
+        str,
+    ),
+    "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY": (
+        get_from_env("CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY", default=""),
+        "HMAC signing key for validating inbound Mailgun webhook authenticity.",
+        str,
+    ),
     "GITHUB_WEBHOOK_SECRET": (
         get_from_env("GITHUB_WEBHOOK_SECRET", default=""),
         "Used to validate GitHub webhook events (HMAC-SHA256 signature verification)",
@@ -251,6 +261,8 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SUPPORT_SLACK_APP_CLIENT_ID",
     "SUPPORT_SLACK_APP_CLIENT_SECRET",
     "SUPPORT_SLACK_SIGNING_SECRET",
+    "CONVERSATIONS_EMAIL_INBOUND_DOMAIN",
+    "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY",
     "GITHUB_WEBHOOK_SECRET",
     "PARALLEL_DASHBOARD_ITEM_CACHE",
     "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS",
@@ -272,5 +284,6 @@ SECRET_SETTINGS = [
     "SLACK_APP_SIGNING_SECRET",
     "SUPPORT_SLACK_SIGNING_SECRET",
     "SUPPORT_SLACK_APP_CLIENT_SECRET",
+    "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY",
     "GITHUB_WEBHOOK_SECRET",
 ]

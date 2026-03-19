@@ -22,7 +22,7 @@ export function CustomerJourneysEmptyState({ embedded }: { embedded?: boolean })
             productName="Customer journeys"
             thingName="journey"
             description={description}
-            action={() => router.actions.push(urls.customerJourneyBuilder())}
+            action={() => router.actions.push(urls.customerJourneyTemplates())}
             customHog={ExplorerHog}
             className={embedded ? 'border-0' : undefined}
             isEmpty

@@ -142,6 +142,7 @@ class ExperimentQueryRunner(QueryRunner):
 
         self.clickhouse_sql: str | None = None
         self.hogql: str | None = None
+        self._is_precomputed: bool = False
 
     def _get_breakdowns_for_builder(self) -> list | None:
         """Extract and validate breakdowns from metric configuration."""
@@ -221,6 +222,7 @@ class ExperimentQueryRunner(QueryRunner):
                 result = self._ensure_exposures_precomputed(builder)
                 if result.ready:
                     builder.preaggregation_job_ids = [str(job_id) for job_id in result.job_ids]
+                    self._is_precomputed = True
                 else:
                     logger.warning("exposure_lazy_computation_not_ready", experiment_id=self.experiment.id)
             except Exception:
@@ -288,6 +290,7 @@ class ExperimentQueryRunner(QueryRunner):
 
         result.clickhouse_sql = self.clickhouse_sql
         result.hogql = self.hogql
+        result.is_precomputed = self._is_precomputed
 
         return result
 

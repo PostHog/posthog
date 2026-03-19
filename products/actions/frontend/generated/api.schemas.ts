@@ -536,7 +536,8 @@ export interface ActionApi {
      * @nullable
      */
     pinned_at?: string | null
-    readonly creation_context: string
+    /** @nullable */
+    readonly creation_context: string | null
     _create_in_folder?: string
     /**
      * The effective access level the user has for this object
@@ -591,7 +592,8 @@ export interface PatchedActionApi {
      * @nullable
      */
     pinned_at?: string | null
-    readonly creation_context?: string
+    /** @nullable */
+    readonly creation_context?: string | null
     _create_in_folder?: string
     /**
      * The effective access level the user has for this object

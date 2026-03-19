@@ -20,7 +20,6 @@ type PersonProfileCanvasProps = {
 
 const PersonProfileCanvas = ({ person, attachTo }: PersonProfileCanvasProps): JSX.Element | null => {
     const id = person.id
-    const distinctId = person.distinct_ids[0]
     const shortId = `canvas-${id}`
     const mode = 'canvas'
     const { reportPersonProfileViewed } = useActions(eventUsageLogic)
@@ -28,9 +27,9 @@ const PersonProfileCanvas = ({ person, attachTo }: PersonProfileCanvasProps): JS
     const attrs = useMemo(
         () => ({
             personId: id,
-            distinctId,
+            distinctIds: person.distinct_ids,
         }),
-        [id, distinctId]
+        [id, person.distinct_ids]
     )
     const customerProfileLogicProps = {
         attrs,

@@ -3038,17 +3038,16 @@ class TestExperimentCRUD(APILicensedTest):
                 "filters": {"events": [{"order": 0, "id": "$pageview"}]},
                 "metrics": [
                     {
-                        "kind": "ExperimentTrendsQuery",
-                        "count_query": {
-                            "kind": "TrendsQuery",
-                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                        },
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
                     }
                 ],
                 "metrics_secondary": [
                     {
-                        "kind": "ExperimentTrendsQuery",
-                        "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$click"}]},
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$click"},
                     }
                 ],
                 "stats_config": {"method": "bayesian"},
@@ -3159,17 +3158,16 @@ class TestExperimentCRUD(APILicensedTest):
                 "filters": {"events": [{"order": 0, "id": "$pageview"}]},
                 "metrics": [
                     {
-                        "kind": "ExperimentTrendsQuery",
-                        "count_query": {
-                            "kind": "TrendsQuery",
-                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                        },
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
                     }
                 ],
                 "metrics_secondary": [
                     {
-                        "kind": "ExperimentTrendsQuery",
-                        "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$click"}]},
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$click"},
                     }
                 ],
             },
