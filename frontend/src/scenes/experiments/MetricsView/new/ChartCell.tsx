@@ -69,7 +69,7 @@ export function ChartCell({
     const validationFailureType = getValidationFailureType(variantResult)
 
     // Sanitize all dynamic parts to produce valid SVG IDs (no spaces or special chars that break url() references)
-    const sanitize = (s: string): string => s.replace(/[^a-zA-Z0-9_-]/g, '_')
+    const sanitize = (s: string): string => encodeURIComponent(s).replace(/[^a-zA-Z0-9_-]/g, '_')
     const gradientId = `gradient-${isSecondary ? 'secondary' : 'primary'}-${metricUuid ? metricUuid.slice(-8) : 'default'}-${sanitize(variantResult.key)}${gradientSuffix ? `-${sanitize(gradientSuffix)}` : ''}`
 
     // Position calculations
