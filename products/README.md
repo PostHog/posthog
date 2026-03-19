@@ -168,11 +168,15 @@ bin/hogli product:lint your_product_name
 
 ## Separate product databases
 
-Products can opt into their own Postgres database for isolation — a product's DB issues (locks, migrations, traffic spikes) won't affect core PostHog or other products.
+Database isolation is part of the broader product isolation architecture (see [architecture.md](./architecture.md)). Products communicate through facades and frozen dataclass contracts — never through shared ORM queries or cross-product joins. Separate databases enforce this at the infrastructure level: if your product can't reach another product's tables, you can't accidentally couple to them.
+
+New products get their own Postgres database by default (`hogli product:bootstrap` adds a route automatically).
+
+**Opting out:** Remove the product's entry from `products/db_routing.yaml` and everything falls back to `default`. This weakens isolation — a bad migration or traffic spike in your product can impact the entire app, and nothing prevents accidental cross-product ORM queries. Acceptable reasons to opt out: the product has no models, or it's in early prototyping and not yet following the facade pattern.
 
 ### How it works
 
-Add a route in `products/db_routing.yaml`:
+A route in `products/db_routing.yaml` declares which app label gets its own database:
 
 ```yaml
 routes:
@@ -187,33 +191,27 @@ This automatically:
 - Runs migrations via `bin/migrate` (calls `migrate_product_databases` management command)
 - Creates the database in local Docker via the Postgres init script
 
-### Env vars (prod)
+Locally (`DEBUG=1`), it auto-connects to `posthog_visual_review` on localhost. In prod, set `PRODUCT_DB_VISUAL_REVIEW_WRITER_URL` (and optionally `…_READER_URL`). If the env var is absent, the route is silently skipped.
 
-Infrastructure (Aurora cluster, PgBouncer, secrets, env vars) is managed by the charts repo — no manual setup needed. Ask #team-infrastructure if adding a new product database.
-
-If the env var isn't set, the route is silently skipped and everything stays on `default`.
-
-Locally (`DEBUG=1`), it auto-connects to `posthog_visual_review` on localhost.
-
-### Cross-database foreign keys
+### Cross-database constraints
 
 Postgres doesn't support foreign keys across databases. Models on a product database **must not** use `ForeignKey` to models in the main database (Team, User, etc.). Use plain integer fields instead:
 
 ```python
-# Do this
+# Do this — plain integer, no FK constraint
 team_id = models.BigIntegerField(db_index=True)
 
-# Not this
+# Not this — can't reference a table in another database
 team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 ```
 
 ForeignKeys between models **within the same product database** are fine.
 
-Consequences of no cross-DB FKs:
+This aligns with the facade pattern: if your product needs data from Team or User, fetch it through the facade using IDs — don't join to the table directly. Consequences:
 
-- No `select_related`/`prefetch_related` across databases — use manual batch fetching
-- No `ON DELETE CASCADE` from the main DB — handle cleanup in application code
-- No `transaction.atomic()` spanning both databases
+- No `select_related`/`prefetch_related` across databases — use the facade or manual batch fetching
+- No `ON DELETE CASCADE` from the main DB — handle cleanup in application code or via background tasks
+- No `transaction.atomic()` spanning both databases — design for eventual consistency across boundaries
 
 ## Running tests with Turbo
 
