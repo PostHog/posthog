@@ -403,27 +403,36 @@ export function LineGraph_({
                   ctx.p1DataIndex >= incompleteStartIndex ? areaIncompletePattern : undefined
             : undefined
 
-        // Build anomaly point styling if this series has anomaly points
+        // Build anomaly point styling if this series has anomaly points.
+        // Match by date (not index) since the alert check data range may differ from the chart range.
         const seriesAnomalyPoints = (anomalyPoints ?? []).filter(
             (ap) => ap.seriesIndex === (dataset.seriesIndex ?? index)
         )
-        const seriesAnomalyIndices = new Set(seriesAnomalyPoints.map((ap) => ap.index))
-
-        // Build a sparse array of anomaly scores for tooltip lookup
-        const anomalyScoresMap: Record<number, number | null> = {}
+        const chartDays: string[] = dataset.days ?? dataset.labels ?? []
+        const anomalyDateSet = new Set(seriesAnomalyPoints.map((ap) => ap.date))
+        const anomalyScoreByDate: Record<string, number | null> = {}
         for (const ap of seriesAnomalyPoints) {
-            anomalyScoresMap[ap.index] = ap.score
+            anomalyScoreByDate[ap.date] = ap.score
+        }
+        // Resolve to chart indices by matching dates
+        const seriesAnomalyIndices = new Set<number>()
+        const anomalyScoresMap: Record<number, number | null> = {}
+        for (let i = 0; i < chartDays.length; i++) {
+            if (anomalyDateSet.has(chartDays[i])) {
+                seriesAnomalyIndices.add(i)
+                anomalyScoresMap[i] = anomalyScoreByDate[chartDays[i]] ?? null
+            }
         }
         const hasAnomalyPoints = seriesAnomalyIndices.size > 0
 
         const anomalyPointRadius = hasAnomalyPoints
-            ? (ctx: any) => (seriesAnomalyIndices.has(ctx.dataIndex) ? 6 : 0)
+            ? (ctx: any) => (seriesAnomalyIndices.has(ctx.dataIndex) ? 5 : 0)
             : undefined
         const anomalyPointBackgroundColor = hasAnomalyPoints
-            ? (ctx: any) => (seriesAnomalyIndices.has(ctx.dataIndex) ? 'rgba(220, 38, 38, 0.9)' : 'transparent')
+            ? (ctx: any) => (seriesAnomalyIndices.has(ctx.dataIndex) ? mainColor : 'transparent')
             : undefined
         const anomalyPointBorderColor = hasAnomalyPoints
-            ? (ctx: any) => (seriesAnomalyIndices.has(ctx.dataIndex) ? 'rgba(153, 27, 27, 1)' : 'transparent')
+            ? (ctx: any) => (seriesAnomalyIndices.has(ctx.dataIndex) ? mainColor : 'transparent')
             : undefined
         const anomalyPointBorderWidth = hasAnomalyPoints
             ? (ctx: any) => (seriesAnomalyIndices.has(ctx.dataIndex) ? 2 : 0)

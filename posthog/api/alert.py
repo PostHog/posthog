@@ -535,12 +535,32 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if insight_id is not None:
             queryset = queryset.filter(insight=insight_id)
 
-        page = self.paginate_queryset(queryset)
+        # Prefetch checks with triggered points for anomaly point display on chart.
+        # Each alert check from detect() typically has 0-1 triggered points, so we
+        # collect all firing checks to build the full anomaly timeline.
+        alerts = list(queryset)
+        if alerts:
+            alert_ids = [a.id for a in alerts]
+            firing_checks = (
+                AlertCheck.objects.filter(
+                    alert_configuration_id__in=alert_ids,
+                    triggered_points__isnull=False,
+                )
+                .exclude(triggered_points=[])
+                .order_by("-created_at")
+            )
+            checks_by_alert: dict[str, list] = {str(a.id): [] for a in alerts}
+            for check in firing_checks:
+                checks_by_alert.setdefault(str(check.alert_configuration_id), []).append(check)
+            for alert in alerts:
+                alert.checks = checks_by_alert.get(str(alert.id), [])
+
+        page = self.paginate_queryset(alerts)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
             return self.get_paginated_response(serializer.data)
 
-        serializer = self.get_serializer(queryset, many=True)
+        serializer = self.get_serializer(alerts, many=True)
         return Response(serializer.data)
 
     @extend_schema(
