@@ -262,7 +262,12 @@ impl PersonHogReplica for PersonHogReplicaService {
 
         let mappings = self
             .storage
-            .get_distinct_ids_for_persons(req.team_id, &req.person_ids, consistency, limit_per_person)
+            .get_distinct_ids_for_persons(
+                req.team_id,
+                &req.person_ids,
+                consistency,
+                limit_per_person,
+            )
             .await
             .map_err(|e| log_and_convert_error(e, "get_distinct_ids_for_persons"))?;
 
