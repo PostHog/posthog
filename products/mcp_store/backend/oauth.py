@@ -192,12 +192,10 @@ def refresh_oauth_token(
         raise TokenRefreshError(f"Token refresh URL blocked by SSRF protection: {token_url}")
     except requests.RequestException as exc:
         status_code = getattr(getattr(exc, "response", None), "status_code", None)
-        response_body = getattr(getattr(exc, "response", None), "text", "")
         logger.warning(
             "OAuth token refresh request failed",
             token_url=token_url,
             status_code=status_code,
-            response_body=response_body[:500] if response_body else "",
         )
         raise TokenRefreshError("Token refresh request failed")
 
