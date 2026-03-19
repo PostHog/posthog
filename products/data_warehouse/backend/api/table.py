@@ -374,14 +374,9 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         file = request.FILES["file"]
 
-        # Reject filenames with path separators to prevent path traversal
-        if "/" in file.name or "\\" in file.name:
-            return response.Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Invalid filename"},
-            )
-
-        # Sanitize filename
+        # Sanitize filename — Django strips path separators via os.path.basename
+        # in UploadedFile._set_name, but we further restrict to safe characters
+        # as defense-in-depth for the S3 key and url_pattern.
         safe_filename = re.sub(r"[^a-zA-Z0-9._-]", "_", file.name)
         if not safe_filename or safe_filename.startswith("."):
             return response.Response(
