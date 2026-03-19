@@ -1,12 +1,15 @@
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 
+import temporalio.exceptions
+
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
     BackfillPrecalculatedPersonPropertiesInputs,
-    PersonPropertyFilter,
     backfill_precalculated_person_properties_activity,
     flush_kafka_batch,
 )
+from posthog.temporal.messaging.filter_storage import store_filters
+from posthog.temporal.messaging.types import PersonPropertyFilter
 
 
 class TestFlushKafkaBatch:
@@ -310,9 +313,12 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
             ),
         ]
 
+        # Store filters in filter storage
+        filter_storage_key = store_filters(filters, team_id=1)
+
         inputs = BackfillPrecalculatedPersonPropertiesInputs(
             team_id=1,
-            filters=filters,
+            filter_storage_key=filter_storage_key,
             cohort_ids=[100, 200],
             batch_size=100,
             offset=0,
@@ -358,14 +364,20 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
                 result.result = False
             return result
 
-        # Mock asyncio.to_thread to handle both flush and execute_bytecode calls
+        # Mock asyncio.to_thread to handle flush, get_filters, and execute_bytecode calls
         async def mock_to_thread(func, *args, **kwargs):
             if hasattr(func, "_mock_name") and "flush" in func._mock_name:
                 # This is the kafka flush call - just return None
                 return None
-            else:
+            elif func.__name__ == "get_filters":
+                # This is the get_filters call - return the filters we stored earlier
+                return filters
+            elif func.__name__ == "execute_bytecode":
                 # This is the execute_bytecode call
                 return mock_execute_bytecode(*args, **kwargs)
+            else:
+                # Unknown function
+                raise ValueError(f"Unexpected function in mock_to_thread: {func.__name__}")
 
         with (
             patch(
@@ -480,9 +492,12 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
             ),
         ]
 
+        # Store filters in filter storage
+        filter_storage_key = store_filters(filters, team_id=1)
+
         inputs = BackfillPrecalculatedPersonPropertiesInputs(
             team_id=1,
-            filters=filters,
+            filter_storage_key=filter_storage_key,
             cohort_ids=[100, 200],
             batch_size=100,
             offset=0,
@@ -534,9 +549,15 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
             if hasattr(func, "_mock_name") and "flush" in func._mock_name:
                 # This is the kafka flush call
                 return None
-            else:
+            elif func.__name__ == "get_filters":
+                # This is the get_filters call - return the filters we stored earlier
+                return filters
+            elif func.__name__ == "execute_bytecode":
                 # This is the execute_bytecode call
                 return mock_execute_bytecode(*args, **kwargs)
+            else:
+                # Unknown function
+                raise ValueError(f"Unexpected function in mock_to_thread: {func.__name__}")
 
         with (
             patch(
@@ -608,3 +629,36 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
         # Verify sources are different
         assert cohort_100_events[0]["source"] == "cohort_backfill_100"
         assert cohort_200_events[0]["source"] == "cohort_backfill_200"
+
+    @pytest.mark.asyncio
+    async def test_missing_filter_storage_key_raises_non_retryable_error(self):
+        """Test that missing Redis key raises a non-retryable ApplicationError."""
+        inputs = BackfillPrecalculatedPersonPropertiesInputs(
+            team_id=1,
+            filter_storage_key="backfill_person_properties_filters:team_1_nonexistent",
+            cohort_ids=[100],
+            batch_size=100,
+            offset=0,
+            limit=1,
+        )
+
+        # Mock get_filters to return None (simulating missing/expired key)
+        with patch(
+            "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_filters"
+        ) as mock_get_filters:
+            mock_get_filters.return_value = None
+
+            # Mock asyncio.to_thread to just call the function directly for testing
+            with patch("asyncio.to_thread") as mock_to_thread:
+                mock_to_thread.side_effect = lambda func, *args: func(*args)
+
+                # Should raise non-retryable ApplicationError
+                with pytest.raises(temporalio.exceptions.ApplicationError) as exc_info:
+                    await backfill_precalculated_person_properties_activity(inputs)
+
+                error = exc_info.value
+                assert error.non_retryable is True
+                assert error.type == "MissingFilters"
+                assert "Filters not found in storage" in str(error)
+                assert "Redis payload may have expired" in str(error)
+                assert inputs.filter_storage_key in str(error)

@@ -164,7 +164,7 @@ describe('experimentsTabLogic', () => {
                                 transforms: [],
                                 rollout_percentage: 50,
                             },
-                            'variant #1': {
+                            'test-0': {
                                 transforms: [{}],
                                 rollout_percentage: 50,
                                 is_new: true,
@@ -180,7 +180,7 @@ describe('experimentsTabLogic', () => {
         it('can remove an existing variant', async () => {
             await expectLogic(theExperimentsTabLogic, () => {
                 theExperimentsTabLogic.actions.selectExperiment(1)
-                theExperimentsTabLogic.actions.removeVariant('variant #1')
+                theExperimentsTabLogic.actions.removeVariant('test-0')
             })
                 .toMatchValues({
                     experimentForm: {
