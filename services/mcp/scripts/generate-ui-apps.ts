@@ -270,6 +270,7 @@ function main(): void {
 
     const registryEntries: RegistryEntry[] = []
     const generatedFiles: string[] = []
+
     // Collect all ui_app keys for cross-referencing with tool ui_app fields
     const allUiAppKeys = new Set<string>()
 

@@ -59,7 +59,6 @@ tools:
             - last_error_message
             - count
             - experiment_set
-
         ui_app: cohort
     cohorts-retrieve:
         operation: cohorts_retrieve
@@ -124,7 +123,6 @@ tools:
         title: Add persons to static cohort
         description: |
             Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true).
-
     cohorts-calculation-history-retrieve:
         operation: cohorts_calculation_history_retrieve
         enabled: false
@@ -145,7 +143,6 @@ tools:
             Remove a person from a static cohort by their UUID. Only works for static cohorts (is_static: true). The
             person must exist in the project. Idempotent: removing a person who exists but is not a member of the cohort
             succeeds silently.
-
     persons-cohorts-retrieve:
         operation: persons_cohorts_retrieve
         enabled: false

@@ -73,7 +73,6 @@ tools:
         description: >
             List all error tracking issues in the project. Returns issues with status, volume, first/last seen
             timestamps, and assignee info.
-
         ui_app: error-issue-list
     error-tracking-issues-create:
         operation: error_tracking_issues_create

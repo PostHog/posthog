@@ -221,3 +221,6 @@ tools:
     llm-analytics-trace-reviews-destroy:
         operation: llm_analytics_trace_reviews_destroy
         enabled: false
+    llm-prompts-name-duplicate-create:
+        operation: llm_prompts_name_duplicate_create
+        enabled: false

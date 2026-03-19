@@ -94,3 +94,24 @@ tools:
     experiment-saved-metrics-destroy:
         operation: experiment_saved_metrics_destroy
         enabled: false
+    experiments-archive-create:
+        operation: experiments_archive_create
+        enabled: false
+    experiments-end-create:
+        operation: experiments_end_create
+        enabled: false
+    experiments-launch-create:
+        operation: experiments_launch_create
+        enabled: false
+    experiments-pause-create:
+        operation: experiments_pause_create
+        enabled: false
+    experiments-reset-create:
+        operation: experiments_reset_create
+        enabled: false
+    experiments-resume-create:
+        operation: experiments_resume_create
+        enabled: false
+    experiments-ship-variant-create:
+        operation: experiments_ship_variant_create
+        enabled: false

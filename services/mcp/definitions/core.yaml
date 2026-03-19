@@ -494,24 +494,6 @@ tools:
     property-definitions-seen-together-retrieve:
         operation: property_definitions_seen_together_retrieve
         enabled: false
-    scheduled-changes-list:
-        operation: scheduled_changes_list
-        enabled: false
-    scheduled-changes-create:
-        operation: scheduled_changes_create
-        enabled: false
-    scheduled-changes-retrieve:
-        operation: scheduled_changes_retrieve
-        enabled: false
-    scheduled-changes-update:
-        operation: scheduled_changes_update
-        enabled: false
-    scheduled-changes-partial-update:
-        operation: scheduled_changes_partial_update
-        enabled: false
-    scheduled-changes-destroy:
-        operation: scheduled_changes_destroy
-        enabled: false
     session-recordings-sharing-list:
         operation: session_recordings_sharing_list
         enabled: false
@@ -595,4 +577,28 @@ tools:
         enabled: false
     users-verify-email-create:
         operation: users_verify_email_create
+        enabled: false
+    dashboards-copy-tile-create:
+        operation: dashboards_copy_tile_create
+        enabled: false
+    project-secret-api-keys-list:
+        operation: project_secret_api_keys_list
+        enabled: false
+    project-secret-api-keys-create:
+        operation: project_secret_api_keys_create
+        enabled: false
+    project-secret-api-keys-retrieve:
+        operation: project_secret_api_keys_retrieve
+        enabled: false
+    project-secret-api-keys-update:
+        operation: project_secret_api_keys_update
+        enabled: false
+    project-secret-api-keys-partial-update:
+        operation: project_secret_api_keys_partial_update
+        enabled: false
+    project-secret-api-keys-destroy:
+        operation: project_secret_api_keys_destroy
+        enabled: false
+    project-secret-api-keys-roll-create:
+        operation: project_secret_api_keys_roll_create
         enabled: false
