@@ -82,7 +82,7 @@ class TestTable(BaseTest):
     def test_postgres_column_to_dwh_column_supports_struct_types(self):
         column = postgres_column_to_dwh_column(
             "membership",
-            'STRUCTY("type" VARCHAR, tier VARCHAR, frequency VARCHAR, provider VARCHAR)',
+            'STRUCT("type" VARCHAR, tier VARCHAR, frequency VARCHAR, provider VARCHAR)',
             False,
         )
 

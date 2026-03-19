@@ -316,7 +316,7 @@ def _parse_struct_field(field: str) -> tuple[str, str] | None:
 
 
 def _parse_postgres_struct_fields(postgres_type: str) -> dict[str, dict[str, Any]] | None:
-    match = re.match(r"(?is)^struct[a-z_]*\s*\((.*)\)$", postgres_type.strip())
+    match = re.match(r"(?is)^struct\s*\((.*)\)$", postgres_type.strip())
     if match is None:
         return None
 
