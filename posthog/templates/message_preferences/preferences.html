@@ -60,7 +60,7 @@
             document.addEventListener('DOMContentLoaded', function () {
                 const toggles = document.querySelectorAll('.toggle-checkbox')
 
-                function setStatusLabel(toggle, text, colorClass) {
+                function updateStatusLabel(toggle, text, colorClass) {
                     const statusLabel = document.querySelector('[data-status-for="' + toggle.name + '"]')
                     if (!statusLabel) return
                     statusLabel.textContent = text
@@ -85,7 +85,7 @@
                 }
 
                 async function savePreferences(changedToggle) {
-                    setStatusLabel(changedToggle, 'Saving…', 'text-amber-600')
+                    updateStatusLabel(changedToggle, 'Saving…', 'text-amber-600')
 
                     const formData = new FormData()
                     formData.append('token', document.querySelector('input[name="token"]').value)
@@ -108,12 +108,12 @@
                         }
 
                         toggles.forEach(t => { t.defaultChecked = t.checked })
-                        setStatusLabel(changedToggle, changedToggle.checked ? 'Subscribed' : 'Not subscribed', changedToggle.checked ? 'text-green-700' : 'text-gray-500')
+                        updateStatusLabel(changedToggle, changedToggle.checked ? 'Subscribed' : 'Not subscribed', changedToggle.checked ? 'text-green-700' : 'text-gray-500')
                         showToast('Preferences updated successfully', false)
                     } catch (error) {
                         // Revert the toggle on failure
                         changedToggle.checked = !changedToggle.checked
-                        setStatusLabel(changedToggle, changedToggle.checked ? 'Subscribed' : 'Not subscribed', changedToggle.checked ? 'text-green-700' : 'text-gray-500')
+                        updateStatusLabel(changedToggle, changedToggle.checked ? 'Subscribed' : 'Not subscribed', changedToggle.checked ? 'text-green-700' : 'text-gray-500')
                         showToast(error.message || 'Failed to update preferences', true)
                     }
                 }
