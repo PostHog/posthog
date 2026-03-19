@@ -1,3 +1,4 @@
+import { actions, kea, key, path, props, reducers } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -6,6 +7,34 @@ import api from 'lib/api'
 import { initKeaTests } from '~/test/init'
 
 import { endpointSceneLogic, EndpointTab } from './endpointSceneLogic'
+import type { endpointLogicType } from './endpointSceneLogic.testType'
+
+const endpointLogic = kea<endpointLogicType>([
+    path(['products', 'endpoints', 'frontend', 'mockedEndpointLogic']),
+    props({} as { tabId: string }),
+    key((props) => props.tabId),
+    actions({
+        loadEndpoint: (name: string) => ({ name }),
+        loadEndpointSuccess: (endpoint: any) => ({ endpoint }),
+        loadVersions: (name: string) => ({ name }),
+        setEndpointDescription: (endpointDescription: string | null) => ({ endpointDescription }),
+        clearMaterializationStatus: true,
+        updateEndpointSuccess: (response: any, endpointName: string, options?: any) => ({
+            response,
+            endpointName,
+            options,
+        }),
+    }),
+    reducers({
+        endpoint: [
+            null as any,
+            {
+                loadEndpointSuccess: (_, { endpoint }) => endpoint,
+            },
+        ],
+        endpointLoading: [false as boolean, {}],
+    }),
+])
 
 const mockSceneLogic = {
     isMounted: jest.fn(() => true),
@@ -38,35 +67,8 @@ jest.mock('scenes/sceneLogic', () => ({
 }))
 
 jest.mock('./endpointLogic', () => {
-    const { actions, kea, key, path, props, reducers } = require('kea')
-
     return {
-        endpointLogic: kea([
-            path(['products', 'endpoints', 'frontend', 'mockedEndpointLogic']),
-            props({} as { tabId: string }),
-            key((props) => props.tabId),
-            actions({
-                loadEndpoint: (name: string) => ({ name }),
-                loadEndpointSuccess: (endpoint: any) => ({ endpoint }),
-                loadVersions: (name: string) => ({ name }),
-                setEndpointDescription: (endpointDescription: string | null) => ({ endpointDescription }),
-                clearMaterializationStatus: true,
-                updateEndpointSuccess: (response: any, endpointName: string, options?: any) => ({
-                    response,
-                    endpointName,
-                    options,
-                }),
-            }),
-            reducers({
-                endpoint: [
-                    null as any,
-                    {
-                        loadEndpointSuccess: (_, { endpoint }) => endpoint,
-                    },
-                ],
-                endpointLoading: [false as boolean, {}],
-            }),
-        ]),
+        endpointLogic,
     }
 })
 
