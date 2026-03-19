@@ -21,6 +21,7 @@ type keyMap struct {
 	Help       key.Binding
 	Backspace  key.Binding
 	Hedgehog   key.Binding
+	Info       key.Binding
 }
 
 func defaultKeyMap() keyMap {
@@ -97,6 +98,10 @@ func defaultKeyMap() keyMap {
 			key.WithKeys("h"),
 			key.WithHelp("h:", "hedgehog"),
 		),
+		Info: key.NewBinding(
+			key.WithKeys("i"),
+			key.WithHelp("i:", "info"),
+		),
 	}
 }
 
@@ -110,7 +115,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.ScrollUp, k.ScrollDown},
 		{k.GotoTop, k.GotoBottom},
 		{k.NextPane, k.PrevPane},
-		{k.Restart, k.Stop},
+		{k.Restart, k.Stop, k.Info},
 		{k.Search, k.SearchNext, k.SearchPrev},
 		{k.CopyMode, k.Quit, k.Help},
 	}

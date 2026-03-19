@@ -38,7 +38,7 @@ func (m *Model) cyclePane(dir int) {
 	}
 }
 
-func (m Model) handleSearchKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
+func (m Model) handleSearchKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea.Cmd, bool) {
 	switch {
 	case key.Matches(msg, m.keys.Quit), msg.Code == tea.KeyEscape:
 		m.searchMode = false
@@ -63,6 +63,7 @@ func (m Model) handleSearchKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 			m.recomputeSearch()
 		}
 	default:
+		// Search consumes all printable characters for the query
 		s := msg.String()
 		var ch string
 		if s == "space" {
@@ -75,10 +76,10 @@ func (m Model) handleSearchKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 			m.recomputeSearch()
 		}
 	}
-	return m, tea.Batch(cmds...)
+	return m, cmds, true
 }
 
-func (m Model) handleCopyKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
+func (m Model) handleCopyKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea.Cmd, bool) {
 	switch {
 	case key.Matches(msg, m.keys.Quit), msg.Code == tea.KeyEscape:
 		m.dbg("copy mode: exit")
@@ -96,7 +97,7 @@ func (m Model) handleCopyKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, te
 			m.copyMode = false
 			m.applyCopyStyle()
 			m = m.applySize()
-			return m, tea.SetClipboard(text)
+			cmds = append(cmds, tea.SetClipboard(text))
 		} else {
 			m.copyAnchor = -1
 			m.dbg("copy mode: anchor cleared")
@@ -128,13 +129,32 @@ func (m Model) handleCopyKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, te
 		}
 		m.ensureCopyCursorVisible()
 		m.applyCopyStyle()
+
+	default:
+		return m, cmds, false
 	}
-	return m, tea.Batch(cmds...)
+	return m, cmds, true
 }
 
-func (m Model) handleHedgehogKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
+func (m Model) handleInfoKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea.Cmd, bool) {
 	switch {
-	case key.Matches(msg, m.keys.Hedgehog), key.Matches(msg, m.keys.Quit), msg.Code == tea.KeyEscape:
+
+	case key.Matches(msg, m.keys.Info), msg.Code == tea.KeyEscape:
+		m.infoMode = false
+		m.viewport.SetContent(m.buildContent())
+		m.viewport.GotoBottom()
+		m.viewportAtBottom = true
+		m.dbg("info mode: exit")
+
+	default:
+		return m, cmds, false
+	}
+	return m, cmds, true
+}
+
+func (m Model) handleHedgehogKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea.Cmd, bool) {
+	switch {
+	case key.Matches(msg, m.keys.Hedgehog), msg.Code == tea.KeyEscape:
 		m.hedgehogMode = false
 		m.dbg("hedgehog mode: exit")
 
@@ -145,8 +165,11 @@ func (m Model) handleHedgehogKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model
 			m.hedgehogY = 1
 			m.dbg("hedgehog: jump!")
 		}
+
+	default:
+		return m, cmds, false
 	}
-	return m, tea.Batch(cmds...)
+	return m, cmds, true
 }
 
 func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
@@ -245,6 +268,12 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 		m.copyAnchor = -1
 		m.applyCopyStyle()
 		m.dbg("copy mode: enter at line %d", m.copyCursor)
+
+	case key.Matches(msg, m.keys.Info):
+		m.infoMode = true
+		m.refreshInfoContent()
+		m.viewport.GotoTop()
+		m.dbg("info mode: enter")
 
 	case key.Matches(msg, m.keys.Hedgehog):
 		m.hedgehogMode = !m.hedgehogMode
