@@ -1,7 +1,8 @@
 from django.test import TestCase
 
-from posthog.models import Dashboard, Experiment, FeatureFlag, FileSystem, Insight, Organization, Team, User
+from posthog.models import Dashboard, FeatureFlag, FileSystem, Insight, Organization, Team, User
 
+from products.experiments.backend.models.experiment import Experiment
 from products.notebooks.backend.models import Notebook
 
 

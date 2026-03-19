@@ -781,7 +781,7 @@ export const MarketingAnalyticsTrendTile = ({
         { value: 'cost_per_reported_conversion', label: 'Cost per reported conversion' },
     ]
     return (
-        <div className="border rounded bg-surface-primary flex-1 flex flex-col">
+        <div className="border rounded bg-surface-primary flex-1 flex flex-col min-h-100">
             {showIntervalTile && (
                 <div className="flex flex-row items-center justify-between m-2 mr-4">
                     <LemonSelect
