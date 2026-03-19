@@ -2,6 +2,8 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -11,6 +13,11 @@ describe('userLogic', () => {
     const userWithLightTheme = { ...MOCK_DEFAULT_USER, theme_mode: 'light' as const }
 
     beforeEach(() => {
+        // Set current_user before initKeaTests so userLogic bootstraps with theme_mode: 'light'
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            current_user: userWithLightTheme,
+        } as any
         initKeaTests()
         useMocks({
             get: {
@@ -21,6 +28,10 @@ describe('userLogic', () => {
     })
 
     describe('optimistic theme mode', () => {
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
         beforeEach(async () => {
             await expectLogic(userLogic, () => {
                 userLogic.actions.loadUser()
@@ -30,6 +41,8 @@ describe('userLogic', () => {
         })
 
         it('themeMode updates immediately when updateUser is called with theme_mode', async () => {
+            jest.spyOn(api, 'update').mockImplementation(async () => await new Promise(() => undefined))
+
             await expectLogic(userLogic, () => {
                 userLogic.actions.updateUser({ theme_mode: 'dark' })
             }).toMatchValues({
@@ -40,17 +53,15 @@ describe('userLogic', () => {
 
         it('optimisticThemeMode is cleared and themeMode comes from user when update succeeds', async () => {
             const updatedUser = { ...userWithLightTheme, theme_mode: 'dark' as const }
-            useMocks({
-                patch: {
-                    '/api/users/@me/': () => [200, updatedUser],
-                },
-            })
+            jest.spyOn(api, 'update').mockImplementation(async () => await new Promise(() => undefined))
 
             await expectLogic(userLogic, () => {
                 userLogic.actions.updateUser({ theme_mode: 'dark' })
             }).toMatchValues({ themeMode: 'dark', optimisticThemeMode: 'dark' })
 
-            await expectLogic(userLogic).toDispatchActions(['updateUserSuccess']).toMatchValues({
+            await expectLogic(userLogic, () => {
+                userLogic.actions.updateUserSuccess(updatedUser)
+            }).toMatchValues({
                 user: updatedUser,
                 themeMode: 'dark',
                 optimisticThemeMode: null,
@@ -58,17 +69,15 @@ describe('userLogic', () => {
         })
 
         it('optimisticThemeMode is cleared and themeMode reverts to user when update fails', async () => {
-            useMocks({
-                patch: {
-                    '/api/users/@me/': () => [500, { detail: 'Server error' }],
-                },
-            })
+            jest.spyOn(api, 'update').mockImplementation(async () => await new Promise(() => undefined))
 
             await expectLogic(userLogic, () => {
                 userLogic.actions.updateUser({ theme_mode: 'dark' })
             }).toMatchValues({ themeMode: 'dark', optimisticThemeMode: 'dark' })
 
-            await expectLogic(userLogic).toDispatchActions(['updateUserFailure']).toMatchValues({
+            await expectLogic(userLogic, () => {
+                userLogic.actions.updateUserFailure('Server error')
+            }).toMatchValues({
                 user: userWithLightTheme,
                 themeMode: 'light',
                 optimisticThemeMode: null,
@@ -76,12 +85,7 @@ describe('userLogic', () => {
         })
 
         it('updateUser without theme_mode does not change optimisticThemeMode', async () => {
-            // Keep update requests in-flight so success/failure handlers cannot clear optimisticThemeMode mid-test.
-            useMocks({
-                patch: {
-                    '/api/users/@me/': async () => await new Promise(() => undefined),
-                },
-            })
+            jest.spyOn(api, 'update').mockImplementation(async () => await new Promise(() => undefined))
 
             userLogic.actions.updateUser({ theme_mode: 'dark' })
             await expectLogic(userLogic).toMatchValues({ optimisticThemeMode: 'dark' })

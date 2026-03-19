@@ -352,8 +352,42 @@ class AlertSerializer(serializers.ModelSerializer):
         if getattr(root, "type", None) == "ensemble" and hasattr(root, "detectors"):
             if len(root.detectors) < 2:
                 raise ValidationError("Ensemble detector requires at least 2 sub-detectors.")
+            for sub in root.detectors:
+                sub_dict: dict = sub.model_dump() if hasattr(sub, "model_dump") else sub  # type: ignore[assignment]
+                self._validate_detector_params(sub_dict)
+        else:
+            self._validate_detector_params(value)
 
         return validated.model_dump() if hasattr(validated, "model_dump") else value
+
+    @staticmethod
+    def _validate_detector_params(config: dict) -> None:
+        """Validate detector parameter ranges match frontend constraints."""
+        # Parameter ranges: (min, max, name)
+        PARAM_RANGES: dict[str, tuple[float, float, str]] = {
+            "threshold": (0.0, 1.0, "Sensitivity threshold"),
+            "window": (5, 100, "Window size"),
+            "n_estimators": (10, 500, "Number of trees"),
+            "n_neighbors": (1, 50, "Number of neighbors"),
+            "n_bins": (5, 50, "Number of bins"),
+            "multiplier": (0.5, 10.0, "IQR multiplier"),
+            "training_offset_n": (1, 100, "Training offset"),
+        }
+
+        for param, (min_val, max_val, label) in PARAM_RANGES.items():
+            val = config.get(param)
+            if val is not None:
+                if val < min_val or val > max_val:
+                    raise ValidationError(f"{label} must be between {min_val} and {max_val}.")
+
+        preprocessing = config.get("preprocessing")
+        if preprocessing and isinstance(preprocessing, dict):
+            smooth_n = preprocessing.get("smooth_n")
+            if smooth_n is not None and (smooth_n < 0 or smooth_n > 30):
+                raise ValidationError("Smoothing window must be between 0 and 30.")
+            lags_n = preprocessing.get("lags_n")
+            if lags_n is not None and (lags_n < 0 or lags_n > 10):
+                raise ValidationError("Lag features must be between 0 and 10.")
 
     def validate_snoozed_until(self, value):
         if value is not None and not isinstance(value, str):

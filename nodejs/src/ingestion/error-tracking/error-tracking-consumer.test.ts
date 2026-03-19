@@ -225,9 +225,9 @@ describe('ErrorTrackingConsumer', () => {
     describe('configuration', () => {
         it('should have correct config defaults', () => {
             expect(consumer['name']).toBe('error-tracking-consumer')
-            expect(consumer['config'].groupId).toBe('ingestion-error-tracking')
-            expect(consumer['config'].topic).toBe('ingestion-error_tracking-main_test')
-            expect(consumer['config'].dlqTopic).toBe('ingestion-error_tracking-main-dlq_test')
+            expect(consumer['config'].groupId).toBe('ingestion-errortracking')
+            expect(consumer['config'].topic).toBe('ingestion-errortracking-main_test')
+            expect(consumer['config'].dlqTopic).toBe('ingestion-errortracking-main-dlq_test')
             expect(consumer['config'].outputTopic).toBe('clickhouse_events_json_test')
         })
     })
