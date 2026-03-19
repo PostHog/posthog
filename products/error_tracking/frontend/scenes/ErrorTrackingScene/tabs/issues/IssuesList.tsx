@@ -21,7 +21,6 @@ import { IssueQueryOptions } from 'products/error_tracking/frontend/components/I
 import { OccurrenceSparkline } from 'products/error_tracking/frontend/components/OccurrenceSparkline'
 import { IssueListTitleColumn, IssueListTitleHeader } from 'products/error_tracking/frontend/components/TableColumns'
 import { useSparklineData } from 'products/error_tracking/frontend/hooks/use-sparkline-data'
-import { batchSpikeEventsLogic } from 'products/error_tracking/frontend/logics/batchSpikeEventsLogic'
 import { bulkSelectLogic } from 'products/error_tracking/frontend/logics/bulkSelectLogic'
 import { issuesDataNodeLogic } from 'products/error_tracking/frontend/logics/issuesDataNodeLogic'
 import { errorTrackingSceneLogic } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/errorTrackingSceneLogic'
@@ -33,11 +32,9 @@ const VolumeColumn: QueryContextColumnComponent = (props) => {
         throw new Error('No aggregations found')
     }
     const data = useSparklineData(record.aggregations, ERROR_TRACKING_LISTING_RESOLUTION)
-    const { spikeEventsByIssueId } = useValues(batchSpikeEventsLogic)
-    const spikeEvents = record.id ? (spikeEventsByIssueId[record.id] ?? []) : []
     return (
         <div className="flex justify-end">
-            <OccurrenceSparkline className="h-8" data={data} displayXAxis={false} spikeEvents={spikeEvents} />
+            <OccurrenceSparkline className="h-8" data={data} displayXAxis={false} />
         </div>
     )
 }

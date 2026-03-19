@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { PropsWithChildren, useState } from 'react'
 import { match } from 'ts-pattern'
 
-import { IconChevronRight, IconTrending } from '@posthog/icons'
+import { IconChevronRight } from '@posthog/icons'
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -170,17 +170,7 @@ function renderDate(date: Date): JSX.Element {
 }
 
 function renderDataPoint(d: SparklineDatum): JSX.Element {
-    return (
-        <div className="flex items-center h-full gap-3">
-            {renderMetric('Occurrences', d.value, false)}
-            {d.animated && (
-                <div className="flex items-center gap-1.5 text-warning-dark">
-                    <IconTrending className="text-base" />
-                    <span className="text-xs font-semibold">Spike</span>
-                </div>
-            )}
-        </div>
-    )
+    return renderMetric('Occurrences', d.value, false)
 }
 
 function renderEventPoint(d: SparklineEvent<string>): JSX.Element {

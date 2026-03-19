@@ -8,8 +8,6 @@ export type SparklineDatum = {
     date: Date
     value: number
     label?: string
-    color?: string
-    animated?: boolean
 }
 
 export type SparklineEvent<T> = {
@@ -73,11 +71,6 @@ export function SparklineChart({ data, events = [], options, className }: Sparkl
 
             const xAxis = d3.axisBottom(xScale).tickValues(xTicks).tickSize(0).tickPadding(5)
 
-            const hasAnimatedBars = occurrences.some((d) => d.animated && d.color)
-            if (hasAnimatedBars) {
-                buildSpikePattern(svg, occurrences.find((d) => d.animated)?.color || 'var(--brand-yellow)')
-            }
-
             svg.selectAll('g.datum')
                 .data(occurrences)
                 .enter()
@@ -124,20 +117,13 @@ function buildBarGroup(
         .attr('x', (d) => xScale(d.date))
         .on('mouseover', function (this, _, d: unknown) {
             const current = d3.select(this)
-            const datum = d as SparklineDatum
-            options.onDatumMouseEnter?.(datum)
-            if (datum.animated && datum.color) {
-                current.select('.hover-overlay').style('opacity', 0.15)
-            } else if (options.hoverBackgroundColor) {
-                current.select('.bar').style('fill', options.hoverBackgroundColor)
-            }
+            options.onDatumMouseEnter?.(d as SparklineDatum)
+            options.hoverBackgroundColor && current.select('.bar').style('fill', options.hoverBackgroundColor)
         })
         .on('mouseout', function (this, _, d: unknown) {
             const current = d3.select(this)
-            const datum = d as SparklineDatum
-            options.onDatumMouseLeave?.(datum)
-            current.select('.hover-overlay').style('opacity', 0)
-            current.select('.bar').style('fill', spikeBarFill(datum, options.backgroundColor))
+            options.onDatumMouseLeave?.(d as SparklineDatum)
+            current.select('.bar').style('fill', options.backgroundColor)
         })
 
     group
@@ -147,22 +133,8 @@ function buildBarGroup(
         .attr('y', (d) => yScale(d.value) + options.borderRadius)
         .attr('width', bandwidth * 0.9)
         .attr('height', (d) => (d && d.value > 0 ? contentHeight - yScale(d.value) : 0))
-        .style('fill', (d) => spikeBarFill(d, options.backgroundColor))
+        .style('fill', options.backgroundColor)
         .style('clip-path', `inset(0 0 ${options.borderRadius + 1}px 0)`) // Offset by 1px to avoid overlapping on x axis
-        .attr('rx', options.borderRadius)
-        .attr('ry', options.borderRadius)
-
-    group
-        .append('rect')
-        .attr('class', 'hover-overlay')
-        .attr('x', (_, i) => xScale(data[i].date))
-        .attr('y', (d) => yScale(d.value) + options.borderRadius)
-        .attr('width', bandwidth * 0.9)
-        .attr('height', (d) => (d && d.value > 0 ? contentHeight - yScale(d.value) : 0))
-        .style('fill', 'black')
-        .style('opacity', 0)
-        .style('pointer-events', 'none')
-        .style('clip-path', `inset(0 0 ${options.borderRadius + 1}px 0)`)
         .attr('rx', options.borderRadius)
         .attr('ry', options.borderRadius)
 
@@ -323,41 +295,4 @@ function forceBoundaries(nodes: any, minX: number, maxX: number) {
             }
         })
     }
-}
-
-const SPIKE_PATTERN_ID = 'spike-stripe-pattern'
-
-function spikeBarFill(d: SparklineDatum, defaultColor: string): string {
-    if (d.animated && d.color) {
-        return `url(#${SPIKE_PATTERN_ID})`
-    }
-    return d.color || defaultColor
-}
-
-function buildSpikePattern(svg: d3.Selection<SVGSVGElement, unknown, null, undefined>, color: string): void {
-    const size = 12
-    const defs = svg.append('defs')
-    const pattern = defs
-        .append('pattern')
-        .attr('id', SPIKE_PATTERN_ID)
-        .attr('patternUnits', 'userSpaceOnUse')
-        .attr('width', size)
-        .attr('height', size)
-
-    pattern.append('rect').attr('width', size).attr('height', size).attr('fill', color)
-
-    pattern
-        .append('path')
-        .attr('d', `M-1,1 l2,-2 M0,${size} l${size},-${size} M${size - 1},${size + 1} l2,-2`)
-        .attr('stroke', 'rgba(255,255,255,0.4)')
-        .attr('stroke-width', (size * Math.SQRT2) / 4)
-
-    pattern
-        .append('animateTransform')
-        .attr('attributeName', 'patternTransform')
-        .attr('type', 'translate')
-        .attr('from', '0 0')
-        .attr('to', `0 -${size}`)
-        .attr('dur', '1.5s')
-        .attr('repeatCount', 'indefinite')
 }

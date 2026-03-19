@@ -12,7 +12,7 @@ export function useSparklineOptions(overrides: Partial<SparklineOptions> = {}, d
             backgroundColor: `var(--${colorVars[0]})`,
             hoverBackgroundColor: `var(--${colorVars[1]})`,
             axisColor: `var(--${colorVars[0]})`,
-            borderRadius: 4,
+            borderRadius: 5,
             eventLabelHeight: 20,
             eventLabelPaddingX: 5,
             eventLabelPaddingY: 3,

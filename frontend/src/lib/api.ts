@@ -3794,13 +3794,6 @@ const api = {
             }
             return await request.get()
         },
-
-        async getBatchSpikeEvents(issueIds: string[]): Promise<CountedPaginatedResponse<ErrorTrackingSpikeEvent>> {
-            return await new ApiRequest()
-                .errorTrackingSpikeEvents()
-                .withQueryString({ issue_ids: issueIds.join(',') })
-                .get()
-        },
     },
 
     quickFilters: {
