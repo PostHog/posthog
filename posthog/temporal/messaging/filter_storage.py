@@ -1,5 +1,15 @@
 """
 Redis-based filter storage service for managing large filter datasets in backfill workflows.
+
+This module provides temporary storage for PersonPropertyFilter collections to avoid Temporal
+blob size limits when passing large filter payloads between workflows and activities.
+
+TTL Considerations:
+- Individual activities have start_to_close_timeout=12h with maximum_attempts=3
+- Coordinator workflows spawn multiple child workflows with batch delays
+- Total workflow execution time in worst case: 3 retries × 12h + batch delays ≈ 40-48h
+- TTL set to 72h (3 days) provides safety margin for retries and delays
+- If workflows consistently exceed 48h, consider TTL refresh logic in get_filters()
 """
 
 import json
@@ -9,7 +19,9 @@ from posthog.redis import get_client
 from posthog.temporal.messaging.types import PersonPropertyFilter
 
 KEY_PREFIX = "backfill_person_properties_filters:"
-DEFAULT_TTL = 72 * 60 * 60  # 3 days - provides safety margin for activity retries
+# TTL sizing: Worst case workflow duration ~48h (3 × 12h retries + batch delays)
+# 72h provides 50% safety margin. Increase if workflows consistently run longer.
+DEFAULT_TTL = 72 * 60 * 60  # 3 days
 
 
 def store_filters(filters: list[PersonPropertyFilter], team_id: int, ttl: int = DEFAULT_TTL) -> str:
@@ -54,6 +66,10 @@ def get_filters(storage_key: str) -> list[PersonPropertyFilter] | None:
 
     Returns:
         List of PersonPropertyFilter objects, or None if not found
+
+    Note:
+        If workflows consistently exceed 48h and TTL becomes an issue,
+        consider adding TTL refresh logic here using Redis EXPIRE command.
     """
     data = get_client().get(storage_key)
     if data is None:
