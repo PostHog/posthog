@@ -90,7 +90,7 @@
                     const formData = new FormData()
                     formData.append('token', document.querySelector('input[name="token"]').value)
                     toggles.forEach((toggle) => {
-                        formData.append('preferences[]', toggle.name + ':' + toggle.checked)
+                        formData.append('preferences[]', `${toggle.name}:${toggle.checked}`)
                     })
 
                     try {
