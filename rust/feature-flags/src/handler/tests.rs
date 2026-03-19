@@ -12,7 +12,9 @@ use crate::{
         CohortMembershipError, CohortMembershipProvider, NoOpCohortMembershipProvider,
     },
     config::Config,
-    flags::flag_group_type_mapping::GroupTypeCacheManager,
+    flags::flag_group_type_mapping::{
+        GroupTypeCacheManager, GroupTypeFetchError, GroupTypeMapping, GroupTypeMappingFetcher,
+    },
     flags::{
         flag_analytics::SURVEY_TARGETING_FLAG_PREFIX,
         flag_models::{FeatureFlag, FeatureFlagList, FlagFilters, FlagPropertyGroup},
@@ -41,6 +43,27 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{collections::HashMap, net::IpAddr, sync::Arc};
 use uuid::Uuid;
+
+struct MockGroupTypeFetcher {
+    mapping: GroupTypeMapping,
+}
+
+#[async_trait]
+impl GroupTypeMappingFetcher for MockGroupTypeFetcher {
+    async fn fetch(
+        &self,
+        _team_id: common_types::TeamId,
+    ) -> Result<GroupTypeMapping, GroupTypeFetchError> {
+        Ok(self.mapping.clone())
+    }
+}
+
+fn mock_group_type_cache(types_to_indexes: HashMap<String, i32>) -> Arc<GroupTypeCacheManager> {
+    let fetcher = MockGroupTypeFetcher {
+        mapping: GroupTypeMapping::new(types_to_indexes),
+    };
+    Arc::new(GroupTypeCacheManager::new_with_fetcher(fetcher, None, None))
+}
 
 #[derive(Debug, Default)]
 struct CountingCohortMembershipProvider {
@@ -1044,11 +1067,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
         non_persons_reader: context.non_persons_reader.clone(),
         non_persons_writer: context.non_persons_writer.clone(),
         cohort_cache: cohort_cache.clone(),
-        group_type_cache: Arc::new(GroupTypeCacheManager::new(
-            context.non_persons_reader.clone(),
-            None,
-            None,
-        )),
+        group_type_cache: mock_group_type_cache([("project".to_string(), 0)].into_iter().collect()),
         person_property_overrides: None,
         group_property_overrides: Some(group_property_overrides),
         groups: Some(groups),

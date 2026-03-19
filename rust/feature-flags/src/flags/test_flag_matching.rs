@@ -5280,12 +5280,9 @@ mod tests {
             None,
         );
 
-        // Set up group type mapping cache
-        let group_type_cache = Arc::new(GroupTypeCacheManager::new(
-            context.non_persons_reader.clone(),
-            None,
-            None,
-        ));
+        // Set up group type mapping cache with the correct mapping
+        let group_type_cache =
+            mock_group_type_cache([("organization".to_string(), 1)].into_iter().collect());
 
         // Test with numeric group key
         let groups_numeric = HashMap::from([("organization".to_string(), json!(123))]);
@@ -6418,7 +6415,7 @@ mod tests {
             team.id,
             router5,
             cohort_cache.clone(),
-            empty_group_type_cache(),
+            group_type_cache.clone(),
             Some(groups),
         );
 
@@ -8644,11 +8641,11 @@ mod tests {
         .await
         .unwrap();
 
-        let group_type_cache = Arc::new(GroupTypeCacheManager::new(
-            context.non_persons_reader.clone(),
-            None,
-            None,
-        ));
+        let group_type_cache = mock_group_type_cache(
+            [("project".to_string(), 0), ("organization".to_string(), 1)]
+                .into_iter()
+                .collect(),
+        );
 
         let groups = HashMap::from([
             ("project".to_string(), json!("proj-456")),
