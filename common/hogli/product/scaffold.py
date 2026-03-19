@@ -180,4 +180,16 @@ def bootstrap_product(name: str, dry_run: bool, force: bool) -> None:
     _add_to_tach_toml(name, dry_run=dry_run)
     _add_to_frontend_package_json(name, dry_run=dry_run)
     _add_to_django_settings(name, dry_run=dry_run)
-    _add_to_db_routing(name, dry_run=dry_run)
+
+    if dry_run:
+        _add_to_db_routing(name, dry_run=True)
+    else:
+        click.echo(
+            "\n  Products get their own database by default — this isolates locks, "
+            "connections, and migrations so one product can't bring down the app. "
+            "This is new but fully working. Reach out in #team-devex with questions."
+        )
+        if not click.confirm("  Skip separate database?", default=False):
+            _add_to_db_routing(name, dry_run=False)
+        else:
+            click.echo("  Skipped. You can add it later in products/db_routing.yaml.")
