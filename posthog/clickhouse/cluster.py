@@ -168,7 +168,9 @@ class ClickhouseCluster:
     def __get_task_function(self, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
         pool = self.__pools.get(host)
         if pool is None:
-            pool = self.__pools[host] = host.connection_info.make_pool(self.__client_settings, **self.__connection_overrides)
+            pool = self.__pools[host] = host.connection_info.make_pool(
+                self.__client_settings, **self.__connection_overrides
+            )
 
         if self.__retry_policy is not None:
             fn = self.__retry_policy(fn)
