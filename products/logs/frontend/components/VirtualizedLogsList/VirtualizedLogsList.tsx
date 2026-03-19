@@ -14,12 +14,20 @@ import { TZLabelProps } from 'lib/components/TZLabel'
 import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/logDetailsModalLogic'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 import {
+    createAttributeColumn,
+    createControlsColumn,
+    createMessageColumn,
+    createTimestampColumn,
+} from 'products/logs/frontend/components/VirtualizedLogsList/columnDefinitions'
+import {
     LOG_ROW_HEADER_HEIGHT,
-    RESIZER_HANDLE_WIDTH,
-    getMinRowWidth,
+    getAttributeColumnWidth,
+    getColumnsFixedWidth,
+    getColumnsMinRowWidth,
 } from 'products/logs/frontend/components/VirtualizedLogsList/layoutUtils'
 import { LogRow } from 'products/logs/frontend/components/VirtualizedLogsList/LogRow'
 import { LogRowHeader } from 'products/logs/frontend/components/VirtualizedLogsList/LogRowHeader'
+import { VirtualizedTableColumn } from 'products/logs/frontend/components/VirtualizedLogsList/types'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
 import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
 
@@ -44,22 +52,17 @@ interface VirtualizedLogsListProps {
 
 interface LogsListRowProps {
     dataSource: ParsedLogMessage[]
+    columns: VirtualizedTableColumn<ParsedLogMessage>[]
     cursorIndex: number | null
     expandedLogIds: Record<string, boolean>
     pinnedLogs: Record<string, ParsedLogMessage>
     showPinnedWithOpacity: boolean
     disableCursor: boolean
     wrapBody: boolean
-    prettifyJson: boolean
-    tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime' | 'displayTimezone'>
     togglePinLog: (log: ParsedLogMessage) => void
-    toggleExpandLog: (logId: string) => void
     handleLogRowClick: (log: ParsedLogMessage, index: number) => void
     rowWidth?: number
-    attributeColumns: string[]
-    attributeColumnWidths: Record<string, number>
     selectedLogIds: Record<string, boolean>
-    toggleSelectLog: (logId: string) => void
     selectLogRange: (anchorIndex: number, clickedIndex: number) => void
     userSetCursorIndex: (index: number) => void
     prettifiedLogIds: Set<string>
@@ -71,22 +74,17 @@ function LogsListRow({
     index,
     style,
     dataSource,
+    columns,
     cursorIndex,
     expandedLogIds,
     pinnedLogs,
     showPinnedWithOpacity,
     disableCursor,
     wrapBody,
-    prettifyJson,
-    tzLabelFormat,
     togglePinLog,
-    toggleExpandLog,
     handleLogRowClick,
     rowWidth,
-    attributeColumns,
-    attributeColumnWidths,
     selectedLogIds,
-    toggleSelectLog,
     selectLogRange,
     userSetCursorIndex,
     prettifiedLogIds,
@@ -111,21 +109,16 @@ function LogsListRow({
             <LogRow
                 log={log}
                 logIndex={index}
+                columns={columns}
                 isAtCursor={!disableCursor && index === cursorIndex}
                 isExpanded={!!expandedLogIds[log.uuid]}
                 pinned={!!pinnedLogs[log.uuid]}
                 showPinnedWithOpacity={showPinnedWithOpacity}
                 wrapBody={wrapBody}
-                prettifyJson={prettifyJson}
-                tzLabelFormat={tzLabelFormat}
                 onTogglePin={togglePinLog}
-                onToggleExpand={() => toggleExpandLog(log.uuid)}
                 onClick={() => handleLogRowClick(log, index)}
                 rowWidth={rowWidth}
-                attributeColumns={attributeColumns}
-                attributeColumnWidths={attributeColumnWidths}
                 isSelected={!!selectedLogIds[log.uuid]}
-                onToggleSelect={() => toggleSelectLog(log.uuid)}
                 onShiftClick={(clickedIndex) => {
                     const anchorIndex = cursorIndex ?? 0
                     selectLogRange(anchorIndex, clickedIndex)
@@ -163,21 +156,16 @@ export function VirtualizedLogsList({
         attributeColumns,
         attributeColumnWidths,
         selectedLogIds,
-        selectedCount,
         prettifiedLogIds,
         linkToLogId,
         logsCount,
     } = useValues(logsViewerLogic)
     const {
         togglePinLog,
-        toggleExpandLog,
         userSetCursorIndex,
         removeAttributeColumn,
         setAttributeColumnWidth,
         moveAttributeColumn,
-        toggleSelectLog,
-        selectAll,
-        clearSelection,
         selectLogRange,
         togglePrettifyLog,
         setFocused,
@@ -194,10 +182,57 @@ export function VirtualizedLogsList({
 
     const dynamicRowHeight = useDynamicRowHeight({ defaultRowHeight: DEFAULT_ROW_HEIGHT })
 
-    const minRowWidth = useMemo(
-        () => getMinRowWidth(attributeColumns, attributeColumnWidths) + attributeColumns.length * RESIZER_HANDLE_WIDTH,
-        [attributeColumns, attributeColumnWidths]
+    // Ref for flexWidth — updated in AutoSizer callback, read by message column
+    // render function. Avoids rebuilding columns on every resize.
+    const flexWidthRef = useRef<number | undefined>(undefined)
+
+    // Ref for dataSource — read by ControlsHeader for select-all so it
+    // operates on the correct list (main logs vs pinned logs).
+    const dataSourceRef = useRef<ParsedLogMessage[]>(dataSource)
+    dataSourceRef.current = dataSource
+
+    // Columns memoized on structural deps only — per-row state (selection,
+    // expansion, prettify) is read from kea inside cell components.
+    const columns = useMemo(
+        () => [
+            createControlsColumn({ dataSourceRef }),
+            createTimestampColumn({
+                tzLabelFormat,
+                orderBy,
+                onChangeOrderBy,
+            }),
+            ...attributeColumns.map((attributeKey, index) =>
+                createAttributeColumn({
+                    attributeKey,
+                    width: getAttributeColumnWidth(attributeKey, attributeColumnWidths),
+                    onResize: setAttributeColumnWidth,
+                    onRemove: removeAttributeColumn,
+                    onMove: moveAttributeColumn,
+                    isFirst: index === 0,
+                    isLast: index === attributeColumns.length - 1,
+                })
+            ),
+            createMessageColumn({
+                wrapBody,
+                prettifyJson,
+                flexWidthRef,
+            }),
+        ],
+        [
+            tzLabelFormat,
+            orderBy,
+            onChangeOrderBy,
+            attributeColumns,
+            attributeColumnWidths,
+            setAttributeColumnWidth,
+            removeAttributeColumn,
+            moveAttributeColumn,
+            wrapBody,
+            prettifyJson,
+        ]
     )
+
+    const minRowWidth = useMemo(() => getColumnsMinRowWidth(columns), [columns])
 
     // Position cursor at linked log when deep linking (URL -> cursor)
     useEffect(() => {
@@ -247,22 +282,17 @@ export function VirtualizedLogsList({
     const createRowProps = useCallback(
         (rowWidth?: number): LogsListRowProps => ({
             dataSource,
+            columns,
             cursorIndex,
             expandedLogIds,
             pinnedLogs,
             showPinnedWithOpacity,
             disableCursor,
             wrapBody,
-            prettifyJson,
-            tzLabelFormat,
             togglePinLog,
-            toggleExpandLog,
             handleLogRowClick,
             rowWidth,
-            attributeColumns,
-            attributeColumnWidths,
             selectedLogIds,
-            toggleSelectLog,
             selectLogRange,
             userSetCursorIndex,
             prettifiedLogIds,
@@ -271,21 +301,16 @@ export function VirtualizedLogsList({
         }),
         [
             dataSource,
+            columns,
             cursorIndex,
             expandedLogIds,
             pinnedLogs,
             showPinnedWithOpacity,
             disableCursor,
             wrapBody,
-            prettifyJson,
-            tzLabelFormat,
             togglePinLog,
-            toggleExpandLog,
             handleLogRowClick,
-            attributeColumns,
-            attributeColumnWidths,
             selectedLogIds,
-            toggleSelectLog,
             selectLogRange,
             userSetCursorIndex,
             prettifiedLogIds,
@@ -328,29 +353,19 @@ export function VirtualizedLogsList({
                             requestAnimationFrame(() => setContainerWidth(width))
                         }
                         const rowWidth = Math.max(width ?? 0, minRowWidth)
+                        const adjustedRowWidth = rowWidth - getScrollbarSize()
+                        flexWidthRef.current = adjustedRowWidth - getColumnsFixedWidth(columns)
+
                         return (
                             <div className="overflow-y-hidden overflow-x-auto" style={{ width, height: fixedHeight }}>
-                                <LogRowHeader
-                                    rowWidth={rowWidth - getScrollbarSize()}
-                                    attributeColumns={attributeColumns}
-                                    attributeColumnWidths={attributeColumnWidths}
-                                    onRemoveAttributeColumn={removeAttributeColumn}
-                                    onResizeAttributeColumn={setAttributeColumnWidth}
-                                    onMoveAttributeColumn={moveAttributeColumn}
-                                    selectedCount={selectedCount}
-                                    totalCount={dataSource.length}
-                                    onSelectAll={() => selectAll(dataSource)}
-                                    onClearSelection={clearSelection}
-                                    orderBy={orderBy}
-                                    onChangeOrderBy={onChangeOrderBy}
-                                />
+                                <LogRowHeader columns={columns} rowWidth={adjustedRowWidth} />
                                 <List<LogsListRowProps>
                                     style={{ height: fixedHeight - LOG_ROW_HEADER_HEIGHT, width: rowWidth }}
                                     overscanCount={5}
                                     rowCount={dataSource.length}
                                     rowHeight={dynamicRowHeight}
                                     rowComponent={LogsListRow}
-                                    rowProps={createRowProps(rowWidth - getScrollbarSize())}
+                                    rowProps={createRowProps(adjustedRowWidth)}
                                     listRef={listRef}
                                 />
                             </div>
@@ -377,30 +392,19 @@ export function VirtualizedLogsList({
                         requestAnimationFrame(() => setContainerWidth(width))
                     }
                     const rowWidth = Math.max(width ?? 0, minRowWidth)
+                    const adjustedRowWidth = rowWidth - getScrollbarSize()
+                    flexWidthRef.current = adjustedRowWidth - getColumnsFixedWidth(columns)
 
                     return height && width ? (
                         <div className="overflow-y-hidden overflow-x-auto" style={{ width, height }}>
-                            <LogRowHeader
-                                rowWidth={rowWidth - getScrollbarSize()}
-                                attributeColumns={attributeColumns}
-                                attributeColumnWidths={attributeColumnWidths}
-                                onRemoveAttributeColumn={removeAttributeColumn}
-                                onResizeAttributeColumn={setAttributeColumnWidth}
-                                onMoveAttributeColumn={moveAttributeColumn}
-                                selectedCount={selectedCount}
-                                totalCount={dataSource.length}
-                                onSelectAll={() => selectAll(dataSource)}
-                                onClearSelection={clearSelection}
-                                orderBy={orderBy}
-                                onChangeOrderBy={onChangeOrderBy}
-                            />
+                            <LogRowHeader columns={columns} rowWidth={adjustedRowWidth} />
                             <List<LogsListRowProps>
                                 style={{ height: height - LOG_ROW_HEADER_HEIGHT, width: rowWidth }}
                                 overscanCount={10}
                                 rowCount={dataSource.length}
                                 rowHeight={dynamicRowHeight}
                                 rowComponent={LogsListRow}
-                                rowProps={createRowProps(rowWidth - getScrollbarSize())}
+                                rowProps={createRowProps(adjustedRowWidth)}
                                 listRef={listRef}
                                 onRowsRendered={handleRowsRendered}
                             />
