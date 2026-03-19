@@ -354,9 +354,8 @@ def create_webhook(config: StripeSourceConfig, webhook_url: str) -> WebhookCreat
         endpoint = client.webhook_endpoints.create(
             params={
                 "url": webhook_url,
-                "enabled_events": filtered_events,
+                "enabled_events": filtered_events,  # type: ignore
                 "description": "PostHog data warehouse webhook",
-                "name": "PostHog data warehouse webhook",
             }
         )
 

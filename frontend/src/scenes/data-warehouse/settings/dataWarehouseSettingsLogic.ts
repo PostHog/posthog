@@ -76,6 +76,8 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
 
                     await api.externalDataSchemas.update(schema.id, schema)
                     actions.loadSources()
+
+                    return null
                 },
             },
         ],
