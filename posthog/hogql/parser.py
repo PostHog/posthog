@@ -1058,7 +1058,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitColumnExprFunctionWithinGroup(self, ctx: HogQLParser.ColumnExprFunctionWithinGroupContext):
         name = self.visit(ctx.identifier())
-        parameters = self.visit(ctx.columnExprs) if ctx.columnExprs is not None else []
+        parameters: list[ast.Expr] = self.visit(ctx.columnExprs) if ctx.columnExprs is not None else []
         within_group = self.visit(ctx.withinGroupClause())
         return ast.Call(name=name, params=parameters, args=[], within_group=within_group)
 
