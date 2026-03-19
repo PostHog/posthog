@@ -453,7 +453,6 @@ posthog/models/filters/mixins/simplify.py:0: error: Incompatible type for lookup
 posthog/models/organization.py:0: error: Couldn't resolve related manager 'oauth_applications' for relation 'posthog.models.oauth.OAuthApplication.organization'.  [django-manager-missing]
 posthog/models/organization_invite.py:0: error: Argument "level" to "join" of "User" has incompatible type "int"; expected "Level"  [arg-type]
 posthog/models/person/person.py:0: error: "_T" has no attribute "_add_distinct_ids"  [attr-defined]
-posthog/models/person/person.py:0: error: Argument "version" to "create_person" has incompatible type "int | None"; expected "int"  [arg-type]
 posthog/models/person/person.py:0: error: Argument 1 to "union" of "QuerySet" has incompatible type "QuerySet[PersonDistinctId, str]"; expected "QuerySet[Model, Model]"  [arg-type]
 posthog/models/person/person.py:0: error: Incompatible types in assignment (expression has type "list[Never]", variable has type "QuerySet[PersonDistinctId, str]")  [assignment]
 posthog/models/plugin.py:0: error: Argument 1 to "extract_plugin_code" has incompatible type "bytes | memoryview[int] | None"; expected "bytes"  [arg-type]
