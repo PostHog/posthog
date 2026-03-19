@@ -12,23 +12,30 @@ on:
         types: [labeled, synchronize]
         paths:
             - 'rust/**'
+            - 'proto/**'
             - '.github/workflows/rust-smoke-test-build.yml'
+
+concurrency:
+    group: rust-smoke-test-${{ github.event.pull_request.number }}
+    cancel-in-progress: true
 
 jobs:
     authorize:
         name: authorize smoke test
         runs-on: ubuntu-latest
-        if: contains(github.event.pull_request.labels.*.name, 'smoke_test')
+        if: |
+            contains(github.event.pull_request.labels.*.name, 'smoke_test') &&
+            github.event.pull_request.head.repo.full_name == github.repository
         permissions:
             contents: read
         steps:
             - name: Verify PostHog org membership
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  ACTOR: ${{ github.actor }}
+                  PR_AUTHOR: ${{ github.event.pull_request.user.login }}
               run: |
-                  if ! gh api "orgs/PostHog/members/$ACTOR" --silent 2>/dev/null; then
-                      echo "::error::$ACTOR is not a PostHog org member — smoke test builds are restricted to employees"
+                  if ! gh api "orgs/PostHog/members/$PR_AUTHOR" --silent 2>/dev/null; then
+                      echo "::error::$PR_AUTHOR is not a PostHog org member — smoke test builds are restricted to employees"
                       exit 1
                   fi
 
