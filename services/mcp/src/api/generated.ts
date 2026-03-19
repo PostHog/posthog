@@ -12808,8 +12808,10 @@ export namespace Schemas {
       readonly detected_at: string;
       readonly computed_baseline: number;
       readonly current_bucket_value: number;
-      issue_name?: string;
-      issue_description?: string;
+      /** @nullable */
+      issue_name?: string | null;
+      /** @nullable */
+      issue_description?: string | null;
     }
 
     export interface ErrorTrackingStackFrame {
