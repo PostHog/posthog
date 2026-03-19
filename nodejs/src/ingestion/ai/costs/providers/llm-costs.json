@@ -1257,10 +1257,6 @@
                 "prompt_token": 2.9e-7,
                 "completion_token": 2.9e-7
             },
-            "cloudflare": {
-                "prompt_token": 5e-7,
-                "completion_token": 0.00000488
-            },
             "nextbit-fp8": {
                 "prompt_token": 2.9e-7,
                 "completion_token": 2.9e-7
@@ -2030,14 +2026,8 @@
         "model": "google/gemma-3-27b-it",
         "cost": {
             "default": {
-                "prompt_token": 3e-8,
-                "completion_token": 1.1e-7,
-                "cache_read_token": 1.5e-8
-            },
-            "chutes-bf16": {
-                "prompt_token": 3e-8,
-                "completion_token": 1.1e-7,
-                "cache_read_token": 1.5e-8
+                "prompt_token": 8e-8,
+                "completion_token": 1.6e-7
             },
             "deepinfra-fp8": {
                 "prompt_token": 8e-8,
@@ -2484,10 +2474,6 @@
             "default": {
                 "prompt_token": 4.9e-8,
                 "completion_token": 4.9e-8
-            },
-            "cloudflare": {
-                "prompt_token": 4.9e-8,
-                "completion_token": 6.8e-7
             },
             "deepinfra-fp8": {
                 "prompt_token": 4.9e-8,
@@ -3215,11 +3201,6 @@
                 "prompt_token": 2e-8,
                 "completion_token": 4e-8
             },
-            "chutes-bf16": {
-                "prompt_token": 2e-8,
-                "completion_token": 4e-8,
-                "cache_read_token": 1e-8
-            },
             "deepinfra-fp8": {
                 "prompt_token": 2e-8,
                 "completion_token": 4e-8
@@ -3312,14 +3293,8 @@
         "model": "mistralai/mistral-small-3.2-24b-instruct",
         "cost": {
             "default": {
-                "prompt_token": 6e-8,
-                "completion_token": 1.8e-7,
-                "cache_read_token": 3e-8
-            },
-            "chutes-bf16": {
-                "prompt_token": 6e-8,
-                "completion_token": 1.8e-7,
-                "cache_read_token": 3e-8
+                "prompt_token": 7.5e-8,
+                "completion_token": 2e-7
             },
             "deepinfra-fp8": {
                 "prompt_token": 7.5e-8,
@@ -3565,6 +3540,11 @@
                 "completion_token": 0.0000024,
                 "cache_read_token": 1.2e-7
             },
+            "io-net-int4": {
+                "prompt_token": 5.5e-7,
+                "completion_token": 0.000003,
+                "cache_read_token": 2.75e-7
+            },
             "moonshotai-int4": {
                 "prompt_token": 6e-7,
                 "completion_token": 0.000003,
@@ -3777,8 +3757,14 @@
         "model": "nvidia/nemotron-3-super-120b-a12b",
         "cost": {
             "default": {
-                "prompt_token": 3e-7,
-                "completion_token": 9e-7
+                "prompt_token": 1e-7,
+                "completion_token": 5e-7,
+                "cache_read_token": 4e-8
+            },
+            "deepinfra-bf16": {
+                "prompt_token": 1e-7,
+                "completion_token": 5e-7,
+                "cache_read_token": 4e-8
             },
             "nebius-bf16": {
                 "prompt_token": 3e-7,
@@ -5072,32 +5058,6 @@
         }
     },
     {
-        "model": "openrouter/healer-alpha",
-        "cost": {
-            "default": {
-                "prompt_token": 0,
-                "completion_token": 0
-            },
-            "stealth": {
-                "prompt_token": 0,
-                "completion_token": 0
-            }
-        }
-    },
-    {
-        "model": "openrouter/hunter-alpha",
-        "cost": {
-            "default": {
-                "prompt_token": 0,
-                "completion_token": 0
-            },
-            "stealth": {
-                "prompt_token": 0,
-                "completion_token": 0
-            }
-        }
-    },
-    {
         "model": "perplexity/sonar",
         "cost": {
             "default": {
@@ -5500,9 +5460,8 @@
         "model": "qwen/qwen3-235b-a22b-thinking-2507",
         "cost": {
             "default": {
-                "prompt_token": 1.1e-7,
-                "completion_token": 6e-7,
-                "cache_read_token": 5.5e-8
+                "prompt_token": 1.495e-7,
+                "completion_token": 0.000001495
             },
             "alibaba": {
                 "prompt_token": 1.495e-7,
@@ -5512,11 +5471,6 @@
                 "prompt_token": 2.8e-7,
                 "completion_token": 0.0000023,
                 "cache_read_token": 2.8e-7
-            },
-            "chutes-bf16": {
-                "prompt_token": 1.1e-7,
-                "completion_token": 6e-7,
-                "cache_read_token": 5.5e-8
             },
             "deepinfra-fp8": {
                 "prompt_token": 2.3e-7,
@@ -5593,8 +5547,9 @@
         "model": "qwen/qwen3-30b-a3b-thinking-2507",
         "cost": {
             "default": {
-                "prompt_token": 5.1e-8,
-                "completion_token": 3.4e-7
+                "prompt_token": 8e-8,
+                "completion_token": 4e-7,
+                "cache_read_token": 8e-8
             },
             "alibaba": {
                 "prompt_token": 1.3e-7,
@@ -5604,10 +5559,6 @@
                 "prompt_token": 8e-8,
                 "completion_token": 4e-7,
                 "cache_read_token": 8e-8
-            },
-            "cloudflare": {
-                "prompt_token": 5.1e-8,
-                "completion_token": 3.4e-7
             },
             "nebius-fp8": {
                 "prompt_token": 1e-7,
@@ -6793,6 +6744,36 @@
         }
     },
     {
+        "model": "xiaomi/mimo-v2-omni",
+        "cost": {
+            "default": {
+                "prompt_token": 4e-7,
+                "completion_token": 0.000002,
+                "cache_read_token": 8e-8
+            },
+            "xiaomi-fp8": {
+                "prompt_token": 4e-7,
+                "completion_token": 0.000002,
+                "cache_read_token": 8e-8
+            }
+        }
+    },
+    {
+        "model": "xiaomi/mimo-v2-pro",
+        "cost": {
+            "default": {
+                "prompt_token": 0.000001,
+                "completion_token": 0.000003,
+                "cache_read_token": 2e-7
+            },
+            "xiaomi-fp8": {
+                "prompt_token": 0.000001,
+                "completion_token": 0.000003,
+                "cache_read_token": 2e-7
+            }
+        }
+    },
+    {
         "model": "z-ai/glm-4-32b",
         "cost": {
             "default": {
@@ -6933,11 +6914,6 @@
             "default": {
                 "prompt_token": 3e-7,
                 "completion_token": 9e-7
-            },
-            "chutes-bf16": {
-                "prompt_token": 3e-7,
-                "completion_token": 9e-7,
-                "cache_read_token": 1.5e-7
             },
             "deepinfra-fp8": {
                 "prompt_token": 3e-7,

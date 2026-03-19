@@ -16,8 +16,11 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import get_token
 from posthog.event_usage import report_user_action
 from posthog.exceptions import generate_exception_response
-from posthog.models import Experiment, Team, WebExperiment
+from posthog.models import Team
 from posthog.utils_cors import cors_response
+
+from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.web_experiment import WebExperiment
 
 
 def validate_no_xss(content: str, field_name: str) -> None:

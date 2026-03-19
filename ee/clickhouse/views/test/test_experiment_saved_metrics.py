@@ -2,9 +2,8 @@ from unittest.mock import patch
 
 from rest_framework import status
 
-from posthog.models.experiment import Experiment, ExperimentToSavedMetric
-
 from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
+from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
 
 from ee.api.test.base import APILicensedTest
 

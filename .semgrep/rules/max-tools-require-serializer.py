@@ -5,7 +5,9 @@
 # framework runs tests against this .py file directly, so we test the patterns here.
 
 from posthog.api.feature_flag import FeatureFlagSerializer
-from posthog.models import Experiment, FeatureFlag, Survey, Tag, TaggedItem
+from posthog.models import FeatureFlag, Survey, Tag, TaggedItem
+
+from products.experiments.backend.models.experiment import Experiment
 
 # ============================================================
 # max-tools-direct-model-create (WARNING - should use serializer)

@@ -238,13 +238,14 @@ export class ApiClient {
                     )
                 }
 
-                // 204 No Content (e.g. DELETE) returns no body
-                if (response.status === 204) {
-                    return { success: true, data: undefined as T }
-                }
+                // Handle responses with no body (e.g. 202 Accepted, 204 No Content)
 
-                const rawData = await response.json()
-                return { success: true, data: rawData as T }
+                const text = await response.text()
+                if (!text) {
+                    return { success: true, data: {} as T }
+                }
+                const rawData = JSON.parse(text) as T
+                return { success: true, data: rawData }
             } catch (error) {
                 // Only retry on rate limit errors, not other errors
                 if (error instanceof Error && error.message.includes('Rate limit')) {

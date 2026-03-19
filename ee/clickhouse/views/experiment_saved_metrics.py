@@ -6,10 +6,10 @@ from rest_framework import serializers, viewsets
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
-from posthog.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
+from products.experiments.backend.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
 
 from ee.api.rbac.access_control import AccessControlViewSetMixin
 
