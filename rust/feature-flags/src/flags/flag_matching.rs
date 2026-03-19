@@ -5,7 +5,9 @@ use crate::cohorts::cohort_models::{Cohort, CohortId};
 use crate::cohorts::cohort_operations::{apply_cohort_membership_logic, evaluate_dynamic_cohorts};
 use crate::cohorts::membership::{CohortMembershipProvider, NoOpCohortMembershipProvider};
 use crate::database::PostgresRouter;
-use crate::flags::flag_group_type_mapping::{GroupTypeIndex, GroupTypeMappingCache};
+use crate::flags::flag_group_type_mapping::{
+    GroupTypeCacheManager, GroupTypeIndex, GroupTypeMapping,
+};
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching_utils::{
     all_flag_condition_properties_match, all_properties_match, calculate_hash,
@@ -239,8 +241,10 @@ pub struct FeatureFlagMatcher {
     pub router: PostgresRouter,
     /// Cache manager for cohort definitions and memberships
     pub cohort_cache: Arc<CohortCacheManager>,
-    /// Cache for mapping between group types and their indices
-    group_type_mapping_cache: GroupTypeMappingCache,
+    /// Shared in-process cache for group type mappings
+    group_type_cache: Arc<GroupTypeCacheManager>,
+    /// Lazily populated mapping for the current team (fetched via group_type_cache)
+    group_type_mapping: Option<GroupTypeMapping>,
     /// State maintained during flag evaluation, including cached DB lookups
     pub(crate) flag_evaluation_state: FlagEvaluationState,
     /// Group key mappings for group-based flag evaluation
@@ -297,7 +301,7 @@ impl FeatureFlagMatcher {
         team_id: TeamId,
         router: PostgresRouter,
         cohort_cache: Arc<CohortCacheManager>,
-        group_type_mapping_cache: Option<GroupTypeMappingCache>,
+        group_type_cache: Arc<GroupTypeCacheManager>,
         groups: Option<HashMap<String, Value>>,
     ) -> Self {
         FeatureFlagMatcher {
@@ -306,8 +310,8 @@ impl FeatureFlagMatcher {
             team_id,
             router,
             cohort_cache,
-            group_type_mapping_cache: group_type_mapping_cache
-                .unwrap_or_else(|| GroupTypeMappingCache::new(team_id)),
+            group_type_cache,
+            group_type_mapping: None,
             groups: groups.unwrap_or_default(),
             flag_evaluation_state: FlagEvaluationState::default(),
             cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
@@ -1045,15 +1049,11 @@ impl FeatureFlagMatcher {
         group_type_index: GroupTypeIndex,
         group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
     ) -> Result<Option<HashMap<String, Value>>, FlagError> {
-        // If we can't get the mapping, just return None
-        let index_to_type_map = match self
-            .group_type_mapping_cache
-            .get_group_type_index_to_type_map()
-        {
-            Ok(map) => map,
-            Err(FlagError::NoGroupTypeMappings) => return Ok(None),
-            Err(e) => return Err(e),
+        let mapping = match &self.group_type_mapping {
+            Some(m) => m,
+            None => return Ok(None),
         };
+        let index_to_type_map = mapping.group_indexes_to_types();
 
         if let Some(group_type) = index_to_type_map.get(&group_type_index) {
             if let Some(group_overrides) = group_property_overrides {
@@ -1726,11 +1726,13 @@ impl FeatureFlagMatcher {
         if let Some(group_type_index) = feature_flag.get_group_type_index() {
             // Group-based flag
             let group_key = match self
-                .group_type_mapping_cache
-                .get_group_type_index_to_type_map()?
-                .get(&group_type_index)
-                .and_then(|group_type_name| self.groups.get(group_type_name))
-            {
+                .group_type_mapping
+                .as_ref()
+                .and_then(|m| {
+                    m.group_indexes_to_types()
+                        .get(&group_type_index)
+                        .and_then(|group_type_name| self.groups.get(group_type_name))
+                }) {
                 Some(Value::String(s)) => s.clone(),
                 Some(Value::Number(n)) => n.to_string(),
                 Some(_) => {
@@ -2023,11 +2025,11 @@ impl FeatureFlagMatcher {
             return Ok(HashMap::new());
         }
 
-        let types_to_indexes = match self.group_type_mapping_cache.get_group_types_to_indexes() {
-            Ok(map) => map,
-            Err(FlagError::NoGroupTypeMappings) => return Ok(HashMap::new()),
-            Err(e) => return Err(e),
+        let mapping = match &self.group_type_mapping {
+            Some(m) => m,
+            None => return Ok(HashMap::new()),
         };
+        let types_to_indexes = mapping.group_types_to_indexes();
 
         let group_type_to_key: HashMap<GroupTypeIndex, String> = self
             .groups
@@ -2215,13 +2217,24 @@ impl FeatureFlagMatcher {
         let group_type_mapping_timer = common_metrics::timing_guard(FLAG_GROUP_DB_FETCH_TIME, &[]);
         let mut errors_while_computing_flags = false;
 
-        if self
-            .group_type_mapping_cache
-            .init(self.router.get_persons_reader().clone())
-            .await
-            .is_err()
-        {
-            errors_while_computing_flags = true;
+        match self.group_type_cache.get_mappings(self.team_id).await {
+            Ok(mapping) if mapping.is_empty() => {
+                let reason = "no_group_type_mappings";
+                tracing::error!("No group type mappings found for team {}", self.team_id);
+                common_metrics::inc(
+                    FLAG_EVALUATION_ERROR_COUNTER,
+                    &[("reason".to_string(), reason.to_string())],
+                    1,
+                );
+                // Empty mappings are not an error in the cache sense, but no group flags will match.
+                // We still set group_type_mapping to None so callers return empty results.
+            }
+            Ok(mapping) => {
+                self.group_type_mapping = Some(mapping);
+            }
+            Err(_) => {
+                errors_while_computing_flags = true;
+            }
         }
 
         group_type_mapping_timer
