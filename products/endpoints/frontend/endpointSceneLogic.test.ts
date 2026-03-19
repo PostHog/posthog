@@ -32,7 +32,9 @@ jest.mock('lib/api', () => ({
 }))
 
 jest.mock('scenes/sceneLogic', () => ({
-    sceneLogic: mockSceneLogic,
+    get sceneLogic() {
+        return mockSceneLogic
+    },
 }))
 
 jest.mock('./endpointLogic', () => {
