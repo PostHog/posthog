@@ -21,9 +21,15 @@ class DetectionResult:
 class BaseDetector(ABC):
     """Abstract base class for all anomaly detectors."""
 
+    # Default number of recent points to exclude from training data.
+    # Prevents the model from fitting on the points it's about to score.
+    # Higher values make the model slower to adapt to recent distribution shifts.
+    DEFAULT_TRAINING_OFFSET = 1
+
     def __init__(self, config: dict[str, Any]):
         self.config = config
         self.preprocessing_config = config.get("preprocessing", {})
+        self.training_offset: int = config.get("training_offset_n", self.DEFAULT_TRAINING_OFFSET)
 
     @abstractmethod
     def detect(self, data: np.ndarray) -> DetectionResult:
@@ -50,6 +56,15 @@ class BaseDetector(ABC):
             DetectionResult with triggered_indices for all anomalous points
         """
         pass
+
+    def train_test_split(self, data: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Split data into training (historical) and test (recent) portions.
+
+        Uses ``training_offset`` to exclude the most recent N points from
+        the training set so the model is not fitted on data it will score.
+        """
+        offset = max(self.training_offset, 1)
+        return data[:-offset], data[-offset:]
 
     def preprocess(self, data: np.ndarray) -> np.ndarray:
         """Apply preprocessing pipeline to data."""

@@ -11,6 +11,7 @@ import {
     IconLightBulb,
     IconLock,
     IconNotification,
+    IconRewind,
     IconRocket,
     IconSearch,
 } from '@posthog/icons'
@@ -283,17 +284,40 @@ function SuggestionMenubar(): JSX.Element {
 
 function HomePageOfframp(): JSX.Element {
     const { showConfigurePinnedTabsModal } = useActions(navigationLogic)
+    const { revertToPreviousHomepage } = useActions(aiFirstHomepageLogic)
+    const { previousHomepage } = useValues(aiFirstHomepageLogic)
 
     return (
         <div className="flex items-center gap-2">
             <ButtonPrimitive
                 variant="panel"
-                onClick={() => showConfigurePinnedTabsModal()}
+                onClick={() => {
+                    posthog.capture('homepage configure home clicked', { source: 'offramp' })
+                    showConfigurePinnedTabsModal()
+                }}
                 tooltip="Configure tabs & home"
                 className="text-tertiary hover:text-primary"
             >
                 Configure home <IconGear className="size-4" />
             </ButtonPrimitive>
+
+            {previousHomepage && (
+                <ButtonPrimitive
+                    variant="panel"
+                    onClick={() => {
+                        posthog.capture('homepage revert clicked', {
+                            previous_homepage_id: previousHomepage.id,
+                            previous_homepage_title: previousHomepage.title,
+                        })
+                        revertToPreviousHomepage()
+                    }}
+                    tooltip={`Revert to ${previousHomepage.title || 'previous homepage'}`}
+                    className="text-tertiary hover:text-primary"
+                >
+                    Put my {(previousHomepage.title || 'previous homepage').toLocaleLowerCase()} back{' '}
+                    <IconRewind className="size-4" />
+                </ButtonPrimitive>
+            )}
         </div>
     )
 }

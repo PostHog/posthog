@@ -9,6 +9,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateStringToDayJs, objectClean } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ActivityScope } from '~/types'
 
@@ -84,7 +85,14 @@ const ADVANCED_FILTERS = ['was_impersonated', 'is_system', 'item_ids', 'detail_f
 export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
     path(['scenes', 'audit-logs', 'advancedActivityLogsLogic']),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], userLogic, ['hasAvailableFeature']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            userLogic,
+            ['hasAvailableFeature'],
+            teamLogic,
+            ['currentTeamIdStrict', 'currentProjectId'],
+        ],
     })),
 
     actions({
@@ -198,7 +206,9 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     params.append('page', (values.filters.page || 1).toString())
                     params.append('page_size', ADVANCED_ACTIVITY_PAGE_SIZE.toString())
 
-                    const response = await api.get(`api/projects/@current/advanced_activity_logs/?${params}`)
+                    const response = await api.get(
+                        `api/projects/${values.currentProjectId}/advanced_activity_logs/?${params}`
+                    )
                     return response
                 },
             },
@@ -208,7 +218,9 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
             null as AvailableFilters | null,
             {
                 loadAvailableFilters: async () => {
-                    const response = await api.get('api/projects/@current/advanced_activity_logs/available_filters/')
+                    const response = await api.get(
+                        `api/projects/${values.currentProjectId}/advanced_activity_logs/available_filters/`
+                    )
                     return response
                 },
             },
@@ -220,7 +232,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                 loadExports: async () => {
                     const params = new URLSearchParams()
                     params.append('context_path', '/advanced_activity_logs/')
-                    const response = await api.get(`api/environments/@current/exports/?${params}`)
+                    const response = await api.get(`api/environments/${values.currentTeamIdStrict}/exports/?${params}`)
                     return response.results || []
                 },
             },
@@ -454,7 +466,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     item_ids: values.filters.item_ids,
                 }
 
-                await api.create('api/projects/@current/advanced_activity_logs/export/', {
+                await api.create(`api/projects/${values.currentProjectId}/advanced_activity_logs/export/`, {
                     format,
                     filters: filtersToExport,
                 })
