@@ -13,6 +13,13 @@ logger = structlog.get_logger(__name__)
 @shared_task(ignore_result=True)
 def cleanup_old_notifications() -> None:
     cutoff = timezone.now() - timedelta(days=90)
-    deleted_count, _ = NotificationEvent.objects.filter(created_at__lt=cutoff).delete()
-    if deleted_count:
-        logger.info("notifications.cleanup", deleted=deleted_count)
+    batch_size = 10000
+    total_deleted = 0
+    while True:
+        ids = list(NotificationEvent.objects.filter(created_at__lt=cutoff).values_list("id", flat=True)[:batch_size])
+        if not ids:
+            break
+        deleted, _ = NotificationEvent.objects.filter(id__in=ids).delete()
+        total_deleted += deleted
+    if total_deleted:
+        logger.info("notifications.cleanup", deleted=total_deleted)

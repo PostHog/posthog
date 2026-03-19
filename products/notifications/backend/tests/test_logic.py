@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -61,6 +62,11 @@ class TestCreateNotification(BaseTest):
         assert event is not None
         assert set(event.resolved_user_ids) == {self.user.id, user2.id}
 
+    def test_resolve_unknown_target_type_raises(self):
+        resolver = RecipientsResolver()
+        with pytest.raises(ValueError, match="Unknown target type"):
+            resolver.resolve("nonexistent_type", "123", self.team.id)
+
     @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=False)
     def test_feature_flag_disabled_returns_none(self, mock_ff):
         data = NotificationData(
@@ -93,15 +99,21 @@ class TestAccessControlFiltering(BaseTest):
         result = self.resolver.filter_by_access_control(user_ids, "dashboard", self.team)
         assert set(result) == {self.user.id, self.user2.id}
 
-    def test_passthrough_for_notification_only_resource_types(self):
-        self.organization.available_product_features = [{"key": AvailableFeature.ADVANCED_PERMISSIONS}]
-        self.organization.save()
-
-        user_ids = [self.user.id, self.user2.id]
-        result = self.resolver.filter_by_access_control(
-            user_ids, NotificationOnlyResourceType.PIPELINE.value, self.team
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic._publish_to_redis")
+    @patch.object(RecipientsResolver, "filter_by_access_control")
+    def test_no_ac_filtering_for_notification_only_resource_types(self, mock_ac_filter, mock_publish, mock_ff):
+        data = NotificationData(
+            team_id=self.team.id,
+            notification_type=NotificationType.PIPELINE_FAILURE,
+            title="Pipeline failed",
+            body="",
+            target_type=TargetType.USER,
+            target_id=str(self.user.id),
+            resource_type=NotificationOnlyResourceType.PIPELINE,
         )
-        assert set(result) == {self.user.id, self.user2.id}
+        create_notification(data)
+        mock_ac_filter.assert_not_called()
 
     @patch("products.notifications.backend.resolvers.UserAccessControl")
     def test_excludes_users_without_access(self, mock_uac_cls):

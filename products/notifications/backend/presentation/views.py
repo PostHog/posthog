@@ -2,6 +2,8 @@ from typing import cast
 
 from django.db.models import Exists, OuterRef, Subquery
 
+from drf_spectacular.utils import extend_schema
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
@@ -17,12 +19,18 @@ from products.notifications.backend.models import NotificationEvent, Notificatio
 from products.notifications.backend.presentation.serializers import NotificationEventSerializer
 
 
+class NotificationPagination(LimitOffsetPagination):
+    default_limit = 50
+    max_limit = 100
+
+
 class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     queryset = NotificationEvent.objects.all()
     serializer_class = NotificationEventSerializer
     scope_object = "INTERNAL"
     posthog_feature_flag = "real-time-notifications"
     permission_classes = [PostHogFeatureFlagPermission]
+    pagination_class = NotificationPagination
 
     def _get_user(self) -> User:
         return cast(User, self.request.user)
@@ -30,6 +38,8 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     def _get_base_queryset(self):
         user = self._get_user()
         team = self.team
+        # Notifications are org-scoped, not team-scoped — a user sees all notifications
+        # across projects within their organization.
         return (
             NotificationEvent.objects.filter(
                 organization_id=team.organization_id,
@@ -81,9 +91,12 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     def list(self, request: Request, *args, **kwargs) -> Response:
         queryset = self._get_base_queryset()
         queryset = self._filter_by_access_control(queryset)
-        results = queryset[:50]
-        serializer = NotificationEventSerializer(results, many=True)
-        return Response({"results": serializer.data})
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = NotificationEventSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = NotificationEventSerializer(queryset, many=True)
+        return Response(serializer.data)
 
     @action(methods=["GET"], detail=False)
     def unread_count(self, request: Request, **kwargs) -> Response:
@@ -92,6 +105,7 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         count = queryset.filter(read=False).count()
         return Response({"count": count})
 
+    @extend_schema(request=None)
     @action(methods=["POST"], detail=False)
     def mark_all_read(self, request: Request, **kwargs) -> Response:
         user = self._get_user()
@@ -102,6 +116,7 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             NotificationReadState.objects.bulk_create(read_states, ignore_conflicts=True)
         return Response({"updated": len(event_ids)})
 
+    @extend_schema(request=None)
     @action(methods=["POST"], detail=True, url_path="mark_read")
     def mark_read(self, request: Request, **kwargs) -> Response:
         user = self._get_user()
@@ -110,6 +125,7 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         NotificationReadState.objects.get_or_create(notification_event=event, user=user)
         return Response({"status": "ok"})
 
+    @extend_schema(request=None)
     @action(methods=["POST"], detail=True, url_path="mark_unread")
     def mark_unread(self, request: Request, **kwargs) -> Response:
         user = self._get_user()

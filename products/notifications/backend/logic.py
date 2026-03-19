@@ -4,6 +4,7 @@ from django.db import transaction
 
 import structlog
 import posthoganalytics
+from django_redis import get_redis_connection
 
 from posthog.models import Team
 
@@ -16,8 +17,6 @@ logger = structlog.get_logger(__name__)
 
 
 def _get_redis_client():
-    from django_redis import get_redis_connection
-
     return get_redis_connection("default")
 
 

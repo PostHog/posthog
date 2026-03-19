@@ -40,6 +40,8 @@ class RecipientsResolver:
                 ).values_list("user_id", flat=True)
             )
 
+        raise ValueError(f"Unknown target type: {target_type}")
+
     def filter_by_access_control(self, user_ids: list[int], resource_type: str, team: Team) -> list[int]:
         """Filter user IDs by access control. Not overridable — always applied after resolve()."""
         try:
@@ -54,6 +56,7 @@ class RecipientsResolver:
             return user_ids
 
         filtered = []
+        # TODO: optimize for large orgs — batch AC checks instead of per-user
         users = User.objects.filter(id__in=user_ids)
         for user in users:
             ac = UserAccessControl(user, team)
