@@ -98,7 +98,7 @@ export const getConvexSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 sdk.start()
 
                                 const result = await generateText({
-                                  model: openai('gpt-4o-mini'),
+                                  model: openai('gpt-5-mini'),
                                   prompt: args.prompt,
                                   experimental_telemetry: {
                                     isEnabled: true,
@@ -173,7 +173,7 @@ export const getConvexSteps = (ctx: OnboardingComponentsContext): StepDefinition
 
                                 const supportAgent = new Agent(components.agent, {
                                   name: 'support-agent',
-                                  languageModel: openai('gpt-4o-mini'),
+                                  languageModel: openai('gpt-5-mini'),
                                   instructions: 'You are a helpful support agent.',
                                 })
 

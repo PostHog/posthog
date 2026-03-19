@@ -81,7 +81,7 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
                             import { openai } from '@ai-sdk/openai'
 
                             const result = await generateText({
-                              model: openai('gpt-4o-mini'),
+                              model: openai('gpt-5-mini'),
                               prompt: 'Tell me a fun fact about hedgehogs.',
                               experimental_telemetry: {
                                 isEnabled: true,
