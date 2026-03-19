@@ -192,7 +192,7 @@ for route in product_routes:
 
     writer_url = os.getenv(writer_env)
     if not writer_url and DEBUG and not TEST:
-        writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@localhost:5432/posthog_{db}"
+        writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/posthog_{db}"
 
     if not writer_url:
         continue

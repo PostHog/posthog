@@ -34,9 +34,17 @@ class ProductDBRouter:
         return None
 
     def allow_relation(self, obj1, obj2, **hints):
+        db1 = self._db_for_model(obj1.__class__)
+        db2 = self._db_for_model(obj2.__class__)
+        if db1 is not None or db2 is not None:
+            # If either model is routed, only allow if both resolve to the same DB
+            return db1 == db2
+        return None
+
+    def _db_for_model(self, model_class: type) -> str | None:
         for route in self.routes:
-            if route.routes_model(obj1.__class__) or route.routes_model(obj2.__class__):
-                return True
+            if route.routes_model(model_class):
+                return route.database
         return None
 
     def allow_migrate(self, db, app_label, model_name=None, **hints):

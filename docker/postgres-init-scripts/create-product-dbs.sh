@@ -11,8 +11,14 @@ if [ ! -f "$ROUTING_FILE" ]; then
 fi
 
 # Extract unique database names from db_routing.yaml
-awk -F': ' '/^\s*database:/{print $2}' "$ROUTING_FILE" | tr -d '"' | tr -d "'" | sort -u | while read -r db_name; do
+# Use POSIX character class — \s is not portable across awk implementations (e.g. BusyBox)
+awk -F': ' '/^[[:space:]]*database:/{print $2}' "$ROUTING_FILE" | tr -d '"' | tr -d "'" | sort -u | while read -r db_name; do
     [ -n "$db_name" ] || continue
+
+    # Validate: only alphanumeric and underscores
+    case "$db_name" in
+        *[!a-z0-9_]*) echo "Skipping invalid database name: '$db_name'"; continue ;;
+    esac
 
     local_db_name="posthog_${db_name}"
 

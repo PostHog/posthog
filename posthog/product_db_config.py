@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 PRODUCT_DB_ROUTING_FILE = "products/db_routing.yaml"
 
@@ -36,6 +39,9 @@ def load_product_db_routes(base_dir: Path | str) -> tuple[ProductDBRoute, ...]:
         database = str(route_config.get("database", "")).strip()
 
         if not app_label or not database:
+            logger.warning(
+                "Incomplete product DB route entry in %s: app_label=%r, database=%r", config_path, app_label, database
+            )
             continue
 
         routes.append(
