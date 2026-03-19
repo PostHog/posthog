@@ -30,6 +30,7 @@ from posthog.api.shared import TeamPublicSerializer
 from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import AvailableFeature
+from posthog.event_usage import report_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import InsightViewed, SessionRecording, SharePassword, SharingConfiguration, Team
@@ -955,6 +956,24 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         ):
             # Return dashboard data as JSON for XHR requests
             return response.Response(exported_data)
+
+        # Server-side product analytics for PostHog Cloud (only when serving the HTML exporter shell, not JSON APIs or unlock).
+        if (
+            request.method == "GET"
+            and isinstance(resource, SharingConfiguration)
+            and resource.dashboard
+            and "dashboard" in exported_data
+            and "insight" not in exported_data
+        ):
+            report_team_action(
+                resource.team,
+                "shared dashboard viewed",
+                properties={
+                    "dashboard_id": resource.dashboard.id,
+                    "export_type": exported_data.get("type"),
+                    "embedded": embedded,
+                },
+            )
 
         context = {
             "exported_data": json.dumps(exported_data, cls=DjangoJSONEncoder),
