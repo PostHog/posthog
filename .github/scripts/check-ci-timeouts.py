@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["pyyaml"]
+# ///
 # ruff: noqa: T201 allow print statements
 """
 CI script to verify all GitHub Actions jobs declare timeout-minutes.
@@ -7,7 +11,7 @@ Without explicit timeout-minutes, jobs default to a 6-hour execution limit,
 meaning stuck runners silently burn CI credits.
 
 Usage:
-    python .github/scripts/check-ci-timeouts.py
+    uv run .github/scripts/check-ci-timeouts.py
 """
 
 import sys
