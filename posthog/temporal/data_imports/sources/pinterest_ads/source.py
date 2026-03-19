@@ -6,6 +6,7 @@ from posthog.schema import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
+    SuggestedTable,
 )
 
 from posthog.exceptions_capture import capture_exception
@@ -64,6 +65,16 @@ class PinterestAdsSource(SimpleSource[PinterestAdsSourceConfig], OAuthMixin):
                     ),
                 ],
             ),
+            suggestedTables=[
+                SuggestedTable(
+                    table="campaigns",
+                    tooltip="Required for Marketing analytics to work with this source.",
+                ),
+                SuggestedTable(
+                    table="campaign_analytics",
+                    tooltip="Required for Marketing analytics to work with this source.",
+                ),
+            ],
         )
 
     def validate_credentials(

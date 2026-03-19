@@ -6,6 +6,7 @@ from posthog.schema import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
+    SuggestedTable,
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
@@ -98,4 +99,14 @@ class MetaAdsSource(SimpleSource[MetaAdsSourceConfig]):
             ),
             betaSource=True,
             featureFlag="meta-ads-dwh",
+            suggestedTables=[
+                SuggestedTable(
+                    table="campaigns",
+                    tooltip="Required for Marketing analytics to work with this source.",
+                ),
+                SuggestedTable(
+                    table="campaign_stats",
+                    tooltip="Required for Marketing analytics to work with this source.",
+                ),
+            ],
         )

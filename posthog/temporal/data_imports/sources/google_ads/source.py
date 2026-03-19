@@ -8,6 +8,7 @@ from posthog.schema import (
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
     SourceFieldSwitchGroupConfig,
+    SuggestedTable,
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
@@ -140,6 +141,16 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
                     ),
                 ],
             ),
+            suggestedTables=[
+                SuggestedTable(
+                    table="campaign",
+                    tooltip="Required for Marketing analytics to work with this source.",
+                ),
+                SuggestedTable(
+                    table="campaign_overview_stats",
+                    tooltip="Required for Marketing analytics to work with this source.",
+                ),
+            ],
         )
 
     def validate_config(self, job_inputs: dict) -> tuple[bool, list[str]]:

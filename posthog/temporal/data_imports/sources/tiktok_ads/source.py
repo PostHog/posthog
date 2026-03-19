@@ -6,6 +6,7 @@ from posthog.schema import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
+    SuggestedTable,
 )
 
 from posthog.exceptions_capture import capture_exception
@@ -54,6 +55,16 @@ class TikTokAdsSource(SimpleSource[TikTokAdsSourceConfig], OAuthMixin):
                     ),
                 ],
             ),
+            suggestedTables=[
+                SuggestedTable(
+                    table="campaigns",
+                    tooltip="Required for Marketing analytics to work with this source.",
+                ),
+                SuggestedTable(
+                    table="campaign_report",
+                    tooltip="Required for Marketing analytics to work with this source.",
+                ),
+            ],
         )
 
     def validate_credentials(

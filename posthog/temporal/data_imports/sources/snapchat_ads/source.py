@@ -6,6 +6,7 @@ from posthog.schema import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
+    SuggestedTable,
 )
 
 from posthog.exceptions_capture import capture_exception
@@ -56,6 +57,16 @@ class SnapchatAdsSource(SimpleSource[SnapchatAdsSourceConfig], OAuthMixin):
                     ),
                 ],
             ),
+            suggestedTables=[
+                SuggestedTable(
+                    table="campaigns",
+                    tooltip="Required for Marketing analytics to work with this source.",
+                ),
+                SuggestedTable(
+                    table="campaign_stats_daily",
+                    tooltip="Required for Marketing analytics to work with this source.",
+                ),
+            ],
         )
 
     def validate_credentials(

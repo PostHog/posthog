@@ -6,6 +6,7 @@ from posthog.schema import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
+    SuggestedTable,
 )
 
 from posthog.exceptions_capture import capture_exception
@@ -64,6 +65,16 @@ class LinkedInAdsSource(SimpleSource[LinkedinAdsSourceConfig]):
                     ),
                 ],
             ),
+            suggestedTables=[
+                SuggestedTable(
+                    table="campaign_groups",
+                    tooltip="Required for Marketing analytics to work with this source.",
+                ),
+                SuggestedTable(
+                    table="campaign_group_stats",
+                    tooltip="Required for Marketing analytics to work with this source.",
+                ),
+            ],
         )
 
     def validate_credentials(
