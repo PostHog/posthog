@@ -1,94 +1,40 @@
 """
-This is a module that provides a DLT source to retrieve data from multiple endpoints of the HubSpot API using a specified API key. The retrieved data is returned as a tuple of Dlt resources, one for each endpoint.
+HubSpot resumable source for the data warehouse pipeline.
 
-The source retrieves data from the following endpoints:
-- CRM Companies
-- CRM Contacts
-- CRM Deals
-- CRM Tickets
-- CRM Quotes
-- Web Analytics Events
-
-For each endpoint, a resource and transformer function are defined to retrieve data and transform it to a common format.
-The resource functions yield the raw data retrieved from the API, while the transformer functions are used to retrieve
-additional information from the Web Analytics Events endpoint.
-
-The source also supports enabling Web Analytics Events for each endpoint by setting the corresponding enable flag to True.
-
-Example:
-To retrieve data from all endpoints, use the following code:
-
-python
-
->>> resources = hubspot(api_key="hubspot_access_code")
+Fetches CRM objects (contacts, companies, deals, tickets, quotes, emails, meetings)
+from the HubSpot API with resumable pagination support.
 """
 
+import dataclasses
 import urllib.parse
-from collections.abc import Iterable, Iterator, Sequence
-from typing import Literal
+from collections.abc import Iterator, Sequence
+from typing import Any
 
-import dlt
-from dlt.common.typing import TDataItems
-from dlt.sources import DltResource
+import requests
 from structlog.types import FilteringBoundLogger
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from .helpers import _get_property_names, fetch_data, fetch_property_history
-from .settings import CRM_OBJECT_ENDPOINTS, DEFAULT_PROPS, OBJECT_TYPE_PLURAL, OBJECT_TYPE_SINGULAR
+from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from posthog.temporal.data_imports.sources.hubspot.auth import hubspot_refresh_access_token
+from posthog.temporal.data_imports.sources.hubspot.helpers import BASE_URL, _get_headers, _get_property_names
+from posthog.temporal.data_imports.sources.hubspot.settings import (
+    DEFAULT_PROPS,
+    HUBSPOT_ENDPOINTS,
+    OBJECT_TYPE_SINGULAR,
+)
 
-THubspotObjectType = Literal["company", "contact", "deal", "ticket", "quote"]
-
-PROPERTY_LENGTH_LIMIT = 16_000  # This has been empirically determined to be the rough limit for the Hubspot API
+PROPERTY_LENGTH_LIMIT = 16_000  # Empirically determined rough limit for the HubSpot API
 
 
-@dlt.source(name="hubspot")
-def hubspot(
-    api_key: str,
-    refresh_token: str,
-    logger: FilteringBoundLogger,
-    endpoints: Sequence[str] = ("companies", "contacts", "deals", "tickets", "quotes"),
-    include_history: bool = False,
-) -> Iterable[DltResource]:
-    """
-    A DLT source that retrieves data from the HubSpot API using the
-    specified API key.
+class HubspotRetryableError(Exception):
+    pass
 
-    This function retrieves data for several HubSpot API endpoints,
-    including companies, contacts, deals, tickets and web
-    analytics events. It returns a tuple of Dlt resources, one for
-    each endpoint.
 
-    Args:
-        api_key (Optional[str]):
-            The API key used to authenticate with the HubSpot API. Defaults
-            to dlt.secrets.value.
-        include_history (Optional[bool]):
-            Whether to load history of property changes along with entities.
-            The history entries are loaded to separate tables.
-
-    Returns:
-        Sequence[DltResource]: Dlt resources, one for each HubSpot API endpoint.
-
-    Notes:
-        This function uses the `fetch_data` function to retrieve data from the
-        HubSpot CRM API. The API key is passed to `fetch_data` as the
-        `api_key` argument.
-    """
-
-    for endpoint in endpoints:
-        yield dlt.resource(
-            crm_objects,
-            name=endpoint,
-            write_disposition="replace",
-            table_format="delta",
-        )(
-            object_type=OBJECT_TYPE_SINGULAR[endpoint],
-            api_key=api_key,
-            refresh_token=refresh_token,
-            include_history=include_history,
-            props=DEFAULT_PROPS[endpoint],
-            include_custom_props=True,
-            logger=logger,
-        )
+@dataclasses.dataclass
+class HubspotResumeConfig:
+    next_url: str
 
 
 def _get_properties_str(
@@ -99,7 +45,7 @@ def _get_properties_str(
     logger: FilteringBoundLogger,
     include_custom_props: bool = True,
 ) -> str:
-    """Builds a string of properties to be requested from the Hubspot API."""
+    """Builds a string of properties to be requested from the HubSpot API."""
     props = list(props)
     if include_custom_props:
         all_props = _get_property_names(api_key, refresh_token, object_type)
@@ -123,18 +69,59 @@ def _get_properties_str(
     return props_str
 
 
-def crm_objects(
-    object_type: str,
+def _build_initial_url(path: str, associations: list[str], properties: str, limit: int = 100) -> str:
+    """Build the initial HubSpot API URL with query parameters."""
+    parts = [f"properties={properties}", f"limit={limit}"]
+    if associations:
+        parts.append(f"associations={','.join(associations)}")
+    return f"{BASE_URL.rstrip('/')}{path}?{'&'.join(parts)}"
+
+
+def _backfill_missing_properties(row: dict[str, Any], expected_properties: list[str]) -> None:
+    """HubSpot omits properties with null values; PyArrow drops absent columns during schema inference."""
+    for prop in expected_properties:
+        row.setdefault(prop, None)
+
+
+def _flatten_result(result: dict[str, Any]) -> dict[str, Any]:
+    """Flatten a HubSpot CRM API result into a flat dict.
+
+    Extracts properties to top level, preserves id, and flattens associations.
+    """
+    obj = result.get("properties", result)
+    if "id" not in obj and "id" in result:
+        obj["id"] = result["id"]
+
+    if "associations" in result:
+        for association in result["associations"]:
+            values = [
+                {
+                    "value": obj.get("hs_object_id"),
+                    f"{association}_id": r["id"],
+                }
+                for r in result["associations"][association]["results"]
+            ]
+            # remove duplicates from list of dicts
+            values = [dict(t) for t in {tuple(d.items()) for d in values}]
+            obj[association] = values
+
+    return obj
+
+
+def get_rows(
     api_key: str,
     refresh_token: str,
-    include_history: bool,
-    props: Sequence[str],
+    endpoint: str,
     logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[HubspotResumeConfig],
     include_custom_props: bool = True,
-) -> Iterator[TDataItems]:
-    """Building blocks for CRM resources."""
+) -> Iterator[Any]:
+    config = HUBSPOT_ENDPOINTS[endpoint]
+    object_type = OBJECT_TYPE_SINGULAR[endpoint]
+
+    # Build properties string (called once before sync loop)
     props_str = _get_properties_str(
-        props=props,
+        props=DEFAULT_PROPS[endpoint],
         api_key=api_key,
         refresh_token=refresh_token,
         object_type=object_type,
@@ -142,18 +129,110 @@ def crm_objects(
         logger=logger,
     )
 
-    params = {"properties": props_str, "limit": 100}
+    # Track expected properties so we can backfill missing ones with None.
+    # HubSpot omits properties from the response when they have no value for a record,
+    # which causes PyArrow to drop those columns entirely during schema inference.
+    expected_properties = props_str.split(",") if props_str else []
 
-    yield from fetch_data(CRM_OBJECT_ENDPOINTS[object_type], api_key, refresh_token, params=params)
-    if include_history:
-        # Get history separately, as requesting both all properties and history together
-        # is likely to hit hubspot's URL length limit
-        for history_entries in fetch_property_history(
-            CRM_OBJECT_ENDPOINTS[object_type],
-            api_key,
-            props_str,
-        ):
-            yield dlt.mark.with_table_name(
-                history_entries,
-                OBJECT_TYPE_PLURAL[object_type] + "_property_history",
-            )
+    headers = _get_headers(api_key)
+    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
+
+    # Check for resume state
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    if resume_config is not None:
+        url = resume_config.next_url
+        logger.debug(f"Hubspot: resuming from URL: {url}")
+    else:
+        url = _build_initial_url(
+            path=config.path,
+            associations=config.associations,
+            properties=props_str,
+        )
+
+    @retry(
+        retry=retry_if_exception_type((HubspotRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+        stop=stop_after_attempt(5),
+        wait=wait_exponential_jitter(initial=1, max=30),
+        reraise=True,
+    )
+    def fetch_page(page_url: str) -> dict:
+        nonlocal api_key, headers
+
+        response = requests.get(page_url, headers=headers, timeout=60)
+
+        if response.status_code == 401:
+            api_key = hubspot_refresh_access_token(refresh_token)
+            headers = _get_headers(api_key)
+            raise HubspotRetryableError(f"Hubspot API 401 - refreshed token, retrying: url={page_url}")
+
+        if response.status_code == 429 or response.status_code >= 500:
+            raise HubspotRetryableError(f"Hubspot API error (retryable): status={response.status_code}, url={page_url}")
+
+        if not response.ok:
+            logger.error(f"Hubspot API error: status={response.status_code}, body={response.text}, url={page_url}")
+            response.raise_for_status()
+
+        return response.json()
+
+    while True:
+        data = fetch_page(url)
+
+        results = data.get("results", [])
+        if not results:
+            break
+
+        # Get next page URL before iterating items
+        paging = data.get("paging", {})
+        next_page = paging.get("next")
+        next_url = next_page.get("link") if next_page else None
+
+        for result in results:
+            row = _flatten_result(result)
+            _backfill_missing_properties(row, expected_properties)
+            batcher.batch(row)
+
+            if batcher.should_yield():
+                py_table = batcher.get_table()
+                yield py_table
+
+                if next_url:
+                    resumable_source_manager.save_state(HubspotResumeConfig(next_url=next_url))
+
+        if not next_url:
+            break
+
+        url = next_url
+
+    if batcher.should_yield(include_incomplete_chunk=True):
+        py_table = batcher.get_table()
+        yield py_table
+
+
+def hubspot_source(
+    api_key: str,
+    refresh_token: str,
+    endpoint: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[HubspotResumeConfig],
+    include_custom_props: bool = True,
+) -> SourceResponse:
+    endpoint_config = HUBSPOT_ENDPOINTS[endpoint]
+
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: get_rows(
+            api_key=api_key,
+            refresh_token=refresh_token,
+            endpoint=endpoint,
+            logger=logger,
+            resumable_source_manager=resumable_source_manager,
+            include_custom_props=include_custom_props,
+        ),
+        primary_keys=["id"],
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if endpoint_config.partition_key else None,
+        partition_format="week" if endpoint_config.partition_key else None,
+        partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+    )

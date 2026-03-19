@@ -74,4 +74,48 @@ describe('PropertyValue', () => {
         // loadPropertyValues should not have been called again
         expect(loadPropertyValuesSpy.mock.calls.length).toBe(callCountAfterLoad)
     })
+
+    it('renders with showInlineValidationErrors prop', () => {
+        const onSet = jest.fn()
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="test_prop"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={onSet}
+                    value={[]}
+                    validationError="Test validation error"
+                    showInlineValidationErrors
+                />
+            </Provider>
+        )
+
+        // Check that the error message is displayed when showInlineValidationErrors is true
+        expect(screen.getByText('Test validation error')).toBeInTheDocument()
+    })
+
+    it('displays validation error messages', async () => {
+        const onSet = jest.fn()
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="test"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={onSet}
+                    value={[]}
+                    validationError="This is a test error"
+                    showInlineValidationErrors
+                />
+            </Provider>
+        )
+
+        // Check that the error message is displayed
+        expect(screen.getByText('This is a test error')).toBeInTheDocument()
+
+        // Check that the error container has the danger class
+        const errorContainer = screen.getByText('This is a test error').closest('div')
+        expect(errorContainer).toHaveClass('text-danger')
+    })
 })

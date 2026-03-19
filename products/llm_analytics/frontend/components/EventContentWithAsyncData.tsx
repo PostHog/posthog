@@ -3,7 +3,10 @@ import React from 'react'
 import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
 import { isObject } from 'lib/utils'
 
-import { ConversationMessagesDisplay } from '../ConversationDisplay/ConversationMessagesDisplay'
+import {
+    ConversationDisplayOption,
+    ConversationMessagesDisplay,
+} from '../ConversationDisplay/ConversationMessagesDisplay'
 import { useAIData } from '../hooks/useAIData'
 import { normalizeMessage, normalizeMessages } from '../utils'
 import { AIDataLoading } from './AIDataLoading'
@@ -18,7 +21,9 @@ interface EventContentGenerationProps {
     httpStatus: unknown
     raisedError: boolean
     searchQuery?: string
-    displayOption?: 'expand_all' | 'collapse_except_output_and_last_input' | 'text_view'
+    displayOption?: ConversationDisplayOption
+    /** Original $ai_input index to auto-expand (e.g. from sentiment tab deep link) */
+    highlightMessageIndex?: number | null
 }
 
 export function EventContentGeneration({
@@ -32,6 +37,7 @@ export function EventContentGeneration({
     raisedError,
     searchQuery,
     displayOption,
+    highlightMessageIndex,
 }: EventContentGenerationProps): JSX.Element {
     const { input, output, isLoading } = useAIData({
         uuid: eventId,
@@ -74,6 +80,7 @@ export function EventContentGeneration({
             displayOption={displayOption}
             traceId={traceId}
             generationEventId={eventId}
+            highlightMessageIndex={highlightMessageIndex}
         />
     )
 }

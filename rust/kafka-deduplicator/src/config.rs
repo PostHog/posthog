@@ -5,6 +5,8 @@ use bytesize::ByteSize;
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 
+use crate::rocksdb::store::{parse_compression_per_level, parse_compression_type, RocksDbConfig};
+
 /// Pipeline type for the deduplicator service.
 ///
 /// Each pipeline type handles a different event format:
@@ -97,6 +99,25 @@ pub struct Config {
     // RocksDB storage configuration
     #[envconfig(default = "/tmp/deduplication-store")]
     pub store_path: String,
+
+    // RocksDB tuning (optional — omit to use compiled-in defaults from RocksDbConfig)
+    pub rocksdb_shared_cache_size_bytes: Option<usize>,
+    pub rocksdb_total_write_buffer_size_bytes: Option<usize>,
+    pub rocksdb_max_background_jobs: Option<i32>,
+    pub rocksdb_write_buffer_size_bytes: Option<usize>,
+    pub rocksdb_target_file_size_base_bytes: Option<u64>,
+    pub rocksdb_max_open_files: Option<i32>,
+    pub rocksdb_l0_compaction_trigger: Option<i32>,
+    pub rocksdb_l0_slowdown_writes_trigger: Option<i32>,
+    pub rocksdb_l0_stop_writes_trigger: Option<i32>,
+    pub rocksdb_write_buffer_manager_allow_stall: Option<bool>,
+
+    // RocksDB compression (optional — omit to keep LZ4 everywhere, matching compiled-in defaults)
+    #[envconfig(default = "lz4")]
+    pub rocksdb_compression_type: String,
+    pub rocksdb_compression_per_level: Option<String>,
+    pub rocksdb_bottommost_compression_type: Option<String>,
+    pub rocksdb_universal_compression_size_percent: Option<i32>,
 
     #[envconfig(default = "1073741824")]
     // 1GB default, supports: raw bytes, scientific notation (9.663676416e+09), or units (9Gi, 1GB)
@@ -267,12 +288,12 @@ pub struct Config {
     // Limits memory usage by bounding the number of in-flight HTTP connections
     // Critical during rebalance when many partitions are assigned simultaneously
     // Higher values speed up rebalance; streaming bounds memory per download to ~8KB
-    #[envconfig(default = "1000")]
+    #[envconfig(default = "200")]
     pub max_concurrent_checkpoint_file_downloads: usize,
 
     // Maximum concurrent S3 file uploads during checkpoint export
     // Less critical than downloads since uploads are bounded by max_concurrent_checkpoints
-    #[envconfig(default = "1000")]
+    #[envconfig(default = "200")]
     pub max_concurrent_checkpoint_file_uploads: usize,
 
     // Maximum time allowed for a complete checkpoint import for a single partition (seconds).
@@ -280,6 +301,12 @@ pub struct Config {
     // Should be less than kafka max.poll.interval.ms to prevent consumer group kicks.
     #[envconfig(default = "240")]
     pub checkpoint_partition_import_timeout_secs: u64,
+
+    // Maximum age of a local metadata.json before we consider the local store stale
+    // and fall back to S3 import. Separate from checkpoint_import_window_hours which
+    // controls the S3 listing window.
+    #[envconfig(default = "7200")] // 2 hours
+    pub local_checkpoint_max_staleness_secs: u64,
 
     //// End checkpoint configuration ////
     //// Kafka-assigner mode configuration ////
@@ -442,6 +469,106 @@ impl Config {
             .with_context(|| format!("Failed to parse storage capacity: '{s}'. Expected format: raw bytes, scientific notation, or units (1Gi, 1GB)"))
     }
 
+    /// Build a RocksDbConfig from env-configured overrides, falling back to defaults.
+    /// Validates max_background_jobs >= 1, clamping with a warning if invalid.
+    pub fn build_rocksdb_config(&self) -> RocksDbConfig {
+        let defaults = RocksDbConfig::default();
+        let max_background_jobs = match self.rocksdb_max_background_jobs {
+            Some(v) if v >= 1 => v,
+            Some(v) => {
+                tracing::warn!(
+                    value = v,
+                    default = defaults.max_background_jobs,
+                    "ROCKSDB_MAX_BACKGROUND_JOBS must be >= 1, using default"
+                );
+                defaults.max_background_jobs
+            }
+            None => defaults.max_background_jobs,
+        };
+        let config = RocksDbConfig {
+            shared_cache_size_bytes: self
+                .rocksdb_shared_cache_size_bytes
+                .unwrap_or(defaults.shared_cache_size_bytes),
+            total_write_buffer_size_bytes: self
+                .rocksdb_total_write_buffer_size_bytes
+                .unwrap_or(defaults.total_write_buffer_size_bytes),
+            max_background_jobs,
+            write_buffer_size_bytes: self
+                .rocksdb_write_buffer_size_bytes
+                .unwrap_or(defaults.write_buffer_size_bytes),
+            target_file_size_base_bytes: self
+                .rocksdb_target_file_size_base_bytes
+                .unwrap_or(defaults.target_file_size_base_bytes),
+            max_open_files: self
+                .rocksdb_max_open_files
+                .unwrap_or(defaults.max_open_files),
+            l0_compaction_trigger: self
+                .rocksdb_l0_compaction_trigger
+                .unwrap_or(defaults.l0_compaction_trigger),
+            l0_slowdown_writes_trigger: self
+                .rocksdb_l0_slowdown_writes_trigger
+                .unwrap_or(defaults.l0_slowdown_writes_trigger),
+            l0_stop_writes_trigger: self
+                .rocksdb_l0_stop_writes_trigger
+                .unwrap_or(defaults.l0_stop_writes_trigger),
+            write_buffer_manager_allow_stall: self
+                .rocksdb_write_buffer_manager_allow_stall
+                .unwrap_or(defaults.write_buffer_manager_allow_stall),
+            compression_type: parse_compression_type(&self.rocksdb_compression_type)
+                .unwrap_or_else(|e| {
+                    tracing::warn!(
+                        value = self.rocksdb_compression_type,
+                        error = %e,
+                        "invalid ROCKSDB_COMPRESSION_TYPE, using default (lz4)"
+                    );
+                    defaults.compression_type
+                }),
+            compression_per_level: self
+                .rocksdb_compression_per_level
+                .as_deref()
+                .map(|s| {
+                    parse_compression_per_level(s).unwrap_or_else(|e| {
+                        tracing::warn!(
+                            value = s,
+                            error = %e,
+                            "invalid ROCKSDB_COMPRESSION_PER_LEVEL, ignoring"
+                        );
+                        defaults.compression_per_level.clone().unwrap_or_default()
+                    })
+                })
+                .filter(|v| !v.is_empty()),
+            bottommost_compression_type: self
+                .rocksdb_bottommost_compression_type
+                .as_deref()
+                .and_then(|s| {
+                    parse_compression_type(s)
+                        .map_err(|e| {
+                            tracing::warn!(
+                                value = s,
+                                error = %e,
+                                "invalid ROCKSDB_BOTTOMMOST_COMPRESSION_TYPE, ignoring"
+                            );
+                            e
+                        })
+                        .ok()
+                }),
+            universal_compression_size_percent: self
+                .rocksdb_universal_compression_size_percent
+                .unwrap_or(defaults.universal_compression_size_percent),
+        };
+
+        if config.compression_per_level.is_some() && config.universal_compression_size_percent < 0 {
+            tracing::warn!(
+                "ROCKSDB_COMPRESSION_PER_LEVEL is set but ROCKSDB_UNIVERSAL_COMPRESSION_SIZE_PERCENT \
+                 is < 0 (compress-all). Per-level settings will be IGNORED by RocksDB in Universal \
+                 compaction mode. Set ROCKSDB_UNIVERSAL_COMPRESSION_SIZE_PERCENT=0 to enable \
+                 per-level compression."
+            );
+        }
+
+        config
+    }
+
     // Check multiple conditions for safe checkpoint export enablement
     pub fn checkpoint_export_enabled(&self) -> bool {
         self.checkpoint_export_enabled
@@ -482,6 +609,11 @@ impl Config {
     /// Get checkpoint partition import timeout as Duration
     pub fn checkpoint_partition_import_timeout(&self) -> Duration {
         Duration::from_secs(self.checkpoint_partition_import_timeout_secs)
+    }
+
+    /// Get max staleness for local checkpoint data as Duration
+    pub fn local_checkpoint_max_staleness(&self) -> Duration {
+        Duration::from_secs(self.local_checkpoint_max_staleness_secs)
     }
 
     /// Build Kafka consumer configuration for the group-based batch consumer.
@@ -779,5 +911,73 @@ mod tests {
         config.s3_endpoint = None;
         config.aws_region = None;
         assert!(!config.checkpoint_import_enabled());
+    }
+
+    #[test]
+    fn test_build_rocksdb_config_default_compression() {
+        let config = Config::init_with_defaults().unwrap();
+        let rocksdb = config.build_rocksdb_config();
+
+        assert_eq!(rocksdb.compression_type, rocksdb::DBCompressionType::Lz4);
+        assert!(rocksdb.compression_per_level.is_none());
+        assert!(rocksdb.bottommost_compression_type.is_none());
+        assert_eq!(rocksdb.universal_compression_size_percent, -1);
+    }
+
+    #[test]
+    fn test_build_rocksdb_config_compression_per_level() {
+        let mut config = Config::init_with_defaults().unwrap();
+        config.rocksdb_compression_per_level = Some("none,none,lz4,lz4,lz4".to_string());
+        config.rocksdb_universal_compression_size_percent = Some(0);
+        let rocksdb = config.build_rocksdb_config();
+
+        let expected = vec![
+            rocksdb::DBCompressionType::None,
+            rocksdb::DBCompressionType::None,
+            rocksdb::DBCompressionType::Lz4,
+            rocksdb::DBCompressionType::Lz4,
+            rocksdb::DBCompressionType::Lz4,
+        ];
+        assert_eq!(rocksdb.compression_per_level.unwrap(), expected);
+        assert_eq!(rocksdb.universal_compression_size_percent, 0);
+    }
+
+    #[test]
+    fn test_build_rocksdb_config_bottommost_compression() {
+        let mut config = Config::init_with_defaults().unwrap();
+        config.rocksdb_bottommost_compression_type = Some("zstd".to_string());
+        let rocksdb = config.build_rocksdb_config();
+
+        assert_eq!(
+            rocksdb.bottommost_compression_type.unwrap(),
+            rocksdb::DBCompressionType::Zstd
+        );
+    }
+
+    #[test]
+    fn test_build_rocksdb_config_invalid_compression_type_falls_back() {
+        let mut config = Config::init_with_defaults().unwrap();
+        config.rocksdb_compression_type = "brotli".to_string();
+        let rocksdb = config.build_rocksdb_config();
+
+        assert_eq!(rocksdb.compression_type, rocksdb::DBCompressionType::Lz4);
+    }
+
+    #[test]
+    fn test_build_rocksdb_config_invalid_per_level_ignored() {
+        let mut config = Config::init_with_defaults().unwrap();
+        config.rocksdb_compression_per_level = Some("none,invalid,lz4".to_string());
+        let rocksdb = config.build_rocksdb_config();
+
+        assert!(rocksdb.compression_per_level.is_none());
+    }
+
+    #[test]
+    fn test_build_rocksdb_config_invalid_bottommost_ignored() {
+        let mut config = Config::init_with_defaults().unwrap();
+        config.rocksdb_bottommost_compression_type = Some("invalid".to_string());
+        let rocksdb = config.build_rocksdb_config();
+
+        assert!(rocksdb.bottommost_compression_type.is_none());
     }
 }

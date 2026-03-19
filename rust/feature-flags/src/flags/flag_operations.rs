@@ -115,14 +115,19 @@ impl FeatureFlag {
     }
 }
 
-/// Returns the set of flags that require DB preparation
+/// Returns the set of non-filtered flags that require DB preparation.
+/// Filtered-out flags (inactive, deleted, runtime/tag mismatches) are skipped
+/// since they won't be evaluated.
 pub fn flags_require_db_preparation<'a>(
     flags: &[&'a FeatureFlag],
     overrides: &HashMap<String, Value>,
+    filtered_out_flag_ids: &HashSet<i32>,
 ) -> Vec<&'a FeatureFlag> {
     flags
         .iter()
-        .filter(|flag| flag.requires_db_preparation(overrides))
+        .filter(|flag| {
+            !filtered_out_flag_ids.contains(&flag.id) && flag.requires_db_preparation(overrides)
+        })
         .copied()
         .collect()
 }
@@ -136,9 +141,10 @@ impl DependencyProvider for FeatureFlag {
     }
 
     fn extract_dependencies(&self) -> Result<HashSet<Self::Id>, Self::Error> {
-        // Inactive flags evaluate to false regardless of their dependencies,
-        // so skip extraction to avoid MissingDependency errors for stale references.
-        if !self.active {
+        // User-disabled or deleted flags don't need dependency extraction. Since
+        // runtime/tag filtering uses `filtered_out_flag_ids` (not `active`), this
+        // check only applies to genuinely user-disabled flags in the DB.
+        if !self.active || self.deleted {
             return Ok(HashSet::new());
         }
 
@@ -293,12 +299,14 @@ mod tests {
                     properties: Some(vec![]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
+                holdout: None,
             },
             deleted: false,
             active: true,
@@ -330,12 +338,14 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
+                holdout: None,
             },
             deleted: false,
             active: true,
@@ -368,6 +378,7 @@ mod tests {
                         }]),
                         rollout_percentage: Some(50.0),
                         variant: None,
+                        ..Default::default()
                     },
                     FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
@@ -380,13 +391,15 @@ mod tests {
                         }]),
                         rollout_percentage: Some(50.0),
                         variant: None,
+                        ..Default::default()
                     },
                 ],
                 multivariate: None,
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
+                holdout: None,
             },
             deleted: false,
             active: true,
@@ -428,12 +441,14 @@ mod tests {
                     ]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
+                holdout: None,
             },
             deleted: false,
             active: true,
@@ -449,19 +464,27 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_dependencies_respects_active_state() {
+    fn test_extract_dependencies_respects_active_and_deleted_state() {
         use crate::utils::graph_utils::DependencyProvider;
 
-        for (active, expected_deps, label) in [
+        for (active, deleted, expected_deps, label) in [
             (
+                false,
                 false,
                 HashSet::new(),
                 "inactive flags should return no dependencies",
             ),
             (
                 true,
+                false,
                 HashSet::from([999]),
                 "active flags should still extract dependencies",
+            ),
+            (
+                true,
+                true,
+                HashSet::new(),
+                "deleted flags should return no dependencies even if active",
             ),
         ] {
             let mut flag = create_test_flag(
@@ -470,7 +493,7 @@ mod tests {
                 None,
                 Some("test_flag".to_string()),
                 None,
-                None,
+                Some(deleted),
                 Some(active),
                 None,
             );
@@ -486,6 +509,7 @@ mod tests {
                 }]),
                 rollout_percentage: Some(100.0),
                 variant: None,
+                ..Default::default()
             }];
 
             let deps = flag.extract_dependencies().unwrap();
@@ -1494,7 +1518,13 @@ mod tests {
             .expect("Failed to fetch flags from Postgres");
 
         // Verify rollout percentages
-        for flags in &[redis_flags, FeatureFlagList { flags: pg_flags }] {
+        for flags in &[
+            redis_flags,
+            FeatureFlagList {
+                flags: pg_flags,
+                ..Default::default()
+            },
+        ] {
             assert!(flags
                 .flags
                 .iter()
@@ -1528,7 +1558,7 @@ mod tests {
         assert!(flag.filters.aggregation_group_type_index.is_none());
         assert!(flag.filters.payloads.is_none());
         assert!(flag.filters.super_groups.is_none());
-        assert!(flag.filters.holdout_groups.is_none());
+        assert!(flag.filters.holdout.is_none());
     }
 
     #[test]
@@ -1621,25 +1651,13 @@ mod tests {
     }
 
     #[test]
-    fn test_does_not_require_db_preparation_if_holdout_groups_set() {
+    fn test_does_not_require_db_preparation_if_holdout_set() {
+        use crate::flags::flag_models::Holdout;
         let mut flag = create_simple_flag(vec![], 100.0);
-        flag.filters.holdout_groups = Some(vec![
-            FlagPropertyGroup {
-                properties: Some(vec![]),
-                variant: Some("holdout-1".to_string()),
-                rollout_percentage: Some(10.0),
-            },
-            // Ignored, but here for testing.
-            FlagPropertyGroup {
-                properties: Some(vec![create_simple_property_filter(
-                    "some_property",
-                    PropertyType::Person,
-                    OperatorType::Exact,
-                )]),
-                rollout_percentage: Some(100.0),
-                variant: Some("holdout-2".to_string()),
-            },
-        ]);
+        flag.filters.holdout = Some(Holdout {
+            id: 1,
+            exclusion_percentage: 10.0,
+        });
 
         assert!(!flag.requires_db_preparation(&HashMap::new()));
     }
@@ -1721,6 +1739,7 @@ mod tests {
             properties: None,
             rollout_percentage: Some(100.0),
             variant: None,
+            ..Default::default()
         }];
         assert!(!flag.has_partial_rollout());
     }
@@ -1732,6 +1751,7 @@ mod tests {
             properties: None,
             rollout_percentage: Some(50.0),
             variant: None,
+            ..Default::default()
         }];
         assert!(flag.has_partial_rollout());
     }
@@ -1743,6 +1763,7 @@ mod tests {
             properties: None,
             rollout_percentage: None, // Defaults to 100%
             variant: None,
+            ..Default::default()
         }];
         assert!(!flag.has_partial_rollout());
     }
@@ -1755,11 +1776,13 @@ mod tests {
                 properties: None,
                 rollout_percentage: Some(100.0),
                 variant: None,
+                ..Default::default()
             },
             FlagPropertyGroup {
                 properties: None,
                 rollout_percentage: Some(50.0),
                 variant: None,
+                ..Default::default()
             },
         ];
         assert!(flag.has_partial_rollout());
@@ -1780,6 +1803,7 @@ mod tests {
             properties: None,
             rollout_percentage: Some(50.0),
             variant: None,
+            ..Default::default()
         }];
         // None defaults to false, so no continuity means no lookup needed
         assert!(!flag.needs_hash_key_override());
@@ -1793,6 +1817,7 @@ mod tests {
             properties: None,
             rollout_percentage: Some(100.0),
             variant: None,
+            ..Default::default()
         }];
         // 100% rollout with no variants -> doesn't need lookup
         assert!(!flag.needs_hash_key_override());
@@ -1806,6 +1831,7 @@ mod tests {
             properties: None,
             rollout_percentage: Some(50.0),
             variant: None,
+            ..Default::default()
         }];
         // Partial rollout needs consistent bucketing
         assert!(flag.needs_hash_key_override());
@@ -1819,6 +1845,7 @@ mod tests {
             properties: None,
             rollout_percentage: Some(100.0),
             variant: None,
+            ..Default::default()
         }];
         flag.filters.multivariate = Some(MultivariateFlagOptions {
             variants: vec![
@@ -1847,6 +1874,7 @@ mod tests {
             properties: None,
             rollout_percentage: Some(50.0),
             variant: None,
+            ..Default::default()
         }];
         // Group-based flags don't use hash key overrides
         assert!(!flag.needs_hash_key_override());
@@ -1861,6 +1889,7 @@ mod tests {
             properties: None,
             rollout_percentage: Some(50.0),
             variant: None,
+            ..Default::default()
         }];
         // Device ID bucketing doesn't use hash key overrides
         assert!(!flag.needs_hash_key_override());
@@ -1883,6 +1912,7 @@ mod tests {
             properties: None,
             rollout_percentage: Some(50.0), // Partial rollout
             variant: None,
+            ..Default::default()
         }];
         flag.filters.multivariate = Some(MultivariateFlagOptions {
             variants: vec![
@@ -1900,5 +1930,35 @@ mod tests {
         });
         // Both conditions satisfied -> needs lookup
         assert!(flag.needs_hash_key_override());
+    }
+
+    #[test]
+    fn test_flags_require_db_preparation_skips_filtered_out() {
+        let person_property =
+            create_simple_property_filter("email", PropertyType::Person, OperatorType::Exact);
+        let mut flag_a = create_simple_flag(vec![person_property.clone()], 100.0);
+        flag_a.id = 1;
+        flag_a.key = "flag_a".to_string();
+        let mut flag_b = create_simple_flag(vec![person_property], 100.0);
+        flag_b.id = 2;
+        flag_b.key = "flag_b".to_string();
+
+        let flags: Vec<&FeatureFlag> = vec![&flag_a, &flag_b];
+        let overrides = HashMap::new();
+
+        // Without filtering, both flags require DB preparation
+        let result = flags_require_db_preparation(&flags, &overrides, &HashSet::new());
+        assert_eq!(result.len(), 2);
+
+        // With flag_a filtered out, only flag_b requires preparation
+        let filtered = HashSet::from([1]);
+        let result = flags_require_db_preparation(&flags, &overrides, &filtered);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].key, "flag_b");
+
+        // With both filtered, none require preparation
+        let filtered = HashSet::from([1, 2]);
+        let result = flags_require_db_preparation(&flags, &overrides, &filtered);
+        assert!(result.is_empty());
     }
 }

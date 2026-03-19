@@ -4,6 +4,7 @@ import { useActions, useValues } from 'kea'
 import { IconGear, IconLeave, IconPlusSmall, IconReceipt } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
@@ -53,6 +54,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
+    const isAiFirst = useFeatureFlag('AI_FIRST')
 
     const projectNameStartsWithEmoji = currentTeam?.name?.match(/^\p{Emoji}/u) !== null
     const projectNameWithoutFirstEmoji = projectNameStartsWithEmoji
@@ -67,10 +69,9 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                         <ButtonPrimitive
                             {...props}
                             iconOnly={isLayoutNavCollapsed}
-                            className={cn('flex-1 py-1 min-w-0', {
+                            className={cn('flex-1 py-1 min-w-0 group', {
                                 'pl-[3px] gap-[6px]': !isLayoutNavCollapsed,
                             })}
-                            variant="panel"
                             data-attr="new-account-menu-button"
                             tooltip={
                                 <div className="flex flex-col gap-1">
@@ -100,11 +101,18 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     )}
 
                                     {!isLayoutNavCollapsed && (
-                                        <span className="truncate">{projectNameWithoutFirstEmoji ?? 'Project'}</span>
+                                        <span
+                                            className={cn(
+                                                'truncate',
+                                                isAiFirst && 'text-secondary group-hover:text-primary'
+                                            )}
+                                        >
+                                            {projectNameWithoutFirstEmoji ?? 'Project'}
+                                        </span>
                                     )}
                                 </>
                             )}
-                            {!isLayoutNavCollapsed && <MenuOpenIndicator />}
+                            {!isLayoutNavCollapsed && !isAiFirst && <MenuOpenIndicator />}
                         </ButtonPrimitive>
                     )}
                 />

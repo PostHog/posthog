@@ -159,16 +159,14 @@ pub fn populate_missing_initial_properties(properties: &mut HashMap<String, Valu
     team_id = %team_id,
     distinct_id = %distinct_id,
     cohort_ids = ?static_cohort_ids,
-    group_type_indexes = ?group_type_indexes,
-    group_keys = ?group_keys
+    group_type_to_key = ?group_type_to_key
 ))]
 pub async fn fetch_and_locally_cache_all_relevant_properties(
     flag_evaluation_state: &mut FlagEvaluationState,
     reader: PostgresReader,
     distinct_id: String,
     team_id: TeamId,
-    group_type_indexes: &HashSet<GroupTypeIndex>,
-    group_keys: &HashSet<String>,
+    group_type_to_key: &HashMap<GroupTypeIndex, String>,
     static_cohort_ids: Vec<CohortId>,
 ) -> Result<(), FlagError> {
     // Add the test-specific counter increment
@@ -242,9 +240,6 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     let person_query_start = Instant::now();
     let person_query_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &query_labels);
     let person = Person::from_distinct_id(&mut conn, team_id, &distinct_id).await?;
-    let (person_id, person_props) = person
-        .map(|p| (Some(p.id), Some(p.properties)))
-        .unwrap_or((None, None));
     person_query_timer.fin();
     let person_query_duration = person_query_start.elapsed();
     with_canonical_log(|log| {
@@ -270,9 +265,10 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         );
     }
     let person_processing_timer = common_metrics::timing_guard(FLAG_PERSON_PROCESSING_TIME, &[]);
-    if let Some(person_id) = person_id {
-        // NB: this is where we actually set our person ID in the flag evaluation state.
-        flag_evaluation_state.set_person_id(person_id);
+    if let Some(ref person) = person {
+        // NB: this is where we actually set our person ID and UUID in the flag evaluation state.
+        flag_evaluation_state.set_person_id(person.id);
+        flag_evaluation_state.set_person_uuid(person.uuid);
         // If we have static cohort IDs to check and a valid person_id, do the cohort query
         if !static_cohort_ids.is_empty() {
             let cohort_query = r#"
@@ -292,7 +288,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             let cohort_timer = common_metrics::timing_guard(FLAG_COHORT_QUERY_TIME, &query_labels);
             let cohort_rows = sqlx::query(cohort_query)
                 .bind(&static_cohort_ids)
-                .bind(person_id)
+                .bind(person.id)
                 .fetch_all(&mut *conn)
                 .await?;
             cohort_timer.fin();
@@ -305,7 +301,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             if cohort_query_duration.as_millis() > 200 {
                 warn!(
                     duration_ms = cohort_query_duration.as_millis(),
-                    person_id = person_id,
+                    person_id = person.id,
                     cohort_count = static_cohort_ids.len(),
                     sql_summary =
                         "SELECT cohort membership with LEFT JOIN from UNNEST to cohortpeople",
@@ -314,7 +310,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             } else {
                 info!(
                     duration_ms = cohort_query_duration.as_millis(),
-                    person_id = person_id,
+                    person_id = person.id,
                     cohort_count = static_cohort_ids.len(),
                     "Cohort query completed"
                 );
@@ -331,7 +327,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
                 })
                 .collect();
 
-            flag_evaluation_state.set_static_cohort_matches(cohort_results);
+            flag_evaluation_state.set_cohort_matches(cohort_results);
             cohort_processing_timer.fin();
         } else {
             // TRICKY: if there are no static cohorts to check, we want to return an empty map to show that
@@ -339,14 +335,14 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             // would indicate that that we had an error doing this evaluation in the first place.
             // i.e.: if there are no static cohort ID matches, it means we checked, and if there's None, it means something
             // went wrong.  This is handled in the caller.
-            flag_evaluation_state.set_static_cohort_matches(HashMap::new());
+            flag_evaluation_state.set_cohort_matches(HashMap::new());
         }
     }
 
     // if we have person properties, set them
-    let mut all_person_properties: HashMap<String, Value> = if let Some(person_props) = person_props
-    {
-        person_props
+    let mut all_person_properties: HashMap<String, Value> = if let Some(ref person) = person {
+        person
+            .properties
             .as_object()
             .unwrap_or(&serde_json::Map::new())
             .iter()
@@ -364,21 +360,22 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     person_processing_timer.fin();
 
     // Only fetch group property data if we have group types to look up
-    if !group_type_indexes.is_empty() {
+    if !group_type_to_key.is_empty() {
         let group_query = r#"
             SELECT
-                group_type_index,
-                group_key,
-                group_properties
-            FROM posthog_group
-            WHERE team_id = $1
-                AND group_type_index = ANY($2)
-                AND group_key = ANY($3)
+                g.group_type_index,
+                g.group_properties
+            FROM posthog_group g
+            INNER JOIN UNNEST($2::integer[], $3::text[]) AS t(group_type_index, group_key)
+                ON g.group_type_index = t.group_type_index AND g.group_key = t.group_key
+            WHERE g.team_id = $1
         "#;
 
-        let group_type_indexes_vec: Vec<GroupTypeIndex> =
-            group_type_indexes.iter().copied().collect();
-        let group_keys_vec: Vec<String> = group_keys.iter().cloned().collect();
+        let (group_type_indexes_vec, group_keys_vec): (Vec<GroupTypeIndex>, Vec<String>) =
+            group_type_to_key
+                .iter()
+                .map(|(&k, v)| (k, v.clone()))
+                .unzip();
 
         let group_query_start = Instant::now();
         let group_query_timer = common_metrics::timing_guard(FLAG_GROUP_QUERY_TIME, &query_labels);
@@ -399,8 +396,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             warn!(
                 duration_ms = group_query_duration.as_millis(),
                 team_id = team_id,
-                group_type_count = group_type_indexes_vec.len(),
-                group_key_count = group_keys_vec.len(),
+                group_pair_count = group_type_to_key.len(),
                 sql_summary =
                     "SELECT group properties with UNNEST for group_type_index, group_key pairs",
                 "Slow group query detected"
@@ -409,8 +405,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             info!(
                 duration_ms = group_query_duration.as_millis(),
                 team_id = team_id,
-                group_type_count = group_type_indexes_vec.len(),
-                group_key_count = group_keys_vec.len(),
+                group_pair_count = group_type_to_key.len(),
                 result_count = groups.len(),
                 "Group query completed"
             );
@@ -1433,7 +1428,8 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
+                holdout: None,
             }),
             Some(false), // not deleted
             Some(true),  // active

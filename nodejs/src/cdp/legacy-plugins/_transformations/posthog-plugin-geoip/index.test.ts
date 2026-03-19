@@ -11,7 +11,7 @@ describe('posthog-plugin-geoip', () => {
     let geoip: GeoIp
 
     beforeAll(async () => {
-        geoip = await new GeoIPService(defaultConfig).get()
+        geoip = await new GeoIPService(defaultConfig.MMDB_FILE_LOCATION).get()
     })
 
     function resetMetaWithMmdb(
@@ -51,7 +51,7 @@ describe('posthog-plugin-geoip', () => {
               "$geoip_country_name": "United States",
               "$geoip_latitude": 41.5,
               "$geoip_longitude": -81.6938,
-              "$geoip_postal_code": "44192",
+              "$geoip_postal_code": "44199",
               "$geoip_subdivision_1_code": "OH",
               "$geoip_subdivision_1_name": "Ohio",
               "$geoip_time_zone": "America/New_York",
@@ -75,7 +75,7 @@ describe('posthog-plugin-geoip', () => {
                 "$geoip_country_name": "United States",
                 "$geoip_latitude": 41.5,
                 "$geoip_longitude": -81.6938,
-                "$geoip_postal_code": "44192",
+                "$geoip_postal_code": "44199",
                 "$geoip_subdivision_1_code": "OH",
                 "$geoip_subdivision_1_name": "Ohio",
                 "$geoip_subdivision_2_code": null,
@@ -92,7 +92,7 @@ describe('posthog-plugin-geoip', () => {
                 "$initial_geoip_country_name": "United States",
                 "$initial_geoip_latitude": 41.5,
                 "$initial_geoip_longitude": -81.6938,
-                "$initial_geoip_postal_code": "44192",
+                "$initial_geoip_postal_code": "44199",
                 "$initial_geoip_subdivision_1_code": "OH",
                 "$initial_geoip_subdivision_1_name": "Ohio",
                 "$initial_geoip_subdivision_2_code": null,
@@ -122,7 +122,7 @@ describe('posthog-plugin-geoip', () => {
               "$geoip_country_name": "United States",
               "$geoip_latitude": 41.5,
               "$geoip_longitude": -81.6938,
-              "$geoip_postal_code": "44192",
+              "$geoip_postal_code": "44199",
               "$geoip_subdivision_1_code": "OH",
               "$geoip_subdivision_1_name": "Ohio",
               "$geoip_subdivision_2_code": null,
@@ -141,7 +141,7 @@ describe('posthog-plugin-geoip', () => {
               "$initial_geoip_country_name": "United States",
               "$initial_geoip_latitude": 41.5,
               "$initial_geoip_longitude": -81.6938,
-              "$initial_geoip_postal_code": "44192",
+              "$initial_geoip_postal_code": "44199",
               "$initial_geoip_subdivision_1_code": "OH",
               "$initial_geoip_subdivision_1_name": "Ohio",
               "$initial_geoip_subdivision_2_code": null,
@@ -171,7 +171,7 @@ describe('posthog-plugin-geoip', () => {
               "$geoip_country_name": "United States",
               "$geoip_latitude": 41.5,
               "$geoip_longitude": -81.6938,
-              "$geoip_postal_code": "44192",
+              "$geoip_postal_code": "44199",
               "$geoip_subdivision_1_code": "OH",
               "$geoip_subdivision_1_name": "Ohio",
               "$geoip_subdivision_2_code": null,
@@ -190,7 +190,7 @@ describe('posthog-plugin-geoip', () => {
               "$initial_geoip_country_name": "United States",
               "$initial_geoip_latitude": 41.5,
               "$initial_geoip_longitude": -81.6938,
-              "$initial_geoip_postal_code": "44192",
+              "$initial_geoip_postal_code": "44199",
               "$initial_geoip_subdivision_1_code": "OH",
               "$initial_geoip_subdivision_1_name": "Ohio",
               "$initial_geoip_subdivision_2_code": null,

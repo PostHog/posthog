@@ -12,6 +12,7 @@ from rest_framework import serializers
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObject
+from posthog.settings import EE_AVAILABLE
 
 if TYPE_CHECKING:
     from posthog.models.file_system.file_system import FileSystem
@@ -363,6 +364,8 @@ class UserAccessControl:
         )
 
     def _get_access_controls(self, filters: dict) -> list[_AccessControl]:
+        if not EE_AVAILABLE:
+            return []
         key = json.dumps(filters, sort_keys=True)
         if key not in self._cache:
             self._cache[key] = list(AccessControl.objects.filter(self._filter_options(filters)))
@@ -437,6 +440,8 @@ class UserAccessControl:
         """
         Preload access controls for a list of objects
         """
+        if not EE_AVAILABLE:
+            return
 
         filter_groups: list[dict] = []
 
@@ -459,6 +464,9 @@ class UserAccessControl:
         Checking permissions can involve multiple queries to AccessControl e.g. project level, global resource level, and object level
         As we can know this upfront, we can optimize this by loading all the controls we will need upfront.
         """
+        if not EE_AVAILABLE:
+            return
+
         # Question - are we fundamentally loading every access control for the given resource? If so should we accept that fact and just load them all?
         # doing all additional filtering in memory?
 
@@ -885,6 +893,9 @@ class UserAccessControl:
 
         # 1) If the user is staff or org-admin, they can see everything
         if user.is_staff or (org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN):
+            return queryset
+
+        if not EE_AVAILABLE:
             return queryset
 
         # Subquery to check if user has "admin" on the FileSystem's team/project

@@ -18,35 +18,6 @@ from posthog.dags.common import JobOwners, check_for_concurrent_runs
 
 NO_SHARD_PATH = "noshard"
 
-
-def get_max_backup_bandwidth() -> str:
-    """
-    Get max backup bandwidth based on the current environment.
-
-    Returns different bandwidth limits based on CLOUD_DEPLOYMENT:
-    - US: i7ie.metal-48xl instances (192 vCPUs, 768GB RAM, 100 Gbps network)
-    - EU: m8g.8xlarge instances (32 vCPUs, 128GB RAM, 12 Gbps network)
-    - DEV/E2E/None: Conservative limits for development/self-hosted
-
-    Target: Complete backups within ~20 hours while preserving network capacity
-    """
-    cloud_deployment = getattr(settings, "CLOUD_DEPLOYMENT", None)
-
-    if cloud_deployment == "US":
-        # i7ie.metal-48xl instances - can handle higher bandwidth
-        # 2400 MB/s = 19.2 Gbps (19% of 100 Gbps network)
-        # For 208TB: ~24 hour backup time
-        return "2400000000"  # 2400MB/s
-    elif cloud_deployment == "EU":
-        # m8g.8xlarge instances - moderate bandwidth
-        # 450 MB/s = 3.6 Gbps (30% of 12 Gbps network)
-        # For 48TB: ~29 hour backup time
-        return "450000000"  # 450MB/s
-    else:
-        # DEV/self-hosted - conservative limits
-        return "100000000"  # 100MB/s to prevent resource exhaustion
-
-
 SHARDED_TABLES = [
     "sharded_events",
     "sharded_app_metrics",
@@ -80,6 +51,8 @@ NON_SHARDED_TABLES = [
     "pg_embeddings",
     "plugin_log_entries",
 ]
+
+LOGS_TABLES = ["logs34"]
 
 
 @dataclass
@@ -166,7 +139,7 @@ class Backup:
     def create(self, client: Client):
         backup_settings = {
             "async": "1",
-            "max_backup_bandwidth": get_max_backup_bandwidth(),
+            "max_backup_bandwidth": settings.CLICKHOUSE_BACKUPS_MAX_BANDWIDTH,
             # There is a CH issue that makes bandwith be half than what is configured: https://github.com/ClickHouse/ClickHouse/issues/78213
             "s3_disable_checksum": "1",
             # According to CH docs, disabling this is safe enough as checksums are already made: https://clickhouse.com/docs/operations/settings/settings#s3_disable_checksum
@@ -632,7 +605,10 @@ def prepare_run_config(config: BackupConfig) -> dagster.RunConfig:
 
 
 def run_backup_request(
-    table: str, incremental: bool, context: dagster.ScheduleEvaluationContext
+    table: str,
+    incremental: bool,
+    context: dagster.ScheduleEvaluationContext,
+    owner: JobOwners = JobOwners.TEAM_CLICKHOUSE,
 ) -> Optional[dagster.RunRequest]:
     skip_reason = check_for_concurrent_runs(
         context,
@@ -657,7 +633,7 @@ def run_backup_request(
         tags={
             "backup_type": "incremental" if incremental else "full",
             "table": table,
-            "owner": JobOwners.TEAM_CLICKHOUSE.value,
+            "owner": owner.value,
         },
     )
 
@@ -712,5 +688,32 @@ def incremental_non_sharded_backup_schedule(context: dagster.ScheduleEvaluationC
     """Launch an incremental backup for non-sharded tables"""
     for table in NON_SHARDED_TABLES:
         request = run_backup_request(table, incremental=True, context=context)
+        if request:
+            yield request
+
+
+@dagster.schedule(
+    job=non_sharded_backup,
+    cron_schedule=settings.CLICKHOUSE_FULL_BACKUP_SCHEDULE,
+    should_execute=lambda context: 1 <= context.scheduled_execution_time.day <= 7,
+    default_status=dagster.DefaultScheduleStatus.RUNNING,
+)
+def full_logs_backup_schedule(context: dagster.ScheduleEvaluationContext):
+    """Launch a full backup for logs tables"""
+    for table in LOGS_TABLES:
+        request = run_backup_request(table, incremental=False, context=context, owner=JobOwners.TEAM_LOGS)
+        if request:
+            yield request
+
+
+@dagster.schedule(
+    job=non_sharded_backup,
+    cron_schedule=settings.CLICKHOUSE_INCREMENTAL_BACKUP_SCHEDULE,
+    default_status=dagster.DefaultScheduleStatus.RUNNING,
+)
+def incremental_logs_backup_schedule(context: dagster.ScheduleEvaluationContext):
+    """Launch an incremental backup for logs tables"""
+    for table in LOGS_TABLES:
+        request = run_backup_request(table, incremental=True, context=context, owner=JobOwners.TEAM_LOGS)
         if request:
             yield request

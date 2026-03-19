@@ -10,13 +10,14 @@ from parameterized import parameterized
 from rest_framework import exceptions
 from rest_framework.exceptions import NotFound, ValidationError
 
-from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.team import Team
 from posthog.models.user import User
+
+from products.experiments.backend.models.experiment import Experiment
 
 from ee.api.vercel.types import VercelUserClaims
 from ee.vercel.integration import VercelIntegration
@@ -194,7 +195,7 @@ class TestVercelIntegration(TestCase):
         result = VercelIntegration.delete_installation(self.installation_id)
 
         assert result["finalized"]
-        mock_billing_manager.assert_called_once_with(mock_license.return_value)
+        mock_billing_manager.assert_called_once_with(mock_license.return_value, user=self.user)
         mock_manager_instance.deauthorize.assert_called_once_with(
             self.organization, billing_provider=BillingProvider.VERCEL
         )

@@ -23,10 +23,12 @@ class DoItSource(SimpleSource[DoItSourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.DOIT
 
-    def get_schemas(self, config: DoItSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: DoItSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
         reports = doit_list_reports(config)
 
-        return [
+        schemas = [
             SourceSchema(
                 name=name,
                 supports_incremental=True,
@@ -35,6 +37,12 @@ class DoItSource(SimpleSource[DoItSourceConfig]):
             )
             for name, _id in reports
         ]
+
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+
+        return schemas
 
     def source_for_pipeline(self, config: DoItSourceConfig, inputs: SourceInputs) -> SourceResponse:
         return doit_source(

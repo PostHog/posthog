@@ -1,109 +1,4 @@
 {
-    "add-insight-to-dashboard": {
-        "description": "Add an existing insight to a dashboard. Requires insight ID and dashboard ID. Optionally supports layout and color customization.",
-        "category": "Dashboards",
-        "feature": "dashboards",
-        "summary": "Add an existing insight to a dashboard.",
-        "title": "Add insight to dashboard",
-        "required_scopes": ["dashboard:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "dashboard-create": {
-        "description": "Create a new dashboard in the project. Requires name and optional description, tags, and other properties.",
-        "category": "Dashboards",
-        "feature": "dashboards",
-        "summary": "Create a new dashboard in the project.",
-        "title": "Create dashboard",
-        "required_scopes": ["dashboard:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "dashboard-delete": {
-        "description": "Delete a dashboard by ID (soft delete - marks as deleted).",
-        "category": "Dashboards",
-        "feature": "dashboards",
-        "summary": "Delete a dashboard by ID.",
-        "title": "Delete dashboard",
-        "required_scopes": ["dashboard:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "dashboard-get": {
-        "description": "Get a specific dashboard by ID. The response will include insights / tiles that are on the dashboard.",
-        "category": "Dashboards",
-        "feature": "dashboards",
-        "summary": "Get a specific dashboard by ID, including insights that are on the dashboard.",
-        "title": "Get dashboard",
-        "required_scopes": ["dashboard:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "dashboards-get-all": {
-        "description": "Get all dashboards in the project with optional filtering. Can filter by pinned status, search term, or pagination.",
-        "category": "Dashboards",
-        "feature": "dashboards",
-        "summary": "Get all dashboards in the project with optional filtering.",
-        "title": "Get all dashboards",
-        "required_scopes": ["dashboard:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "dashboard-update": {
-        "description": "Update an existing dashboard by ID. Can update name, description, pinned status or tags.",
-        "category": "Dashboards",
-        "feature": "dashboards",
-        "summary": "Update an existing dashboard by ID.",
-        "title": "Update dashboard",
-        "required_scopes": ["dashboard:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "dashboard-reorder-tiles": {
-        "description": "Reorder tiles (insights) on a dashboard. Provide an array of tile IDs in the desired order from top to bottom. First, use dashboard-get to retrieve the dashboard and see the current tile IDs, then provide the tile IDs in your desired order.",
-        "category": "Dashboards",
-        "feature": "dashboards",
-        "summary": "Reorder tiles on a dashboard.",
-        "title": "Reorder dashboard tiles",
-        "required_scopes": ["dashboard:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
     "docs-search": {
         "description": "Use this tool to search the PostHog documentation for information that can help the user with their request. Use it as a fallback when you cannot answer the user's request using other tools in this MCP. Only use this tool for PostHog related questions.",
         "category": "Documentation",
@@ -156,81 +51,6 @@
         "summary": "Update the status of an error tracking issue.",
         "title": "Update issue status",
         "required_scopes": ["error_tracking:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "create-feature-flag": {
-        "description": "Creates a new feature flag in the project. Once you have created a feature flag, you should: Ask the user if they want to add it to their codebase, Use the \"search-docs\" tool to find documentation on how to add feature flags to the codebase (search for the right language / framework), Clarify where it should be added and then add it.",
-        "category": "Feature flags",
-        "feature": "flags",
-        "summary": "Creates a new feature flag in the project.",
-        "title": "Create feature flag",
-        "required_scopes": ["feature_flag:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "delete-feature-flag": {
-        "description": "Delete a feature flag in the project.",
-        "category": "Feature flags",
-        "feature": "flags",
-        "summary": "Delete a feature flag in the project.",
-        "title": "Delete feature flag",
-        "required_scopes": ["feature_flag:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "feature-flag-get-all": {
-        "description": "Get all feature flags in the project.",
-        "category": "Feature flags",
-        "feature": "flags",
-        "summary": "Get all feature flags in the project.",
-        "title": "Get all feature flags",
-        "required_scopes": ["feature_flag:read"],
-        "new_mcp": false,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "feature-flag-get-definition": {
-        "description": "Get the definition of a feature flag. You can provide either the flagId or the flagKey. If you provide both, the flagId will be used.",
-        "category": "Feature flags",
-        "feature": "flags",
-        "summary": "Get the definition of a feature flag.",
-        "title": "Get feature flag definition",
-        "required_scopes": ["feature_flag:read"],
-        "new_mcp": false,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "update-feature-flag": {
-        "description": "Update a new feature flag in the project. To enable a feature flag, you should make sure it is active and the rollout percentage is set to 100 for the group you want to target. To disable a feature flag, you should make sure it is inactive, you can keep the rollout percentage as it is.",
-        "category": "Feature flags",
-        "feature": "flags",
-        "summary": "Update a feature flag in the project.",
-        "title": "Update feature flag",
-        "required_scopes": ["feature_flag:write"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -442,11 +262,102 @@
         "title": "Generate SQL",
         "required_scopes": ["query:read"],
         "new_mcp": false,
+        "requires_ai_consent": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "evaluations-get": {
+        "description": "List LLM analytics evaluations for the project. Evaluations automatically score AI generations for quality, relevance, safety, and other criteria. Supports optional search by name/description and filtering by enabled status. Evaluation results are stored as '$ai_evaluation' events — to query results, use the execute-sql or query-run tool with a HogQL query filtering on event = '$ai_evaluation'. Key properties: $ai_evaluation_id (evaluation UUID), $ai_evaluation_name, $ai_target_event_id (generation event UUID), $ai_trace_id, $ai_evaluation_result (boolean pass/fail), $ai_evaluation_reasoning (text), $ai_evaluation_applicable (boolean, false = N/A).",
+        "category": "LLM analytics",
+        "feature": "llm-analytics",
+        "summary": "List LLM analytics evaluations.",
+        "title": "List evaluations",
+        "required_scopes": ["evaluation:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "evaluation-get": {
+        "description": "Get a specific LLM analytics evaluation by its UUID. Returns full details including name, type (llm_judge or hog), configuration, conditions, and enabled status.",
+        "category": "LLM analytics",
+        "feature": "llm-analytics",
+        "summary": "Get a specific evaluation by ID.",
+        "title": "Get evaluation",
+        "required_scopes": ["evaluation:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "evaluation-create": {
+        "description": "Create a new LLM analytics evaluation. Two types are supported: 'llm_judge' uses an LLM to score generations against a prompt you define (for subjective checks like tone, helpfulness, hallucination detection), and 'hog' runs deterministic code against each generation (for rule-based checks like format validation, keyword detection, length limits). For llm_judge evaluations, provide a prompt in evaluation_config and a model_configuration. For hog evaluations, provide source code in evaluation_config.",
+        "category": "LLM analytics",
+        "feature": "llm-analytics",
+        "summary": "Create a new evaluation.",
+        "title": "Create evaluation",
+        "required_scopes": ["evaluation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "evaluation-update": {
+        "description": "Update an existing LLM analytics evaluation. You can change the name, description, enabled status, evaluation config (prompt or source code), and output config. Use this to enable/disable evaluations or modify their scoring logic.",
+        "category": "LLM analytics",
+        "feature": "llm-analytics",
+        "summary": "Update an evaluation.",
+        "title": "Update evaluation",
+        "required_scopes": ["evaluation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "evaluation-delete": {
+        "description": "Delete an LLM analytics evaluation (soft delete). The evaluation will be marked as deleted and will no longer run.",
+        "category": "LLM analytics",
+        "feature": "llm-analytics",
+        "summary": "Delete an evaluation.",
+        "title": "Delete evaluation",
+        "required_scopes": ["evaluation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "evaluation-run": {
+        "description": "Trigger an evaluation run on a specific $ai_generation event. This executes the evaluation (either LLM judge or Hog code) against the target event asynchronously via a background workflow. The run is async — it returns a workflow_id and status 'started'. Results are written as '$ai_evaluation' events once complete. To check results after triggering a run, query events with: SELECT properties.$ai_evaluation_result as result, properties.$ai_evaluation_reasoning as reasoning FROM events WHERE event = '$ai_evaluation' AND properties.$ai_evaluation_id = '<evaluation_uuid>' AND properties.$ai_target_event_id = '<generation_event_uuid>' ORDER BY timestamp DESC LIMIT 1.",
+        "category": "LLM analytics",
+        "feature": "llm-analytics",
+        "summary": "Run an evaluation on a specific event.",
+        "title": "Run evaluation",
+        "required_scopes": ["evaluation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "get-llm-total-costs-for-project": {
@@ -775,66 +686,6 @@
             "idempotentHint": true,
             "openWorldHint": false,
             "readOnlyHint": true
-        }
-    },
-    "prompt-list": {
-        "description": "List all LLM prompts stored for the current team. Optionally filter by name. Returns summary info (id, name, version, timestamps) without full prompt content.",
-        "category": "Prompts",
-        "feature": "prompts",
-        "summary": "List all team prompts.",
-        "title": "List prompts",
-        "required_scopes": ["llm_prompt:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "prompt-get": {
-        "description": "Get a specific LLM prompt by name, including its full content. Uses the cached endpoint for fast retrieval.",
-        "category": "Prompts",
-        "feature": "prompts",
-        "summary": "Get a prompt by name.",
-        "title": "Get prompt",
-        "required_scopes": ["llm_prompt:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "prompt-create": {
-        "description": "Create a new LLM prompt for the current team. Requires a unique name and prompt content (string or JSON object).",
-        "category": "Prompts",
-        "feature": "prompts",
-        "summary": "Create a new prompt.",
-        "title": "Create prompt",
-        "required_scopes": ["llm_prompt:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "prompt-update": {
-        "description": "Update the content of an existing LLM prompt by name. Looks up the prompt by name, then patches its content. Name is immutable after creation.",
-        "category": "Prompts",
-        "feature": "prompts",
-        "summary": "Update an existing prompt.",
-        "title": "Update prompt",
-        "required_scopes": ["llm_prompt:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
         }
     }
 }

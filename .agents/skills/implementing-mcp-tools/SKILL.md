@@ -11,10 +11,9 @@ Read the full guide at [docs/published/handbook/engineering/ai/implementing-mcp-
 
 ```sh
 # 1. Scaffold a starter YAML with all operations disabled.
-#    --product is a substring match on URL paths: it selects every endpoint
-#    whose path contains /<name>/ (hyphens normalized to underscores).
-#    The value can be a product name or any path-segment needle
-#    (e.g. --product actions matches /api/projects/{project_id}/actions/).
+#    --product discovers endpoints via x-explicit-tags (priority 1) then
+#    URL substring match (fallback). ViewSets in products/<name>/backend/
+#    are auto-tagged. ViewSets elsewhere need @extend_schema(tags=["<product>"]).
 pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
     --output ../../products/your_product/mcp/tools.yaml
 
@@ -74,7 +73,7 @@ YAML files configure which operations are exposed as MCP tools.
 See existing definitions for patterns:
 
 - `products/<product>/mcp/*.yaml` — preferred, keeps config close to the code
-- `services/mcp/definitions/*.yaml` — shared location
+- `services/mcp/definitions/*.yaml` — fallback for functionality without a product folder
 
 The build pipeline discovers YAML files from both paths.
 
@@ -82,8 +81,8 @@ The build pipeline discovers YAML files from both paths.
 
 ```yaml
 category: Human readable name
-feature: snake_case_name
-url_prefix: /path
+feature: snake_case_name # should match the product folder name (used for runtime filtering)
+url_prefix: /path # frontend app route, used for enrich_url links
 tools:
   your-tool-name: # kebab-case
     operation: operationId_from_openapi

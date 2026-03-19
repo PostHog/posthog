@@ -35,9 +35,17 @@ export class DashboardPage {
         await this.dismissQuickStartIfVisible()
 
         if (dashboardName) {
-            const textarea = this.page.locator('.scene-title-section textarea')
-            await textarea.or(this.page.locator('.scene-title-section')).first().click()
+            const nameButton = this.page.locator('[data-attr="scene-name"] button').first()
+            const textarea = this.page.locator('[data-attr="scene-title-textarea"]')
+            // Click the title button to enter edit mode, retrying if loading resets the state
+            await expect(async () => {
+                if (!(await textarea.isVisible().catch(() => false))) {
+                    await nameButton.click()
+                }
+                await expect(textarea).toBeVisible({ timeout: 3000 })
+            }).toPass({ timeout: 30000 })
             await textarea.fill(dashboardName)
+            await textarea.blur()
         }
 
         return this
@@ -68,15 +76,25 @@ export class DashboardPage {
     }
 
     async addTextCard(text: string): Promise<void> {
-        await this.page.getByTestId('add-text-tile-to-dashboard').click()
+        const addTextTileButton = this.page.getByTestId('add-text-tile-to-dashboard')
+        await expect(addTextTileButton).toBeVisible()
+        await addTextTileButton.click()
 
-        const modal = this.page.locator('.LemonModal')
+        await expect(this.page).toHaveURL(/\/dashboard\/\d+\/text-tiles\/new(?:\?.*)?$/, { timeout: 5000 })
+
+        const modal = this.page.locator('.LemonModal').filter({
+            has: this.page.getByTestId('text-card-edit-area'),
+        })
         await expect(modal).toBeVisible()
 
-        const textArea = modal.locator('textarea')
-        await expect(textArea).toBeVisible()
-        await textArea.fill(text)
-        await this.page.getByTestId('save-new-text-tile').click()
+        const textEditor = modal
+            .locator(
+                'textarea[data-attr="text-card-edit-area"], [data-attr="text-card-edit-area"][contenteditable="true"], [data-attr="text-card-edit-area"] [contenteditable="true"]'
+            )
+            .first()
+        await expect(textEditor).toBeVisible()
+        await textEditor.fill(text)
+        await modal.getByTestId('save-new-text-tile').click()
 
         await expect(this.textCards.filter({ hasText: text })).toBeVisible()
     }
@@ -107,7 +125,10 @@ export class DashboardPage {
     }
 
     async closeInfoPanel(): Promise<void> {
-        await this.page.getByTestId('context-panel-close-button').click()
+        const closeButton = this.page.getByTestId('context-panel-close-button')
+        if (await closeButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+            await closeButton.click()
+        }
     }
 
     async duplicate(): Promise<void> {
@@ -209,14 +230,7 @@ export class DashboardPage {
             .getByRole(option === 'Edit' ? 'link' : 'button', { name: option })
         await editLink.click()
     }
-}
 
-/**
- * Extends DashboardPage with helpers for the compact card redesign.
- * Requires the 'dashboard-tile-redesign' feature flag — mock it via mockFeatureFlags before use.
- * Merge these into DashboardPage when the flag is fully rolled out.
- */
-export class CompactDashboardPage extends DashboardPage {
     async enterEditMode(): Promise<void> {
         await this.page.getByTestId('dashboard-edit-mode-button').click()
         await expect(this.page.getByTestId('dashboard-edit-mode-save')).toBeVisible()
@@ -228,8 +242,8 @@ export class CompactDashboardPage extends DashboardPage {
     }
 
     async hoverFirstCard(): Promise<void> {
-        const title = this.insightCards.first().locator('[data-attr="insight-card-title"]')
-        await title.hover()
+        const infoButton = this.insightCards.first().locator('[data-attr="card-meta-info"]')
+        await infoButton.click()
     }
 
     get tilePopover(): Locator {

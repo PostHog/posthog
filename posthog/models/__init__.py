@@ -30,11 +30,11 @@ from .dashboard_tile import DashboardTile, Text
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
+from .evaluation_context import EvaluationContext, FeatureFlagEvaluationContext, TeamDefaultEvaluationContext
 from .event.event import Event
 from .event_buffer import EventBuffer
 from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models import EventProperty
-from .experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric, ExperimentToSavedMetric
 from .exported_asset import ExportedAsset
 from .exported_recording import ExportedRecording
 from .feature_flag import FeatureFlag
@@ -98,8 +98,6 @@ from .user_repo_preference import UserRepoPreference
 from .user_scene_personalisation import UserScenePersonalisation
 from .user_home_settings import UserHomeSettings
 from .web_analytics_filter_preset import WebAnalyticsFilterPreset
-from .web_experiment import WebExperiment
-
 from .oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
 
 from ..approvals.models import Approval, ApprovalPolicy, ChangeRequest
@@ -136,14 +134,13 @@ __all__ = [
     "Element",
     "ElementGroup",
     "Entity",
+    "EvaluationContext",
+    "FeatureFlagEvaluationContext",
+    "TeamDefaultEvaluationContext",
     "Event",
     "EventBuffer",
     "EventDefinition",
     "EventProperty",
-    "Experiment",
-    "ExperimentHoldout",
-    "ExperimentSavedMetric",
-    "ExperimentToSavedMetric",
     "ExportedAsset",
     "ExportedRecording",
     "FeatureFlag",
@@ -239,7 +236,6 @@ __all__ = [
     "DataWarehouseTable",
     "ScheduledChange",
     "WebAnalyticsFilterPreset",
-    "WebExperiment",
     "Comment",
     # Deprecated models here for backwards compatibility
     "Prompt",

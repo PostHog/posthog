@@ -1,17 +1,26 @@
 from datetime import timedelta
 from decimal import Decimal
+from typing import Any
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
-from posthog.models import FeatureFlag
-from posthog.models.experiment import ExperimentHoldout, ExperimentSavedMetric
+from posthog.models import FeatureFlag, Team
+from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.models.experiment import (
+    Experiment,
+    ExperimentHoldout,
+    ExperimentMetricResult,
+    ExperimentSavedMetric,
+    ExperimentTimeseriesRecalculation,
+)
 
 
 class TestExperimentService(APIBaseTest):
@@ -69,6 +78,7 @@ class TestExperimentService(APIBaseTest):
         assert experiment.secondary_metrics_ordered_uuids is None
         assert experiment.stats_config is not None
         assert experiment.stats_config["method"] == "bayesian"
+        assert experiment.exposure_criteria == {"filterTestAccounts": True}
 
     def test_create_experiment_creates_new_flag(self):
         service = self._service()
@@ -317,6 +327,49 @@ class TestExperimentService(APIBaseTest):
         assert links[0].saved_metric_id == saved_metric.id
         assert experiment.primary_metrics_ordered_uuids == ["sm-uuid"]
 
+    @parameterized.expand(
+        [
+            ("not_list", {"id": 1}, "Saved metrics must be a list"),
+            ("missing_id", [{"metadata": {"type": "primary"}}], "Saved metric must have an id"),
+            ("non_object", [[1]], "Saved metric must be an object"),
+            ("metadata_not_object", [{"id": 1, "metadata": "primary"}], "Metadata must be an object"),
+            ("metadata_missing_type", [{"id": 1, "metadata": {"xxx": "primary"}}], "Metadata must have a type key"),
+        ]
+    )
+    def test_create_experiment_validates_saved_metrics_payload(
+        self, _: str, saved_metrics_ids: object, expected_error: str
+    ) -> None:
+        self._create_flag(key="saved-metrics-invalid")
+        service = self._service()
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.create_experiment(
+                name="Saved Metrics Invalid",
+                feature_flag_key="saved-metrics-invalid",
+                saved_metrics_ids=saved_metrics_ids,  # type: ignore[arg-type]
+            )
+
+        assert expected_error in str(ctx.exception)
+
+    def test_create_experiment_rejects_saved_metrics_from_another_team(self) -> None:
+        self._create_flag(key="saved-metrics-team-check")
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        saved_metric = ExperimentSavedMetric.objects.create(
+            team=other_team,
+            name="Other Team Metric",
+            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "other-uuid", "event": "$pageview"},
+        )
+        service = self._service()
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.create_experiment(
+                name="Wrong Team Metric",
+                feature_flag_key="saved-metrics-team-check",
+                saved_metrics_ids=[{"id": saved_metric.id, "metadata": {"type": "primary"}}],
+            )
+
+        assert "Saved metric does not exist or does not belong to this project" in str(ctx.exception)
+
     # ------------------------------------------------------------------
     # Service contract fields
     # ------------------------------------------------------------------
@@ -475,6 +528,25 @@ class TestExperimentService(APIBaseTest):
             "saved-secondary",
         }
 
+    def test_create_experiment_rolls_back_when_late_validation_fails(self):
+        service = self._service()
+
+        with (
+            patch.object(
+                ExperimentService,
+                "_validate_metric_ordering_on_create",
+                side_effect=ValidationError("ordering invalid"),
+            ),
+            self.assertRaises(ValidationError),
+        ):
+            service.create_experiment(
+                name="Rollback Create",
+                feature_flag_key="rollback-create-flag",
+            )
+
+        assert not Experiment.objects.filter(name="Rollback Create").exists()
+        assert not FeatureFlag.objects.filter(team=self.team, key="rollback-create-flag").exists()
+
     # ------------------------------------------------------------------
     # Status field
     # ------------------------------------------------------------------
@@ -525,3 +597,1144 @@ class TestExperimentService(APIBaseTest):
             )
 
         assert "unexpected keyword argument 'unknown_field'" in str(ctx.exception)
+
+    # ------------------------------------------------------------------
+    # Update experiment
+    # ------------------------------------------------------------------
+
+    def _create_draft_experiment(self, name: str = "Draft Experiment", flag_key: str = "draft-flag") -> Experiment:
+        self._create_flag(key=flag_key)
+        service = self._service()
+        return service.create_experiment(
+            name=name,
+            feature_flag_key=flag_key,
+            metrics=[{"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m1", "event": "$pageview"}],
+            primary_metrics_ordered_uuids=["m1"],
+        )
+
+    def test_update_experiment_basic_fields(self):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+
+        updated = service.update_experiment(
+            experiment,
+            {
+                "name": "Updated Name",
+                "description": "Updated description",
+            },
+        )
+
+        assert updated.name == "Updated Name"
+        assert updated.description == "Updated description"
+
+    def test_update_experiment_rejects_extra_keys(self):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(experiment, {"unknown_key": "value"})
+
+        assert "Can't update keys" in str(ctx.exception)
+
+    def test_update_experiment_allows_matching_feature_flag_key(self):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+
+        updated = service.update_experiment(
+            experiment,
+            {
+                "name": "Same Key OK",
+                "get_feature_flag_key": experiment.feature_flag.key,
+            },
+        )
+
+        assert updated.name == "Same Key OK"
+        assert updated.get_feature_flag_key() == experiment.feature_flag.key
+
+    def test_update_experiment_rejects_different_feature_flag_key(self):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(
+                experiment,
+                {
+                    "get_feature_flag_key": "different-key",
+                },
+            )
+
+        assert "Can't update keys" in str(ctx.exception)
+
+    def test_update_experiment_launches_by_setting_start_date(self):
+        service = self._service()
+        # Create experiment with a new flag (service creates flag as inactive for drafts)
+        experiment = service.create_experiment(
+            name="Launch Test",
+            feature_flag_key="launch-test-flag",
+            metrics=[{"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m1", "event": "$pageview"}],
+            primary_metrics_ordered_uuids=["m1"],
+        )
+        assert experiment.is_draft
+        assert experiment.feature_flag.active is False
+
+        now = timezone.now()
+        updated = service.update_experiment(experiment, {"start_date": now})
+
+        assert updated.start_date == now
+        updated.feature_flag.refresh_from_db()
+        assert updated.feature_flag.active is True
+
+    def test_update_experiment_rejects_variants_change_after_launch(self):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+        service.update_experiment(experiment, {"start_date": timezone.now()})
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(
+                experiment,
+                {
+                    "parameters": {
+                        "feature_flag_variants": [
+                            {"key": "control", "name": "Control", "rollout_percentage": 34},
+                            {"key": "test", "name": "Test", "rollout_percentage": 33},
+                            {"key": "new_variant", "name": "New", "rollout_percentage": 33},
+                        ]
+                    }
+                },
+            )
+
+        assert "Can't update feature_flag_variants" in str(ctx.exception)
+
+    def test_update_experiment_rejects_holdout_change_after_launch(self):
+        holdout = ExperimentHoldout.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Holdout",
+            filters=[{"properties": [], "rollout_percentage": 10}],
+        )
+        experiment = self._create_draft_experiment()
+        service = self._service()
+        service.update_experiment(experiment, {"start_date": timezone.now()})
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(experiment, {"holdout": holdout})
+
+        assert "Can't update holdout" in str(ctx.exception)
+
+    def test_update_experiment_rejects_global_filter_properties(self):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(experiment, {"filters": {"properties": [{"key": "country", "value": "US"}]}})
+
+        assert "global filter properties" in str(ctx.exception)
+
+    def test_update_experiment_syncs_feature_flag_variants_for_draft(self):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+
+        service.update_experiment(
+            experiment,
+            {
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 34},
+                        {"key": "test", "name": "Test", "rollout_percentage": 33},
+                        {"key": "variant-b", "name": "Variant B", "rollout_percentage": 33},
+                    ],
+                }
+            },
+        )
+
+        experiment.feature_flag.refresh_from_db()
+        variants = experiment.feature_flag.filters["multivariate"]["variants"]
+        assert len(variants) == 3
+        assert variants[2]["key"] == "variant-b"
+
+    def test_update_experiment_recalculates_fingerprints(self):
+        experiment = self._create_draft_experiment()
+        assert experiment.metrics is not None
+        original_fingerprint = experiment.metrics[0]["fingerprint"]
+
+        service = self._service()
+        updated = service.update_experiment(experiment, {"start_date": timezone.now()})
+
+        assert updated.metrics is not None
+        assert updated.metrics[0]["fingerprint"] != original_fingerprint
+
+    def test_update_experiment_syncs_ordering_on_metric_add(self):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+
+        updated = service.update_experiment(
+            experiment,
+            {
+                "metrics": [
+                    {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m1", "event": "$pageview"},
+                    {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m2", "event": "$pageleave"},
+                ],
+            },
+        )
+
+        assert updated.primary_metrics_ordered_uuids is not None
+        assert "m1" in updated.primary_metrics_ordered_uuids
+        assert "m2" in updated.primary_metrics_ordered_uuids
+
+    def test_update_experiment_syncs_ordering_on_metric_remove(self):
+        self._create_flag(key="remove-test")
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Remove Test",
+            feature_flag_key="remove-test",
+            metrics=[
+                {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m1", "event": "$pageview"},
+                {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m2", "event": "$pageleave"},
+            ],
+            primary_metrics_ordered_uuids=["m1", "m2"],
+        )
+
+        updated = service.update_experiment(
+            experiment,
+            {
+                "metrics": [
+                    {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m1", "event": "$pageview"},
+                ],
+            },
+        )
+
+        assert updated.primary_metrics_ordered_uuids == ["m1"]
+
+    def test_update_experiment_replaces_saved_metrics(self):
+        experiment = self._create_draft_experiment()
+        sm1 = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="SM1",
+            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "sm-1", "event": "$pageview"},
+        )
+        sm2 = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="SM2",
+            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "sm-2", "event": "$pageleave"},
+        )
+
+        service = self._service()
+        service.update_experiment(
+            experiment,
+            {
+                "saved_metrics_ids": [{"id": sm1.id, "metadata": {"type": "primary"}}],
+            },
+        )
+
+        assert experiment.experimenttosavedmetric_set.count() == 1
+        first_link = experiment.experimenttosavedmetric_set.first()
+        assert first_link is not None
+        assert first_link.saved_metric_id == sm1.id
+
+        service.update_experiment(
+            experiment,
+            {
+                "saved_metrics_ids": [{"id": sm2.id, "metadata": {"type": "secondary"}}],
+            },
+        )
+
+        assert experiment.experimenttosavedmetric_set.count() == 1
+        second_link = experiment.experimenttosavedmetric_set.first()
+        assert second_link is not None
+        assert second_link.saved_metric_id == sm2.id
+
+    def test_update_experiment_rolls_back_saved_metric_changes_on_validation_error(self):
+        self._create_flag(key="rollback-update")
+        sm1 = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="SM1",
+            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "sm-1", "event": "$pageview"},
+        )
+        sm2 = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="SM2",
+            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "sm-2", "event": "$pageleave"},
+        )
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Rollback Update",
+            feature_flag_key="rollback-update",
+            saved_metrics_ids=[{"id": sm1.id, "metadata": {"type": "primary"}}],
+        )
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(
+                experiment,
+                {
+                    "saved_metrics_ids": [{"id": sm2.id, "metadata": {"type": "secondary"}}],
+                    "unknown_key": "value",
+                },
+            )
+
+        assert "Can't update keys" in str(ctx.exception)
+
+        link_ids = list(
+            Experiment.objects.get(id=experiment.id).experimenttosavedmetric_set.values_list(
+                "saved_metric_id", flat=True
+            )
+        )
+        assert link_ids == [sm1.id]
+
+        fresh_experiment = Experiment.objects.get(id=experiment.id)
+        assert fresh_experiment.primary_metrics_ordered_uuids == ["sm-1"]
+        assert fresh_experiment.secondary_metrics_ordered_uuids == []
+
+    def test_update_experiment_validates_saved_metrics_before_mutation(self) -> None:
+        self._create_flag(key="saved-metrics-update-validate")
+        sm1 = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="SM1",
+            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "sm-1", "event": "$pageview"},
+        )
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Update Validation",
+            feature_flag_key="saved-metrics-update-validate",
+            saved_metrics_ids=[{"id": sm1.id, "metadata": {"type": "primary"}}],
+        )
+
+        with (
+            patch("django.db.models.query.QuerySet.delete") as delete_mock,
+            self.assertRaises(ValidationError) as ctx,
+        ):
+            service.update_experiment(
+                experiment,
+                {
+                    "saved_metrics_ids": [[sm1.id]],
+                },
+            )
+
+        assert "Saved metric must be an object" in str(ctx.exception)
+        delete_mock.assert_not_called()
+
+    def test_update_experiment_validates_unknown_keys_before_saved_metric_mutation(self):
+        self._create_flag(key="validate-before-mutate")
+        sm1 = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="SM1",
+            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "sm-1", "event": "$pageview"},
+        )
+        sm2 = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="SM2",
+            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "sm-2", "event": "$pageleave"},
+        )
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Validate Before Mutate",
+            feature_flag_key="validate-before-mutate",
+            saved_metrics_ids=[{"id": sm1.id, "metadata": {"type": "primary"}}],
+        )
+
+        with (
+            patch("django.db.models.query.QuerySet.delete") as delete_mock,
+            self.assertRaises(ValidationError) as ctx,
+        ):
+            service.update_experiment(
+                experiment,
+                {
+                    "saved_metrics_ids": [{"id": sm2.id, "metadata": {"type": "secondary"}}],
+                    "unknown_key": "value",
+                },
+            )
+
+        assert "Can't update keys" in str(ctx.exception)
+        delete_mock.assert_not_called()
+
+    def test_update_experiment_restore_with_deleted_flag_raises(self):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+        experiment.deleted = True
+        experiment.save()
+        experiment.feature_flag.deleted = True
+        experiment.feature_flag.save()
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(experiment, {"deleted": False})
+
+        assert "linked feature flag has been deleted" in str(ctx.exception)
+
+    def test_update_experiment_updates_holdout_on_draft(self):
+        holdout = ExperimentHoldout.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="H",
+            filters=[{"properties": [], "rollout_percentage": 10}],
+        )
+        experiment = self._create_draft_experiment()
+        service = self._service()
+
+        service.update_experiment(experiment, {"holdout": holdout})
+
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.filters["holdout_groups"] == holdout.filters
+
+    # ------------------------------------------------------------------
+    # Duplicate experiment
+    # ------------------------------------------------------------------
+
+    def test_duplicate_experiment_creates_draft_copy(self):
+        self._create_flag(key="dup-source")
+        service = self._service()
+        source = service.create_experiment(
+            name="Original",
+            feature_flag_key="dup-source",
+            description="Original desc",
+            start_date=timezone.now(),
+        )
+
+        dup = service.duplicate_experiment(source)
+
+        assert dup.name == "Original (Copy)"
+        assert dup.description == "Original desc"
+        assert dup.is_draft
+        assert dup.start_date is None
+        assert dup.end_date is None
+        assert dup.archived is False
+        assert dup.deleted is False
+        assert dup.id != source.id
+        # Same flag key → reuses the existing flag
+        assert dup.feature_flag.id == source.feature_flag.id
+
+    def test_duplicate_experiment_generates_unique_name(self):
+        self._create_flag(key="dup-unique-1")
+        service = self._service()
+        source = service.create_experiment(name="Test", feature_flag_key="dup-unique-1")
+
+        dup1 = service.duplicate_experiment(source)
+        assert dup1.name == "Test (Copy)"
+
+        dup2 = service.duplicate_experiment(source)
+        assert dup2.name == "Test (Copy) 1"
+
+    def test_duplicate_experiment_with_custom_flag_key(self):
+        self._create_flag(key="dup-custom-source")
+        self._create_flag(
+            key="dup-custom-target",
+            variants=[
+                {"key": "control", "name": "Control", "rollout_percentage": 34},
+                {"key": "test", "name": "Test", "rollout_percentage": 33},
+                {"key": "extra", "name": "Extra", "rollout_percentage": 33},
+            ],
+        )
+        service = self._service()
+        source = service.create_experiment(
+            name="Custom Key",
+            feature_flag_key="dup-custom-source",
+        )
+
+        dup = service.duplicate_experiment(source, feature_flag_key="dup-custom-target")
+
+        assert dup.feature_flag.key == "dup-custom-target"
+        flag_variants = dup.feature_flag.filters["multivariate"]["variants"]
+        assert len(flag_variants) == 3
+
+    def test_duplicate_experiment_revalidates_source_parameters(self):
+        self._create_flag(key="dup-invalid-source")
+        service = self._service()
+        source = service.create_experiment(
+            name="Invalid Source",
+            feature_flag_key="dup-invalid-source",
+        )
+        Experiment.objects.filter(id=source.id).update(
+            parameters={
+                "feature_flag_variants": [
+                    {"key": "test", "name": "Test", "rollout_percentage": 100},
+                ]
+            }
+        )
+        source.refresh_from_db()
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.duplicate_experiment(source)
+
+        assert "at least 2 variants" in str(ctx.exception)
+
+    def test_duplicate_experiment_copies_saved_metrics(self):
+        self._create_flag(key="dup-saved")
+        sm = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="SM",
+            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "sm-uuid", "event": "$pageview"},
+        )
+        service = self._service()
+        source = service.create_experiment(
+            name="With Saved",
+            feature_flag_key="dup-saved",
+            saved_metrics_ids=[{"id": sm.id, "metadata": {"type": "primary"}}],
+        )
+
+        dup = service.duplicate_experiment(source)
+
+        links = list(dup.experimenttosavedmetric_set.all())
+        assert len(links) == 1
+        assert links[0].saved_metric_id == sm.id
+
+    # ------------------------------------------------------------------
+    # Launch experiment
+    # ------------------------------------------------------------------
+
+    _DEFAULT_METRIC = {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m1", "event": "$pageview"}
+
+    def _create_launchable_experiment(
+        self,
+        name: str = "Launchable",
+        feature_flag_key: str = "launchable-flag",
+        **kwargs: Any,
+    ) -> Experiment:
+        kwargs.setdefault("metrics", [self._DEFAULT_METRIC])
+        kwargs.setdefault("primary_metrics_ordered_uuids", ["m1"])
+        return self._service().create_experiment(name=name, feature_flag_key=feature_flag_key, **kwargs)
+
+    def test_launch_experiment_success(self):
+        experiment = self._create_launchable_experiment(name="Launch Test", feature_flag_key="launch-new-flag")
+
+        assert experiment.is_draft
+        assert experiment.feature_flag.active is False
+
+        launched = self._service().launch_experiment(experiment)
+
+        assert launched.start_date is not None
+        assert not launched.is_draft
+        assert launched.status == Experiment.Status.RUNNING
+        launched.feature_flag.refresh_from_db()
+        assert launched.feature_flag.active is True
+
+    def test_launch_experiment_sets_fingerprints(self):
+        self._create_flag(key="fp-launch")
+        experiment = self._create_launchable_experiment(name="Fingerprint Launch", feature_flag_key="fp-launch")
+
+        # Draft metrics have fingerprints computed with start_date=None
+        assert experiment.metrics is not None
+        draft_fingerprint = experiment.metrics[0].get("fingerprint")
+
+        launched = self._service().launch_experiment(experiment)
+
+        # After launch, fingerprints should be recomputed with the new start_date
+        assert launched.metrics is not None
+        launch_fingerprint = launched.metrics[0].get("fingerprint")
+        assert launch_fingerprint is not None
+        assert launch_fingerprint != draft_fingerprint
+
+    def test_launch_experiment_already_running_raises(self):
+        experiment = self._create_launchable_experiment(name="Already Running", feature_flag_key="already-running-flag")
+        service = self._service()
+        service.launch_experiment(experiment)
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.launch_experiment(experiment)
+
+        assert "already been launched" in str(ctx.exception)
+
+    def test_launch_experiment_already_stopped_raises(self):
+        experiment = self._create_launchable_experiment(name="Already Stopped", feature_flag_key="already-stopped-flag")
+        service = self._service()
+        service.launch_experiment(experiment)
+        service.update_experiment(experiment, {"end_date": timezone.now()})
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.launch_experiment(experiment)
+
+        assert "already been launched" in str(ctx.exception)
+
+    def test_launch_experiment_without_metrics(self):
+        experiment = self._create_launchable_experiment(
+            name="No Metrics",
+            feature_flag_key="no-metrics-flag",
+            metrics=[],
+            primary_metrics_ordered_uuids=None,
+        )
+
+        launched = self._service().launch_experiment(experiment)
+
+        assert launched.start_date is not None
+        assert launched.status == Experiment.Status.RUNNING
+
+    def test_launch_experiment_with_only_secondary_metrics(self):
+        self._create_flag(key="secondary-only")
+        experiment = self._service().create_experiment(
+            name="Secondary Only",
+            feature_flag_key="secondary-only",
+            metrics_secondary=[self._DEFAULT_METRIC],
+            secondary_metrics_ordered_uuids=["m1"],
+        )
+
+        launched = self._service().launch_experiment(experiment)
+
+        assert launched.start_date is not None
+        assert launched.status == Experiment.Status.RUNNING
+
+    def test_launch_experiment_with_linked_active_flag(self):
+        """Pre-existing flag that is already active (rolled out). Launch should succeed and flag stays active."""
+        flag = self._create_flag(key="already-active")
+        assert flag.active is True  # FeatureFlag default
+
+        experiment = self._create_launchable_experiment(name="Linked Active Flag", feature_flag_key="already-active")
+
+        launched = self._service().launch_experiment(experiment)
+
+        assert launched.start_date is not None
+        assert launched.status == Experiment.Status.RUNNING
+        launched.feature_flag.refresh_from_db()
+        assert launched.feature_flag.active is True
+
+    def test_launch_experiment_with_linked_inactive_flag(self):
+        """Pre-existing flag that is inactive. Launch should activate it."""
+        flag = self._create_flag(key="inactive-flag")
+        flag.active = False
+        flag.save()
+
+        experiment = self._create_launchable_experiment(name="Linked Inactive Flag", feature_flag_key="inactive-flag")
+
+        launched = self._service().launch_experiment(experiment)
+
+        assert launched.start_date is not None
+        launched.feature_flag.refresh_from_db()
+        assert launched.feature_flag.active is True
+
+    def test_launch_experiment_with_linked_flag_preserves_conditions(self):
+        """Pre-existing flag with custom release conditions. Launch should preserve them."""
+        flag = self._create_flag(key="custom-conditions")
+        flag.filters = {
+            "groups": [
+                {
+                    "properties": [{"key": "country", "value": "US", "type": "person"}],
+                    "rollout_percentage": 50,
+                },
+                {"properties": [], "rollout_percentage": 100},
+            ],
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ]
+            },
+        }
+        flag.save()
+
+        experiment = self._create_launchable_experiment(name="Custom Conditions", feature_flag_key="custom-conditions")
+
+        launched = self._service().launch_experiment(experiment)
+
+        launched.feature_flag.refresh_from_db()
+        groups = launched.feature_flag.filters["groups"]
+        assert len(groups) == 2
+        assert groups[0]["properties"] == [{"key": "country", "value": "US", "type": "person"}]
+        assert groups[0]["rollout_percentage"] == 50
+
+    def test_launch_experiment_flag_modified_to_invalid_raises(self):
+        """Flag modified after experiment creation to remove control variant. Launch should fail."""
+        flag = self._create_flag(key="will-break")
+        experiment = self._create_launchable_experiment(name="Will Break", feature_flag_key="will-break")
+
+        # Simulate someone modifying the flag to remove "control"
+        flag.filters["multivariate"]["variants"] = [
+            {"key": "variant_a", "rollout_percentage": 50},
+            {"key": "variant_b", "rollout_percentage": 50},
+        ]
+        flag.save()
+        experiment.feature_flag.refresh_from_db()
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().launch_experiment(experiment)
+
+        assert "control" in str(ctx.exception).lower()
+
+    def test_launch_experiment_flag_reduced_to_single_variant_raises(self):
+        """Flag modified to have only 1 variant. Launch should fail."""
+        flag = self._create_flag(key="single-variant")
+        experiment = self._create_launchable_experiment(name="Single Variant", feature_flag_key="single-variant")
+
+        flag.filters["multivariate"]["variants"] = [
+            {"key": "control", "rollout_percentage": 100},
+        ]
+        flag.save()
+        experiment.feature_flag.refresh_from_db()
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().launch_experiment(experiment)
+
+        assert "at least 2 variants" in str(ctx.exception)
+
+    # ------------------------------------------------------------------
+    # Exposure cohort
+    # ------------------------------------------------------------------
+
+    def test_create_exposure_cohort(self):
+        self._create_flag(key="cohort-flag")
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Cohort Test",
+            feature_flag_key="cohort-flag",
+            start_date=timezone.now(),
+        )
+
+        cohort = service.create_exposure_cohort(experiment)
+
+        assert cohort.name == 'Users exposed to experiment "Cohort Test"'
+        assert cohort.is_static is False
+        experiment.refresh_from_db()
+        assert experiment.exposure_cohort_id == cohort.id
+
+    def test_create_exposure_cohort_without_start_date_raises(self):
+        self._create_flag(key="cohort-no-start")
+        service = self._service()
+        experiment = service.create_experiment(name="No Start", feature_flag_key="cohort-no-start")
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.create_exposure_cohort(experiment)
+
+        assert "does not have a start date" in str(ctx.exception)
+
+    def test_create_exposure_cohort_duplicate_raises(self):
+        from posthog.models.cohort import Cohort
+
+        self._create_flag(key="cohort-dup")
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Dup Cohort",
+            feature_flag_key="cohort-dup",
+            start_date=timezone.now(),
+        )
+        cohort = Cohort.objects.create(team=self.team, name="Existing")
+        experiment.exposure_cohort = cohort
+        experiment.save(update_fields=["exposure_cohort"])
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.create_exposure_cohort(experiment)
+
+        assert "already has an exposure cohort" in str(ctx.exception)
+
+    # ------------------------------------------------------------------
+    # Timeseries results
+    # ------------------------------------------------------------------
+
+    def test_get_timeseries_results_no_start_date_raises(self):
+        self._create_flag(key="ts-no-start")
+        service = self._service()
+        experiment = service.create_experiment(name="No Start", feature_flag_key="ts-no-start")
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.get_timeseries_results(experiment, metric_uuid="m1", fingerprint="fp1")
+
+        assert "not been started" in str(ctx.exception)
+
+    def test_get_timeseries_results_pending_when_no_records(self):
+        self._create_flag(key="ts-pending")
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Pending",
+            feature_flag_key="ts-pending",
+            start_date=timezone.now() - timedelta(days=2),
+            end_date=timezone.now(),
+        )
+
+        result = service.get_timeseries_results(experiment, metric_uuid="m1", fingerprint="fp1")
+
+        assert result["status"] == "pending"
+        assert result["experiment_id"] == experiment.id
+        assert result["metric_uuid"] == "m1"
+        assert len(result["timeseries"]) == 3
+
+    def test_get_timeseries_results_completed(self):
+        self._create_flag(key="ts-completed")
+        service = self._service()
+        now = timezone.now()
+        # Use midnight-aligned dates so query_to boundaries map correctly
+        start_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
+        end_midnight = start_midnight + timedelta(days=1)
+        experiment = service.create_experiment(
+            name="Completed",
+            feature_flag_key="ts-completed",
+            start_date=start_midnight,
+            end_date=end_midnight,
+        )
+
+        # Create results whose query_to is midnight (exclusive end of each day)
+        for day_offset in range(2):
+            ExperimentMetricResult.objects.create(
+                experiment=experiment,
+                metric_uuid="m1",
+                fingerprint="fp1",
+                query_from=start_midnight + timedelta(days=day_offset),
+                query_to=start_midnight + timedelta(days=day_offset + 1),
+                status="completed",
+                result={"variant_control": {"count": 100}},
+                completed_at=now,
+            )
+
+        result = service.get_timeseries_results(experiment, metric_uuid="m1", fingerprint="fp1")
+
+        assert result["status"] == "completed"
+        assert result["computed_at"] is not None
+
+    # ------------------------------------------------------------------
+    # Timeseries recalculation
+    # ------------------------------------------------------------------
+
+    def test_request_timeseries_recalculation(self):
+        self._create_flag(key="ts-recalc")
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Recalc",
+            feature_flag_key="ts-recalc",
+            start_date=timezone.now(),
+        )
+
+        result = service.request_timeseries_recalculation(
+            experiment, metric={"uuid": "m1", "kind": "ExperimentMetric"}, fingerprint="fp1"
+        )
+
+        assert result["experiment_id"] == experiment.id
+        assert result["metric_uuid"] == "m1"
+        assert result["status"] == ExperimentTimeseriesRecalculation.Status.PENDING
+        assert result["is_existing"] is False
+
+    def test_request_timeseries_recalculation_idempotent(self):
+        self._create_flag(key="ts-idempotent")
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Idempotent",
+            feature_flag_key="ts-idempotent",
+            start_date=timezone.now(),
+        )
+
+        result1 = service.request_timeseries_recalculation(experiment, metric={"uuid": "m1"}, fingerprint="fp1")
+        result2 = service.request_timeseries_recalculation(experiment, metric={"uuid": "m1"}, fingerprint="fp1")
+
+        assert result1["id"] == result2["id"]
+        assert result2["is_existing"] is True
+
+    def test_request_timeseries_recalculation_not_started_raises(self):
+        self._create_flag(key="ts-not-started")
+        service = self._service()
+        experiment = service.create_experiment(name="Not Started", feature_flag_key="ts-not-started")
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.request_timeseries_recalculation(experiment, metric={"uuid": "m1"}, fingerprint="fp1")
+
+        assert "hasn't started" in str(ctx.exception)
+
+    def test_request_timeseries_recalculation_deletes_old_results(self):
+        self._create_flag(key="ts-delete-old")
+        service = self._service()
+        now = timezone.now()
+        experiment = service.create_experiment(
+            name="Delete Old",
+            feature_flag_key="ts-delete-old",
+            start_date=now,
+        )
+
+        ExperimentMetricResult.objects.create(
+            experiment=experiment,
+            metric_uuid="m1",
+            fingerprint="fp1",
+            query_from=now,
+            query_to=now + timedelta(days=1),
+            status="completed",
+            result={"data": True},
+            completed_at=now,
+        )
+        assert ExperimentMetricResult.objects.filter(experiment=experiment, metric_uuid="m1").count() == 1
+
+        service.request_timeseries_recalculation(experiment, metric={"uuid": "m1"}, fingerprint="fp1")
+
+        assert ExperimentMetricResult.objects.filter(experiment=experiment, metric_uuid="m1").count() == 0
+
+    # ------------------------------------------------------------------
+    # Eligible feature flags
+    # ------------------------------------------------------------------
+
+    def test_get_eligible_feature_flags_only_returns_control_first_multivariate_flags(self) -> None:
+        eligible_flag = self._create_flag(key="eligible-flag")
+        self._create_flag(
+            key="wrong-order-flag",
+            variants=[
+                {"key": "test", "name": "Test", "rollout_percentage": 50},
+                {"key": "control", "name": "Control", "rollout_percentage": 50},
+            ],
+        )
+        self._create_flag(
+            key="single-variant-flag",
+            variants=[{"key": "control", "name": "Control", "rollout_percentage": 100}],
+        )
+
+        result = self._service().get_eligible_feature_flags(order="key")
+
+        assert result["count"] == 1
+        assert [flag.key for flag in result["results"]] == [eligible_flag.key]
+
+    def test_get_eligible_feature_flags_applies_search_and_pagination(self) -> None:
+        self._create_flag(key="search-alpha")
+        self._create_flag(key="search-beta")
+        self._create_flag(key="other-flag")
+
+        result = self._service().get_eligible_feature_flags(
+            search="search",
+            order="key",
+            limit=1,
+            offset=1,
+        )
+
+        assert result["count"] == 2
+        assert [flag.key for flag in result["results"]] == ["search-beta"]
+
+    def test_get_eligible_feature_flags_filters_by_evaluation_tags(self) -> None:
+        flag_with_tags = self._create_flag(key="flag-with-tags")
+        self._create_flag(key="flag-without-tags")
+        evaluation_context = EvaluationContext.objects.create(name="app", team=self.team)
+        FeatureFlagEvaluationContext.objects.create(feature_flag=flag_with_tags, evaluation_context=evaluation_context)
+
+        service = self._service()
+
+        flags_with_tags = service.get_eligible_feature_flags(has_evaluation_tags="true", order="key")
+        flags_without_tags = service.get_eligible_feature_flags(has_evaluation_tags="false", order="key")
+
+        assert [flag.key for flag in flags_with_tags["results"]] == ["flag-with-tags"]
+        assert [flag.key for flag in flags_without_tags["results"]] == ["flag-without-tags"]
+
+    # ------------------------------------------------------------------
+    # Experiment list/querying
+    # ------------------------------------------------------------------
+
+    def test_filter_experiments_queryset_defaults_to_non_archived_non_deleted_for_list(self) -> None:
+        service = self._service()
+        service.create_experiment(name="Visible", feature_flag_key="list-visible")
+        service.create_experiment(name="Archived", feature_flag_key="list-archived", archived=True)
+        service.create_experiment(name="Deleted", feature_flag_key="list-deleted", deleted=True)
+
+        queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+        )
+
+        assert set(queryset.values_list("name", flat=True)) == {"Visible"}
+
+    def test_filter_experiments_queryset_includes_deleted_on_restore_update(self) -> None:
+        service = self._service()
+        experiment = service.create_experiment(name="Restore Me", feature_flag_key="restore-me", deleted=True)
+
+        default_queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="update",
+        )
+        restore_queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="update",
+            request_data={"deleted": "false"},
+        )
+
+        assert experiment.id not in default_queryset.values_list("id", flat=True)
+        assert experiment.id in restore_queryset.values_list("id", flat=True)
+
+    @parameterized.expand(
+        [
+            ("draft", {"status": "draft"}, {"Draft"}),
+            ("running", {"status": "running"}, {"Running"}),
+            ("stopped", {"status": "stopped"}, {"Stopped"}),
+            ("complete", {"status": "complete"}, {"Stopped"}),
+            ("all", {"status": "all"}, {"Draft", "Running", "Stopped"}),
+            ("invalid", {"status": "bogus"}, {"Draft", "Running", "Stopped"}),
+        ]
+    )
+    def test_filter_experiments_queryset_filters_by_status(
+        self, _: str, query_params: dict[str, str], expected_names: set[str]
+    ) -> None:
+        service = self._service()
+        now = timezone.now()
+        service.create_experiment(name="Draft", feature_flag_key="status-draft")
+        service.create_experiment(
+            name="Running",
+            feature_flag_key="status-running",
+            start_date=now - timedelta(days=2),
+        )
+        service.create_experiment(
+            name="Stopped",
+            feature_flag_key="status-stopped",
+            start_date=now - timedelta(days=4),
+            end_date=now - timedelta(days=1),
+        )
+
+        queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params=query_params,
+        )
+
+        assert set(queryset.values_list("name", flat=True)) == expected_names
+
+    @parameterized.expand(
+        [
+            ("created_by_id", {"created_by_id": None}, {"Creator self", "Search match"}),
+            ("archived_true", {"archived": "true"}, {"Archived search"}),
+            ("archived_false", {"archived": "false"}, {"Creator self", "Creator other", "Search match"}),
+            ("search", {"search": "Search"}, {"Search match"}),
+        ]
+    )
+    def test_filter_experiments_queryset_filters_by_common_query_params(
+        self, _: str, query_params: dict[str, str | None], expected_names: set[str]
+    ) -> None:
+        service = self._service()
+        other_user = self._create_user("other-user@example.com")
+
+        service.create_experiment(name="Creator self", feature_flag_key="created-by-self")
+        ExperimentService(team=self.team, user=other_user).create_experiment(
+            name="Creator other",
+            feature_flag_key="created-by-other",
+        )
+        service.create_experiment(name="Search match", feature_flag_key="search-match")
+        service.create_experiment(name="Archived search", feature_flag_key="archived-search", archived=True)
+
+        if "created_by_id" in query_params and query_params["created_by_id"] is None:
+            query_params = {**query_params, "created_by_id": str(self.user.id)}
+
+        queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params=query_params,
+        )
+
+        assert set(queryset.values_list("name", flat=True)) == expected_names
+
+    @parameterized.expand(
+        [
+            ("ascending", "duration", ["Short", "Long"]),
+            ("descending", "-duration", ["Long", "Short"]),
+        ]
+    )
+    def test_filter_experiments_queryset_orders_by_duration(
+        self, _: str, order: str, expected_order: list[str]
+    ) -> None:
+        service = self._service()
+        now = timezone.now()
+        service.create_experiment(
+            name="Short",
+            feature_flag_key="short-duration",
+            start_date=now - timedelta(days=2),
+            end_date=now - timedelta(days=1),
+        )
+        service.create_experiment(
+            name="Long",
+            feature_flag_key="long-duration",
+            start_date=now - timedelta(days=4),
+            end_date=now - timedelta(days=1),
+        )
+
+        queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params={"order": order},
+        )
+
+        assert list(queryset.values_list("name", flat=True)[:2]) == expected_order
+
+    @parameterized.expand(
+        [
+            ("ascending", "status", ["Draft", "Running", "Stopped"]),
+            ("descending", "-status", ["Stopped", "Running", "Draft"]),
+        ]
+    )
+    def test_filter_experiments_queryset_orders_by_status(self, _: str, order: str, expected_order: list[str]) -> None:
+        service = self._service()
+        now = timezone.now()
+        service.create_experiment(name="Draft", feature_flag_key="order-status-draft")
+        service.create_experiment(
+            name="Running",
+            feature_flag_key="order-status-running",
+            start_date=now - timedelta(days=2),
+        )
+        service.create_experiment(
+            name="Stopped",
+            feature_flag_key="order-status-stopped",
+            start_date=now - timedelta(days=4),
+            end_date=now - timedelta(days=1),
+        )
+
+        queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params={"order": order},
+        )
+
+        assert list(queryset.values_list("name", flat=True)[:3]) == expected_order
+
+    def test_filter_experiments_queryset_validates_feature_flag_id(self) -> None:
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().filter_experiments_queryset(
+                Experiment.objects.filter(team=self.team),
+                action="list",
+                query_params={"feature_flag_id": "not-an-int"},
+            )
+
+        assert "feature_flag_id must be an integer" in str(ctx.exception)
+
+    # ------------------------------------------------------------------
+    # Velocity stats
+    # ------------------------------------------------------------------
+
+    def test_get_velocity_stats_empty(self):
+        service = self._service()
+        result = service.get_velocity_stats()
+
+        assert result["launched_last_30d"] == 0
+        assert result["launched_previous_30d"] == 0
+        assert result["percent_change"] == 0.0
+        assert result["active_experiments"] == 0
+        assert result["completed_last_30d"] == 0
+
+    def test_get_velocity_stats_with_experiments(self):
+        service = self._service()
+        now = timezone.now()
+
+        self._create_flag(key="stats-active")
+        service.create_experiment(
+            name="Active",
+            feature_flag_key="stats-active",
+            start_date=now - timedelta(days=5),
+        )
+
+        self._create_flag(key="stats-completed")
+        service.create_experiment(
+            name="Completed",
+            feature_flag_key="stats-completed",
+            start_date=now - timedelta(days=10),
+            end_date=now - timedelta(days=3),
+        )
+
+        result = service.get_velocity_stats()
+
+        assert result["launched_last_30d"] == 2
+        assert result["active_experiments"] == 1
+        assert result["completed_last_30d"] == 1
+
+    def test_get_velocity_stats_percent_change(self):
+        service = self._service()
+        now = timezone.now()
+
+        for i in range(3):
+            key = f"stats-prev-{i}"
+            self._create_flag(key=key)
+            exp = service.create_experiment(name=f"Prev {i}", feature_flag_key=key)
+            Experiment.objects.filter(id=exp.id).update(
+                start_date=now - timedelta(days=45),
+                end_date=now - timedelta(days=35),
+            )
+
+        self._create_flag(key="stats-recent")
+        service.create_experiment(
+            name="Recent",
+            feature_flag_key="stats-recent",
+            start_date=now - timedelta(days=5),
+        )
+
+        result = service.get_velocity_stats()
+
+        assert result["launched_last_30d"] == 1
+        assert result["launched_previous_30d"] == 3
+        expected_change = round(((1 - 3) / 3) * 100, 1)
+        assert result["percent_change"] == expected_change

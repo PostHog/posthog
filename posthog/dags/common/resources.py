@@ -14,10 +14,10 @@ import psycopg2.extras
 import posthoganalytics
 from clickhouse_driver.errors import Error, ErrorCodes
 
+from posthog import settings
 from posthog.clickhouse.cluster import ClickhouseCluster, ExponentialBackoff, RetryPolicy, get_cluster
 from posthog.kafka_client.client import _KafkaProducer
 from posthog.redis import get_client, redis
-from posthog.security.outbound_proxy import external_requests_session
 from posthog.utils import initialize_self_capture_api_token
 
 
@@ -62,9 +62,12 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
         "receive_timeout": f"{15 * 60}",  # some synchronous queries like dictionary checksumming can be very slow to return
     }
 
+    host: str = settings.CLICKHOUSE_HOST
+
     def create_resource(self, context: dagster.InitResourceContext) -> ClickhouseCluster:
         return get_cluster(
             context.log,
+            host=self.host,
             client_settings=self.client_settings,
             retry_policy=RetryPolicy(
                 max_attempts=8,
@@ -246,7 +249,7 @@ class ClayWebhookResource(dagster.ConfigurableResource):
 
     def send(self, data: list[dict]) -> requests.Response:
         """Send data to Clay webhook."""
-        with external_requests_session() as session:
+        with requests.Session() as session:
             return self._send_with_retry(session, data)
 
     def _get_batch_size(self, batch: list[dict]) -> int:

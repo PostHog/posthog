@@ -97,7 +97,7 @@ class FinalizePlanTool(MaxTool):
         plan: str,
         artifact_id: str | None = None,
     ) -> tuple[str, Any]:
-        artifact, status = await create_or_update_notebook_artifact(
+        artifact, status, _blocks = await create_or_update_notebook_artifact(
             artifacts_manager=self._context_manager.artifacts,
             content=plan,
             title="PostHog AI's plan: " + title,

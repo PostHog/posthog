@@ -58,6 +58,8 @@ jobs:
                         - 'services/llm-gateway/**/*.py'
                         # GitHub scripts
                         - '.github/scripts/**/*.py'
+                        # PR approval agent
+                        - 'tools/pr-approval-agent/**'
 
     code-quality:
         needs: changes
@@ -83,6 +85,7 @@ jobs:
               with:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
+                  cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Check uv and Python version compatibility

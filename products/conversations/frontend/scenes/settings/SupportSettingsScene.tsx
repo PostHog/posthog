@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
+import { IconCopy, IconPencil, IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -14,8 +14,11 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 
+import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -125,11 +128,160 @@ function AuthorizedDomains(): JSX.Element {
     )
 }
 
+function EmailSection(): JSX.Element {
+    return (
+        <SceneSection
+            title="Email channel"
+            description="Receive customer emails as support tickets. Set up forwarding from your email provider to route emails into conversations."
+            className="mt-4"
+        >
+            <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
+                <EmailChannelSection />
+            </LemonCard>
+        </SceneSection>
+    )
+}
+
+function EmailChannelSection(): JSX.Element {
+    const { emailConnected, emailFromEmail, emailFromName, emailConnecting, emailForwardingAddress } =
+        useValues(supportSettingsLogic)
+    const { setEmailFromEmail, setEmailFromName, connectEmail, disconnectEmail } = useActions(supportSettingsLogic)
+
+    return (
+        <div className="flex flex-col gap-y-2">
+            {!emailConnected ? (
+                <>
+                    <div>
+                        <label className="font-medium">Connect email</label>
+                        <p className="text-xs text-muted-alt">
+                            Enter the email address customers will contact you at (e.g. support@company.com). We'll give
+                            you a forwarding address to set up in your email provider.
+                        </p>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                        <LemonInput
+                            value={emailFromEmail}
+                            onChange={(value) => setEmailFromEmail(value)}
+                            placeholder="support@company.com"
+                            fullWidth
+                        />
+                        <LemonInput
+                            value={emailFromName}
+                            onChange={(value) => setEmailFromName(value)}
+                            placeholder="Display name (e.g. Acme Support)"
+                            fullWidth
+                        />
+                        <div>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={connectEmail}
+                                loading={emailConnecting}
+                                disabledReason={
+                                    !emailFromEmail || !emailFromName
+                                        ? 'Enter email address and display name'
+                                        : undefined
+                                }
+                            >
+                                Connect email
+                            </LemonButton>
+                        </div>
+                    </div>
+                </>
+            ) : (
+                <>
+                    <div>
+                        <label className="font-medium">Connection</label>
+                        <LemonTag type="success" className="ml-2">
+                            Connected
+                        </LemonTag>
+                    </div>
+                    {emailForwardingAddress && (
+                        <>
+                            <LemonDivider />
+                            <div>
+                                <label className="font-medium">Forwarding address</label>
+                                <p className="text-xs text-muted-alt">
+                                    Set up a forwarding rule in your email provider to forward incoming emails to this
+                                    address.
+                                </p>
+                                <div className="flex items-center gap-2 mt-1">
+                                    <code className="bg-surface-primary px-2 py-1 rounded text-sm break-all">
+                                        {emailForwardingAddress}
+                                    </code>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        icon={<IconCopy />}
+                                        onClick={() => {
+                                            void navigator.clipboard.writeText(emailForwardingAddress)
+                                            lemonToast.success('Copied to clipboard')
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                            <LemonDivider />
+                            <div>
+                                <label className="font-medium">Setup instructions</label>
+                                <div className="text-xs text-muted-alt mt-1 flex flex-col gap-1">
+                                    <p className="mb-0">
+                                        <strong>Gmail:</strong> Settings → Forwarding → Add a forwarding address → paste
+                                        the address above → confirm.
+                                    </p>
+                                    <p className="mb-0">
+                                        <strong>Outlook:</strong> Settings → Mail → Forwarding → Enable forwarding →
+                                        paste the address above.
+                                    </p>
+                                    <p className="mb-0">
+                                        <strong>Other:</strong> Set up a forwarding rule to send all incoming emails to
+                                        the address above.
+                                    </p>
+                                </div>
+                            </div>
+                        </>
+                    )}
+                    <LemonDivider />
+                    <div className="flex justify-end">
+                        <LemonButton
+                            type="secondary"
+                            status="danger"
+                            size="small"
+                            onClick={() => {
+                                LemonDialog.open({
+                                    title: 'Disconnect email?',
+                                    description:
+                                        'This will stop creating tickets from emails. Existing tickets will not be affected.',
+                                    primaryButton: {
+                                        status: 'danger',
+                                        children: 'Disconnect',
+                                        onClick: disconnectEmail,
+                                    },
+                                    secondaryButton: { children: 'Cancel' },
+                                })
+                            }}
+                        >
+                            Disconnect email
+                        </LemonButton>
+                    </div>
+                </>
+            )}
+        </div>
+    )
+}
+
 function SlackSection(): JSX.Element {
     return (
         <SceneSection
             title="SupportHog Slack bot"
-            description="Add the SupportHog bot to your Slack workspace to create and manage support tickets directly from Slack messages."
+            description={
+                <>
+                    Add the SupportHog bot to your Slack workspace to create and manage support tickets directly from
+                    Slack messages.{' '}
+                    <Link to="https://posthog.com/docs/support/slack" target="_blank">
+                        Docs
+                    </Link>
+                </>
+            }
             className="mt-4"
         >
             <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
@@ -208,7 +360,7 @@ function SlackChannelSection(): JSX.Element {
                                 type="secondary"
                                 size="small"
                                 onClick={loadSlackChannelsWithToken}
-                                loading={slackChannelsLoading}
+                                disabledReason={slackChannelsLoading ? 'Loading channels...' : undefined}
                             >
                                 Refresh
                             </LemonButton>
@@ -278,6 +430,89 @@ function SlackChannelSection(): JSX.Element {
     )
 }
 
+function SecretApiKeySection(): JSX.Element {
+    const { currentTeam, isTeamTokenResetAvailable } = useValues(teamLogic)
+    const { rotateSecretToken, deleteSecretTokenBackup } = useActions(teamLogic)
+
+    const openRotateDialog = (): void => {
+        const verb = currentTeam?.secret_api_token ? 'Rotate' : 'Generate'
+        const description = currentTeam?.secret_api_token
+            ? 'This will generate a new secret API key and move the existing one to backup. The old key will remain active until you delete it.'
+            : 'This will generate a new secret API key for authenticating external API requests.'
+
+        LemonDialog.open({
+            title: `${verb} secret API key?`,
+            description,
+            primaryButton: {
+                children: verb,
+                onClick: rotateSecretToken,
+            },
+            secondaryButton: { children: 'Cancel' },
+        })
+    }
+
+    return (
+        <SceneSection
+            title="Secret API key"
+            description="Used to authenticate external API requests (e.g. from workflows). This is the same key shown in Feature flags settings."
+            className="mt-4"
+        >
+            <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
+                <div>
+                    <h3 className="text-sm font-semibold mb-1">
+                        Primary key{' '}
+                        {currentTeam?.secret_api_token && <span className="text-green-700 text-xs ml-2">(Active)</span>}
+                    </h3>
+                    <CodeSnippet
+                        actions={
+                            <LemonButton
+                                icon={<IconRefresh />}
+                                size="xsmall"
+                                onClick={openRotateDialog}
+                                disabledReason={
+                                    !isTeamTokenResetAvailable
+                                        ? 'You do not have permission to rotate this key'
+                                        : undefined
+                                }
+                                tooltip={currentTeam?.secret_api_token ? 'Rotate key' : 'Generate key'}
+                            />
+                        }
+                        className={currentTeam?.secret_api_token ? '' : 'text-muted'}
+                        thing="Secret API key"
+                    >
+                        {currentTeam?.secret_api_token || 'Click the generate button on the right to create a new key.'}
+                    </CodeSnippet>
+                </div>
+
+                {currentTeam?.secret_api_token_backup ? (
+                    <div>
+                        <h3 className="text-sm font-semibold mb-1">
+                            Backup key <span className="text-orange-600 text-xs ml-2">(Pending deletion)</span>
+                        </h3>
+                        <CodeSnippet
+                            actions={
+                                <LemonButton
+                                    icon={<IconTrash />}
+                                    size="xsmall"
+                                    onClick={() => deleteSecretTokenBackup()}
+                                    tooltip="Delete backup key"
+                                />
+                            }
+                            thing="Backup secret API key"
+                        >
+                            {currentTeam.secret_api_token_backup}
+                        </CodeSnippet>
+                        <p className="text-xs text-muted mt-1">
+                            This key is still active to support services using the previous key. Delete it once you've
+                            fully migrated.
+                        </p>
+                    </div>
+                ) : null}
+            </LemonCard>
+        </SceneSection>
+    )
+}
+
 export function SupportSettingsScene(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -307,6 +542,7 @@ export function SupportSettingsScene(): JSX.Element {
         placeholderTextValue,
         notificationRecipients,
     } = useValues(supportSettingsLogic)
+    const emailChannelEnabled = useFeatureFlag('PRODUCT_SUPPORT_EMAIL_CHANNEL')
 
     return (
         <SceneContent>
@@ -320,7 +556,14 @@ export function SupportSettingsScene(): JSX.Element {
             <ScenesTabs />
             <SceneSection
                 title="Conversations API"
-                description="Turn on conversations API to enable access for tickets and messages."
+                description={
+                    <>
+                        Turn on conversations API to enable access for tickets and messages.{' '}
+                        <Link to="https://posthog.com/docs/support/javascript-api" target="_blank">
+                            Docs
+                        </Link>
+                    </>
+                }
             >
                 <LemonCard hoverEffect={false} className="max-w-[800px] px-4 py-3">
                     <div className="flex items-center gap-4 justify-between">
@@ -372,7 +615,19 @@ export function SupportSettingsScene(): JSX.Element {
                         </LemonCard>
                     </SceneSection>
                     <SlackSection />
-                    <SceneSection title="In-app widget" className="mt-4">
+                    {emailChannelEnabled && <EmailSection />}
+                    <SceneSection
+                        title="In-app widget"
+                        description={
+                            <>
+                                Add a chat widget to your website for customers to reach you.{' '}
+                                <Link to="https://posthog.com/docs/support/widget" target="_blank">
+                                    Docs
+                                </Link>
+                            </>
+                        }
+                        className="mt-4"
+                    >
                         <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
                             <div className="flex items-center gap-4 justify-between">
                                 <div>
@@ -677,12 +932,16 @@ export function SupportSettingsScene(): JSX.Element {
                             )}
                         </LemonCard>
                     </SceneSection>
+                    <SecretApiKeySection />
                     <SceneSection
                         title="Workflows"
                         description={
                             <>
                                 Use these events as triggers in <Link to="/workflows">Workflows</Link> to automate
-                                ticket actions.
+                                ticket actions.{' '}
+                                <Link to="https://posthog.com/docs/support/workflows" target="_blank">
+                                    Docs
+                                </Link>
                             </>
                         }
                         className="mt-4"

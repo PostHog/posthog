@@ -12,7 +12,7 @@ describe('SesWebhookHandler', () => {
         source: 'sender@example.com',
         messageId: 'msg-123',
         destination: ['to@example.com'],
-        tags: { ph_id: [generateEmailTrackingCode({ functionId: 'abc123', id: 'inv456' })] },
+        tags: { ph_id: [generateEmailTrackingCode({ functionId: 'abc123', id: 'inv456', teamId: 1 })] },
     }
 
     it('parses a raw Open event', async () => {
@@ -76,7 +76,7 @@ describe('SesWebhookHandler', () => {
         expect(result.metrics?.[0].metricName).toBe('email_sent')
     })
 
-    it('parses a raw Bounce event', async () => {
+    it('parses a raw Bounce event and returns opt-out recipients for permanent bounces', async () => {
         const body = [
             {
                 eventType: 'Bounce',
@@ -94,6 +94,28 @@ describe('SesWebhookHandler', () => {
         const result = await handler.handleWebhook({ body, headers: {} })
         expect(result.status).toBe(200)
         expect(result.metrics?.[0].metricName).toBe('email_bounced')
+        expect(result.optOutRecipients).toEqual([{ teamId: '1', emailAddresses: ['to@example.com'] }])
+    })
+
+    it('does not return opt-out recipients for transient bounces', async () => {
+        const body = [
+            {
+                eventType: 'Bounce',
+                mail: baseMail,
+                bounce: {
+                    bounceType: 'Transient',
+                    bouncedRecipients: [
+                        { emailAddress: 'to@example.com', action: 'failed', status: '4.1.1', diagnosticCode: 'temp' },
+                    ],
+                    timestamp: '2025-10-03T12:04:00Z',
+                    reportingMTA: 'mta',
+                },
+            },
+        ]
+        const result = await handler.handleWebhook({ body, headers: {} })
+        expect(result.status).toBe(200)
+        expect(result.metrics?.[0].metricName).toBe('email_bounced')
+        expect(result.optOutRecipients).toEqual([])
     })
 
     it('parses a raw Complaint event', async () => {

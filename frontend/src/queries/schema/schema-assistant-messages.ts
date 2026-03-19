@@ -342,6 +342,8 @@ export interface NotebookArtifactContent {
     blocks: DocumentBlock[]
     /** Title for the notebook */
     title?: string | null
+    /** Whether this notebook has been saved to the database (not stored, set during enrichment) */
+    is_saved?: boolean
 }
 
 export type ArtifactContent = VisualizationArtifactContent | NotebookArtifactContent
@@ -377,6 +379,7 @@ export enum AssistantEventType {
     Notebook = 'notebook',
     Update = 'update',
     Approval = 'approval',
+    Sandbox = 'sandbox',
 }
 
 export interface AssistantUpdateEvent {
@@ -488,6 +491,7 @@ export enum AgentMode {
     Research = 'research',
     Flags = 'flags',
     LLMAnalytics = 'llm_analytics',
+    Sandbox = 'sandbox',
 }
 
 export enum SlashCommandName {

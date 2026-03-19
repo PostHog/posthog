@@ -179,9 +179,8 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         return self.get_filters().get("super_groups", []) or []
 
     @property
-    def holdout_conditions(self):
-        "Each feature flag can have multiple holdout conditions to match, they are OR-ed together."
-        return self.get_filters().get("holdout_groups", []) or []
+    def holdout(self):
+        return self.get_filters().get("holdout", None)
 
     @property
     def _payloads(self):
@@ -219,22 +218,29 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     @property
     def evaluation_tag_names(self) -> list[str] | None:
         """
-        Returns evaluation context tag names for this flag.
+        Returns evaluation context names for this flag.
 
         Preferred source is the cache-populated list from Redis (set on instances
         as `_evaluation_tag_names`). If not present, falls back to the DB relation
-        via `evaluation_tags` → `Tag.name`.
+        via `flag_evaluation_contexts` → `EvaluationContext.name`.
         """
         cached = getattr(self, "_evaluation_tag_names", None)
         if cached is not None:
             return cached
 
         try:
-            return [et.tag.name for et in self.evaluation_tags.select_related("tag").all()]
+            return [
+                ec.evaluation_context.name
+                for ec in self.flag_evaluation_contexts.select_related("evaluation_context").all()
+            ]
         except (AttributeError, DatabaseError):
             return None
 
     def get_filters(self) -> dict:
+        if not self.filters:
+            return {"groups": []}
+        if "groups" not in self.filters:
+            return {**self.filters, "groups": []}
         return self.filters
 
     def transform_cohort_filters_for_easy_evaluation(
@@ -598,8 +604,8 @@ def get_feature_flags(
 
     qs = qs.annotate(
         evaluation_tag_names_agg=ArrayAgg(
-            "evaluation_tags__tag__name",
-            filter=Q(evaluation_tags__isnull=False),
+            "flag_evaluation_contexts__evaluation_context__name",
+            filter=Q(flag_evaluation_contexts__isnull=False),
             distinct=True,
         )
     )
@@ -669,6 +675,7 @@ def get_feature_flags_for_team_in_cache(project_id: int) -> Optional[list[Featur
                 # This avoids N+1 queries when the Rust service needs to access evaluation
                 # tags for many flags at once.
                 evaluation_tags_list = flag_data.pop("evaluation_tags", None)
+                flag_data.pop("evaluation_contexts", None)
                 flag = FeatureFlag(**flag_data)
                 # Store the evaluation tags as a private attribute. The evaluation_tag_names
                 # property will check this first before falling back to a database query.

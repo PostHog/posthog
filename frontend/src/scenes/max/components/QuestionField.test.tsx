@@ -40,7 +40,7 @@ describe('QuestionField', () => {
         expect(screen.getAllByRole('checkbox')).toHaveLength(2)
     })
 
-    it('multi_select submit button is disabled with no selection', () => {
+    it('multi_select shows error message when submitting with no selection', () => {
         const onAnswer = jest.fn()
         const question: MultiQuestionFormQuestion = {
             ...baseQuestion,
@@ -52,7 +52,9 @@ describe('QuestionField', () => {
         const buttons = screen.getAllByRole('button')
         const submitButton = buttons.find((b) => b.textContent?.includes('Next'))
         expect(submitButton).toBeInTheDocument()
-        expect(submitButton).toHaveAttribute('aria-disabled', 'true')
+        fireEvent.click(submitButton!)
+        expect(screen.getByText('Select at least one option')).toBeInTheDocument()
+        expect(onAnswer).not.toHaveBeenCalled()
     })
 
     describe('MultiFieldQuestion', () => {
@@ -81,19 +83,22 @@ describe('QuestionField', () => {
             expect(screen.getByText('Notify on complete')).toBeInTheDocument()
         })
 
-        it('submit button is disabled when required fields are empty', () => {
-            render(
+        it('shows validation errors when submitting with empty required fields', () => {
+            const onSubmit = jest.fn()
+            const { container } = render(
                 <MultiFieldQuestion
                     question={multiFieldQuestion}
                     answers={{ confidence: '80', notify: 'false' }}
                     onFieldChange={jest.fn()}
-                    onSubmit={jest.fn()}
+                    onSubmit={onSubmit}
                 />
             )
-            const buttons = screen.getAllByRole('button')
-            const submitButton = buttons.find((b) => b.textContent?.includes('Next'))
-            expect(submitButton).toBeInTheDocument()
-            expect(submitButton).toHaveAttribute('aria-disabled', 'true')
+            const submitButton = container.querySelector('.LemonButton--primary')
+            expect(submitButton).not.toBeNull()
+            fireEvent.click(submitButton!)
+            expect(container.querySelector('.text-danger')).not.toBeNull()
+            expect(container.querySelector('.text-danger')?.textContent).toBe('This field is required')
+            expect(onSubmit).not.toHaveBeenCalled()
         })
 
         it('calls onSubmit when all fields are valid and button is clicked', () => {
