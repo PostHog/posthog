@@ -25,7 +25,7 @@ class TestCreateNotification(BaseTest):
         self.user = User.objects.create_and_join(self.organization, "test@test.com", "password")
 
     @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
-    @patch("products.notifications.backend.logic._publish_to_redis")
+    @patch("products.notifications.backend.logic._publish_to_kafka")
     def test_create_notification_for_user(self, mock_publish, mock_ff):
         data = NotificationData(
             team_id=self.team.id,
@@ -44,7 +44,7 @@ class TestCreateNotification(BaseTest):
         assert NotificationEvent.objects.count() == 1
 
     @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
-    @patch("products.notifications.backend.logic._publish_to_redis")
+    @patch("products.notifications.backend.logic._publish_to_kafka")
     def test_create_notification_for_organization(self, mock_publish, mock_ff):
         user2 = User.objects.create_and_join(self.organization, "test2@test.com", "password")
 
@@ -100,7 +100,7 @@ class TestAccessControlFiltering(BaseTest):
         assert set(result) == {self.user.id, self.user2.id}
 
     @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
-    @patch("products.notifications.backend.logic._publish_to_redis")
+    @patch("products.notifications.backend.logic._publish_to_kafka")
     @patch.object(RecipientsResolver, "filter_by_access_control")
     def test_no_ac_filtering_for_notification_only_resource_types(self, mock_ac_filter, mock_publish, mock_ff):
         data = NotificationData(
