@@ -118,7 +118,7 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
                 holdout: None,
             },
             deleted: false,

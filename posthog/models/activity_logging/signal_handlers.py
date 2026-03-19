@@ -26,11 +26,12 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.utils import activity_storage
-from posthog.models.experiment import ExperimentHoldout, ExperimentSavedMetric
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 from posthog.utils import get_ip_address, get_short_user_agent
+
+from products.experiments.backend.models.experiment import ExperimentHoldout, ExperimentSavedMetric
 
 logger = structlog.get_logger(__name__)
 

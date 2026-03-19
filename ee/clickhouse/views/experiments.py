@@ -22,7 +22,6 @@ from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.models import Survey
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.evaluation_context import FeatureFlagEvaluationContext
-from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentTimeseriesRecalculation
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team.team import Team
@@ -32,6 +31,11 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
 
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.models.experiment import (
+    Experiment,
+    ExperimentHoldout,
+    ExperimentTimeseriesRecalculation,
+)
 from products.product_tours.backend.models import ProductTour
 
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
@@ -280,6 +284,25 @@ class EnterpriseExperimentsViewSet(
         warning = requires_flag_warning(filter, self.team)
 
         return Response({"result": warning})
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def launch(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Launch a draft experiment.
+
+        Validates the experiment is in draft state, activates its linked feature flag,
+        sets start_date to the current server time, and transitions the experiment to running.
+        Returns 400 if the experiment has already been launched or if the feature flag
+        configuration is invalid (e.g. missing "control" variant or fewer than 2 variants).
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        launched_experiment = service.launch_experiment(experiment)
+        return Response(ExperimentSerializer(launched_experiment, context=self.get_serializer_context()).data)
 
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def duplicate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
