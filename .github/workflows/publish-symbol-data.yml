@@ -39,6 +39,11 @@ jobs:
               with:
                   toolchain: 1.91.1
 
+            - name: Install jq
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y jq
+
             - name: Verify tag matches crate version
               run: |
                   TAG_VERSION="${GITHUB_REF_NAME#posthog-symbol-data/v}"
@@ -65,4 +70,6 @@ jobs:
                   echo "token=$CRATES_TOKEN" >> "$GITHUB_OUTPUT"
 
             - name: Publish to crates.io
-              run: cargo publish -p posthog-symbol-data --token "${{ steps.oidc.outputs.token }}"
+              env:
+                  CRATES_IO_TOKEN: ${{ steps.oidc.outputs.token }}
+              run: cargo publish -p posthog-symbol-data --token "$CRATES_IO_TOKEN"
