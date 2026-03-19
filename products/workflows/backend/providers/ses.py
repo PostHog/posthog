@@ -220,6 +220,7 @@ class SESProvider:
                     for r in dns_records:
                         if r["type"] == "dmarc":
                             r["status"] = "success"
+                            r["recordValue"] = txt_value.strip()
                     break
         except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers, dns.resolver.Timeout):
             pass  # No DMARC record found — fall back to "pending" status

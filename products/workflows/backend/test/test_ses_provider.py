@@ -53,7 +53,9 @@ class TestSESProvider(TestCase):
             assert provider.ses_v2_client
             assert provider.sts_client
 
-    def test_create_email_domain_success(self):
+    @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
+    def test_create_email_domain_success(self, mock_resolver_cls):
+        mock_resolver_cls.return_value.resolve.side_effect = dns.resolver.NXDOMAIN()
         provider = SESProvider()
 
         # Mock the SES and SESv2 clients on the provider instance
@@ -98,7 +100,7 @@ class TestSESProvider(TestCase):
 
     @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
     def test_verify_email_domain_initial_setup(self, mock_resolver_cls):
-        mock_resolver_cls.return_value.resolve.side_effect = dns.resolver.NXDOMAIN
+        mock_resolver_cls.return_value.resolve.side_effect = dns.resolver.NXDOMAIN()
         provider = SESProvider()
 
         # Mock the SES client on the provider instance
@@ -196,7 +198,7 @@ class TestSESProvider(TestCase):
 
     @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
     def test_verify_email_domain_success(self, mock_resolver_cls):
-        mock_resolver_cls.return_value.resolve.side_effect = dns.resolver.NXDOMAIN
+        mock_resolver_cls.return_value.resolve.side_effect = dns.resolver.NXDOMAIN()
         provider = SESProvider()
 
         # Patch the SES client to return 'Success' for both verification and DKIM
@@ -226,14 +228,16 @@ class TestSESProvider(TestCase):
 
     @parameterized.expand(
         [
-            ("valid_dmarc_record", None, [b"v=DMARC1; p=none;"], "success"),
-            ("lowercase_dmarc_tag", None, [b"v=dmarc1; p=quarantine;"], "success"),
-            ("leading_whitespace", None, [b" V=DMARC1; p=reject;"], "success"),
-            ("no_dns_record", dns.resolver.NXDOMAIN, None, "pending"),
-            ("non_dmarc_txt_record", None, [b"some random txt value"], "pending"),
+            ("valid_dmarc_record", None, [b"v=DMARC1; p=none;"], "success", "v=DMARC1; p=none;"),
+            ("lowercase_dmarc_tag", None, [b"v=dmarc1; p=quarantine;"], "success", "v=dmarc1; p=quarantine;"),
+            ("leading_whitespace", None, [b" V=DMARC1; p=reject;"], "success", "V=DMARC1; p=reject;"),
+            ("no_dns_record", dns.resolver.NXDOMAIN(), None, "pending", "v=DMARC1; p=none;"),
+            ("non_dmarc_txt_record", None, [b"some random txt value"], "pending", "v=DMARC1; p=none;"),
         ]
     )
-    def test_verify_email_domain_dmarc_status(self, _name, dns_side_effect, dns_strings, expected_dmarc_status):
+    def test_verify_email_domain_dmarc_status(
+        self, _name, dns_side_effect, dns_strings, expected_dmarc_status, expected_record_value
+    ):
         provider = SESProvider()
 
         with (
@@ -261,4 +265,5 @@ class TestSESProvider(TestCase):
             dmarc_records = [r for r in result["dnsRecords"] if r["type"] == "dmarc"]
             assert len(dmarc_records) == 1
             assert dmarc_records[0]["status"] == expected_dmarc_status
+            assert dmarc_records[0]["recordValue"] == expected_record_value
             assert result["status"] == "pending"  # DMARC never affects overall status
