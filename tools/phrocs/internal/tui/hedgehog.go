@@ -103,8 +103,14 @@ func (m Model) overlayHedgehog(view string) string {
 			break
 		}
 
-		rendered := spikeStyle.Render(spriteLine)
-		lines[lineIdx] = overwriteAt(lines[lineIdx], rendered, m.hedgehogX, m.viewport.Width())
+		// Strip leading/trailing whitespace from the sprite line so the
+		// hedgehog doesn't overwrite surrounding content with blanks.
+		trimmed := strings.TrimRight(spriteLine, " ")
+		leading := len(spriteLine) - len(strings.TrimLeft(spriteLine, " "))
+		trimmed = trimmed[leading:]
+
+		rendered := spikeStyle.Render(trimmed)
+		lines[lineIdx] = overwriteAt(lines[lineIdx], rendered, m.hedgehogX+leading, m.viewport.Width())
 	}
 
 	return strings.Join(lines[:vpH], "\n")
