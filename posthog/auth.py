@@ -410,6 +410,37 @@ class JwtAuthentication(authentication.BaseAuthentication):
         return cls.keyword
 
 
+class ExportRendererAuthentication(authentication.BaseAuthentication):
+    """
+    Scoped authentication for the Chromium export renderer.
+    Only viewsets that explicitly include this in authentication_classes will accept these tokens.
+    Tokens use the EXPORT_RENDERER audience, which JwtAuthentication does not accept.
+    """
+
+    keyword = "Bearer"
+
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        if "authorization" not in request.headers:
+            return None
+        authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.headers["authorization"])
+        if not authorization_match:
+            return None
+        try:
+            token = authorization_match.group(1).strip()
+            info = decode_jwt(token, PosthogJwtAudience.EXPORT_RENDERER)
+            user = User.objects.get(pk=info["id"])
+            return user, None
+        except jwt.DecodeError:
+            return None
+        except jwt.InvalidAudienceError:
+            return None
+        except Exception:
+            raise AuthenticationFailed(detail="Token invalid.")
+
+    def authenticate_header(self, request) -> str:
+        return self.keyword
+
+
 class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
     """Limited access for sharing views e.g. insights/dashboards for refreshing.
     Remember to add access restrictions based on `sharing_configuration` using `SharingTokenPermission` or manually.
