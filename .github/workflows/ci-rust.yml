@@ -92,6 +92,7 @@ jobs:
                       "limiters": 23,
                       "lifecycle": 10,
                       "personhog-coordination": 30,
+                      "personhog-leader": 30,
                       "personhog-replica": 49,
                       "personhog-router": 10,
                       "posthog-symbol-data": 4,
