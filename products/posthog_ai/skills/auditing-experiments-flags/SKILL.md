@@ -34,7 +34,7 @@ When the user asks for a comprehensive audit of both experiments and flags:
 
 1. Fetch all experiments via `list_data("experiments")` and all flags via `list_data("feature_flags")`.
 2. Run all experiment checks and all flag checks.
-3. Apply [cross-finding synthesis](./references/synthesis-patterns.md) to identify systemic patterns.
+3. Apply [recurring patterns](./references/synthesis-patterns.md) to identify patterns across multiple findings.
 4. If there are more than 5 entities with findings, output as a notebook artifact via `create_notebook` for easier navigation. Otherwise report inline.
 
 ## Output format
@@ -73,8 +73,8 @@ If a `read_data` or `list_data` call fails for some entities:
 
 ## Reference files
 
-- [Experiment checks](./references/experiment-checks.md) — 8 experiment configuration checks
-- [Flag checks](./references/flag-checks.md) — 5 feature flag checks
-- [Finding taxonomy](./references/finding-taxonomy.md) — severity and category definitions
-- [Synthesis patterns](./references/synthesis-patterns.md) — cross-finding pattern recognition
+- [Experiment checks](./references/experiment-checks.md) — experiment configuration checks
+- [Flag checks](./references/flag-checks.md) — feature flag checks
+- [Finding types](./references/finding-taxonomy.md) — severity and category definitions
+- [Recurring patterns](./references/synthesis-patterns.md) — patterns across multiple findings
 - [Remediation actions](./references/remediation-actions.md) — what to do about each finding

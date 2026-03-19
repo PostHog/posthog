@@ -1,4 +1,4 @@
-# Finding taxonomy
+# Finding types
 
 ## Severities
 
