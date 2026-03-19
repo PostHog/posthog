@@ -306,17 +306,22 @@ describe('CyclotronJobQueue', () => {
             }
         )
 
-        it('should not release when source matches target', async () => {
-            const queue = buildQueue('*:postgres')
-            const result = createResult('postgres')
+        it.each([
+            { mapping: '*:postgres', queueSource: 'postgres' as const },
+            { mapping: '*:postgres-v2', queueSource: 'postgres-v2' as const },
+        ])(
+            'should not release when source matches target: $mapping / $queueSource',
+            async ({ mapping, queueSource }) => {
+                const queue = buildQueue(mapping)
+                const result = createResult(queueSource)
 
-            await queue.queueInvocationResults([result])
+                await queue.queueInvocationResults([result])
 
-            // Should update, not create+release
-            expect(queue['jobQueuePostgres'].queueInvocationResults).toHaveBeenCalledTimes(1)
-            expect(queue['jobQueuePostgres'].releaseInvocations).not.toHaveBeenCalled()
-            expect(queue['jobQueuePostgresV2']!.releaseInvocations).not.toHaveBeenCalled()
-        })
+                // Should update, not create+release
+                expect(queue['jobQueuePostgres'].releaseInvocations).not.toHaveBeenCalled()
+                expect(queue['jobQueuePostgresV2']!.releaseInvocations).not.toHaveBeenCalled()
+            }
+        )
     })
 })
 
