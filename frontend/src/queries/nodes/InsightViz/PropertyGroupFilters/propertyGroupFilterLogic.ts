@@ -1,11 +1,11 @@
 import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 
-import { convertPropertiesToPropertyGroup } from 'lib/components/PropertyFilters/utils'
+import { convertPropertiesToPropertyGroup, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { ProductAnalyticsInsightQueryNode } from '~/queries/schema/schema-general'
-import { FilterLogicalOperator, PropertyGroupFilter } from '~/types'
+import { AnyFilterLike, FilterLogicalOperator, PropertyGroupFilter, PropertyGroupFilterValue } from '~/types'
 
 import type { propertyGroupFilterLogicType } from './propertyGroupFilterLogicType'
 
@@ -103,7 +103,10 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
             eventUsageLogic.actions.reportPropertyGroupFilterAdded()
         },
         update: () => {
-            props.setQuery({ ...props.query, properties: values.filters })
+            // Don't persist empty PropertyGroupFilter structures — they cause ghost
+            // empty filter groups when merged with dashboard filters on the backend.
+            const properties = hasAnyPropertyFilters(values.filters) ? values.filters : undefined
+            props.setQuery({ ...props.query, properties })
         },
     })),
 
@@ -111,3 +114,11 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
         propertyGroupFilter: [(s) => [s.filters], (propertyGroupFilter) => propertyGroupFilter],
     }),
 ])
+
+function hasAnyPropertyFilters(filter: PropertyGroupFilter): boolean {
+    return filter.values.some((group: PropertyGroupFilterValue) =>
+        group.values.some((v: AnyFilterLike | PropertyGroupFilterValue) =>
+            'values' in v ? hasAnyPropertyFilters(v as PropertyGroupFilter) : isValidPropertyFilter(v)
+        )
+    )
+}
