@@ -22,8 +22,11 @@ fn test_v2_compressed_header() {
     };
 
     let bytes = write_symbol_data(input.clone()).unwrap();
-    let version =
-        u32::from_le_bytes(bytes[VERSION_OFFSET..VERSION_OFFSET + 4].try_into().unwrap());
+    let version = u32::from_le_bytes(
+        bytes[VERSION_OFFSET..VERSION_OFFSET + 4]
+            .try_into()
+            .unwrap(),
+    );
     assert_eq!(version, 2);
     assert_eq!(bytes[COMPRESSION_OFFSET], 1); // zstd
 
@@ -39,8 +42,11 @@ fn test_v2_uncompressed_header() {
     };
 
     let bytes = write_symbol_data_uncompressed(input.clone()).unwrap();
-    let version =
-        u32::from_le_bytes(bytes[VERSION_OFFSET..VERSION_OFFSET + 4].try_into().unwrap());
+    let version = u32::from_le_bytes(
+        bytes[VERSION_OFFSET..VERSION_OFFSET + 4]
+            .try_into()
+            .unwrap(),
+    );
     assert_eq!(version, 2);
     assert_eq!(bytes[COMPRESSION_OFFSET], 0); // none
 
