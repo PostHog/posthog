@@ -94,8 +94,10 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
         }
 
         try {
-            const messages = events.map((event) => ({
+            // Batch messages while varying keys to encourage partition distribution
+            const messages = events.map((event, index) => ({
                 value: JSON.stringify(event.payload),
+                key: String(index),
             }))
 
             await this.kafkaProducer.queueMessages({
