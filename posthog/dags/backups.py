@@ -52,6 +52,8 @@ NON_SHARDED_TABLES = [
     "plugin_log_entries",
 ]
 
+LOGS_TABLES = ["logs34"]
+
 
 @dataclass
 class Table:
@@ -682,6 +684,33 @@ def incremental_sharded_backup_schedule(context: dagster.ScheduleEvaluationConte
 def incremental_non_sharded_backup_schedule(context: dagster.ScheduleEvaluationContext):
     """Launch an incremental backup for non-sharded tables"""
     for table in NON_SHARDED_TABLES:
+        request = run_backup_request(table, incremental=True, context=context)
+        if request:
+            yield request
+
+
+@dagster.schedule(
+    job=non_sharded_backup,
+    cron_schedule=settings.CLICKHOUSE_FULL_BACKUP_SCHEDULE,
+    should_execute=lambda context: 1 <= context.scheduled_execution_time.day <= 7,
+    default_status=dagster.DefaultScheduleStatus.RUNNING,
+)
+def full_logs_backup_schedule(context: dagster.ScheduleEvaluationContext):
+    """Launch a full backup for logs tables"""
+    for table in LOGS_TABLES:
+        request = run_backup_request(table, incremental=False, context=context)
+        if request:
+            yield request
+
+
+@dagster.schedule(
+    job=non_sharded_backup,
+    cron_schedule=settings.CLICKHOUSE_INCREMENTAL_BACKUP_SCHEDULE,
+    default_status=dagster.DefaultScheduleStatus.RUNNING,
+)
+def incremental_logs_backup_schedule(context: dagster.ScheduleEvaluationContext):
+    """Launch an incremental backup for logs tables"""
+    for table in LOGS_TABLES:
         request = run_backup_request(table, incremental=True, context=context)
         if request:
             yield request

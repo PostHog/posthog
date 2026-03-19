@@ -281,6 +281,25 @@ class EnterpriseExperimentsViewSet(
 
         return Response({"result": warning})
 
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def launch(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Launch a draft experiment.
+
+        Validates the experiment is in draft state, activates its linked feature flag,
+        sets start_date to the current server time, and transitions the experiment to running.
+        Returns 400 if the experiment has already been launched or if the feature flag
+        configuration is invalid (e.g. missing "control" variant or fewer than 2 variants).
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        launched_experiment = service.launch_experiment(experiment)
+        return Response(ExperimentSerializer(launched_experiment, context=self.get_serializer_context()).data)
+
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def duplicate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         source_experiment: Experiment = self.get_object()
