@@ -9,7 +9,7 @@ name: Build rust smoke test images
 
 on:
     pull_request:
-        types: [labeled, synchronize, opened, reopened]
+        types: [labeled, synchronize]
         paths:
             - 'rust/**'
             - '.github/workflows/rust-smoke-test-build.yml'
@@ -25,9 +25,10 @@ jobs:
             - name: Verify PostHog org membership
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  ACTOR: ${{ github.actor }}
               run: |
-                  if ! gh api orgs/PostHog/members/${{ github.actor }} --silent 2>/dev/null; then
-                      echo "::error::${{ github.actor }} is not a PostHog org member — smoke test builds are restricted to employees"
+                  if ! gh api "orgs/PostHog/members/$ACTOR" --silent 2>/dev/null; then
+                      echo "::error::$ACTOR is not a PostHog org member — smoke test builds are restricted to employees"
                       exit 1
                   fi
 
