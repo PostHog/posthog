@@ -447,12 +447,17 @@ function SearchRoot({
         return groups
     }, [filteredItems, allCategories, searchValue])
 
+    // Derive a flat item list from groupedItems so the order passed to Autocomplete.Root
+    // exactly matches the DOM render order. Without this, Base UI's keyboard navigation
+    // breaks at group boundaries where the two orderings diverge.
+    const orderedItems = useMemo(() => groupedItems.flatMap((g) => g.items), [groupedItems])
+
     const contextValue: SearchContextValue = useMemo(
         () => ({
             logicKey,
             searchValue,
             setSearchValue,
-            filteredItems,
+            filteredItems: orderedItems,
             groupedItems,
             isSearching,
             isActive,
@@ -465,7 +470,7 @@ function SearchRoot({
         [
             logicKey,
             searchValue,
-            filteredItems,
+            orderedItems,
             groupedItems,
             isSearching,
             isActive,
@@ -481,7 +486,7 @@ function SearchRoot({
                 className={`flex flex-col overflow-hidden ${className} group/colorful-product-icons colorful-product-icons-true`}
             >
                 <Autocomplete.Root
-                    items={filteredItems}
+                    items={orderedItems}
                     filter={null}
                     itemToStringValue={(item) => item?.name ?? ''}
                     actionsRef={actionsRef}
