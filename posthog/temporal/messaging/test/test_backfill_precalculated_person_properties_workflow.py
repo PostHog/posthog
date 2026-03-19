@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 
+import temporalio.exceptions
+
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
     BackfillPrecalculatedPersonPropertiesInputs,
     backfill_precalculated_person_properties_activity,
@@ -615,3 +617,36 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
         # Verify sources are different
         assert cohort_100_events[0]["source"] == "cohort_backfill_100"
         assert cohort_200_events[0]["source"] == "cohort_backfill_200"
+
+    @pytest.mark.asyncio
+    async def test_missing_filter_storage_key_raises_non_retryable_error(self):
+        """Test that missing Redis key raises a non-retryable ApplicationError."""
+        inputs = BackfillPrecalculatedPersonPropertiesInputs(
+            team_id=1,
+            filter_storage_key="backfill_person_properties_filters:team_1_nonexistent",
+            cohort_ids=[100],
+            batch_size=100,
+            offset=0,
+            limit=1,
+        )
+
+        # Mock get_filters to return None (simulating missing/expired key)
+        with patch(
+            "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_filters"
+        ) as mock_get_filters:
+            mock_get_filters.return_value = None
+
+            # Mock asyncio.to_thread to just call the function directly for testing
+            with patch("asyncio.to_thread") as mock_to_thread:
+                mock_to_thread.side_effect = lambda func, *args: func(*args)
+
+                # Should raise non-retryable ApplicationError
+                with pytest.raises(temporalio.exceptions.ApplicationError) as exc_info:
+                    await backfill_precalculated_person_properties_activity(inputs)
+
+                error = exc_info.value
+                assert error.non_retryable is True
+                assert error.type == "MissingFilters"
+                assert "Filters not found in storage" in str(error)
+                assert "Redis payload may have expired" in str(error)
+                assert inputs.filter_storage_key in str(error)
