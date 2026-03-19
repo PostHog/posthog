@@ -180,25 +180,18 @@ describe('dashboardsLogic', () => {
         })
     })
 
-    it('search matches a token at the end of a long dashboard name (Fuse ignoreLocation)', async () => {
-        expectLogic(logic, () => {
-            logic.actions.setFilters({ search: 'Nova' })
-        }).toMatchValues({
-            dashboards: truth((dashboards: DashboardType[]) => {
-                return dashboards.length === 1 && dashboards[0].name === 'VMS Feature - History Browser - Nova'
-            }),
-        })
-    })
-
-    it('search is case insensitive for tail-of-title match', async () => {
-        expectLogic(logic, () => {
-            logic.actions.setFilters({ search: 'nova' })
-        }).toMatchValues({
-            dashboards: truth((dashboards: DashboardType[]) => {
-                return dashboards.length === 1 && dashboards[0].name?.endsWith('Nova')
-            }),
-        })
-    })
+    it.each([['Nova'], ['nova'], ['NOVA']])(
+        'search matches a token at the end of a long dashboard name — case "%s"',
+        (search) => {
+            expectLogic(logic, () => {
+                logic.actions.setFilters({ search })
+            }).toMatchValues({
+                dashboards: truth((dashboards: DashboardType[]) => {
+                    return dashboards.length === 1 && dashboards[0].name === 'VMS Feature - History Browser - Nova'
+                }),
+            })
+        }
+    )
 
     it('syncs search to URL when setSearch is called', async () => {
         await expectLogic(logic, () => {
