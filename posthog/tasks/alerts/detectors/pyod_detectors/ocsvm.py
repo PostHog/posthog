@@ -20,4 +20,4 @@ class OCSVMDetector(BasePyODDetector):
 
     @classmethod
     def get_default_config(cls) -> dict[str, Any]:
-        return {"type": "ocsvm", "threshold": 0.9, "kernel": "rbf", "nu": 0.1}
+        return {"type": DetectorType.OCSVM.value, "threshold": 0.9, "kernel": "rbf", "nu": 0.1}

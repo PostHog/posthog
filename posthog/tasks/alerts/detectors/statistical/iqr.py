@@ -1,3 +1,5 @@
+from typing import Any
+
 import numpy as np
 from scipy.special import erf
 
@@ -131,7 +133,7 @@ class IQRDetector(BaseDetector):
         )
 
     @classmethod
-    def get_default_config(cls) -> dict:
+    def get_default_config(cls) -> dict[str, Any]:
         return {
             "type": DetectorType.IQR.value,
             "threshold": 0.9,
