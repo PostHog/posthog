@@ -497,7 +497,7 @@ export function SupportTicketsTableFilters(): JSX.Element {
 
 export function SupportTicketsScene(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const conversationsDisabled = currentTeam && !currentTeam.conversations_enabled
+    const conversationsDisabled = !!currentTeam && !currentTeam.conversations_enabled
 
     return (
         <SceneContent className="pb-4">
