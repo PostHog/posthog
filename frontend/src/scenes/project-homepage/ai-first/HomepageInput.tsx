@@ -285,7 +285,7 @@ function HomePageOfframp(): JSX.Element | null {
     const { showConfigurePinnedTabsModal } = useActions(navigationLogic)
 
     return (
-        <div className="flex items-center gap-2 group/colorful-product-icons colorful-product-icons-true">
+        <div className="flex items-center gap-2">
             <ButtonPrimitive
                 variant="panel"
                 onClick={() => showConfigurePinnedTabsModal()}
@@ -294,7 +294,6 @@ function HomePageOfframp(): JSX.Element | null {
             >
                 Configure home <IconGear className="size-4" />
             </ButtonPrimitive>
-            <span className="text-xxs text-tertiary m-0" />
         </div>
     )
 }
