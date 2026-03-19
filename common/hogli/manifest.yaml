@@ -718,3 +718,9 @@ environment:
     setup:python:
         cmd: uv sync --active
         description: Install Python dependencies to active virtual environment
+    telemetry:on:
+        description: Enable anonymous usage telemetry
+    telemetry:off:
+        description: Disable anonymous usage telemetry
+    telemetry:status:
+        description: Show current telemetry settings

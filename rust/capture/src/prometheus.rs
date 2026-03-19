@@ -128,6 +128,16 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
         )
         .unwrap()
         .set_buckets_for_metric(
+            Matcher::Full("capture_ai_otel_body_size_bytes".to_string()),
+            PAYLOAD_SIZES,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("capture_ai_otel_spans_per_request".to_string()),
+            BATCH_SIZES,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
             Matcher::Full("capture_ai_blob_count_per_event".to_string()),
             BLOB_COUNTS,
         )

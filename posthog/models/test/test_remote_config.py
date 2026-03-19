@@ -19,7 +19,7 @@ from posthog.models.project import Project
 from posthog.models.remote_config import RemoteConfig
 from posthog.models.surveys.survey import Survey
 
-CONFIG_REFRESH_QUERY_COUNT = 5
+CONFIG_REFRESH_QUERY_COUNT = 6
 
 
 @pytest.mark.usefixtures("unittest_snapshot")

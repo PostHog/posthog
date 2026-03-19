@@ -1,10 +1,12 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { actions, afterMount, connect, isBreakpoint, kea, listeners, path, reducers, selectors } from 'kea'
+import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isEmptyObject } from 'lib/utils'
 import { getDefaultEventName, getProjectEventExistence } from 'lib/utils/getAppContext'
 import { funnelPathsExpansionLogic } from 'scenes/funnels/FunnelFlowGraph/funnelPathsExpansionLogic'
 import { PathExpansion } from 'scenes/funnels/FunnelFlowGraph/pathFlowUtils'
@@ -16,21 +18,94 @@ import { eventNameToEventsNode } from '~/queries/nodes/InsightQuery/utils/eventN
 import {
     ActionsNode,
     AnyEntityNode,
-    DataWarehouseNode,
     EventsNode,
+    FunnelsDataWarehouseNode,
     FunnelsQuery,
     InsightVizNode,
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { insightsApi } from '~/scenes/insights/utils/api'
-import { Breadcrumb, FunnelPathType, FunnelVizType, InsightLogicProps } from '~/types'
+import {
+    BreakdownAttributionType,
+    Breadcrumb,
+    FunnelConversionWindowTimeUnit,
+    FunnelPathType,
+    FunnelStepReference,
+    FunnelVizType,
+    InsightLogicProps,
+    StepOrderValue,
+} from '~/types'
 
+import { customerAnalyticsConfigLogic } from '../../customerAnalyticsConfigLogic'
 import { customerJourneysLogic } from './customerJourneysLogic'
 import type { journeyBuilderLogicType } from './journeyBuilderLogicType'
 
 const JOURNEY_NAME_MAX_LENGTH = 64
 const INSIGHT_NAME_PREFIX = 'Journey: '
 export const JOURNEY_NAME_INPUT_MAX_LENGTH = JOURNEY_NAME_MAX_LENGTH - INSIGHT_NAME_PREFIX.length
+
+type JourneyTemplateKey = 'signup_conversion' | 'free_to_paid'
+
+function createTemplateQuery(
+    templateKey: JourneyTemplateKey,
+    signupPageviewEvent: AnyEntityNode,
+    signupEvent: AnyEntityNode,
+    paymentEvent: AnyEntityNode
+): InsightVizNode<FunnelsQuery> | null {
+    if (templateKey === 'signup_conversion') {
+        if (isEmptyObject(signupPageviewEvent) || isEmptyObject(signupEvent)) {
+            return null
+        }
+        const { custom_name: _a, ...pageviewNode } = signupPageviewEvent as AnyEntityNode & { custom_name?: string }
+        const { custom_name: _b, ...signupNode } = signupEvent as AnyEntityNode & { custom_name?: string }
+        return {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.FunnelsQuery,
+                series: [pageviewNode as EventsNode | ActionsNode, signupNode as EventsNode | ActionsNode],
+                funnelsFilter: {
+                    funnelVizType: FunnelVizType.Flow,
+                    funnelOrderType: StepOrderValue.ORDERED,
+                    funnelStepReference: FunnelStepReference.total,
+                    funnelWindowInterval: 14,
+                    breakdownAttributionType: BreakdownAttributionType.FirstTouch,
+                    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
+                },
+                breakdownFilter: { breakdown_type: 'event' },
+            },
+            full: true,
+            showFilters: true,
+        }
+    }
+
+    if (templateKey === 'free_to_paid') {
+        if (isEmptyObject(signupEvent) || isEmptyObject(paymentEvent)) {
+            return null
+        }
+        const { custom_name: _a, ...signupNode } = signupEvent as AnyEntityNode & { custom_name?: string }
+        const { custom_name: _b, ...payNode } = paymentEvent as AnyEntityNode & { custom_name?: string }
+        return {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.FunnelsQuery,
+                series: [signupNode as EventsNode | ActionsNode, payNode as EventsNode | ActionsNode],
+                funnelsFilter: {
+                    funnelVizType: FunnelVizType.Flow,
+                    funnelOrderType: StepOrderValue.ORDERED,
+                    funnelStepReference: FunnelStepReference.total,
+                    funnelWindowInterval: 6,
+                    breakdownAttributionType: BreakdownAttributionType.FirstTouch,
+                    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Week,
+                },
+                breakdownFilter: { breakdown_type: 'event' },
+            },
+            full: true,
+            showFilters: true,
+        }
+    }
+
+    return null
+}
 
 export const JOURNEY_BUILDER_INSIGHT_PROPS: InsightLogicProps = {
     dashboardItemId: 'new-AdHoc.InsightViz.journey-builder',
@@ -71,7 +146,12 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             customerJourneysLogic,
             ['addJourney', 'addJourneySuccess', 'addJourneyFailure'],
         ],
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            customerAnalyticsConfigLogic,
+            ['signupEvent', 'signupPageviewEvent', 'paymentEvent'],
+        ],
     })),
 
     actions({
@@ -99,6 +179,9 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
         setJourneyDescription: (description: string) => ({ description }),
         saveJourney: true,
         saveJourneyFailure: (error: string) => ({ error }),
+        loadFromInsight: (insightId: number) => ({ insightId }),
+        applyTemplate: (templateKey: string) => ({ templateKey }),
+        resetBuilder: true,
     }),
 
     reducers({
@@ -151,6 +234,11 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
                     path: urls.customerAnalyticsJourneys(),
                 },
                 {
+                    key: Scene.CustomerJourneyTemplates,
+                    name: 'Templates',
+                    path: urls.customerJourneyTemplates(),
+                },
+                {
                     key: Scene.CustomerJourneyBuilder,
                     name: 'New journey',
                 },
@@ -162,7 +250,7 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             (s) => [s.featureFlags],
             (featureFlags): TaxonomicFilterGroupType[] => {
                 const { hasPageview, hasScreen } = getProjectEventExistence()
-                const supportsDwhFunnels = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNEL_DWH_SUPPORT]
+                const supportsDwhFunnels = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DWH_FUNNEL_SUPPORT]
                 return [
                     TaxonomicFilterGroupType.Events,
                     TaxonomicFilterGroupType.Actions,
@@ -190,10 +278,9 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
                 name: defaultEvent === null ? 'All events' : defaultEvent,
             }
             series.splice(insertAtIndex, 0, newStep)
-            actions.setQuery({
-                ...values.query,
-                source: { ...values.query.source, series },
-            })
+            const query = { ...values.query, source: { ...values.query.source, series } }
+            actions.setQuery(query)
+            actions.setInsightQuery(query)
         },
 
         removeStep: ({ stepIndex }) => {
@@ -201,17 +288,16 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             if (series.length === 0) {
                 return
             }
-            actions.setQuery({
-                ...values.query,
-                source: { ...values.query.source, series },
-            })
+            const query = { ...values.query, source: { ...values.query.source, series } }
+            actions.setQuery(query)
+            actions.setInsightQuery(query)
         },
 
         updateStepEvent: ({ stepIndex, value, groupType, item }) => {
             const series = [...values.query.source.series]
             const name = item?.name || value || ''
 
-            let node: AnyEntityNode
+            let node: AnyEntityNode<FunnelsDataWarehouseNode>
             if (groupType === TaxonomicFilterGroupType.Actions) {
                 node = {
                     kind: NodeKind.ActionsNode,
@@ -220,14 +306,14 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
                 } as ActionsNode
             } else if (groupType === TaxonomicFilterGroupType.DataWarehouse) {
                 node = {
-                    kind: NodeKind.DataWarehouseNode,
+                    kind: NodeKind.FunnelsDataWarehouseNode,
                     id: String(value),
                     table_name: item?.name || String(value),
                     id_field: item?.id_field || 'id',
                     timestamp_field: item?.timestamp_field || 'timestamp',
-                    distinct_id_field: item?.distinct_id_field || 'distinct_id',
+                    aggregation_target_field: item?.aggregation_target_field || 'distinct_id',
                     name,
-                } as DataWarehouseNode
+                } as FunnelsDataWarehouseNode
             } else {
                 node = {
                     kind: NodeKind.EventsNode,
@@ -258,10 +344,62 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             const newStep = eventNameToEventsNode(eventName)
             const series = [...values.query.source.series]
             series.splice(insertionIndex, 0, newStep)
-            actions.setQuery({
-                ...values.query,
-                source: { ...values.query.source, series },
-            })
+            const query = { ...values.query, source: { ...values.query.source, series } }
+            actions.setQuery(query)
+            actions.setInsightQuery(query)
+        },
+
+        applyTemplate: ({ templateKey }) => {
+            const { signupPageviewEvent, signupEvent, paymentEvent } = values
+            const query = createTemplateQuery(
+                templateKey as JourneyTemplateKey,
+                signupPageviewEvent,
+                signupEvent,
+                paymentEvent
+            )
+            if (query) {
+                const names: Record<string, string> = {
+                    signup_conversion: 'Signup conversion',
+                    free_to_paid: 'Free-to-paid conversion',
+                }
+                actions.setQuery(query)
+                actions.setJourneyName(names[templateKey] || '')
+                actions.setInsightQuery(query)
+            }
+        },
+
+        loadFromInsight: async ({ insightId }, breakpoint) => {
+            try {
+                const insight = await insightsApi.getByNumericId(insightId)
+                breakpoint()
+                if (!insight?.query) {
+                    lemonToast.error('Could not load funnel insight')
+                    return
+                }
+                const vizNode = insight.query as InsightVizNode<FunnelsQuery>
+                const modifiedQuery: InsightVizNode<FunnelsQuery> = {
+                    ...vizNode,
+                    source: {
+                        ...vizNode.source,
+                        funnelsFilter: {
+                            ...vizNode.source.funnelsFilter,
+                            funnelVizType: FunnelVizType.Flow,
+                        },
+                    },
+                    full: true,
+                    showFilters: true,
+                }
+                actions.setQuery(modifiedQuery)
+                actions.setJourneyName(insight.name || '')
+                actions.setJourneyDescription(insight.description || '')
+                actions.setInsightQuery(modifiedQuery)
+            } catch (e: any) {
+                if (isBreakpoint(e)) {
+                    return
+                }
+                posthog.captureException(e)
+                lemonToast.error('Failed to load insight')
+            }
         },
 
         saveJourney: async () => {
@@ -300,13 +438,29 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
                 actions.addJourney({
                     insightId: insight.id,
                     name,
+                    description: journeyDescription.trim() || undefined,
                 })
 
+                actions.resetBuilder()
                 router.actions.push(urls.customerAnalyticsJourneys())
             } catch (e) {
                 const message = e instanceof Error ? e.message : 'Failed to save journey'
                 actions.saveJourneyFailure(message)
                 lemonToast.error(message)
+            }
+        },
+    })),
+
+    urlToAction(({ actions }) => ({
+        [urls.customerJourneyBuilder()]: (_, searchParams) => {
+            const template = searchParams.template
+            if (template && template !== 'scratch') {
+                actions.applyTemplate(template)
+                return
+            }
+            const fromInsight = searchParams.fromInsight
+            if (fromInsight) {
+                actions.loadFromInsight(Number(fromInsight))
             }
         },
     })),

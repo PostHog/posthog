@@ -118,6 +118,8 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "slack_channel_id",
             "slack_thread_ts",
             "slack_team_id",
+            "email_subject",
+            "email_from",
             "person",
             "tags",
         ]
@@ -139,6 +141,8 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "slack_channel_id",
             "slack_thread_ts",
             "slack_team_id",
+            "email_subject",
+            "email_from",
             "person",
         ]
 
@@ -648,7 +652,7 @@ def assign_ticket(ticket: Ticket, assignee, organization, user, team_id, was_imp
 
     with transaction.atomic():
         # Lock the ticket to prevent concurrent modifications
-        Ticket.objects.select_for_update().get(id=ticket.id)
+        Ticket.objects.select_for_update().get(id=ticket.id, team_id=team_id)
         assignment_before = TicketAssignment.objects.filter(ticket_id=ticket.id).first()
         serialized_assignment_before = TicketAssignmentSerializer(assignment_before).data if assignment_before else None
 

@@ -24,7 +24,7 @@ from rest_framework import status
 from posthog import redis
 from posthog.api.cohort import get_cohort_actors_for_feature_flag
 from posthog.api.feature_flag import FeatureFlagSerializer, extract_etag_from_header
-from posthog.models import Experiment, FeatureFlag, GroupTypeMapping, TaggedItem, User
+from posthog.models import FeatureFlag, GroupTypeMapping, TaggedItem, User
 from posthog.models.cohort import Cohort
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlagDashboards, get_feature_flags_for_team_in_cache
@@ -42,6 +42,7 @@ from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.experiments.backend.models.experiment import Experiment
 from products.product_tours.backend.models import ProductTour
 
 
@@ -494,6 +495,201 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             team=ANY,
             request=ANY,
         )
+
+    @parameterized.expand(
+        [
+            ("false", False, "bool"),
+            ("true", True, "bool"),
+            ("string", "not_an_int", "str"),
+            ("float", 1.5, "float"),
+        ]
+    )
+    def test_non_integer_aggregation_group_type_index_rejected(self, _name, bad_value, expected_type):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": "Bad index flag",
+                "key": f"bad-index-{_name}",
+                "filters": {
+                    "aggregation_group_type_index": bad_value,
+                    "groups": [{"rollout_percentage": 100}],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(expected_type, response.json()["detail"])
+
+    @parameterized.expand(
+        [
+            ("false", False, "bool"),
+            ("true", True, "bool"),
+            ("int", 42, "int"),
+        ]
+    )
+    def test_non_string_group_variant_rejected(self, _name, bad_value, expected_type):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": "Bad variant flag",
+                "key": f"bad-variant-{_name}",
+                "filters": {
+                    "groups": [{"variant": bad_value, "rollout_percentage": 100}],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(expected_type, response.json()["detail"])
+
+    def test_string_group_variant_preserved(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": "String variant flag",
+                "key": "string-variant-preserved",
+                "filters": {
+                    "groups": [{"variant": "control", "rollout_percentage": 100}],
+                    "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag = FeatureFlag.objects.get(key="string-variant-preserved", team=self.team)
+        self.assertEqual(flag.filters["groups"][0]["variant"], "control")
+
+    @parameterized.expand(
+        [
+            ("string_int", "100"),
+            ("bool_false", False),
+            ("string_nan", "NaN"),
+            ("string_inf", "Infinity"),
+            ("float_nan", float("nan")),
+            ("float_inf", float("inf")),
+        ]
+    )
+    def test_non_numeric_group_rollout_percentage_rejected(self, _name, bad_value):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": "Bad rollout flag",
+                "key": f"bad-rollout-{_name}",
+                "filters": {
+                    "groups": [{"rollout_percentage": bad_value}],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("rollout_percentage", response.json()["detail"])
+
+    @parameterized.expand(
+        [
+            ("negative_one", -1),
+            ("negative_fraction", -0.1),
+            ("over_hundred", 101),
+            ("two_hundred", 200),
+            ("just_over", 100.1),
+        ]
+    )
+    def test_out_of_range_group_rollout_percentage_rejected(self, _name, bad_value):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": "Out of range rollout flag",
+                "key": f"oor-rollout-{_name}",
+                "filters": {
+                    "groups": [{"rollout_percentage": bad_value}],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("between 0 and 100", response.json()["detail"])
+
+    @parameterized.expand(
+        [
+            ("zero", 0, 0),
+            ("hundred", 100, 100),
+            ("seventy_five", 75, 75),
+            ("fifty_point_five", 50.5, 50.5),
+        ]
+    )
+    def test_valid_group_rollout_percentage_preserved(self, _name, value, expected):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": "Valid rollout",
+                "key": f"valid-rollout-{_name}",
+                "filters": {
+                    "groups": [{"rollout_percentage": value}],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag = FeatureFlag.objects.get(key=f"valid-rollout-{_name}", team=self.team)
+        self.assertEqual(flag.filters["groups"][0]["rollout_percentage"], expected)
+
+    # Same _validate_rollout_percentage function as group tests; smoke-testing the call site
+    @parameterized.expand(
+        [
+            ("string_int", "50"),
+            ("bool_true", True),
+            ("null", None),
+        ]
+    )
+    def test_non_numeric_variant_rollout_percentage_rejected(self, _name, bad_value):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": "Bad variant rollout",
+                "key": f"bad-variant-rollout-{_name}",
+                "filters": {
+                    "groups": [{"rollout_percentage": 100}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": bad_value},
+                            {"key": "test", "rollout_percentage": 50},
+                        ]
+                    },
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("rollout_percentage", response.json()["detail"])
+
+    @parameterized.expand(
+        [
+            ("false", False, "bool"),
+            ("true", True, "bool"),
+            ("string", "not_an_int", "str"),
+            ("float", 1.5, "float"),
+        ]
+    )
+    def test_non_integer_property_group_type_index_rejected(self, _name, bad_value, expected_type):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": "Bad gti flag",
+                "key": f"bad-prop-gti-{_name}",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [
+                                {"key": "email", "type": "person", "value": "test", "group_type_index": bad_value}
+                            ],
+                        }
+                    ],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(expected_type, response.json()["detail"])
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     @patch("posthog.api.feature_flag.report_user_action")
@@ -1493,7 +1689,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             is_remote_configuration=True,
         )
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         self.client.logout()
 
@@ -3403,7 +3601,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         deleted_cohort = Cohort.objects.create(
             team=self.team,
@@ -3659,7 +3859,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         self.client.logout()
 
@@ -3771,7 +3973,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         response = self.client.get(
             f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
@@ -3957,7 +4161,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         response = self.client.get(
             f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
@@ -4112,7 +4318,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         client = redis.get_client()
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         self.client.logout()
         # `local_evaluation` is called by logged out clients!
@@ -4174,7 +4382,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         client = redis.get_client()
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         # request made while logged in, via client cookie auth
         response = self.client.get(f"/api/feature_flag?token={self.team.api_token}")
@@ -5517,7 +5727,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_rate_limits_for_local_evaluation_are_independent(self, rate_limit_enabled_mock, incr_mock):
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         for _ in range(5):
             response = self.client.get(
@@ -6227,7 +6439,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         # Clear both Redis and S3 caches
         from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
@@ -6273,7 +6487,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         cache.clear()
 
@@ -6306,7 +6522,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         cache.clear()
 
@@ -6363,7 +6581,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         cache.clear()
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         # Populate both cache variants
         self.client.logout()
@@ -6763,7 +6983,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
@@ -6792,7 +7014,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
@@ -6830,7 +7054,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
@@ -6862,7 +7088,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
@@ -6915,7 +7143,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
@@ -6963,7 +7193,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
@@ -7006,7 +7238,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
@@ -7044,7 +7278,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
@@ -7172,7 +7408,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         self.client.logout()
         before = LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER.labels(source=source)._value.get()

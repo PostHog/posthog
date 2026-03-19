@@ -83,6 +83,7 @@
     'description',
     'filters',
     'is_static',
+    'last_backfill_person_properties_at',
     'last_calculation_duration_ms',
     'name',
     'query',
