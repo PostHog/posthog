@@ -703,7 +703,9 @@ def incremental_non_sharded_backup_schedule(context: dagster.ScheduleEvaluationC
 def full_logs_backup_schedule(context: dagster.ScheduleEvaluationContext):
     """Launch a full backup for logs tables"""
     for table in LOGS_TABLES:
-        request = run_backup_request(table, incremental=False, context=context, owner=JobOwners.TEAM_LOGS, workload=Workload.DEFAULT)
+        request = run_backup_request(
+            table, incremental=False, context=context, owner=JobOwners.TEAM_LOGS, workload=Workload.DEFAULT
+        )
         if request:
             yield request
 
@@ -716,6 +718,8 @@ def full_logs_backup_schedule(context: dagster.ScheduleEvaluationContext):
 def incremental_logs_backup_schedule(context: dagster.ScheduleEvaluationContext):
     """Launch an incremental backup for logs tables"""
     for table in LOGS_TABLES:
-        request = run_backup_request(table, incremental=True, context=context, owner=JobOwners.TEAM_LOGS, workload=Workload.DEFAULT)
+        request = run_backup_request(
+            table, incremental=True, context=context, owner=JobOwners.TEAM_LOGS, workload=Workload.DEFAULT
+        )
         if request:
             yield request

@@ -17,6 +17,8 @@ defs = dagster.Definitions(
     ],
     resources={
         **resources,
-        "cluster": ClickhouseClusterResource(host=settings.CLICKHOUSE_LOGS_HOST, cluster=settings.CLICKHOUSE_LOGS_CLUSTER),
+        "cluster": ClickhouseClusterResource(
+            host=settings.CLICKHOUSE_LOGS_HOST, cluster=settings.CLICKHOUSE_LOGS_CLUSTER
+        ),
     },
 )
