@@ -180,6 +180,7 @@ jobs:
     detect-snapshot-mode:
         name: Detect snapshot mode
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
         outputs:
@@ -897,6 +898,7 @@ jobs:
         needs: [changes, get_clickhouse_versions]
         if: needs.changes.outputs.backend == 'true'
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         outputs:
             include: ${{ steps.build.outputs.include }}
         steps:
@@ -1355,6 +1357,7 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         outputs:
             # Oldest supported version for main Django tests (JSON array for matrix)
             oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
@@ -1424,6 +1427,7 @@ jobs:
         # Run even if some matrix jobs failed (to commit snapshots from passing jobs)
         if: ${{ always() && needs.detect-snapshot-mode.outputs.mode == 'update' && needs.changes.outputs.backend == 'true' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         permissions:
             contents: write
             pull-requests: write
@@ -1491,6 +1495,7 @@ jobs:
         needs: [django, check-migrations, async-migrations, turbo-discover, turbo-tests, handle-snapshots, repo-checks]
         name: Django Tests Pass
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - name: Check matrix outcome
@@ -1555,6 +1560,7 @@ jobs:
              needs.turbo-discover.outputs.run_legacy == 'true' ||
              (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
         runs-on: depot-ubuntu-latest
+        timeout-minutes: 30
         steps:
             - name: 'Checkout repo'
               uses: actions/checkout@v6
@@ -1649,6 +1655,7 @@ jobs:
         name: Calculate running time
         needs: [django_tests, async-migrations]
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
             always() && github.actor != 'dependabot[bot]' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
