@@ -40,78 +40,31 @@ holdout = models.ForeignKey("ExperimentHoldout", on_delete=models.SET_NULL, null
 
 ### Feature flag integration
 
-When an experiment has a holdout, the holdout configuration is copied into the experiment's feature flag `filters` as `holdout_groups`:
+When an experiment has a holdout, the holdout configuration is copied into the experiment's feature flag `filters` as `holdout`:
 
 ```json
 {
   "groups": [...],
-  "holdout_groups": [
-    {
-      "variant": "holdout-42",
-      "properties": [],
-      "rollout_percentage": 10
-    }
-  ]
+  "holdout": {
+    "id": 42,
+    "exclusion_percentage": 10
+  }
 }
 ```
+
+- `id` — the `ExperimentHoldout` primary key
+- `exclusion_percentage` — what percentage of users to exclude (0–100)
+
+The variant name `holdout-{id}` is derived at evaluation time, not stored in the payload.
 
 ### Data type used
 
-Holdout groups use `FlagPropertyGroup` (in Rust) / `FeatureFlagGroupType` (in TypeScript):
+Rust:
 
 ```rust
-pub struct FlagPropertyGroup {
-    pub properties: Option<Vec<PropertyFilter>>,
-    pub rollout_percentage: Option<f64>,
-    pub variant: Option<String>,
-}
-```
-
-## Why this causes confusion
-
-### The type doesn't match the data
-
-The `FlagPropertyGroup` type was designed for regular feature flag conditions where you might target users based on properties (e.g., "country = US") with a rollout percentage. Holdout groups reuse this type but only use two of its fields:
-
-| Field                | Regular conditions  | Holdout groups               |
-| -------------------- | ------------------- | ---------------------------- |
-| `properties`         | Array of filters    | Always empty (not supported) |
-| `rollout_percentage` | % of matching users | % of all users to exclude    |
-| `variant`            | Not used            | Set to `holdout-{id}`        |
-
-This creates several problems:
-
-1. **The `properties` field is misleading**: The type suggests you could filter holdouts by user properties, but the evaluation code explicitly ignores properties:
-
-   ```rust
-   // From flag_matching.rs
-   if condition.properties.as_ref().is_some_and(|p| !p.is_empty()) {
-       return Ok((false, None, FeatureFlagMatchReason::NoConditionMatch));
-   }
-   ```
-
-2. **The `variant` field has different semantics**: In regular conditions, variants relate to multivariate flags. In holdout groups, variant is just an identifier (`holdout-{holdout_id}`) used to mark which holdout matched.
-
-3. **`rollout_percentage` means the opposite**: In regular conditions, it's "what percentage should get this flag." In holdout groups, it's "what percentage should be _excluded_ from the experiment."
-
-### Why it was done this way
-
-Holdout groups were added later, and reusing `FlagPropertyGroup` avoided:
-
-- Creating new database columns
-- Modifying the feature flag evaluation pipeline significantly
-- Adding new types to the Rust/Python/TypeScript codebases
-
-The trade-off was clarity for expediency.
-
-### A clearer alternative would be
-
-A dedicated type that reflects what holdout groups actually support:
-
-```typescript
-interface HoldoutCondition {
-  holdoutId: number
-  exclusionPercentage: number // 0-100, what % to exclude
+pub struct Holdout {
+    pub id: i64,
+    pub exclusion_percentage: f64,
 }
 ```
 
@@ -122,5 +75,6 @@ interface HoldoutCondition {
 | Model             | `posthog/models/experiment.py`                  |
 | Serializer        | `ee/clickhouse/views/experiment_holdouts.py`    |
 | Rust evaluation   | `rust/feature-flags/src/flags/flag_matching.rs` |
+| Rust type         | `rust/feature-flags/src/flags/flag_models.rs`   |
 | Python evaluation | `posthog/models/feature_flag/flag_matching.py`  |
 | Frontend types    | `frontend/src/types.ts`                         |

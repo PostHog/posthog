@@ -20350,10 +20350,10 @@
                 "Impressions",
                 "CPC",
                 "CTR",
-                "Reported Conversion",
+                "Reported Conversions",
                 "Reported Conversion Value",
                 "Reported ROAS",
-                "Cost per Reported Conversion"
+                "Cost per Reported Conversions"
             ],
             "type": "string"
         },
