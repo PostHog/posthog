@@ -640,6 +640,8 @@ export interface AlertSimulateApi {
     date_from?: string | null
 }
 
+export type AlertSimulateResponseApiSubDetectorScoresItem = { [key: string]: unknown }
+
 export interface AlertSimulateResponseApi {
     /** Data values for each point. */
     data: number[]
@@ -660,6 +662,8 @@ export interface AlertSimulateResponseApi {
     total_points: number
     /** Number of anomalies detected. */
     anomaly_count: number
+    /** Per-sub-detector scores for ensemble detectors. Each entry has 'type' and 'scores' fields. */
+    sub_detector_scores?: AlertSimulateResponseApiSubDetectorScoresItem[]
 }
 
 export type AlertsListParams = {

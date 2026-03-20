@@ -4725,6 +4725,8 @@ export namespace Schemas {
       date_from?: string | null;
     }
 
+    export type AlertSimulateResponseSubDetectorScoresItem = {[key: string]: unknown};
+
     export interface AlertSimulateResponse {
       /** Data values for each point. */
       data: number[];
@@ -4745,6 +4747,8 @@ export namespace Schemas {
       total_points: number;
       /** Number of anomalies detected. */
       anomaly_count: number;
+      /** Per-sub-detector scores for ensemble detectors. Each entry has 'type' and 'scores' fields. */
+      sub_detector_scores?: AlertSimulateResponseSubDetectorScoresItem[];
     }
 
     /**
