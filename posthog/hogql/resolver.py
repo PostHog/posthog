@@ -1,4 +1,3 @@
-import re
 import dataclasses
 from datetime import date, datetime
 from typing import Any, Optional, cast
@@ -530,9 +529,7 @@ class Resolver(CloningVisitor):
 
         if node.limit_percent and self.dialect != "postgres":
             if self.dialect == "clickhouse":
-                if not (
-                    isinstance(node.limit, ast.Constant) and isinstance(node.limit.value, (int, float))
-                ):
+                if not (isinstance(node.limit, ast.Constant) and isinstance(node.limit.value, (int, float))):
                     raise QueryError("LIMIT percent with expressions is not supported in clickhouse dialect")
             else:
                 raise QueryError(f"LIMIT percent is not allowed in {self.dialect} dialect")
@@ -1322,9 +1319,6 @@ class Resolver(CloningVisitor):
 
     def visit_lambda(self, node: ast.Lambda):
         """Visit each SELECT query or subquery."""
-        if node.style == "colon" and self.dialect != "postgres":
-            raise QueryError(f"Colon-style lambdas are not allowed in {self.dialect} dialect")
-
         # Each Lambda is a new scope in field name resolution.
         # This type keeps track of all lambda arguments that are in scope.
         node_type = ast.SelectQueryType(parent=self.scopes[-1] if len(self.scopes) > 0 else None, is_lambda_type=True)

@@ -257,9 +257,9 @@ class TestResolver(BaseTest):
     def test_resolve_lambda_style_dialect_guard(self):
         expr = self._select("SELECT lambda x: x + 1")
 
-        with self.assertRaises(QueryError) as context:
-            resolve_types(expr, self.context, dialect="clickhouse")
-        self.assertEqual(str(context.exception), "Colon-style lambdas are not allowed in clickhouse dialect")
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
+        assert isinstance(resolved.select[0], ast.Lambda)
+        assert resolved.select[0].style == "colon"
 
         resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
         assert isinstance(resolved.select[0], ast.Lambda)

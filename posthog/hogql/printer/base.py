@@ -579,8 +579,6 @@ class HogQLPrinter(Visitor[str]):
         identifiers = [self._print_identifier(arg) for arg in node.args]
         if len(identifiers) == 0:
             raise ValueError("Lambdas require at least one argument")
-        if node.style == "colon" and self.dialect != "postgres":
-            raise QueryError(f"Colon-style lambdas are not allowed in {self.dialect} dialect")
         if len(identifiers) == 1:
             return f"{identifiers[0]} -> {self.visit(node.expr)}"
         return f"({', '.join(identifiers)}) -> {self.visit(node.expr)}"

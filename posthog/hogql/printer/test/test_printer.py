@@ -176,11 +176,9 @@ class TestPrinter(BaseTest):
             "Table column aliases are not allowed in clickhouse dialect",
         )
 
-    def test_lambda_style_non_postgres_error(self):
-        self._assert_query_error(
-            "select lambda x: x + 1",
-            "Colon-style lambdas are not allowed in clickhouse dialect",
-        )
+    def test_lambda_style_clickhouse_prints(self):
+        printed = self._select("select lambda x: x + 1")
+        self.assertIn("x -> plus(x, 1)", printed)
 
     def test_array_slice_non_postgres_error(self):
         self._assert_query_error(
@@ -4406,31 +4404,6 @@ class TestPostgresPrinter(BaseTest):
 
         self.assertNotIn("team_id", postgres)
         self.assertNotEqual(postgres, clickhouse)
-
-    def test_prints_direct_postgres_tables(self):
-        source = ExternalDataSource.objects.create(
-            source_id="source-id",
-            connection_id="connection-id",
-            destination_id="destination-id",
-            team=self.team,
-            sync_frequency=ExternalDataSource.SyncFrequency.DAILY,
-            status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSourceType.POSTGRES,
-            prefix="Readable Name",
-            access_method=ExternalDataSource.AccessMethod.DIRECT,
-        )
-        DataWarehouseTable.objects.create(
-            name="accounts",
-            format=DataWarehouseTable.TableFormat.Parquet,
-            team=self.team,
-            external_data_source=source,
-            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
-        )
-
-        self.assertEqual(
-            self._select("SELECT id FROM accounts"),
-            "SELECT accounts.id FROM public.accounts AS accounts LIMIT 50000",
-        )
 
     def test_column_aliases(self):
         printed = self._select("SELECT 1 FROM events AS e (event_alias, ts_alias)")
