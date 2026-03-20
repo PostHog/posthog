@@ -11,7 +11,7 @@ defs = dagster.Definitions(
     jobs=[
         backups.non_sharded_backup.with_top_level_resources(
             {
-                "cluster": BackupsClickhouseClusterResource(  # pyright: ignore[reportArgumentType]
+                "cluster": BackupsClickhouseClusterResource(  # type: ignore[dict-item]  # pyright: ignore[reportArgumentType]
                     host=settings.CLICKHOUSE_LOGS_HOST, cluster=settings.CLICKHOUSE_LOGS_CLUSTER
                 )
             }
