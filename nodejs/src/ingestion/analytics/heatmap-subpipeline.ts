@@ -1,6 +1,5 @@
 import { PluginEvent } from '~/plugin-scaffold'
 
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { EventHeaders, Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
@@ -9,6 +8,7 @@ import { createCheckHeatmapOptInStep } from '../event-processing/check-heatmap-o
 import { createDisablePersonProcessingStep } from '../event-processing/disable-person-processing-step'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { createExtractHeatmapDataStep } from '../event-processing/extract-heatmap-data-step'
+import { HeatmapsOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
 import { createNormalizeEventStep } from '../event-processing/normalize-event-step'
 import { createPrepareEventStep } from '../event-processing/prepare-event-step'
 import { createProcessGroupsStep } from '../event-processing/process-groups-step'
@@ -22,20 +22,18 @@ export interface HeatmapSubpipelineInput {
 }
 
 export interface HeatmapSubpipelineConfig {
-    options: EventPipelineRunnerOptions & {
-        CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
-    }
+    options: EventPipelineRunnerOptions
+    outputs: IngestionOutputs<HeatmapsOutput>
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     groupStore: BatchWritingGroupStore
-    kafkaProducer: KafkaProducerWrapper
 }
 
 export function createHeatmapSubpipeline<TInput extends HeatmapSubpipelineInput, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,
     config: HeatmapSubpipelineConfig
 ): PipelineBuilder<TInput, void, TContext> {
-    const { options, teamManager, groupTypeManager, groupStore, kafkaProducer } = config
+    const { options, outputs, teamManager, groupTypeManager, groupStore } = config
 
     return builder
         .pipe(createCheckHeatmapOptInStep())
@@ -43,11 +41,6 @@ export function createHeatmapSubpipeline<TInput extends HeatmapSubpipelineInput,
         .pipe(createNormalizeEventStep())
         .pipe(createPrepareEventStep())
         .pipe(createProcessGroupsStep(teamManager, groupTypeManager, groupStore, options))
-        .pipe(
-            createExtractHeatmapDataStep({
-                kafkaProducer,
-                CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: options.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-            })
-        )
+        .pipe(createExtractHeatmapDataStep(outputs))
         .pipe(createSkipEmitEventStep())
 }

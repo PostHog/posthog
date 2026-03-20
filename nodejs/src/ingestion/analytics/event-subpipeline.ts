@@ -14,7 +14,7 @@ import { createEmitEventStep } from '../event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { createExtractHeatmapDataStep } from '../event-processing/extract-heatmap-data-step'
 import { createHogTransformEventStep } from '../event-processing/hog-transform-event-step'
-import { EVENTS_OUTPUT, EventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
+import { EVENTS_OUTPUT, EventOutput, HeatmapsOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
 import { createNormalizeEventStep } from '../event-processing/normalize-event-step'
 import { createNormalizeProcessPersonFlagStep } from '../event-processing/normalize-process-person-flag-step'
 import { createPrepareEventStep } from '../event-processing/prepare-event-step'
@@ -33,10 +33,8 @@ export interface EventSubpipelineInput {
 }
 
 export interface EventSubpipelineConfig {
-    options: EventPipelineRunnerOptions & {
-        CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
-    }
-    outputs: IngestionOutputs<EventOutput>
+    options: EventPipelineRunnerOptions
+    outputs: IngestionOutputs<EventOutput | HeatmapsOutput>
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
@@ -108,12 +106,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
         )
         .pipe(createPrepareEventStep())
         .pipe(createProcessGroupsStep(teamManager, groupTypeManager, groupStore, options))
-        .pipe(
-            createExtractHeatmapDataStep({
-                kafkaProducer,
-                CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: options.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-            })
-        )
+        .pipe(createExtractHeatmapDataStep(outputs))
         .pipe(createCreateEventStep(EVENTS_OUTPUT))
         .pipe(
             topHog(

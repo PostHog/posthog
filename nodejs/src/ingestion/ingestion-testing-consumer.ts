@@ -15,7 +15,7 @@ import {
     TestingJoinedIngestionPipelineInput,
     createTestingJoinedIngestionPipeline,
 } from './analytics/testing-joined-ingestion-pipeline'
-import { EVENTS_OUTPUT, IngestionOutputs } from './event-processing/ingestion-outputs'
+import { EVENTS_OUTPUT, HEATMAPS_OUTPUT, IngestionOutputs } from './event-processing/ingestion-outputs'
 import { latestOffsetTimestampGauge } from './ingestion-consumer'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
@@ -95,15 +95,16 @@ export class IngestionTestingConsumer {
                 topic: this.config.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                 producer: this.kafkaProducer!,
             },
+            [HEATMAPS_OUTPUT]: {
+                topic: this.config.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                producer: this.kafkaProducer!,
+            },
         })
 
         const joinedPipelineConfig: TestingJoinedIngestionPipelineConfig = {
             dlqTopic: this.dlqTopic,
             groupId: this.groupId,
             outputs,
-            perDistinctIdOptions: {
-                CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: this.config.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-            },
         }
         const joinedPipelineDeps: TestingJoinedIngestionPipelineDeps = {
             kafkaProducer: this.kafkaProducer!,

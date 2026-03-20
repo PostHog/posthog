@@ -2,13 +2,12 @@ import { Message } from 'node-rdkafka'
 
 import { PluginEvent } from '~/plugin-scaffold'
 
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { EventHeaders, Team } from '../../types'
 import { createCreateEventStep } from '../event-processing/create-event-step'
 import { createDisablePersonProcessingWithFakePersonStep } from '../event-processing/disable-person-processing-with-fake-person-step'
 import { createEmitEventStep } from '../event-processing/emit-event-step'
 import { createExtractHeatmapDataStep } from '../event-processing/extract-heatmap-data-step'
-import { EVENTS_OUTPUT, EventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
+import { EVENTS_OUTPUT, EventOutput, HeatmapsOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
 import { createNormalizeEventStep } from '../event-processing/normalize-event-step'
 import { createPrepareEventStep } from '../event-processing/prepare-event-step'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
@@ -21,11 +20,7 @@ export interface TestingEventSubpipelineInput {
 }
 
 export interface TestingEventSubpipelineConfig {
-    options: {
-        CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
-    }
-    outputs: IngestionOutputs<EventOutput>
-    kafkaProducer: KafkaProducerWrapper
+    outputs: IngestionOutputs<EventOutput | HeatmapsOutput>
     groupId: string
 }
 
@@ -33,7 +28,7 @@ export function createTestingEventSubpipeline<TInput extends TestingEventSubpipe
     builder: StartPipelineBuilder<TInput, TContext>,
     config: TestingEventSubpipelineConfig
 ): PipelineBuilder<TInput, void, TContext> {
-    const { options, outputs, kafkaProducer, groupId } = config
+    const { outputs, groupId } = config
 
     // Compared to event-subpipeline.ts:
     // CHANGED: createNormalizeProcessPersonFlagStep → createDisablePersonProcessingWithFakePersonStep
@@ -47,12 +42,7 @@ export function createTestingEventSubpipeline<TInput extends TestingEventSubpipe
         .pipe(createDisablePersonProcessingWithFakePersonStep())
         .pipe(createNormalizeEventStep())
         .pipe(createPrepareEventStep())
-        .pipe(
-            createExtractHeatmapDataStep({
-                kafkaProducer,
-                CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: options.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-            })
-        )
+        .pipe(createExtractHeatmapDataStep(outputs))
         .pipe(createCreateEventStep(EVENTS_OUTPUT))
         .pipe(
             createEmitEventStep({

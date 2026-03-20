@@ -4,6 +4,7 @@ import { parseJSON } from '../../utils/json-parse'
 import { cloneObject } from '../../utils/utils'
 import { PipelineResultType } from '../pipelines/results'
 import { createExtractHeatmapDataStep } from './extract-heatmap-data-step'
+import { HEATMAPS_OUTPUT, IngestionOutputs } from './ingestion-outputs'
 
 const createTestEvent = (overrides: Partial<PreIngestionEvent> = {}): PreIngestionEvent => ({
     eventUuid: '018eebf3-cb48-750b-bfad-36409ea6f2b2',
@@ -50,10 +51,14 @@ describe('createExtractHeatmapDataStep', () => {
             queueMessages: jest.fn(() => Promise.resolve()),
         } as any
 
-        step = createExtractHeatmapDataStep({
-            kafkaProducer: mockProducer,
-            CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: 'clickhouse_heatmaps_test',
-        })
+        step = createExtractHeatmapDataStep(
+            new IngestionOutputs({
+                [HEATMAPS_OUTPUT]: {
+                    topic: 'clickhouse_heatmaps_test',
+                    producer: mockProducer,
+                },
+            })
+        )
     })
 
     describe('no heatmap or scroll depth data', () => {

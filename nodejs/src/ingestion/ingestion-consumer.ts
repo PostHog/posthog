@@ -31,7 +31,7 @@ import {
 } from './analytics'
 import { IngestionConsumerConfig } from './config'
 import { CookielessManager } from './cookieless/cookieless-manager'
-import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT } from './event-processing/ingestion-outputs'
+import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT, HEATMAPS_OUTPUT } from './event-processing/ingestion-outputs'
 import { parseSplitAiEventsConfig } from './event-processing/split-ai-events-step'
 import { resolveOutputs } from './kafka/output-resolver'
 import { KafkaProducerRegistry } from './kafka/producer-registry'
@@ -225,6 +225,9 @@ export class IngestionConsumer {
             [AI_EVENTS_OUTPUT]: {
                 topic: this.config.CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC,
             },
+            [HEATMAPS_OUTPUT]: {
+                topic: this.config.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+            },
         })
 
         const joinedPipelineConfig: JoinedIngestionPipelineConfig = {
@@ -242,7 +245,6 @@ export class IngestionConsumer {
                 this.config.INGESTION_AI_EVENT_SPLITTING_TEAMS
             ),
             perDistinctIdOptions: {
-                CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: this.config.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
                 PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: this.config.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
                 PERSON_MERGE_ASYNC_ENABLED: this.config.PERSON_MERGE_ASYNC_ENABLED,
