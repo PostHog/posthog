@@ -1377,7 +1377,11 @@ async def cleanup_running_jobs_activity(inputs: CleanupRunningJobsActivityInputs
     logger = LOGGER.bind()
 
     orphaned_count = await database_sync_to_async(
-        DataModelingJob.objects.filter(team_id=inputs.team_id, status=DataModelingJob.Status.RUNNING).update
+        DataModelingJob.objects.filter(
+            team_id=inputs.team_id,
+            status=DataModelingJob.Status.RUNNING,
+            engine=DataModelingJob.Engine.CLICKHOUSE,
+        ).update
     )(
         status=DataModelingJob.Status.FAILED,
         error="Job timed out",

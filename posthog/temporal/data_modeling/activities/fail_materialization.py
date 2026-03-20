@@ -23,6 +23,7 @@ class FailMaterializationInputs:
     job_id: str
     error: str
     cancelled: bool = False
+    update_node: bool = True
 
 
 @database_sync_to_async
@@ -30,22 +31,24 @@ def _fail_node_and_data_modeling_job(inputs: FailMaterializationInputs):
     # strip hostnames from error for user-facing storage while preserving original for logging
     sanitized_error = strip_hostname_from_error(inputs.error)
 
-    node = Node.objects.get(id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id)
-    status = DataModelingJobStatus.CANCELLED if inputs.cancelled else DataModelingJobStatus.FAILED
-    update_node_system_properties(
-        node,
-        status=status,
-        job_id=inputs.job_id,
-        error=sanitized_error,
-    )
-    node.save()
+    node = None
+    if inputs.update_node:
+        node = Node.objects.get(id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id)
+        status = DataModelingJobStatus.CANCELLED if inputs.cancelled else DataModelingJobStatus.FAILED
+        update_node_system_properties(
+            node,
+            status=status,
+            job_id=inputs.job_id,
+            error=sanitized_error,
+        )
+        node.save()
 
     job = DataModelingJob.objects.get(id=inputs.job_id)
-    job.status = status
+    job.status = DataModelingJobStatus.CANCELLED if inputs.cancelled else DataModelingJobStatus.FAILED
     job.error = sanitized_error
     job.save()
 
-    if job.saved_query_id:
+    if inputs.update_node and job.saved_query_id:
         try:
             from posthog.tasks.email import send_saved_query_materialization_failure
 

@@ -24,23 +24,27 @@ class SucceedMaterializationInputs:
     job_id: str
     row_count: int
     duration_seconds: float
+    update_node: bool = True
 
 
 @database_sync_to_async
 def _succeed_node_and_data_modeling_job(inputs: SucceedMaterializationInputs):
-    node = Node.objects.get(id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id)
-    status = DataModelingJobStatus.COMPLETED
-    update_node_system_properties(
-        node,
-        status=status,
-        job_id=inputs.job_id,
-        rows=inputs.row_count,
-        duration_seconds=inputs.duration_seconds,
-    )
-    node.save()
+    node = None
+    if inputs.update_node:
+        node = Node.objects.get(id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id)
+        status = DataModelingJobStatus.COMPLETED
+        update_node_system_properties(
+            node,
+            status=status,
+            job_id=inputs.job_id,
+            rows=inputs.row_count,
+            duration_seconds=inputs.duration_seconds,
+        )
+        node.save()
 
     job = DataModelingJob.objects.get(id=inputs.job_id)
-    job.status = status
+    job.status = DataModelingJobStatus.COMPLETED
+    job.rows_materialized = inputs.row_count
     job.last_run_at = dt.datetime.now(dt.UTC)
     job.error = None
     job.save()
