@@ -30,40 +30,6 @@ export const NetworkAccessLevelEnumApi = {
     Custom: 'custom',
 } as const
 
-export interface PaginatedTaskListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: TaskApi[]
-}
-
-/**
- * Latest run details for this task
- * @nullable
- */
-export type PatchedTaskApiLatestRun = { [key: string]: unknown } | null | null
-
-/**
- * * `error_tracking` - Error Tracking
- * `eval_clusters` - Eval Clusters
- * `user_created` - User Created
- * `slack` - Slack
- * `support_queue` - Support Queue
- * `session_summaries` - Session Summaries
- */
-export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
-
-export const OriginProductEnumApi = {
-    ErrorTracking: 'error_tracking',
-    EvalClusters: 'eval_clusters',
-    UserCreated: 'user_created',
-    Slack: 'slack',
-    SupportQueue: 'support_queue',
-    SessionSummaries: 'session_summaries',
-} as const
-
 /**
  * * `engineering` - Engineering
  * `data` - Data
@@ -190,6 +156,12 @@ export interface PaginatedTaskListApi {
     previous?: string | null
     results: TaskApi[]
 }
+
+/**
+ * Latest run details for this task
+ * @nullable
+ */
+export type PatchedTaskApiLatestRun = { [key: string]: unknown } | null | null
 
 /**
  * * `error_tracking` - Error Tracking

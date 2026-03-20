@@ -247,12 +247,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if snapshot_ext_id:
                 extra_state["snapshot_external_id"] = snapshot_ext_id
 
-        if sandbox_environment_id is not None:
-            from .models import SandboxEnvironment
-
-            if not SandboxEnvironment.objects.filter(id=sandbox_environment_id, team=task.team).exists():
+        if sandbox_environment_id:
+            if not SandboxEnvironment.objects.filter(id=sandbox_environment_id, team_id=task.team_id).exists():
                 return Response({"detail": "Invalid sandbox_environment_id"}, status=400)
-            extra_state = extra_state or {}
+            if extra_state is None:
+                extra_state = {}
             extra_state["sandbox_environment_id"] = str(sandbox_environment_id)
 
         logger.info(f"Creating task run for task {task.id} with mode={mode}, branch={branch}")

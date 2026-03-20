@@ -264,6 +264,10 @@ class DockerSandbox:
                 "host.docker.internal:host-gateway",
                 "--cap-add",
                 "SYS_PTRACE",
+                "--cap-add",
+                "NET_ADMIN",
+                "--security-opt",
+                "apparmor=unconfined",
                 "-w",
                 WORKING_DIR,
                 f"--memory={config.memory_gb}g",
@@ -574,19 +578,22 @@ class DockerSandbox:
         )
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
-        agent_cmd = (
-            f"cd /scripts && "
-            f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
+        server_binary = (
+            "/scripts/node_modules/.bin/agent-server" if wrap_with_agentsh else "./node_modules/.bin/agent-server"
+        )
+        server_cmd = (
+            f"{env_prefix}{server_binary} --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
             f"{branch_flag}{mcp_servers_arg}"
         )
 
         if wrap_with_agentsh:
-            from products.tasks.backend.services.agentsh import build_exec_prefix
+            from products.tasks.backend.services.agentsh import ENV_FILE, ENV_WRAPPER_SCRIPT, build_exec_prefix
 
-            agent_cmd = f"{build_exec_prefix()} {agent_cmd}"
+            server_cmd_with_log = f"bash -c {shlex.quote(server_cmd + ' > /tmp/agent-server.log 2>&1')}"
+            return f"cd /scripts && env -0 > {ENV_FILE} && nohup {build_exec_prefix()} {ENV_WRAPPER_SCRIPT} {server_cmd_with_log} &"
 
-        return f"nohup {agent_cmd} > /tmp/agent-server.log 2>&1 &"
+        return f"cd /scripts && nohup {server_cmd} > /tmp/agent-server.log 2>&1 &"
 
     def _launch_and_check(self, command: str) -> bool:
         """Execute the agent-server command and wait for the health check.
@@ -597,7 +604,7 @@ class DockerSandbox:
         if result.exit_code != 0:
             logger.warning(f"Agent-server process failed to launch in sandbox {self.id}: {result.stderr}")
             return False
-        return self._wait_for_health_check()
+        return self._wait_for_health_check(max_attempts=20)
 
     def start_agent_server(
         self,
@@ -626,7 +633,9 @@ class DockerSandbox:
             org, repo = repository.lower().split("/")
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        if allowed_domains:
+        wrap_with_agentsh = bool(allowed_domains)
+        if wrap_with_agentsh and repo_path and allowed_domains:
+            logger.info(f"Setting up agentsh network restrictions in sandbox {self.id} (domains: {allowed_domains})")
             self._setup_agentsh(repo_path, allowed_domains)
 
         mcp_servers_arg = ""
@@ -642,7 +651,7 @@ class DockerSandbox:
             interaction_origin,
             branch,
             mcp_servers_arg,
-            wrap_with_agentsh=bool(allowed_domains),
+            wrap_with_agentsh=wrap_with_agentsh,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
@@ -669,7 +678,7 @@ class DockerSandbox:
                 interaction_origin,
                 branch=None,
                 mcp_servers_arg=mcp_servers_arg,
-                wrap_with_agentsh=bool(allowed_domains),
+                wrap_with_agentsh=wrap_with_agentsh,
             )
             if self._launch_and_check(command):
                 logger.info(f"Agent-server started on port {self._host_port} (without --baseBranch)")
@@ -677,6 +686,7 @@ class DockerSandbox:
 
         log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
         logger.warning(f"Agent-server health check failed for sandbox {self.id}. Log output:\n{log_result.stdout}")
+
         raise SandboxExecutionError(
             "Agent-server failed to start",
             {"sandbox_id": self.id, "log": log_result.stdout},
@@ -685,18 +695,28 @@ class DockerSandbox:
 
     def _setup_agentsh(self, workspace_path: str, allowed_domains: list[str]) -> None:
         from products.tasks.backend.services.agentsh import (
+            ENV_WRAPPER_SCRIPT,
             SESSION_ID_FILE,
             build_setup_script,
             generate_config_yaml,
+            generate_env_wrapper,
             generate_policy_yaml,
         )
 
+        # Docker Desktop's VM doesn't reliably support ptrace network tracing —
+        # traced processes randomly hang in stopped state. Network enforcement
+        # only works in production (Modal) where ptrace operates on real Linux.
         config_yaml = generate_config_yaml()
         policy_yaml = generate_policy_yaml(allowed_domains)
+
+        # Kill any leftover agentsh daemon from a previous attempt
+        self.execute("pkill -f 'agentsh server' || true", timeout_seconds=5)
 
         self.execute("mkdir -p /etc/agentsh/policies /var/log/agentsh /var/lib/agentsh/sessions", timeout_seconds=5)
         self.write_file("/etc/agentsh/config.yaml", config_yaml.encode())
         self.write_file("/etc/agentsh/policies/default.yaml", policy_yaml.encode())
+        self.write_file(ENV_WRAPPER_SCRIPT, generate_env_wrapper().encode())
+        self.execute(f"chmod +x {ENV_WRAPPER_SCRIPT}", timeout_seconds=5)
 
         setup_script = build_setup_script(workspace_path)
         result = self.execute(setup_script, timeout_seconds=30)

@@ -89,10 +89,13 @@ class TestAgentshDockerEnforcement:
         return DockerSandbox.create(config)
 
     def _setup_agentsh_and_exec(self, sandbox, test_command: str, allowed_domains: list[str]):
+        from products.tasks.backend.services.agentsh import build_exec_prefix
+
         repo_path = "/tmp/workspace"
         sandbox._setup_agentsh(repo_path, allowed_domains)
+
         return sandbox.execute(
-            f"agentsh exec $(cat /tmp/agentsh-session-id) -- {test_command}",
+            f"{build_exec_prefix()} {test_command}",
             timeout_seconds=30,
         )
 

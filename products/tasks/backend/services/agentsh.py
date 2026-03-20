@@ -4,20 +4,88 @@ import yaml
 
 AGENTSH_DAEMON_PORT = 18080
 SESSION_ID_FILE = "/tmp/agentsh-session-id"
-
+ENV_FILE = "/tmp/agent-env"
+ENV_WRAPPER_SCRIPT = "/tmp/agentsh-env-wrapper.sh"
 INFRASTRUCTURE_DOMAINS = [
     "*.posthog.com",
     "api.anthropic.com",
 ]
 
 
-def generate_config_yaml() -> str:
+def generate_env_wrapper() -> str:
+    """Generate the env wrapper script for agentsh exec.
+
+    agentsh exec creates a clean environment, stripping container env vars.
+    This wrapper restores them from a null-delimited dump created before exec,
+    then configures Node.js to use the agentsh HTTP proxy
+    """
+    no_proxy_domains = ",".join(INFRASTRUCTURE_DOMAINS)
+    if getattr(settings, "DEBUG", False):
+        no_proxy_domains += ",localhost,host.docker.internal"
+
+    return f"""\
+#!/bin/bash
+while IFS= read -r -d $'\\0' line; do
+  export "$line"
+done < {ENV_FILE}
+# Prevent the agent-server from calling agentsh exec for tool execution.
+# The outer agentsh exec already enforces network rules on all children.
+unset AGENTSH_IN_SESSION AGENTSH_SESSION_ID
+# agentsh exec routes traffic through an HTTP proxy (HTTP_PROXY/HTTPS_PROXY).
+# Node.js fetch() ignores proxy env vars by default; --use-env-proxy fixes this.
+export NODE_OPTIONS="${{NODE_OPTIONS:+$NODE_OPTIONS }}--use-env-proxy"
+# Infrastructure domains bypass the proxy — the agentsh proxy may not handle
+# streaming connections well, and these domains are always allowed in the policy.
+export NO_PROXY="${{NO_PROXY:+$NO_PROXY,}}{no_proxy_domains}"
+export no_proxy="${{no_proxy:+$no_proxy,}}{no_proxy_domains}"
+exec "$@"
+"""
+
+
+def generate_config_yaml(*, enable_ptrace: bool = False, full_trace: bool = False) -> str:
+    """Generate agentsh config YAML.
+
+    Args:
+        enable_ptrace: Explicitly enable ptrace-based enforcement
+        full_trace: When True, trace all syscall types (execve, file, network, signal).
+                    When False (default), only trace network — avoids process-killing
+                    issues observed in Docker containers with full tracing.
+    """
+    sandbox: dict = {
+        "enabled": True,
+        "allow_degraded": True,
+        "fuse": {"enabled": False},
+        "network": {"enabled": True},
+        "cgroups": {"enabled": False},
+        "unix_sockets": {"enabled": False},
+    }
+
+    if enable_ptrace:
+        sandbox["ptrace"] = {
+            "enabled": True,
+            "attach_mode": "children",
+            "trace": {
+                "execve": full_trace,
+                "file": full_trace,
+                "network": True,
+                "signal": full_trace,
+            },
+            "performance": {
+                # gVisor doesn't support seccomp BPF injection
+                "seccomp_prefilter": False,
+                "max_tracees": 500,
+                "max_hold_ms": 5000,
+            },
+            "mask_tracer_pid": "off",
+            "on_attach_failure": "fail_open",
+        }
+
     config = {
         "server": {
             "http": {
                 "addr": f"127.0.0.1:{AGENTSH_DAEMON_PORT}",
-                "read_timeout": "30s",
-                "write_timeout": "60s",
+                "read_timeout": "0s",
+                "write_timeout": "0s",
             },
             "grpc": {"enabled": False},
         },
@@ -30,42 +98,15 @@ def generate_config_yaml() -> str:
         "sessions": {
             "base_dir": "/var/lib/agentsh/sessions",
             "max_sessions": 10,
-            "default_timeout": "1h",
-            "default_idle_timeout": "15m",
+            "default_timeout": "2h",
+            "default_idle_timeout": "2h",
             "real_paths": True,
         },
         "audit": {
             "enabled": True,
             "storage": {"sqlite_path": "/var/lib/agentsh/events.db"},
         },
-        "sandbox": {
-            "enabled": True,
-            "allow_degraded": True,
-            "ptrace": {
-                "enabled": True,
-                "attach_mode": "children",
-                "mask_tracer_pid": "off",
-                "trace": {
-                    "execve": True,
-                    "file": True,
-                    "network": True,
-                    "signal": True,
-                },
-                "performance": {
-                    "seccomp_prefilter": False,
-                    "max_tracees": 500,
-                    "max_hold_ms": 5000,
-                },
-                "on_attach_failure": "fail_open",
-            },
-            "fuse": {"enabled": False},
-            "network": {
-                "enabled": True,
-                "intercept_mode": "all",
-            },
-            "cgroups": {"enabled": False},
-            "unix_sockets": {"enabled": False},
-        },
+        "sandbox": sandbox,
         "policies": {
             "dir": "/etc/agentsh/policies",
             "default_policy": "default",
@@ -102,6 +143,11 @@ def generate_policy_yaml(allowed_domains: list[str]) -> str:
         if d not in merged:
             merged.append(d)
 
+    # In dev for PostHog API
+    allowed_ports = [443, 80, 22]
+    if getattr(settings, "DEBUG", False):
+        allowed_ports.extend([8000, 8010])
+
     policy: dict = {
         "version": 1,
         "name": "default",
@@ -109,15 +155,15 @@ def generate_policy_yaml(allowed_domains: list[str]) -> str:
         "network_rules": [
             {
                 "name": "allow-localhost",
-                "description": "Allow localhost connections",
-                "cidrs": ["127.0.0.1/32", "::1/128"],
+                "description": "Allow localhost connections (includes Docker DNS at 127.0.0.11)",
+                "cidrs": ["127.0.0.0/8", "::1/128"],
                 "decision": "allow",
             },
             {
                 "name": "allow-domains",
                 "description": "Allowed domains for this sandbox",
                 "domains": merged,
-                "ports": [443, 80, 22],
+                "ports": allowed_ports,
                 "decision": "allow",
             },
             {
@@ -144,12 +190,71 @@ def generate_policy_yaml(allowed_domains: list[str]) -> str:
                 "decision": "allow",
             },
         ],
+        "env_policy": {
+            "allow": [
+                # System
+                "HOME",
+                "PATH",
+                "USER",
+                "SHELL",
+                "TERM",
+                "LANG",
+                "LC_*",
+                "TZ",
+                "PWD",
+                "OLDPWD",
+                "HOSTNAME",
+                # Proxy (set by agentsh exec)
+                "HTTP_PROXY",
+                "HTTPS_PROXY",
+                "NO_PROXY",
+                "ALL_PROXY",
+                "http_proxy",
+                "https_proxy",
+                "no_proxy",
+                "all_proxy",
+                # agentsh
+                "AGENTSH_*",
+                # Node.js
+                "NODE_OPTIONS",
+                "NODE_ENV",
+                "NODE_PATH",
+                # PostHog agent-server
+                "POSTHOG_*",
+                "JWT_PUBLIC_KEY",
+                "GITHUB_TOKEN",
+                "LLM_GATEWAY_URL",
+                "IS_SANDBOX",
+                "PYTHONPATH",
+            ],
+            "deny": [],
+            "block_iteration": False,
+        },
     }
     return yaml.dump(policy, default_flow_style=False, sort_keys=False)
 
 
+AGENTSH_AUDIT_DB = "/var/lib/agentsh/events.db"
+
+
+def build_audit_query_command(since_ns: int = 0, limit: int = 50) -> str:
+    """Shell command to query agentsh audit DB for network policy events."""
+    where_parts = []
+    if since_ns > 0:
+        where_parts.append(f"ts_unix_ns > {since_ns}")
+    where_parts.append("(type LIKE 'net%' OR (effective_decision IS NOT NULL AND domain IS NOT NULL))")
+    where_clause = " AND ".join(where_parts)
+    return (
+        f"sqlite3 -json {AGENTSH_AUDIT_DB} "
+        f'"SELECT ts_unix_ns, type, domain, remote, effective_decision, policy_rule '
+        f"FROM events "
+        f"WHERE {where_clause} "
+        f"ORDER BY ts_unix_ns DESC LIMIT {limit};\" 2>/dev/null || echo '[]'"
+    )
+
+
 def build_exec_prefix() -> str:
-    return f"agentsh exec $(cat {SESSION_ID_FILE}) --"
+    return f"agentsh exec --client-timeout 2h --timeout 2h $(cat {SESSION_ID_FILE}) --"
 
 
 def build_setup_script(workspace_path: str) -> str:

@@ -491,7 +491,14 @@ class SandboxEnvironmentSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "created_by", "created_at", "updated_at", "effective_domains", "has_environment_variables"]
+        read_only_fields = [
+            "id",
+            "created_by",
+            "created_at",
+            "updated_at",
+            "effective_domains",
+            "has_environment_variables",
+        ]
 
     def get_effective_domains(self, obj: SandboxEnvironment) -> list[str]:
         return obj.get_effective_domains()
