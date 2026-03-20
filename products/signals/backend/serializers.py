@@ -111,6 +111,9 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
 
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
+    priority = serializers.SerializerMethodField(
+        help_text="P0–P4 from the latest actionability judgment artefact (when present).",
+    )
 
     class Meta:
         model = SignalReport
@@ -125,8 +128,28 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "artefact_count",
+            "priority",
         ]
         read_only_fields = fields
+
+    def get_priority(self, obj: SignalReport) -> str | None:
+        prefetched = getattr(obj, "prefetched_actionability_artefacts", None)
+        if prefetched is not None:
+            art = prefetched[0] if prefetched else None
+        else:
+            art = (
+                obj.artefacts.filter(type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT)
+                .order_by("-created_at")
+                .first()
+            )
+        if art is None:
+            return None
+        try:
+            data = json.loads(art.content)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return None
+        p = data.get("priority")
+        return p if isinstance(p, str) else None
 
 
 class SignalReportArtefactSerializer(serializers.ModelSerializer):
