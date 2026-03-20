@@ -253,15 +253,12 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         className
                     )}
                     onClick={(event) => {
-                        if (disabled) {
-                            event.preventDefault()
-                            if (stopPropagation) {
-                                event.stopPropagation()
-                            }
-                            return
-                        }
                         if (stopPropagation) {
                             event.stopPropagation()
+                        }
+                        if (disabled) {
+                            event.preventDefault()
+                            return
                         }
                         onClick?.(event)
                     }}
