@@ -180,11 +180,9 @@ class TestPrinter(BaseTest):
         printed = self._select("select lambda x: x + 1")
         self.assertIn("x -> plus(x, 1)", printed)
 
-    def test_array_slice_non_postgres_error(self):
-        self._assert_query_error(
-            "select arr[1:3]",
-            "Array slices are not allowed in clickhouse dialect",
-        )
+    def test_array_slice_clickhouse_prints_array_slice(self):
+        printed = self._select("select [1, 2, 3][1:3]")
+        self.assertIn("arraySlice([1, 2, 3], 1, plus(minus(3, 1), 1))", printed)
 
     def test_try_cast_non_postgres_error(self):
         self._assert_query_error(

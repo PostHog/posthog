@@ -268,9 +268,8 @@ class TestResolver(BaseTest):
     def test_resolve_array_slice_dialect_guard(self):
         expr = self._select("SELECT [1, 2, 3][1:2]")
 
-        with self.assertRaises(QueryError) as context:
-            resolve_types(expr, self.context, dialect="clickhouse")
-        self.assertEqual(str(context.exception), "Array slices are not allowed in clickhouse dialect")
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
+        assert isinstance(resolved.select[0], ast.ArraySlice)
 
         resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
         assert isinstance(resolved.select[0], ast.ArraySlice)
