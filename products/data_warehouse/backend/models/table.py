@@ -2,7 +2,7 @@ import csv
 import time
 from datetime import datetime
 from io import StringIO
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, NotRequired, Optional, TypedDict
 from uuid import UUID
 
 from django.db import models
@@ -78,6 +78,15 @@ ExtractErrors = {
 
 type DataWarehouseTableColumn = str | dict[str, Any]
 type DataWarehouseTableColumns = dict[str, DataWarehouseTableColumn]
+
+
+class DataWarehouseTableIntrospectedColumn(TypedDict):
+    hogql: str
+    clickhouse: str
+    valid: NotRequired[bool]
+
+
+type DataWarehouseTableIntrospectedColumns = dict[str, DataWarehouseTableIntrospectedColumn]
 
 
 class DataWarehouseTableManager(models.Manager):
@@ -189,7 +198,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     def get_columns(
         self,
         safe_expose_ch_error: bool = True,
-    ) -> DataWarehouseTableColumns:
+    ) -> DataWarehouseTableIntrospectedColumns:
         result: list[tuple[str, ...]] | None = None
         placeholder_context = HogQLContext(team_id=self.team.pk)
         s3_table_func = build_function_call(
