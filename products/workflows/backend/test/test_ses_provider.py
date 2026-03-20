@@ -198,7 +198,9 @@ class TestSESProvider(TestCase):
 
     @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
     def test_verify_email_domain_success(self, mock_resolver_cls):
-        mock_resolver_cls.return_value.resolve.side_effect = dns.resolver.NXDOMAIN()
+        mock_rdata = MagicMock()
+        mock_rdata.strings = [b"v=DMARC1; p=none;"]
+        mock_resolver_cls.return_value.resolve.return_value = [mock_rdata]
         provider = SESProvider()
 
         # Patch the SES client to return 'Success' for both verification and DKIM
@@ -225,6 +227,27 @@ class TestSESProvider(TestCase):
             # Should return verified status with DNS records
             assert result["status"] == "success"
             assert len(result["dnsRecords"]) > 0  # Records are now always returned
+
+    @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
+    def test_verify_email_domain_pending_when_dmarc_missing(self, mock_resolver_cls):
+        """All SES checks pass but DMARC lookup fails → overall status is pending."""
+        mock_resolver_cls.return_value.resolve.side_effect = dns.resolver.NXDOMAIN()
+        provider = SESProvider()
+
+        with (
+            patch.object(provider.ses_client, "get_identity_verification_attributes") as mock_verif_attrs,
+            patch.object(provider.ses_client, "get_identity_dkim_attributes") as mock_dkim_attrs,
+            patch.object(provider.ses_client, "get_identity_mail_from_domain_attributes") as mock_mail_from_attrs,
+        ):
+            mock_verif_attrs.return_value = {"VerificationAttributes": {TEST_DOMAIN: {"VerificationStatus": "Success"}}}
+            mock_dkim_attrs.return_value = {"DkimAttributes": {TEST_DOMAIN: {"DkimVerificationStatus": "Success"}}}
+            mock_mail_from_attrs.return_value = {
+                "MailFromDomainAttributes": {TEST_DOMAIN: {"MailFromDomainStatus": "Success"}}
+            }
+
+            result = provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
+
+            assert result["status"] == "pending"
 
     @parameterized.expand(
         [
@@ -266,4 +289,4 @@ class TestSESProvider(TestCase):
             assert len(dmarc_records) == 1
             assert dmarc_records[0]["status"] == expected_dmarc_status
             assert dmarc_records[0]["recordValue"] == expected_record_value
-            assert result["status"] == "pending"  # DMARC never affects overall status
+            assert result["status"] == "pending"  # SES statuses are Pending, so overall stays pending
