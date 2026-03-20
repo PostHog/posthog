@@ -355,17 +355,17 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             }
         },
         saveSlackBotSettings: () => {
-            const iconUrl = values.slackBotIconUrlValue
-            const displayName = values.slackBotDisplayNameValue
+            const iconUrl = values.slackBotIconUrlValue?.trim()
+            const displayName = values.slackBotDisplayNameValue?.trim()
             if (iconUrl && !iconUrl.startsWith('https://')) {
                 lemonToast.error('Icon URL must start with https://')
                 return
             }
             const updates: Record<string, string | null> = {}
-            if (iconUrl !== null) {
+            if (values.slackBotIconUrlValue !== null) {
                 updates.slack_bot_icon_url = iconUrl || null
             }
-            if (displayName !== null) {
+            if (values.slackBotDisplayNameValue !== null) {
                 updates.slack_bot_display_name = displayName || null
             }
             if (Object.keys(updates).length > 0) {
