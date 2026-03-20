@@ -50,6 +50,15 @@ class TestLLMAnalyticsAccessControl(APIBaseTest):
         ]
         self.organization.save()
 
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="member",
+            organization_member=None,
+            role=None,
+        )
+
         self.viewer_user = User.objects.create_and_join(self.organization, "viewer@posthog.com", "testtest")
         self.editor_user = User.objects.create_and_join(self.organization, "editor@posthog.com", "testtest")
         self.no_access_user = User.objects.create_and_join(self.organization, "noaccess@posthog.com", "testtest")
