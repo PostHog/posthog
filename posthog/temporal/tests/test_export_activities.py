@@ -78,7 +78,7 @@ async def test_export_asset_activity_success(
 
     assert result.exported_asset_id == asset.id
     assert result.success is True
-    assert result.failure_type is None
+    assert result.exception_class is None
 
 
 @patch("posthog.temporal.exports.activities.exporter")
