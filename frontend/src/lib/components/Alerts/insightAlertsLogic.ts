@@ -165,12 +165,16 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
                                 seen.add(key)
                                 return true
                             })
-                            .map((date, i) => ({
-                                index: check.triggered_points?.[i] ?? 0,
-                                date,
-                                score: check.anomaly_scores?.[check.triggered_points?.[i] ?? 0] ?? null,
-                                seriesIndex,
-                            }))
+                            .map((date, i) => {
+                                const ptIdx = check.triggered_points?.[i] ?? 0
+                                const scores = check.anomaly_scores
+                                // Score array may be shorter than the point index (e.g. detect() returns single score)
+                                const score =
+                                    scores && ptIdx < scores.length
+                                        ? scores[ptIdx]
+                                        : (scores?.[scores.length - 1] ?? null)
+                                return { index: ptIdx, date, score, seriesIndex }
+                            })
                     })
                 })
             },
