@@ -1219,7 +1219,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 if (!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]) {
                     return undefined
                 }
-                return sourceQuery.source.connectionId
+                return sourceQuery.source && 'connectionId' in sourceQuery.source
+                    ? sourceQuery.source.connectionId
+                    : undefined
             },
         ],
         selectedDirectSource: [
