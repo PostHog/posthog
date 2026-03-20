@@ -96,7 +96,6 @@ class PostHogConfig(AppConfig):
         else:
             setup_async_migrations()
 
-        import posthog.storage.team_access_cache_signal_handlers  # noqa: F401 — register @receiver handlers
         from posthog.api.file_system import registrations as file_system_registrations
         from posthog.tasks.hog_functions import queue_sync_hog_function_templates
 

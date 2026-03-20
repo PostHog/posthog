@@ -10,7 +10,7 @@ mod tests {
         api::types::{FlagValue, LegacyFlagsResponse},
         cohorts::cohort_cache_manager::CohortCacheManager,
         flags::{
-            flag_group_type_mapping::GroupTypeMappingCache,
+            flag_group_type_mapping::GroupTypeCacheManager,
             flag_match_reason::FeatureFlagMatchReason,
             flag_matching::{FeatureFlagMatch, FeatureFlagMatcher},
             flag_matching_utils::{
@@ -25,9 +25,16 @@ mod tests {
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
         utils::{
             graph_utils::PrecomputedDependencyGraph,
-            test_utils::{create_test_flag, create_test_flag_that_depends_on_flag, TestContext},
+            test_utils::{
+                create_test_flag, create_test_flag_that_depends_on_flag, mock_group_type_cache,
+                TestContext,
+            },
         },
     };
+
+    fn empty_group_type_cache() -> Arc<GroupTypeCacheManager> {
+        mock_group_type_cache(HashMap::new())
+    }
 
     #[tokio::test]
     async fn test_fetch_properties_from_pg_to_match() {
@@ -92,7 +99,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -113,7 +120,7 @@ mod tests {
             team.id,
             router2,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -134,7 +141,7 @@ mod tests {
             team.id,
             router3,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -199,7 +206,7 @@ mod tests {
             team.id,
             router,
             cohort_cache,
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -276,7 +283,7 @@ mod tests {
             team.id,
             router,
             cohort_cache,
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -392,7 +399,7 @@ mod tests {
             team.id,
             router,
             cohort_cache,
-            None,
+            empty_group_type_cache(),
             Some(groups),
         );
 
@@ -472,15 +479,8 @@ mod tests {
             None,
         );
 
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.id);
-        group_type_mapping_cache
-            .init(context.persons_reader.clone())
-            .await
-            .unwrap();
-
-        let group_types_to_indexes = [("organization".to_string(), 1)].into_iter().collect();
-        let indexes_to_types = [(1, "organization".to_string())].into_iter().collect();
-        group_type_mapping_cache.set_test_mappings(group_types_to_indexes, indexes_to_types);
+        let group_type_cache =
+            mock_group_type_cache([("organization".to_string(), 1)].into_iter().collect());
 
         let groups = HashMap::from([("organization".to_string(), json!("org_123"))]);
 
@@ -498,7 +498,7 @@ mod tests {
             team.id,
             context.create_postgres_router(),
             cohort_cache.clone(),
-            Some(group_type_mapping_cache),
+            group_type_cache,
             Some(groups),
         );
 
@@ -583,7 +583,7 @@ mod tests {
             team.id,
             router,
             cohort_cache,
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -757,7 +757,7 @@ mod tests {
             team.id,
             router,
             cohort_cache,
-            None,
+            empty_group_type_cache(),
             None,
         );
         let flags = FeatureFlagList {
@@ -920,7 +920,7 @@ mod tests {
             team.id,
             context.create_postgres_router(),
             cohort_cache,
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -1054,7 +1054,7 @@ mod tests {
             team.id,
             router,
             cohort_cache,
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -1232,7 +1232,7 @@ mod tests {
             team.id,
             router,
             cohort_cache,
-            None,
+            empty_group_type_cache(),
             None,
         );
         let flags = FeatureFlagList {
@@ -1325,10 +1325,8 @@ mod tests {
             None,
             None,
         ));
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(1);
-        let group_types_to_indexes = [("group_type_1".to_string(), 1)].into_iter().collect();
-        let indexes_to_types = [(1, "group_type_1".to_string())].into_iter().collect();
-        group_type_mapping_cache.set_test_mappings(group_types_to_indexes, indexes_to_types);
+        let group_type_cache =
+            mock_group_type_cache([("group_type_1".to_string(), 1)].into_iter().collect());
 
         let groups = HashMap::from([("group_type_1".to_string(), json!("group_key_1"))]);
 
@@ -1338,7 +1336,7 @@ mod tests {
             1,
             context.create_postgres_router(),
             cohort_cache.clone(),
-            Some(group_type_mapping_cache),
+            group_type_cache,
             Some(groups),
         );
         let variant = matcher.get_matching_variant(&flag, None, &None).unwrap();
@@ -1361,11 +1359,11 @@ mod tests {
 
         let flag = create_test_flag_with_variants(team.id);
 
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.id);
-        group_type_mapping_cache
-            .init(context.persons_reader.clone())
-            .await
-            .unwrap();
+        let group_type_cache = Arc::new(GroupTypeCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
 
         let router = context.create_postgres_router();
         let matcher = FeatureFlagMatcher::new(
@@ -1374,7 +1372,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            Some(group_type_mapping_cache),
+            group_type_cache,
             None,
         );
 
@@ -1428,7 +1426,7 @@ mod tests {
             1,
             context.create_postgres_router(),
             cohort_cache,
-            None,
+            empty_group_type_cache(),
             None,
         );
         let (is_match, reason) = matcher
@@ -1490,7 +1488,7 @@ mod tests {
             1,
             context.create_postgres_router(),
             cohort_cache,
-            None,
+            empty_group_type_cache(),
             None,
         );
         matcher
@@ -1602,7 +1600,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -1686,7 +1684,7 @@ mod tests {
                     team_id,
                     router,
                     cohort_cache_clone,
-                    None,
+                    empty_group_type_cache(),
                     None,
                 );
                 matcher.get_match(&flag_clone, None, None, &None).unwrap()
@@ -1770,7 +1768,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -1822,7 +1820,7 @@ mod tests {
             1,
             context.create_postgres_router(),
             cohort_cache,
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -1871,7 +1869,7 @@ mod tests {
             1,
             context.create_postgres_router(),
             cohort_cache,
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -1925,7 +1923,7 @@ mod tests {
             1,
             context.create_postgres_router(),
             cohort_cache,
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -2005,7 +2003,7 @@ mod tests {
             team.id,
             context.create_postgres_router(),
             cohort_cache,
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -2071,7 +2069,7 @@ mod tests {
             team.id,
             context.create_postgres_router(),
             cohort_cache,
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -2119,7 +2117,7 @@ mod tests {
             1,
             context.create_postgres_router(),
             cohort_cache,
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -2202,7 +2200,7 @@ mod tests {
             team.id,
             context.create_postgres_router(),
             cohort_cache,
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -2437,7 +2435,7 @@ mod tests {
                 team.id,
                 router,
                 cohort_cache.clone(),
-                None,
+                empty_group_type_cache(),
                 None,
             );
 
@@ -2557,7 +2555,7 @@ mod tests {
             team.id,
             router.clone(),
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -2567,7 +2565,7 @@ mod tests {
             team.id,
             router.clone(),
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -2577,7 +2575,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -2702,7 +2700,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -2818,7 +2816,7 @@ mod tests {
             team.id,
             router.clone(),
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -2828,7 +2826,7 @@ mod tests {
             team.id,
             router.clone(),
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -2838,7 +2836,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -2971,7 +2969,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -3069,7 +3067,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -3167,7 +3165,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -3286,7 +3284,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -3384,7 +3382,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -3482,7 +3480,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -3572,7 +3570,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -3657,7 +3655,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -3757,7 +3755,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -3790,11 +3788,11 @@ mod tests {
             .await
             .unwrap();
 
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.id);
-        group_type_mapping_cache
-            .init(context.persons_reader.clone())
-            .await
-            .unwrap();
+        let group_type_cache = Arc::new(GroupTypeCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
 
         // Create flag with experience continuity
         let flag = create_test_flag(
@@ -3851,7 +3849,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            Some(group_type_mapping_cache),
+            group_type_cache.clone(),
             None,
         )
         .evaluate_all_feature_flags(
@@ -3898,11 +3896,11 @@ mod tests {
             .await
             .unwrap();
 
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.id);
-        group_type_mapping_cache
-            .init(context.persons_reader.clone())
-            .await
-            .unwrap();
+        let group_type_cache = Arc::new(GroupTypeCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
 
         // Create flag with experience continuity
         let flag = create_test_flag(
@@ -3948,7 +3946,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            Some(group_type_mapping_cache),
+            group_type_cache.clone(),
             None,
         )
         .evaluate_all_feature_flags(flags, None, None, None, Uuid::new_v4(), None, false)
@@ -3989,11 +3987,11 @@ mod tests {
             .await
             .unwrap();
 
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.id);
-        group_type_mapping_cache
-            .init(context.persons_reader.clone())
-            .await
-            .unwrap();
+        let group_type_cache = Arc::new(GroupTypeCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
 
         // Create flag with continuity
         let flag_continuity = create_test_flag(
@@ -4082,7 +4080,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            Some(group_type_mapping_cache),
+            group_type_cache.clone(),
             None,
         )
         .evaluate_all_feature_flags(
@@ -4192,7 +4190,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -4425,7 +4423,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -4449,7 +4447,7 @@ mod tests {
             team.id,
             router2,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -4594,7 +4592,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -4618,7 +4616,7 @@ mod tests {
             team.id,
             router2,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -4632,6 +4630,99 @@ mod tests {
             .unwrap();
         assert!(result.matches);
         assert_eq!(result.variant, Some("holdout-1".to_string()));
+        assert_eq!(result.reason, FeatureFlagMatchReason::HoldoutConditionValue);
+    }
+
+    #[tokio::test]
+    async fn test_feature_flag_holdout_new_format_takes_precedence() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        // example_id2 is within 70% holdout
+        let _person = context
+            .insert_person(
+                team.id,
+                "example_id2".to_string(),
+                Some(json!({"$some_prop": 5})),
+            )
+            .await
+            .unwrap();
+
+        let multivariate_json = MultivariateFlagOptions {
+            variants: vec![
+                MultivariateFlagVariant {
+                    key: "first-variant".to_string(),
+                    name: Some("First Variant".to_string()),
+                    rollout_percentage: 50.0,
+                },
+                MultivariateFlagVariant {
+                    key: "second-variant".to_string(),
+                    name: Some("Second Variant".to_string()),
+                    rollout_percentage: 50.0,
+                },
+            ],
+        };
+
+        // Both formats present — new `holdout` should take precedence.
+        // holdout says id=42, holdout_groups says variant="holdout" (legacy).
+        // The variant returned should be "holdout-42" (from new format), not "holdout" (from legacy).
+        let flag = create_test_flag(
+            Some(1),
+            Some(team.id),
+            None,
+            Some("flag-both-formats".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "$some_prop".to_string(),
+                        value: Some(json!(4)),
+                        operator: Some(OperatorType::Gt),
+                        prop_type: PropertyType::Person,
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    ..Default::default()
+                }],
+                holdout: Some(Holdout {
+                    id: 42,
+                    exclusion_percentage: 70.0,
+                }),
+                multivariate: Some(multivariate_json),
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            None,
+            Some(true),
+            None,
+        );
+
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "example_id2".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            empty_group_type_cache(),
+            None,
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        assert!(result.matches);
+        assert_eq!(result.variant, Some("holdout-42".to_string()));
         assert_eq!(result.reason, FeatureFlagMatchReason::HoldoutConditionValue);
     }
 
@@ -4709,7 +4800,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -4813,7 +4904,7 @@ mod tests {
                 team.id,
                 router,
                 cohort_cache.clone(),
-                None,
+                empty_group_type_cache(),
                 None,
             );
 
@@ -4894,7 +4985,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
         let result = matcher.get_match(&flag, None, None, &None).unwrap();
@@ -4917,7 +5008,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
         let result = matcher.get_match(&flag, None, None, &None).unwrap();
@@ -4940,7 +5031,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
         let result = matcher.get_match(&flag, None, None, &None).unwrap();
@@ -5037,7 +5128,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -5105,7 +5196,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -5165,12 +5256,9 @@ mod tests {
             None,
         );
 
-        // Set up group type mapping cache
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.id);
-        group_type_mapping_cache
-            .init(context.persons_reader.clone())
-            .await
-            .unwrap();
+        // Set up group type mapping cache with the correct mapping
+        let group_type_cache =
+            mock_group_type_cache([("organization".to_string(), 1)].into_iter().collect());
 
         // Test with numeric group key
         let groups_numeric = HashMap::from([("organization".to_string(), json!(123))]);
@@ -5181,7 +5269,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            Some(group_type_mapping_cache.clone()),
+            group_type_cache.clone(),
             Some(groups_numeric),
         );
 
@@ -5201,7 +5289,7 @@ mod tests {
             team.id,
             router2,
             cohort_cache.clone(),
-            Some(group_type_mapping_cache.clone()),
+            group_type_cache.clone(),
             Some(groups_string),
         );
 
@@ -5233,7 +5321,7 @@ mod tests {
             team.id,
             router3,
             cohort_cache.clone(),
-            Some(group_type_mapping_cache.clone()),
+            group_type_cache.clone(),
             Some(groups_float),
         );
 
@@ -5254,7 +5342,7 @@ mod tests {
             team.id,
             router4,
             cohort_cache.clone(),
-            Some(group_type_mapping_cache.clone()),
+            group_type_cache.clone(),
             Some(groups_bool),
         );
 
@@ -5403,7 +5491,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -5428,7 +5516,7 @@ mod tests {
             team.id,
             router2,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -5453,7 +5541,7 @@ mod tests {
             team.id,
             router3,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -5526,7 +5614,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -5584,7 +5672,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
         matcher
@@ -5605,7 +5693,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
         matcher_same_device
@@ -5628,7 +5716,7 @@ mod tests {
             team.id,
             router,
             cohort_cache,
-            None,
+            empty_group_type_cache(),
             None,
         );
         matcher_low
@@ -5661,7 +5749,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
         matcher
@@ -5682,7 +5770,7 @@ mod tests {
             team.id,
             router,
             cohort_cache,
-            None,
+            empty_group_type_cache(),
             None,
         );
         matcher_high
@@ -5717,7 +5805,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
         matcher
@@ -5738,7 +5826,7 @@ mod tests {
             team.id,
             router,
             cohort_cache,
-            None,
+            empty_group_type_cache(),
             None,
         );
         matcher_low
@@ -5861,7 +5949,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -5909,7 +5997,7 @@ mod tests {
             team.id,
             router2,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -5945,7 +6033,7 @@ mod tests {
             team.id,
             router3,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -5983,7 +6071,7 @@ mod tests {
             team.id,
             router4,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -6107,15 +6195,8 @@ mod tests {
         );
 
         // Set up group type mappings
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.id);
-        group_type_mapping_cache
-            .init(context.persons_reader.clone())
-            .await
-            .unwrap();
-
-        let group_types_to_indexes = [("organization".to_string(), 1)].into_iter().collect();
-        let indexes_to_types = [(1, "organization".to_string())].into_iter().collect();
-        group_type_mapping_cache.set_test_mappings(group_types_to_indexes, indexes_to_types);
+        let group_type_cache =
+            mock_group_type_cache([("organization".to_string(), 1)].into_iter().collect());
 
         let groups = HashMap::from([("organization".to_string(), json!("test_org_123"))]);
 
@@ -6141,7 +6222,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            Some(group_type_mapping_cache.clone()),
+            group_type_cache.clone(),
             Some(groups.clone()),
         );
 
@@ -6188,7 +6269,7 @@ mod tests {
             team.id,
             router2,
             cohort_cache.clone(),
-            Some(group_type_mapping_cache.clone()),
+            group_type_cache.clone(),
             Some(groups.clone()),
         );
 
@@ -6230,7 +6311,7 @@ mod tests {
             team.id,
             router3,
             cohort_cache.clone(),
-            Some(group_type_mapping_cache.clone()),
+            group_type_cache.clone(),
             Some(groups.clone()),
         );
 
@@ -6268,7 +6349,7 @@ mod tests {
             team.id,
             router4,
             cohort_cache.clone(),
-            Some(group_type_mapping_cache.clone()),
+            group_type_cache.clone(),
             Some(groups.clone()),
         );
 
@@ -6310,7 +6391,7 @@ mod tests {
             team.id,
             router5,
             cohort_cache.clone(),
-            None,
+            group_type_cache.clone(),
             Some(groups),
         );
 
@@ -6419,7 +6500,7 @@ mod tests {
             team.id,
             router.clone(),
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -6449,7 +6530,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -6494,7 +6575,7 @@ mod tests {
             team.id,
             router,
             cohort_cache,
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -6598,8 +6679,15 @@ mod tests {
             .expect("Failed to insert team in pg");
 
         let distinct_id = "user_distinct_id".to_string();
-        let mut matcher =
-            FeatureFlagMatcher::new(distinct_id, None, team.id, router, cohort_cache, None, None);
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id,
+            None,
+            team.id,
+            router,
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        );
 
         // A filtered-out flag with experience continuity should not trigger
         // hash-key-override error handling or appear in the response.
@@ -6736,7 +6824,7 @@ mod tests {
             team.id,
             router,
             cohort_cache,
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -6838,7 +6926,7 @@ mod tests {
             team.id,
             router,
             cohort_cache,
-            None,
+            empty_group_type_cache(),
             None,
         );
         matcher.filtered_out_flag_ids = filtered_out;
@@ -6935,7 +7023,7 @@ mod tests {
             team.id,
             router,
             cohort_cache,
-            None,
+            empty_group_type_cache(),
             None,
         );
         matcher.filtered_out_flag_ids = filtered_out;
@@ -7036,7 +7124,7 @@ mod tests {
             team.id,
             router,
             cohort_cache,
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -7130,7 +7218,7 @@ mod tests {
             team.id,
             router,
             cohort_cache,
-            None,
+            empty_group_type_cache(),
             None,
         );
         matcher.filtered_out_flag_ids = filtered_out;
@@ -7226,7 +7314,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         )
         .evaluate_all_feature_flags(
@@ -7320,7 +7408,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         )
         .evaluate_all_feature_flags(
@@ -7427,7 +7515,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         )
         .evaluate_all_feature_flags(
@@ -7539,7 +7627,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         )
         .evaluate_all_feature_flags(
@@ -7635,7 +7723,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         )
         .evaluate_all_feature_flags(
@@ -7775,7 +7863,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         )
         .evaluate_all_feature_flags(
@@ -7917,7 +8005,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         )
         .evaluate_all_feature_flags(
@@ -8065,7 +8153,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         )
         .evaluate_all_feature_flags(
@@ -8170,7 +8258,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         )
         .evaluate_all_feature_flags(
@@ -8284,7 +8372,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         )
         .evaluate_all_feature_flags(
@@ -8391,7 +8479,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            None,
+            empty_group_type_cache(),
             None,
         )
         .evaluate_all_feature_flags(
@@ -8533,11 +8621,11 @@ mod tests {
         .await
         .unwrap();
 
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.id);
-        group_type_mapping_cache
-            .init(context.persons_reader.clone())
-            .await
-            .unwrap();
+        let group_type_cache = mock_group_type_cache(
+            [("project".to_string(), 0), ("organization".to_string(), 1)]
+                .into_iter()
+                .collect(),
+        );
 
         let groups = HashMap::from([
             ("project".to_string(), json!("proj-456")),
@@ -8551,7 +8639,7 @@ mod tests {
             team.id,
             router,
             cohort_cache.clone(),
-            Some(group_type_mapping_cache),
+            group_type_cache.clone(),
             Some(groups),
         );
 
@@ -8654,7 +8742,7 @@ mod tests {
             team.id,
             router,
             cohort_cache,
-            None,
+            empty_group_type_cache(),
             None,
         );
 
@@ -8753,7 +8841,7 @@ mod tests {
             team.id,
             router,
             cohort_cache,
-            None,
+            empty_group_type_cache(),
             None,
         );
 

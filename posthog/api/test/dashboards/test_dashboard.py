@@ -1695,6 +1695,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         assert response.json()["tiles"] == [
             {
+                "button_tile": None,
                 "color": None,
                 "filters_overrides": {},
                 "id": ANY,
@@ -1712,6 +1713,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "last_modified_by": None,
                     "team": self.team.pk,
                 },
+                "transparent_background": None,
             },
         ]
 
@@ -1812,12 +1814,14 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "hogql": ANY,
                     "types": ANY,
                 },
+                "button_tile": None,
                 "is_cached": False,
                 "last_refresh": None,
                 "layouts": {},
                 "order": 0,
                 "show_description": None,
                 "text": None,
+                "transparent_background": None,
             },
         ]
 

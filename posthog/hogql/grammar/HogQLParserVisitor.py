@@ -179,8 +179,23 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by HogQLParser#groupingSetList.
+    def visitGroupingSetList(self, ctx:HogQLParser.GroupingSetListContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#groupingSet.
+    def visitGroupingSet(self, ctx:HogQLParser.GroupingSetContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by HogQLParser#havingClause.
     def visitHavingClause(self, ctx:HogQLParser.HavingClauseContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#qualifyClause.
+    def visitQualifyClause(self, ctx:HogQLParser.QualifyClauseContext):
         return self.visitChildren(ctx)
 
 
@@ -454,8 +469,18 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by HogQLParser#ColumnExprColumnsRegex.
+    def visitColumnExprColumnsRegex(self, ctx:HogQLParser.ColumnExprColumnsRegexContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by HogQLParser#ColumnExprTypeCast.
     def visitColumnExprTypeCast(self, ctx:HogQLParser.ColumnExprTypeCastContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnExprSpreadColumnsList.
+    def visitColumnExprSpreadColumnsList(self, ctx:HogQLParser.ColumnExprSpreadColumnsListContext):
         return self.visitChildren(ctx)
 
 
@@ -536,6 +561,16 @@ class HogQLParserVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by HogQLParser#ColumnExprBetween.
     def visitColumnExprBetween(self, ctx:HogQLParser.ColumnExprBetweenContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnExprColumnsList.
+    def visitColumnExprColumnsList(self, ctx:HogQLParser.ColumnExprColumnsListContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnExprSpreadColumnsRegex.
+    def visitColumnExprSpreadColumnsRegex(self, ctx:HogQLParser.ColumnExprSpreadColumnsRegexContext):
         return self.visitChildren(ctx)
 
 

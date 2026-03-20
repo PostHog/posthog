@@ -12,7 +12,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { BatchExportConfiguration } from '~/types'
 
 import type { batchExportBackfillModalLogicType } from './batchExportBackfillModalLogicType'
-import { batchExportBackfillsLogic } from './batchExportBackfillsLogic'
+import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
 import { dayOptions } from './utils'
 
 export interface BatchExportBackfillModalLogicProps {
@@ -120,13 +120,20 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
     key(({ id }) => id),
     path((key) => ['scenes', 'pipeline', 'batchExportBackfillModalLogic', key]),
     connect((props: BatchExportBackfillModalLogicProps) => ({
-        values: [teamLogic, ['timezone as teamTimezone'], batchExportBackfillsLogic(props), ['batchExportConfig']],
-        actions: [batchExportBackfillsLogic(props), ['openBackfillModal', 'backfillCreated']],
+        values: [
+            batchExportConfigurationLogic({
+                id: props.id,
+                service: null,
+            }),
+            ['batchExportConfig'],
+        ],
     })),
     actions({
+        openBackfillModal: true,
         closeBackfillModal: true,
         setEarliestBackfill: true,
         unsetEarliestBackfill: true,
+        backfillCreated: (backfillId: string) => ({ backfillId }),
     }),
     reducers({
         isBackfillModalOpen: [
@@ -150,7 +157,7 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
             (batchExportConfig: BatchExportConfiguration | null): string | undefined => batchExportConfig?.interval,
         ],
         timezone: [
-            (s) => [s.batchExportConfig, s.teamTimezone],
+            (s) => [s.batchExportConfig, teamLogic.selectors.timezone],
             (batchExportConfig: BatchExportConfiguration | null, teamTimezone: string): string => {
                 // How timezones are handled:
                 // - If the batch export's interval is day or week, we use the timezone from the batch export config.

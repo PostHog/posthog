@@ -649,6 +649,24 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # Integration state is managed only by dedicated endpoints, not user input
         for managed_key in ("slack_bot_token", "slack_team_id", "slack_enabled", "email_enabled"):
             value.pop(managed_key, None)
+        icon_url = value.get("slack_bot_icon_url")
+        if icon_url is not None:
+            if not isinstance(icon_url, str):
+                raise serializers.ValidationError({"slack_bot_icon_url": "Must be a string."})
+            icon_url = icon_url.strip()
+            value["slack_bot_icon_url"] = icon_url or None
+            if icon_url and not icon_url.startswith("https://"):
+                raise serializers.ValidationError({"slack_bot_icon_url": "Must be an HTTPS URL."})
+        display_name = value.get("slack_bot_display_name")
+        if display_name is not None:
+            if not isinstance(display_name, str):
+                raise serializers.ValidationError({"slack_bot_display_name": "Must be a string."})
+            display_name = display_name.strip()
+            value["slack_bot_display_name"] = display_name or None
+            if display_name and (len(display_name) > 200 or any(ord(c) < 32 for c in display_name)):
+                raise serializers.ValidationError(
+                    {"slack_bot_display_name": "Must be 200 characters or fewer with no control characters."}
+                )
         return value
 
     def validate_slack_incoming_webhook(self, value: str | None) -> str | None:

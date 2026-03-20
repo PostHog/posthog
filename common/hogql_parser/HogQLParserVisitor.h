@@ -87,7 +87,13 @@ public:
 
     virtual std::any visitGroupByClause(HogQLParser::GroupByClauseContext *context) = 0;
 
+    virtual std::any visitGroupingSetList(HogQLParser::GroupingSetListContext *context) = 0;
+
+    virtual std::any visitGroupingSet(HogQLParser::GroupingSetContext *context) = 0;
+
     virtual std::any visitHavingClause(HogQLParser::HavingClauseContext *context) = 0;
+
+    virtual std::any visitQualifyClause(HogQLParser::QualifyClauseContext *context) = 0;
 
     virtual std::any visitOrderByClause(HogQLParser::OrderByClauseContext *context) = 0;
 
@@ -197,7 +203,11 @@ public:
 
     virtual std::any visitColumnExprFunctionWithinGroup(HogQLParser::ColumnExprFunctionWithinGroupContext *context) = 0;
 
+    virtual std::any visitColumnExprColumnsRegex(HogQLParser::ColumnExprColumnsRegexContext *context) = 0;
+
     virtual std::any visitColumnExprTypeCast(HogQLParser::ColumnExprTypeCastContext *context) = 0;
+
+    virtual std::any visitColumnExprSpreadColumnsList(HogQLParser::ColumnExprSpreadColumnsListContext *context) = 0;
 
     virtual std::any visitColumnExprPrecedence1(HogQLParser::ColumnExprPrecedence1Context *context) = 0;
 
@@ -230,6 +240,10 @@ public:
     virtual std::any visitColumnExprArrayAccess(HogQLParser::ColumnExprArrayAccessContext *context) = 0;
 
     virtual std::any visitColumnExprBetween(HogQLParser::ColumnExprBetweenContext *context) = 0;
+
+    virtual std::any visitColumnExprColumnsList(HogQLParser::ColumnExprColumnsListContext *context) = 0;
+
+    virtual std::any visitColumnExprSpreadColumnsRegex(HogQLParser::ColumnExprSpreadColumnsRegexContext *context) = 0;
 
     virtual std::any visitColumnExprPropertyAccess(HogQLParser::ColumnExprPropertyAccessContext *context) = 0;
 

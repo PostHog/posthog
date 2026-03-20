@@ -1,36 +1,17 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { IconInfo, IconStethoscope } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonMenu,
-    LemonTable,
-    LemonTableColumns,
-    LemonTag,
-    Link,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonMenu, LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { IconWithBadge } from 'lib/lemon-ui/icons'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { ActivityTab } from '~/types'
 
-import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
-import {
-    AugmentedTeamSdkVersionsInfoRelease,
-    type OutdatedTrafficAlert,
-    type SdkType,
-    sidePanelSdkDoctorLogic,
-} from './sidePanelSdkDoctorLogic'
+import { AugmentedTeamSdkVersionsInfoRelease, type SdkType, sdkDoctorLogic } from './sdkDoctorLogic'
 
 export const SDK_TYPE_READABLE_NAME: Record<SdkType, string> = {
     web: 'Web',
@@ -291,156 +272,8 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
     },
 ]
 
-export function SidePanelSdkDoctor(): JSX.Element | null {
-    const {
-        augmentedData,
-        rawDataLoading: loading,
-        needsUpdatingCount,
-        hasErrors,
-        snoozedUntil,
-    } = useValues(sidePanelSdkDoctorLogic)
-    const { isDev } = useValues(preflightLogic)
-
-    const { loadRawData, snoozeSdkDoctor } = useActions(sidePanelSdkDoctorLogic)
-
-    useOnMountEffect(() => {
-        posthog.capture('sdk doctor loaded', { needsUpdatingCount })
-    })
-
-    const scanEvents = (): void => {
-        posthog.capture('sdk doctor scan events')
-        loadRawData({ forceRefresh: true })
-    }
-
-    const snoozeWarning = (): void => {
-        posthog.capture('sdk doctor snooze warning')
-        snoozeSdkDoctor()
-    }
-
-    return (
-        <div className="flex flex-col h-full">
-            <SidePanelPaneHeader
-                title={
-                    <span>
-                        SDK Doctor{' '}
-                        <LemonTag type="warning" className="ml-1">
-                            Beta
-                        </LemonTag>
-                    </span>
-                }
-            >
-                <LemonButton
-                    size="xsmall"
-                    type="primary"
-                    disabledReason={loading ? 'Scan in progress' : undefined}
-                    onClick={scanEvents}
-                >
-                    {loading ? 'Scanning events...' : 'Scan events'}
-                </LemonButton>
-            </SidePanelPaneHeader>
-
-            {/* Explain to devs how they can get the SDK data to show up */}
-            {isDev && !inStorybook() && !inStorybookTestRunner() && (
-                <div className="m-2 mb-4">
-                    <LemonBanner type="info">
-                        <strong>DEVELOPMENT WARNING!</strong> When running in development, make sure you've run the
-                        appropriate Dagster jobs: <LemonTag>cache_all_team_sdk_versions_job</LemonTag> and{' '}
-                        <LemonTag>cache_github_sdk_versions_job</LemonTag>. Data won't be available otherwise.
-                    </LemonBanner>
-                </div>
-            )}
-
-            {/* Beta feedback banner */}
-            <div className="m-2">
-                <LemonBanner type="info">
-                    <strong>SDK Doctor is in Beta!</strong> Help us improve by sharing your feedback?{' '}
-                    <Link to="#panel=support%3Asupport%3Asdk%3Alow%3Atrue">Send feedback</Link>
-                </LemonBanner>
-            </div>
-
-            <div className="p-3">
-                {loading ? null : hasErrors ? (
-                    <div className="text-center text-muted p-4">
-                        Error loading SDK information. Please try again later.
-                    </div>
-                ) : Object.keys(augmentedData).length === 0 ? (
-                    <div className="text-center text-muted p-4">
-                        No SDK information found. Are you sure you have our SDK installed? You can scan events to get
-                        started.
-                    </div>
-                ) : needsUpdatingCount === 0 ? (
-                    <section className="mb-2">
-                        <h3>SDK health is good</h3>
-                        <LemonBanner type="success" hideIcon={false}>
-                            <p className="font-semibold">All caught up! Your SDKs are up to date.</p>
-                            <p className="text-sm mt-1">You've got the latest. Nice work keeping everything current.</p>
-                        </LemonBanner>
-                    </section>
-                ) : (
-                    <section className="mb-2">
-                        <h3>Time for an update!</h3>
-                        <LemonBanner
-                            type="warning"
-                            hideIcon={false}
-                            action={{
-                                children: 'Snooze warning for 30 days',
-                                disabledReason: snoozedUntil ? 'Already snoozed' : undefined,
-                                onClick: snoozeWarning,
-                            }}
-                        >
-                            {Object.entries(augmentedData).flatMap(([sdkType, sdk]) =>
-                                sdk.outdatedTrafficAlerts.map((alert: OutdatedTrafficAlert) => (
-                                    <p key={`${sdkType}-${alert.version}`} className="text-sm mb-1">
-                                        Version <code className="text-xs font-mono">{alert.version}</code> of the{' '}
-                                        {SDK_TYPE_READABLE_NAME[sdkType as SdkType]} SDK has captured more than{' '}
-                                        {alert.thresholdPercent}% of events in the last 7 days.
-                                    </p>
-                                ))
-                            )}
-                            <p className="font-semibold">
-                                An outdated SDK means you're missing out on bug fixes and enhancements.
-                            </p>
-                            <p className="text-sm mt-1">
-                                <Link to="https://posthog.com/docs/sdk-doctor/keeping-sdks-current" target="_blank">
-                                    Learn how
-                                </Link>{' '}
-                                to keep your SDK versions current.
-                            </p>
-                            <p className="text-sm mt-1">See the 'Releases' and 'Docs' links below for more info.</p>
-                        </LemonBanner>
-                    </section>
-                )}
-            </div>
-
-            {Object.keys(augmentedData).map((sdkType) => (
-                <SdkSection key={sdkType} sdkType={sdkType as SdkType} />
-            ))}
-        </div>
-    )
-}
-
-export const SidePanelSdkDoctorIcon = (props: { className?: string }): JSX.Element => {
-    const { needsAttention, needsUpdatingCount, sdkHealth } = useValues(sidePanelSdkDoctorLogic)
-
-    const title = needsAttention
-        ? 'Needs attention'
-        : needsUpdatingCount > 0
-          ? 'Outdated SDKs found'
-          : 'SDK health is good'
-
-    return (
-        <Tooltip title={title} placement="left">
-            <span {...props}>
-                <IconWithBadge content={needsUpdatingCount > 0 ? '!' : '✓'} status={sdkHealth}>
-                    <IconStethoscope />
-                </IconWithBadge>
-            </span>
-        </Tooltip>
-    )
-}
-
 export function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
-    const { augmentedData, rawDataLoading: loading } = useValues(sidePanelSdkDoctorLogic)
+    const { augmentedData, rawDataLoading: loading } = useValues(sdkDoctorLogic)
 
     const sdk = augmentedData[sdkType]!
     const links = SDK_DOCS_LINKS[sdkType]

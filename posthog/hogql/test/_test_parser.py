@@ -913,6 +913,37 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_select_qualify(self):
+            self.assertEqual(
+                self._select("select 1 qualify true"),
+                ast.SelectQuery(select=[ast.Constant(value=1)], qualify=ast.Constant(value=True)),
+            )
+            self.assertEqual(
+                self._select("select 1 qualify 1 == 2"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    qualify=ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Constant(value=1),
+                        right=ast.Constant(value=2),
+                    ),
+                ),
+            )
+
+        def test_select_qualify_with_having(self):
+            self.assertEqual(
+                self._select("select 1 having true qualify 1 == 2"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    having=ast.Constant(value=True),
+                    qualify=ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Constant(value=1),
+                        right=ast.Constant(value=2),
+                    ),
+                ),
+            )
+
         def test_select_complex_wheres(self):
             self.assertEqual(
                 self._select("select 1 prewhere 2 != 3 where 1 == 2 having 'string' like '%a%'"),

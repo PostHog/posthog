@@ -42,6 +42,8 @@ export const navigationLogic = kea<navigationLogicType>([
         closeProjectNotice: (projectNoticeVariant: ProjectNoticeVariant) => ({ projectNoticeVariant }),
         showConfigurePinnedTabsModal: true,
         hideConfigurePinnedTabsModal: true,
+        showConfigurePinnedTabsTooltip: true,
+        hideConfigurePinnedTabsTooltip: true,
     }),
     loaders(({ values }) => ({
         proxyRecords: {
@@ -84,6 +86,20 @@ export const navigationLogic = kea<navigationLogicType>([
             {
                 showConfigurePinnedTabsModal: () => true,
                 hideConfigurePinnedTabsModal: () => false,
+            },
+        ],
+        isConfigurePinnedTabsTooltipVisible: [
+            false,
+            {
+                showConfigurePinnedTabsTooltip: () => true,
+                hideConfigurePinnedTabsTooltip: () => false,
+            },
+        ],
+        isConfigurePinnedTabsTooltipDismissed: [
+            false,
+            { persist: true },
+            {
+                hideConfigurePinnedTabsTooltip: () => true,
             },
         ],
     }),

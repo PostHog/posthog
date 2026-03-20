@@ -393,6 +393,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             where=self.visit(ctx.whereClause()) if ctx.whereClause() else None,
             prewhere=self.visit(ctx.prewhereClause()) if ctx.prewhereClause() else None,
             having=self.visit(ctx.havingClause()) if ctx.havingClause() else None,
+            qualify=self.visit(ctx.qualifyClause()) if ctx.qualifyClause() else None,
             group_by=self.visit(ctx.groupByClause()) if ctx.groupByClause() else None,
             order_by=self.visit(ctx.orderByClause()) if ctx.orderByClause() else None,
             limit_by=self.visit(ctx.limitByClause()) if ctx.limitByClause() else None,
@@ -433,6 +434,14 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
                             end=expr.end,
                         )
 
+        if group_by_clause := ctx.groupByClause():
+            if group_by_clause.GROUPING():
+                select_query.group_by_mode = "grouping_sets"
+            elif group_by_clause.CUBE():
+                select_query.group_by_mode = "cube"
+            elif group_by_clause.ROLLUP():
+                select_query.group_by_mode = "rollup"
+
         if ctx.topClause():
             raise NotImplementedError(f"Unsupported: SelectStmt.topClause()")
         if ctx.settingsClause():
@@ -466,9 +475,21 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.columnExpr())
 
     def visitGroupByClause(self, ctx: HogQLParser.GroupByClauseContext):
+        if ctx.GROUPING():
+            return self.visit(ctx.groupingSetList())
         return self.visit(ctx.columnExprList())
 
+    def visitGroupingSetList(self, ctx: HogQLParser.GroupingSetListContext):
+        return [self.visit(s) for s in ctx.groupingSet()]
+
+    def visitGroupingSet(self, ctx: HogQLParser.GroupingSetContext):
+        exprs = self.visit(ctx.columnExprList()) if ctx.columnExprList() else []
+        return ast.GroupingSet(exprs=exprs)
+
     def visitHavingClause(self, ctx: HogQLParser.HavingClauseContext):
+        return self.visit(ctx.columnExpr())
+
+    def visitQualifyClause(self, ctx: HogQLParser.QualifyClauseContext):
         return self.visit(ctx.columnExpr())
 
     def visitOrderByClause(self, ctx: HogQLParser.OrderByClauseContext):
@@ -1067,6 +1088,34 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             table = self.visit(ctx.tableIdentifier())
             return ast.Field(chain=[*table, "*"])
         return ast.Field(chain=["*"])
+
+    def visitColumnExprColumnsRegex(self, ctx: HogQLParser.ColumnExprColumnsRegexContext):
+        pattern = parse_string_literal_ctx(ctx.STRING_LITERAL())
+        return ast.ColumnsExpr(regex=pattern)
+
+    def visitColumnExprColumnsList(self, ctx: HogQLParser.ColumnExprColumnsListContext):
+        columns = self.visit(ctx.columnExprList())
+        return ast.ColumnsExpr(columns=columns)
+
+    def visitColumnExprSpreadColumnsRegex(self, ctx: HogQLParser.ColumnExprSpreadColumnsRegexContext):
+        pattern = parse_string_literal_ctx(ctx.STRING_LITERAL())
+        start = ctx.start.start if ctx.start else None
+        end = ctx.stop.stop + 1 if ctx.stop else None
+        return ast.SpreadExpr(
+            expr=ast.ColumnsExpr(regex=pattern, start=start, end=end),
+            start=start,
+            end=end,
+        )
+
+    def visitColumnExprSpreadColumnsList(self, ctx: HogQLParser.ColumnExprSpreadColumnsListContext):
+        columns = self.visit(ctx.columnExprList())
+        start = ctx.start.start if ctx.start else None
+        end = ctx.stop.stop + 1 if ctx.stop else None
+        return ast.SpreadExpr(
+            expr=ast.ColumnsExpr(columns=columns, start=start, end=end),
+            start=start,
+            end=end,
+        )
 
     def visitColumnExprTagElement(self, ctx: HogQLParser.ColumnExprTagElementContext):
         return self.visit(ctx.hogqlxTagElement())

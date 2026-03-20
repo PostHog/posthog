@@ -1533,6 +1533,12 @@ class TestPrinter(BaseTest):
             f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) HAVING 0 LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
+    def test_select_qualify_not_supported_in_clickhouse(self):
+        self._assert_select_error(
+            "select row_number() OVER () as rn from events qualify rn = 1",
+            "QUALIFY is not supported in the 'clickhouse' dialect",
+        )
+
     def test_select_prewhere(self):
         self.assertEqual(
             self._select("select 1 from events prewhere 1 == 2 where 2 == 3"),
@@ -1622,6 +1628,29 @@ class TestPrinter(BaseTest):
             self._select("select event from events group by event, timestamp"),
             f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY events.event, toTimeZone(events.timestamp, %(hogql_val_0)s) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
+
+    @parameterized.expand(
+        [
+            (
+                "grouping_sets",
+                "select event, distinct_id, count() as c from events group by grouping sets ((event), (distinct_id), ())",
+                "GROUP BY GROUPING SETS ((events.event), (events.distinct_id), ())",
+            ),
+            (
+                "cube",
+                "select event, distinct_id, count() as c from events group by cube(event, distinct_id)",
+                "GROUP BY CUBE(events.event, events.distinct_id)",
+            ),
+            (
+                "rollup",
+                "select event, distinct_id, count() as c from events group by rollup(event, distinct_id)",
+                "GROUP BY ROLLUP(events.event, events.distinct_id)",
+            ),
+        ]
+    )
+    def test_select_group_by_mode(self, _name: str, input_sql: str, expected_fragment: str):
+        result = self._select(input_sql)
+        self.assertIn(expected_fragment, result)
 
     def test_select_distinct(self):
         self.assertEqual(
@@ -4460,6 +4489,13 @@ class TestPostgresPrinter(BaseTest):
         self.assertNotIn("lagInFrame", printed)
         self.assertNotIn("ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING", printed)
 
+    @parameterized.expand([["percentile_cont"], ["percentile_disc"]])
+    def test_percentile_within_group_renders_in_postgres(self, function_name: str):
+        self.assertEqual(
+            self._expr(f"{function_name}(0.5) within group (order by timestamp desc)"),
+            f"{function_name}(0.5) WITHIN GROUP (ORDER BY events.timestamp DESC)",
+        )
+
     def test_in_operations_render_value_lists(self):
         self.assertEqual(self._expr("1 in (1, 2, 3)"), "(1 IN (1, 2, 3))")
         self.assertEqual(self._expr("1 in (1)"), "(1 IN (1))")
@@ -4657,6 +4693,16 @@ class TestPostgresPrinter(BaseTest):
         result = self._select(query)
         self.assertIn("USING KEY (a) AS", result)
 
+    def test_select_qualify(self):
+        result = self._select("SELECT row_number() OVER () AS rn FROM events QUALIFY rn = 1")
+        self.assertIn("QUALIFY", result)
+        self.assertIn("rn", result)
+
+    def test_select_qualify_with_having(self):
+        result = self._select("SELECT 1 FROM events HAVING 1 == 1 QUALIFY 1 == 1")
+        self.assertIn("HAVING", result)
+        self.assertIn("QUALIFY", result)
+
     def test_values_query(self):
         self.assertEqual(
             self._select("SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS v (id, name)"),
@@ -4842,6 +4888,7 @@ class TestPostgresPrinter(BaseTest):
         with self.assertRaises(QueryError) as ctx:
             self._expr(expr)
         self.assertIn("not supported in the Postgres dialect", str(ctx.exception))
+        self.assertNotIn("ClickHouse", str(ctx.exception))
 
     @parameterized.expand(
         [

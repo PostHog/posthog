@@ -114,7 +114,7 @@ export function OptOutCategories(): JSX.Element {
                             )}
                         </div>
                         <div>
-                            <h4 className="font-medium mb-2">Opt-out list</h4>
+                            <h4 className="font-medium mb-4">Opt-out list</h4>
                             {category.category_type === 'marketing' ? (
                                 <OptOutList category={category} />
                             ) : (
