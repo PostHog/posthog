@@ -17364,6 +17364,14 @@ export namespace Schemas {
       readonly first_version_created_at: string;
     }
 
+    export interface LLMPromptDuplicate {
+      /**
+       * Name for the duplicated prompt. Must be unique and use only letters, numbers, hyphens, and underscores.
+       * @maxLength 255
+       */
+      new_name: string;
+    }
+
     export interface LLMPromptPublic {
       id: string;
       name: string;

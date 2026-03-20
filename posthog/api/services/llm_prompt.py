@@ -134,6 +134,41 @@ def publish_prompt_version(
         return fallback_prompt if fallback_prompt is not None else published_prompt
 
 
+class LLMPromptDuplicateNameConflictError(Exception):
+    pass
+
+
+def duplicate_prompt(
+    team: Team,
+    *,
+    user: User,
+    source_name: str,
+    new_name: str,
+) -> LLMPrompt:
+    source_latest = (
+        LLMPrompt.objects.filter(team=team, name=source_name, deleted=False, is_latest=True)
+        .order_by("-version", "-created_at", "-id")
+        .first()
+    )
+    if source_latest is None:
+        raise LLMPromptNotFoundError()
+
+    if LLMPrompt.objects.filter(team=team, name=new_name, deleted=False).exists():
+        raise LLMPromptDuplicateNameConflictError()
+
+    new_prompt = LLMPrompt.objects.create(
+        team=team,
+        name=new_name,
+        prompt=source_latest.prompt,
+        version=1,
+        is_latest=True,
+        created_by=user,
+    )
+
+    refreshed = get_active_prompt_queryset(team).filter(pk=new_prompt.pk).first()
+    return refreshed if refreshed is not None else new_prompt
+
+
 def archive_prompt(team: Team, prompt_name: str) -> list[int]:
     with transaction.atomic():
         prompt_versions = list(

@@ -217,6 +217,26 @@ class LLMPromptPublicSerializer(serializers.Serializer):
     first_version_created_at = serializers.DateTimeField()
 
 
+class LLMPromptDuplicateSerializer(serializers.Serializer):
+    new_name = serializers.CharField(
+        max_length=255,
+        help_text="Name for the duplicated prompt. Must be unique and use only letters, numbers, hyphens, and underscores.",
+    )
+
+    def validate_new_name(self, value: str) -> str:
+        if value.lower() in RESERVED_PROMPT_NAMES:
+            raise serializers.ValidationError(
+                "'new' is a reserved name and cannot be used.",
+                code="reserved_name",
+            )
+        if not re.match(r"^[a-zA-Z0-9_-]+$", value):
+            raise serializers.ValidationError(
+                "Only letters, numbers, hyphens (-) and underscores (_) are allowed.",
+                code="invalid_name",
+            )
+        return value
+
+
 class LLMPromptResolveResponseSerializer(serializers.Serializer):
     prompt = LLMPromptSerializer()
     versions = LLMPromptVersionSummarySerializer(many=True)
