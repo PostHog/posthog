@@ -59,11 +59,11 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
-            "Connection refused",
-            "No route to host",
-            "could not translate host name",
-            "password authentication failed for user",
-            "FATAL: no such database",
+            'psycopg2.OperationalError: could not connect to server: Connection refused\n\tIs the server running on host "10.0.0.1" and accepting TCP/IP connections on port 5432?',
+            'psycopg2.OperationalError: could not connect to server: No route to host\n\tIs the server running on host "10.0.0.1"?',
+            'could not translate host name "bad-hostname.example.com" to address: Name or service not known',
+            'FATAL:  password authentication failed for user "myuser"',
+            'FATAL: no such database "nonexistent_db"',
             "Name or service not known",
         ],
     )
