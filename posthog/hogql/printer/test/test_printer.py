@@ -194,10 +194,14 @@ class TestPrinter(BaseTest):
             "TRY_CAST is not allowed in clickhouse dialect",
         )
 
-    def test_limit_percent_non_postgres_error(self):
+    def test_limit_percent_clickhouse_constant_prints_decimal(self):
+        printed = self._select("select 1 from events limit 40 %")
+        self.assertIn("LIMIT 0.4", printed)
+
+    def test_limit_percent_clickhouse_expression_error(self):
         self._assert_query_error(
-            "select 1 from events limit 10 %",
-            "LIMIT percent is not allowed in clickhouse dialect",
+            "select 1 from events limit (60 + 7) %",
+            "LIMIT percent with expressions is not supported in clickhouse dialect",
         )
 
     def test_union_distinct(self):

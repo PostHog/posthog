@@ -99,12 +99,21 @@ class TestResolver(BaseTest):
     def test_resolve_limit_percent_dialect_guard(self):
         expr = self._select("SELECT 1 FROM events LIMIT 10 %")
 
-        with self.assertRaises(QueryError) as context:
-            resolve_types(expr, self.context, dialect="clickhouse")
-        self.assertEqual(str(context.exception), "LIMIT percent is not allowed in clickhouse dialect")
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
+        assert resolved.limit_percent is True
 
         resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
         assert resolved.limit_percent is True
+
+    def test_resolve_limit_percent_expression_guard_clickhouse(self):
+        expr = self._select("SELECT 1 FROM events LIMIT (60 + 7) %")
+
+        with self.assertRaises(QueryError) as context:
+            resolve_types(expr, self.context, dialect="clickhouse")
+        self.assertEqual(
+            str(context.exception),
+            "LIMIT percent with expressions is not supported in clickhouse dialect",
+        )
 
     def test_resolve_limit_percent_range_guard(self):
         expr = self._select("SELECT 1 FROM events LIMIT (100.1) %")

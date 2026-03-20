@@ -529,7 +529,13 @@ class Resolver(CloningVisitor):
         new_node.select_from = self.visit(node.select_from)
 
         if node.limit_percent and self.dialect != "postgres":
-            raise QueryError(f"LIMIT percent is not allowed in {self.dialect} dialect")
+            if self.dialect == "clickhouse":
+                if not (
+                    isinstance(node.limit, ast.Constant) and isinstance(node.limit.value, (int, float))
+                ):
+                    raise QueryError("LIMIT percent with expressions is not supported in clickhouse dialect")
+            else:
+                raise QueryError(f"LIMIT percent is not allowed in {self.dialect} dialect")
         # TODO: Consider constant folding to catch out-of-range percent expressions.
         if node.limit_percent and isinstance(node.limit, ast.Constant) and isinstance(node.limit.value, (int, float)):
             limit_value = float(node.limit.value)
