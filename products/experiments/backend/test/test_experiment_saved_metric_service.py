@@ -15,15 +15,14 @@ class TestExperimentSavedMetricService(APIBaseTest):
     def _service(self) -> ExperimentSavedMetricService:
         return ExperimentSavedMetricService(team=self.team, user=self.user)
 
-    def _valid_metric_query(self) -> dict:
+    def _valid_trends_query(self) -> dict:
         return {
-            "kind": "ExperimentMetric",
-            "metric_type": "mean",
-            "source": {"kind": "EventsNode", "event": "$pageview"},
+            "kind": "ExperimentTrendsQuery",
+            "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
         }
 
     def test_create_saved_metric_with_minimum_fields(self) -> None:
-        original_query = self._valid_metric_query()
+        original_query = self._valid_trends_query()
         saved_metric = self._service().create_saved_metric(
             name="Service saved metric",
             description="Created through the service",
@@ -78,7 +77,7 @@ class TestExperimentSavedMetricService(APIBaseTest):
             created_by=self.user,
             name="Original saved metric",
             description="Original description",
-            query=self._valid_metric_query(),
+            query=self._valid_trends_query(),
         )
 
         updated = self._service().update_saved_metric(
@@ -98,7 +97,7 @@ class TestExperimentSavedMetricService(APIBaseTest):
             created_by=self.user,
             name="Original saved metric",
             description="Original description",
-            query=self._valid_metric_query(),
+            query=self._valid_trends_query(),
         )
 
         with patch("products.experiments.backend.models.experiment.ExperimentSavedMetric.save") as save_mock:
@@ -113,7 +112,7 @@ class TestExperimentSavedMetricService(APIBaseTest):
             created_by=self.user,
             name="Original name",
             description="Original description",
-            query=self._valid_metric_query(),
+            query=self._valid_trends_query(),
         )
 
         with self.assertRaises(ValidationError) as ctx:
@@ -128,12 +127,12 @@ class TestExperimentSavedMetricService(APIBaseTest):
         assert "Query is required to create a saved metric" in str(ctx.exception)
         saved_metric.refresh_from_db()
         assert saved_metric.name == "Original name"
-        assert saved_metric.query == self._valid_metric_query()
+        assert saved_metric.query == self._valid_trends_query()
 
     def test_update_saved_metric_query_preserves_existing_uuid(self) -> None:
         saved_metric = self._service().create_saved_metric(
             name="Saved metric with generated UUID",
-            query=self._valid_metric_query(),
+            query=self._valid_trends_query(),
         )
         original_uuid = saved_metric.query["uuid"]
 
@@ -141,20 +140,19 @@ class TestExperimentSavedMetricService(APIBaseTest):
             saved_metric,
             {
                 "query": {
-                    "kind": "ExperimentMetric",
-                    "metric_type": "mean",
-                    "source": {"kind": "EventsNode", "event": "$pageleave"},
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageleave"}]},
                 }
             },
         )
 
         assert updated.query["uuid"] == original_uuid
-        assert updated.query["source"]["event"] == "$pageleave"
+        assert updated.query["count_query"]["series"][0]["event"] == "$pageleave"
 
     def test_update_saved_metric_rejects_uuid_changes(self) -> None:
         saved_metric = self._service().create_saved_metric(
             name="Saved metric with stable UUID",
-            query=self._valid_metric_query(),
+            query=self._valid_trends_query(),
         )
 
         with self.assertRaises(ValidationError) as ctx:
@@ -175,7 +173,7 @@ class TestExperimentSavedMetricService(APIBaseTest):
             team=self.team,
             created_by=self.user,
             name="Original saved metric",
-            query=self._valid_metric_query(),
+            query=self._valid_trends_query(),
         )
 
         with self.assertRaises(ValidationError) as ctx:
@@ -189,7 +187,7 @@ class TestExperimentSavedMetricService(APIBaseTest):
             team=other_team,
             created_by=self.user,
             name="Other team saved metric",
-            query=self._valid_metric_query(),
+            query=self._valid_trends_query(),
         )
 
         with self.assertRaises(ValidationError) as ctx:
@@ -228,7 +226,7 @@ class TestExperimentSavedMetricService(APIBaseTest):
             team=self.team,
             created_by=self.user,
             name="Protected saved metric",
-            query=self._valid_metric_query(),
+            query=self._valid_trends_query(),
         )
 
         with (
