@@ -830,6 +830,65 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, 404)
 
+    def test_delete_property_missing_group_type_index(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/delete_property?group_key=org:5",
+            {"$unset": "industry"},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_delete_property_missing_group_key(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/delete_property?group_type_index=0",
+            {"$unset": "industry"},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    @freeze_time("2021-05-02")
+    @patch("ee.clickhouse.views.groups.capture_internal")
+    def test_delete_property_nonexistent_property(self, mock_capture):
+        mock_capture.return_value = mock.MagicMock(status_code=200)
+        create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={"industry": "finance"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/delete_property?group_key=org:5&group_type_index=0",
+            {"$unset": "nonexistent"},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    @freeze_time("2021-05-02")
+    def test_delete_property_non_string_unset(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={"industry": "finance"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/delete_property?group_key=org:5&group_type_index=0",
+            {"$unset": ["industry"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+
     @freeze_time("2021-05-02")
     @patch("ee.clickhouse.views.groups.capture_internal")
     def test_get_group_activities_success(self, mock_capture):

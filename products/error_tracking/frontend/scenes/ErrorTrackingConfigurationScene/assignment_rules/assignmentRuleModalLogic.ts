@@ -9,7 +9,7 @@ import type { assignmentRuleModalLogicType } from './assignmentRuleModalLogicTyp
 function emptyRule(orderKey: number = 0): ErrorTrackingAssignmentRule {
     return {
         id: 'new',
-        filters: { type: FilterLogicalOperator.Or, values: [] },
+        filters: { type: FilterLogicalOperator.And, values: [] },
         assignee: null,
         disabled_data: null,
         order_key: orderKey,

@@ -4,10 +4,20 @@ import { LemonButton, LemonInput, LemonSelect, LemonSegmentedButton, Tooltip } f
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 
 import {
+    COPODDetectorConfig,
     DetectorConfig,
+    DetectorType,
+    ECODDetectorConfig,
     EnsembleDetectorConfig,
     EnsembleOperator,
+    HBOSDetectorConfig,
+    IQRDetectorConfig,
+    IsolationForestDetectorConfig,
+    KNNDetectorConfig,
+    LOFDetectorConfig,
     MADDetectorConfig,
+    OCSVMDetectorConfig,
+    PCADetectorConfig,
     PreprocessingConfig,
     SingleDetectorConfig,
     ZScoreDetectorConfig,
@@ -20,20 +30,70 @@ interface DetectorSelectorProps {
 
 const DETECTOR_OPTIONS: Array<{ value: string; label: string; tooltip: string }> = [
     {
-        value: 'zscore',
-        label: 'Z-Score',
-        tooltip: 'Flags points that are unusually far from the rolling average. Good general-purpose detector.',
+        value: DetectorType.COPOD,
+        label: 'COPOD',
+        tooltip: 'Copula-based outlier detection — efficient and parameter-free.',
     },
     {
-        value: 'mad',
-        label: 'MAD',
-        tooltip:
-            'Like Z-Score but uses the median instead of the mean, making it robust to existing outliers in your data.',
+        value: DetectorType.ECOD,
+        label: 'ECOD',
+        tooltip: 'Empirical cumulative distribution — parameter-free and interpretable.',
     },
     {
         value: 'ensemble',
         label: 'Ensemble',
         tooltip: 'Combine multiple detectors with AND/OR logic for more precise anomaly detection.',
+    },
+    {
+        value: DetectorType.HBOS,
+        label: 'HBOS',
+        tooltip: 'Histogram-based outlier score — very fast, good for high-volume alerting.',
+    },
+    {
+        value: DetectorType.IQR,
+        label: 'IQR',
+        tooltip: 'Interquartile range — classic box plot method for detecting outliers.',
+    },
+    {
+        value: DetectorType.ISOLATION_FOREST,
+        label: 'Isolation Forest',
+        tooltip: 'Isolates anomalies using random forest — good for complex patterns.',
+    },
+    {
+        value: DetectorType.KNN,
+        label: 'KNN',
+        tooltip: 'K-nearest neighbors distance — points far from others are anomalies.',
+    },
+    {
+        value: DetectorType.LOF,
+        label: 'LOF',
+        tooltip: 'Local outlier factor — density-based, good for seasonal data.',
+    },
+    {
+        value: DetectorType.MAD,
+        label: 'MAD',
+        tooltip:
+            'Like Z-Score but uses the median instead of the mean, making it robust to existing outliers in your data.',
+    },
+    {
+        value: DetectorType.OCSVM,
+        label: 'OCSVM',
+        tooltip: 'One-class SVM — learns a boundary around normal data.',
+    },
+    {
+        value: DetectorType.PCA,
+        label: 'PCA',
+        tooltip: 'PCA-based — detects anomalies via reconstruction error.',
+    },
+    {
+        value: DetectorType.THRESHOLD,
+        label: 'Threshold',
+        tooltip: 'Simple upper/lower bounds. Alerts when the value crosses a fixed limit.',
+    },
+    {
+        value: DetectorType.ZSCORE,
+        label: 'Z-Score',
+        tooltip: 'Flags points that are unusually far from the rolling average. Good general-purpose detector.',
     },
 ]
 
@@ -42,6 +102,27 @@ const SINGLE_DETECTOR_OPTIONS = DETECTOR_OPTIONS.filter((o) => o.value !== 'ense
 const DEFAULT_SINGLE_CONFIGS: Record<string, SingleDetectorConfig> = {
     zscore: { type: 'zscore', threshold: 0.9, window: 30 },
     mad: { type: 'mad', threshold: 0.9, window: 30 },
+    iqr: { type: 'iqr', multiplier: 1.5, window: 30 },
+    threshold: { type: 'threshold' },
+    ecod: { type: 'ecod', threshold: 0.9 },
+    copod: { type: 'copod', threshold: 0.9 },
+    isolation_forest: {
+        type: 'isolation_forest',
+        threshold: 0.9,
+        n_estimators: 100,
+        preprocessing: { diffs_n: 1, lags_n: 3 },
+    },
+    knn: {
+        type: 'knn',
+        threshold: 0.9,
+        n_neighbors: 5,
+        method: 'largest',
+        preprocessing: { diffs_n: 1, lags_n: 3 },
+    },
+    lof: { type: 'lof', threshold: 0.9, n_neighbors: 20, preprocessing: { diffs_n: 1, lags_n: 3 } },
+    hbos: { type: 'hbos', threshold: 0.9, n_bins: 10 },
+    ocsvm: { type: 'ocsvm', threshold: 0.9, preprocessing: { diffs_n: 1, lags_n: 3 } },
+    pca: { type: 'pca', threshold: 0.9, preprocessing: { diffs_n: 1, lags_n: 3 } },
 }
 
 const DEFAULT_ENSEMBLE: EnsembleDetectorConfig = {
@@ -74,13 +155,19 @@ function getSelectedType(value: DetectorConfig | null): string {
 export function DetectorSelector({ value, onChange }: DetectorSelectorProps): JSX.Element {
     const selectedType = getSelectedType(value)
 
-    const handleTypeChange = (type: string): void => {
+    const handleTypeChange = (type: string | null): void => {
+        if (!type) {
+            onChange(null)
+            return
+        }
+
         if (type === 'ensemble') {
             onChange(DEFAULT_ENSEMBLE)
-        } else {
-            const existing = value?.type === type ? value : DEFAULT_SINGLE_CONFIGS[type]
-            onChange(existing ?? DEFAULT_SINGLE_CONFIGS.zscore)
+            return
         }
+
+        const defaultConfig = DEFAULT_SINGLE_CONFIGS[type]
+        onChange(defaultConfig ?? null)
     }
 
     return (
@@ -238,6 +325,60 @@ function SingleDetectorConfigSection({
                     />
                 </div>
             )}
+            {config.type === 'iqr' && (
+                <IQRConfig
+                    config={config as IQRDetectorConfig}
+                    onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                />
+            )}
+            {config.type === 'ecod' && (
+                <ECODConfig
+                    config={config as ECODDetectorConfig}
+                    onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                />
+            )}
+            {config.type === 'copod' && (
+                <COPODConfig
+                    config={config as COPODDetectorConfig}
+                    onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                />
+            )}
+            {config.type === 'isolation_forest' && (
+                <IsolationForestConfig
+                    config={config as IsolationForestDetectorConfig}
+                    onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                />
+            )}
+            {config.type === 'knn' && (
+                <KNNConfig
+                    config={config as KNNDetectorConfig}
+                    onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                />
+            )}
+            {config.type === 'lof' && (
+                <LOFConfig
+                    config={config as LOFDetectorConfig}
+                    onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                />
+            )}
+            {config.type === 'hbos' && (
+                <HBOSConfig
+                    config={config as HBOSDetectorConfig}
+                    onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                />
+            )}
+            {config.type === 'ocsvm' && (
+                <OCSVMConfig
+                    config={config as OCSVMDetectorConfig}
+                    onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                />
+            )}
+            {config.type === 'pca' && (
+                <PCAConfig
+                    config={config as PCADetectorConfig}
+                    onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                />
+            )}
             <PreprocessingSection config={config} onChange={(updated) => onChange(updated as SingleDetectorConfig)} />
         </div>
     )
@@ -263,6 +404,269 @@ function SensitivityInput({
                 value={value}
                 onChange={(val) => onChange(val ? parseFloat(String(val)) : 0.9)}
             />
+        </div>
+    )
+}
+
+function IQRConfig({
+    config,
+    onChange,
+}: {
+    config: IQRDetectorConfig
+    onChange: (config: DetectorConfig) => void
+}): JSX.Element {
+    return (
+        <div className="space-y-3 pl-4 border-l-2 border-border">
+            <div>
+                <Label
+                    text="IQR multiplier"
+                    tooltip="How far from the interquartile range a value must be to count as an outlier. 1.5 = standard, 3.0 = extreme only."
+                />
+                <LemonInput
+                    type="number"
+                    min={1}
+                    max={5}
+                    step={0.5}
+                    value={config.multiplier ?? 1.5}
+                    onChange={(val) => onChange({ ...config, multiplier: val ? parseFloat(String(val)) : 1.5 })}
+                    fullWidth
+                />
+                <p className="text-xs text-muted mt-1">1.5 = mild outliers (standard), 3.0 = extreme outliers only.</p>
+            </div>
+            <WindowSizeInput config={config} onChange={onChange} />
+        </div>
+    )
+}
+
+function ECODConfig({
+    config,
+    onChange,
+}: {
+    config: ECODDetectorConfig
+    onChange: (config: DetectorConfig) => void
+}): JSX.Element {
+    return (
+        <div className="space-y-3 pl-4 border-l-2 border-border">
+            <SensitivityInput
+                value={config.threshold ?? 0.9}
+                onChange={(val) => onChange({ ...config, threshold: val })}
+                tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
+            />
+            <p className="text-xs text-muted">Empirical cumulative distribution — parameter-free and interpretable.</p>
+        </div>
+    )
+}
+
+function COPODConfig({
+    config,
+    onChange,
+}: {
+    config: COPODDetectorConfig
+    onChange: (config: DetectorConfig) => void
+}): JSX.Element {
+    return (
+        <div className="space-y-3 pl-4 border-l-2 border-border">
+            <SensitivityInput
+                value={config.threshold ?? 0.9}
+                onChange={(val) => onChange({ ...config, threshold: val })}
+                tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
+            />
+            <p className="text-xs text-muted">Copula-based detection — efficient and parameter-free.</p>
+        </div>
+    )
+}
+
+function IsolationForestConfig({
+    config,
+    onChange,
+}: {
+    config: IsolationForestDetectorConfig
+    onChange: (config: DetectorConfig) => void
+}): JSX.Element {
+    return (
+        <div className="space-y-3 pl-4 border-l-2 border-border">
+            <SensitivityInput
+                value={config.threshold ?? 0.9}
+                onChange={(val) => onChange({ ...config, threshold: val })}
+                tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
+            />
+            <div>
+                <Label text="Number of trees" tooltip="More trees = more accurate but slower. 100 is a good default." />
+                <LemonInput
+                    type="number"
+                    min={10}
+                    max={500}
+                    step={10}
+                    value={config.n_estimators ?? 100}
+                    onChange={(val) => onChange({ ...config, n_estimators: val ? parseInt(String(val), 10) : 100 })}
+                    fullWidth
+                />
+            </div>
+            <p className="text-xs text-muted">Isolates anomalies using random forest — good for complex patterns.</p>
+        </div>
+    )
+}
+
+function KNNConfig({
+    config,
+    onChange,
+}: {
+    config: KNNDetectorConfig
+    onChange: (config: DetectorConfig) => void
+}): JSX.Element {
+    return (
+        <div className="space-y-3 pl-4 border-l-2 border-border">
+            <SensitivityInput
+                value={config.threshold ?? 0.9}
+                onChange={(val) => onChange({ ...config, threshold: val })}
+                tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
+            />
+            <div>
+                <Label
+                    text="Number of neighbors"
+                    tooltip="How many nearest neighbors to consider. More = smoother detection, fewer = more sensitive."
+                />
+                <LemonInput
+                    type="number"
+                    min={1}
+                    max={50}
+                    step={1}
+                    value={config.n_neighbors ?? 5}
+                    onChange={(val) => onChange({ ...config, n_neighbors: val ? parseInt(String(val), 10) : 5 })}
+                    fullWidth
+                />
+            </div>
+            <div>
+                <Label
+                    text="Distance method"
+                    tooltip="How to aggregate distances to K neighbors. 'Largest' uses the farthest neighbor, 'mean' and 'median' average across all K."
+                />
+                <LemonSelect
+                    value={config.method ?? 'largest'}
+                    onChange={(val) => onChange({ ...config, method: val as 'largest' | 'mean' | 'median' })}
+                    options={[
+                        { value: 'largest', label: 'Largest' },
+                        { value: 'mean', label: 'Mean' },
+                        { value: 'median', label: 'Median' },
+                    ]}
+                    fullWidth
+                />
+            </div>
+            <p className="text-xs text-muted">
+                Uses distance to nearest neighbors — points far from others are anomalies.
+            </p>
+        </div>
+    )
+}
+
+function LOFConfig({
+    config,
+    onChange,
+}: {
+    config: LOFDetectorConfig
+    onChange: (config: DetectorConfig) => void
+}): JSX.Element {
+    return (
+        <div className="space-y-3 pl-4 border-l-2 border-border">
+            <SensitivityInput
+                value={config.threshold ?? 0.9}
+                onChange={(val) => onChange({ ...config, threshold: val })}
+                tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
+            />
+            <div>
+                <Label
+                    text="Number of neighbors"
+                    tooltip="Size of the local neighborhood for density estimation. 20 is a good default for most time series."
+                />
+                <LemonInput
+                    type="number"
+                    min={1}
+                    max={50}
+                    step={1}
+                    value={config.n_neighbors ?? 20}
+                    onChange={(val) => onChange({ ...config, n_neighbors: val ? parseInt(String(val), 10) : 20 })}
+                    fullWidth
+                />
+            </div>
+            <p className="text-xs text-muted">
+                Density-based — compares local density of a point to its neighbors. Good for seasonal data.
+            </p>
+        </div>
+    )
+}
+
+function HBOSConfig({
+    config,
+    onChange,
+}: {
+    config: HBOSDetectorConfig
+    onChange: (config: DetectorConfig) => void
+}): JSX.Element {
+    return (
+        <div className="space-y-3 pl-4 border-l-2 border-border">
+            <SensitivityInput
+                value={config.threshold ?? 0.9}
+                onChange={(val) => onChange({ ...config, threshold: val })}
+                tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
+            />
+            <div>
+                <Label
+                    text="Number of bins"
+                    tooltip="How many histogram bins to use. More bins = finer-grained detection but needs more data points."
+                />
+                <LemonInput
+                    type="number"
+                    min={5}
+                    max={50}
+                    step={1}
+                    value={config.n_bins ?? 10}
+                    onChange={(val) => onChange({ ...config, n_bins: val ? parseInt(String(val), 10) : 10 })}
+                    fullWidth
+                />
+            </div>
+            <p className="text-xs text-muted">Very fast histogram-based detection. Good for high-volume alerting.</p>
+        </div>
+    )
+}
+
+function OCSVMConfig({
+    config,
+    onChange,
+}: {
+    config: OCSVMDetectorConfig
+    onChange: (config: DetectorConfig) => void
+}): JSX.Element {
+    return (
+        <div className="space-y-3 pl-4 border-l-2 border-border">
+            <SensitivityInput
+                value={config.threshold ?? 0.9}
+                onChange={(val) => onChange({ ...config, threshold: val })}
+                tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
+            />
+            <p className="text-xs text-muted">
+                One-class SVM — learns a boundary around normal data using a support vector machine.
+            </p>
+        </div>
+    )
+}
+
+function PCAConfig({
+    config,
+    onChange,
+}: {
+    config: PCADetectorConfig
+    onChange: (config: DetectorConfig) => void
+}): JSX.Element {
+    return (
+        <div className="space-y-3 pl-4 border-l-2 border-border">
+            <SensitivityInput
+                value={config.threshold ?? 0.9}
+                onChange={(val) => onChange({ ...config, threshold: val })}
+                tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
+            />
+            <p className="text-xs text-muted">
+                PCA-based — detects anomalies as points with high reconstruction error.
+            </p>
         </div>
     )
 }
@@ -294,6 +698,9 @@ function WindowSizeInput({
     )
 }
 
+// Detectors that benefit from multivariate input (lag features)
+const MULTIVARIATE_DETECTORS = new Set(['knn', 'pca', 'lof', 'ocsvm', 'isolation_forest'])
+
 function PreprocessingSection({
     config,
     onChange,
@@ -302,7 +709,9 @@ function PreprocessingSection({
     onChange: (config: SingleDetectorConfig) => void
 }): JSX.Element {
     const preprocessing = config.preprocessing ?? {}
-    const hasPreprocessing = (preprocessing.diffs_n ?? 0) > 0 || (preprocessing.smooth_n ?? 0) > 0
+    const isMultivariate = MULTIVARIATE_DETECTORS.has(config.type)
+    const hasPreprocessing =
+        (preprocessing.diffs_n ?? 0) > 0 || (preprocessing.smooth_n ?? 0) > 0 || (preprocessing.lags_n ?? 0) > 0
 
     const updatePreprocessing = (updates: Partial<PreprocessingConfig>): void => {
         const newPreprocessing = { ...preprocessing, ...updates }
@@ -326,6 +735,7 @@ function PreprocessingSection({
                                         (preprocessing.smooth_n ?? 0) > 0
                                             ? `smoothing (${preprocessing.smooth_n})`
                                             : null,
+                                        (preprocessing.lags_n ?? 0) > 0 ? `${preprocessing.lags_n} lags` : null,
                                     ]
                                         .filter(Boolean)
                                         .join(', ')}
@@ -334,40 +744,62 @@ function PreprocessingSection({
                         </span>
                     ),
                     content: (
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <Label
-                                    text="Differencing"
-                                    tooltip="Removes trends by using changes between consecutive values instead of raw values."
-                                />
-                                <LemonSelect
-                                    value={preprocessing.diffs_n ?? 0}
-                                    onChange={(val) => updatePreprocessing({ diffs_n: val || undefined })}
-                                    options={[
-                                        { value: 0, label: 'None (raw values)' },
-                                        { value: 1, label: 'First-order (delta values)' },
-                                    ]}
-                                    fullWidth
-                                />
+                        <div className="space-y-3">
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <Label
+                                        text="Differencing"
+                                        tooltip="Removes trends by using changes between consecutive values instead of raw values."
+                                    />
+                                    <LemonSelect
+                                        value={preprocessing.diffs_n ?? 0}
+                                        onChange={(val) => updatePreprocessing({ diffs_n: val || undefined })}
+                                        options={[
+                                            { value: 0, label: 'None (raw values)' },
+                                            { value: 1, label: 'First-order (delta values)' },
+                                        ]}
+                                        fullWidth
+                                    />
+                                </div>
+                                <div>
+                                    <Label
+                                        text="Smoothing"
+                                        tooltip="Moving average over n data points. Reduces noise before detection. 0 = no smoothing."
+                                    />
+                                    <LemonInput
+                                        type="number"
+                                        min={0}
+                                        max={30}
+                                        step={1}
+                                        value={preprocessing.smooth_n ?? 0}
+                                        onChange={(val) =>
+                                            updatePreprocessing({
+                                                smooth_n: val ? parseInt(String(val), 10) : undefined,
+                                            })
+                                        }
+                                    />
+                                </div>
                             </div>
-                            <div>
-                                <Label
-                                    text="Smoothing"
-                                    tooltip="Moving average over n data points. Reduces noise before detection. 0 = no smoothing."
-                                />
-                                <LemonInput
-                                    type="number"
-                                    min={0}
-                                    max={30}
-                                    step={1}
-                                    value={preprocessing.smooth_n ?? 0}
-                                    onChange={(val) =>
-                                        updatePreprocessing({
-                                            smooth_n: val ? parseInt(String(val), 10) : undefined,
-                                        })
-                                    }
-                                />
-                            </div>
+                            {isMultivariate && (
+                                <div>
+                                    <Label
+                                        text="Lag features"
+                                        tooltip="Creates a feature vector from recent values (e.g. 5 lags = each point becomes [t, t-1, t-2, t-3, t-4, t-5]). Essential for multivariate detectors like KNN, PCA, and LOF."
+                                    />
+                                    <LemonInput
+                                        type="number"
+                                        min={0}
+                                        max={10}
+                                        step={1}
+                                        value={preprocessing.lags_n ?? 0}
+                                        onChange={(val) =>
+                                            updatePreprocessing({
+                                                lags_n: val ? parseInt(String(val), 10) : undefined,
+                                            })
+                                        }
+                                    />
+                                </div>
+                            )}
                         </div>
                     ),
                 },

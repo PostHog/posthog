@@ -12,15 +12,15 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.models import FeatureFlag, Team
 from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
-from posthog.models.experiment import (
+
+from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentHoldout,
     ExperimentMetricResult,
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
 )
-
-from products.experiments.backend.experiment_service import ExperimentService
 
 
 class TestExperimentService(APIBaseTest):
@@ -972,7 +972,8 @@ class TestExperimentService(APIBaseTest):
         service.update_experiment(experiment, {"holdout": holdout})
 
         experiment.feature_flag.refresh_from_db()
-        assert experiment.feature_flag.filters["holdout_groups"] == holdout.filters
+        assert experiment.feature_flag.filters["holdout"] == {"id": holdout.id, "exclusion_percentage": 10}
+        assert "holdout_groups" not in experiment.feature_flag.filters
 
     # ------------------------------------------------------------------
     # Duplicate experiment

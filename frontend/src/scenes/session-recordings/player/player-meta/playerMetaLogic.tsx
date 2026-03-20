@@ -397,6 +397,9 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             if (values.sessionPlayerMetaData) {
                 actions.maybeLoadPropertiesForSessions([values.sessionPlayerMetaData])
             }
+            if (values.sessionPlayerMetaData?.has_summary && !values.sessionSummary && !values.sessionSummaryLoading) {
+                actions.summarizeSession()
+            }
         },
         sessionSummaryFeedback: ({ feedback }) => {
             posthog.capture('session summary feedback', {

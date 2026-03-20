@@ -144,6 +144,13 @@ Then route all single-hop fan-out endpoints through a shared helper (for example
 
 **Parent field rename mapping belongs in the helper.** If a helper supports declarative renames, apply the map there. Callers should not branch on whether renames exist.
 
+**Use per-endpoint pagination/selectors through fan-out helper overrides.** `build_dependent_resource` supports optional endpoint overrides so you can keep single-hop fan-out declarative even when parent and child have different response shapes/pagination contracts:
+
+- `parent_endpoint_extra` and `child_endpoint_extra`: pass endpoint-level `paginator` and `data_selector` (for wrapped payloads like `{"items": [...]}`).
+- `page_size_param`: override default page-size query param (`limit`) for APIs that use a different name (for example `page_size`).
+
+This means you can often avoid custom iterators for single-hop fan-out even when parent and child paginate differently (e.g. Typeform forms page-number + responses cursor token).
+
 **Path pre-formatting:** Child paths often have multiple placeholders (e.g. org and resource slug). `process_parent_data_item` only does `str.format()` with the _resolved_ param. Pre-format any static placeholders with `.replace()` on the child path before passing to the resource config, so only the resolved placeholder remains and DLT does not raise `KeyError`.
 
 **When to keep a custom iterator:** If fan-out requires two or more levels (e.g. parent → mid-level list → detail per mid-level), where an intermediate API call discovers values that become part of the URL, that cannot be expressed as a single parent→child in `rest_api_resources`. Implement a custom HTTP iterator for that endpoint only; reuse the same pagination/retry helpers as elsewhere.

@@ -307,6 +307,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             allowUndo: allowUndo === undefined ? true : allowUndo,
         }),
         setTextTileId: (textTileId: number | 'new' | null) => ({ textTileId }),
+        setButtonTileId: (buttonTileId: number | 'new' | null) => ({ buttonTileId }),
         setTileOverride: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
 
         /**
@@ -900,6 +901,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
 
+        showButtonTileModal: [
+            false,
+            {
+                setButtonTileId: (_, { buttonTileId }) => !!buttonTileId,
+            },
+        ],
+        buttonTileId: [
+            null as number | 'new' | null,
+            {
+                setButtonTileId: (_, { buttonTileId }) => buttonTileId,
+            },
+        ],
+
         isPinned: [
             false,
             {
@@ -1266,6 +1280,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                           name: tile.insight.name,
                                           description: tile.insight.description || '',
                                           query: tile.insight.query,
+                                          layouts: tile.layouts,
+                                          color: tile.color,
+                                      }
+                                  }
+                                  if (tile.button_tile) {
+                                      return {
+                                          button_tile: {
+                                              url: tile.button_tile.url,
+                                              text: tile.button_tile.text,
+                                              placement: tile.button_tile.placement,
+                                              style: tile.button_tile.style,
+                                          },
                                           layouts: tile.layouts,
                                           color: tile.color,
                                       }
@@ -2536,12 +2562,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 : undefined
             actions.setSubscriptionMode(true, id)
             actions.setTextTileId(null)
+            actions.setButtonTileId(null)
             actions.setDashboardMode(null, DashboardEventSource.Browser)
         },
 
         '/dashboard/:id': () => {
             actions.setSubscriptionMode(false, undefined)
             actions.setTextTileId(null)
+            actions.setButtonTileId(null)
             if (values.dashboardMode === DashboardMode.Sharing) {
                 actions.setDashboardMode(null, DashboardEventSource.Browser)
             }
@@ -2549,12 +2577,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
         '/dashboard/:id/sharing': () => {
             actions.setSubscriptionMode(false, undefined)
             actions.setTextTileId(null)
+            actions.setButtonTileId(null)
             actions.setDashboardMode(DashboardMode.Sharing, DashboardEventSource.Browser)
         },
         '/dashboard/:id/text-tiles/:textTileId': ({ textTileId }) => {
             actions.setSubscriptionMode(false, undefined)
             actions.setDashboardMode(null, DashboardEventSource.Browser)
+            actions.setButtonTileId(null)
             actions.setTextTileId(textTileId === undefined ? 'new' : textTileId !== 'new' ? Number(textTileId) : 'new')
+        },
+        '/dashboard/:id/button-tiles/:buttonTileId': ({ buttonTileId }) => {
+            actions.setSubscriptionMode(false, undefined)
+            actions.setDashboardMode(null, DashboardEventSource.Browser)
+            actions.setTextTileId(null)
+            actions.setButtonTileId(
+                buttonTileId === undefined ? 'new' : buttonTileId !== 'new' ? Number(buttonTileId) : 'new'
+            )
         },
     })),
 ])

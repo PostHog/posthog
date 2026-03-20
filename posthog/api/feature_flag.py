@@ -62,7 +62,6 @@ from posthog.models.activity_logging.model_activity import ImpersonatedContext, 
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import get_all_cohort_dependencies
 from posthog.models.evaluation_context import normalize_context_name
-from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import (
     FeatureFlagDashboards,
     get_user_blast_radius,
@@ -89,6 +88,7 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS, REMOTE_CONFIG_RATE_LIMITS
 from posthog.views import format_bytes
 
+from products.experiments.backend.models.experiment import Experiment
 from products.product_tours.backend.models import ProductTour
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
@@ -1360,6 +1360,12 @@ class FeatureFlagSerializer(
                 validated_data["filters"]["payloads"]["true"] = instance.filters["payloads"]["true"]
             else:
                 encrypt_flag_payloads(validated_data)
+
+        # Opportunistically strip legacy holdout_groups key (replaced by holdout in Phase 1-4).
+        # Uses the same inject-into-validated_data pattern as _update_super_groups_for_key_change.
+        previous_filters = validated_data.get("filters") or instance.filters
+        if previous_filters and "holdout_groups" in previous_filters:
+            validated_data["filters"] = {k: v for k, v in previous_filters.items() if k != "holdout_groups"}
 
         version = request.data.get("version", -1)
 

@@ -689,6 +689,81 @@
             "readOnlyHint": true
         }
     },
+    "early-access-feature-list": {
+        "description": "List early access features in the current project. Returns name, stage, description, linked feature flag, and creation date for each feature.",
+        "category": "Early access features",
+        "feature": "early_access_features",
+        "summary": "List early access features",
+        "title": "List early access features",
+        "required_scopes": ["early_access_feature:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "early-access-feature-create": {
+        "description": "Create a new early access feature. A feature flag is automatically created unless feature_flag_id is provided. Stage determines whether opted-in users get the feature enabled.",
+        "category": "Early access features",
+        "feature": "early_access_features",
+        "summary": "Create early access feature",
+        "title": "Create early access feature",
+        "required_scopes": ["early_access_feature:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "early-access-feature-retrieve": {
+        "description": "Get a single early access feature by ID. Returns full details including the linked feature flag configuration.",
+        "category": "Early access features",
+        "feature": "early_access_features",
+        "summary": "Get early access feature",
+        "title": "Get early access feature",
+        "required_scopes": ["early_access_feature:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "early-access-feature-partial-update": {
+        "description": "Update an early access feature by ID. Changing the stage automatically updates the linked feature flag's enrollment conditions.",
+        "category": "Early access features",
+        "feature": "early_access_features",
+        "summary": "Update early access feature",
+        "title": "Update early access feature",
+        "required_scopes": ["early_access_feature:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "early-access-feature-destroy": {
+        "description": "Delete an early access feature by ID. Clears enrollment conditions from the linked feature flag but does not delete the flag itself.",
+        "category": "Early access features",
+        "feature": "early_access_features",
+        "summary": "Delete early access feature",
+        "title": "Delete early access feature",
+        "required_scopes": ["early_access_feature:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "error-tracking-issues-list": {
         "description": "List all error tracking issues in the project. Returns issues with status, volume, first/last seen timestamps, and assignee info.",
         "category": "Error tracking",
@@ -882,6 +957,111 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "persons-list": {
+        "description": "List persons in the current project. Supports search by email (full text) or distinct ID (exact match), and filtering by email or distinct_id query parameters. Returns paginated results with person properties and distinct IDs.",
+        "category": "Persons",
+        "feature": "persons",
+        "summary": "List persons",
+        "title": "List persons",
+        "required_scopes": ["person:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "persons-retrieve": {
+        "description": "Retrieve a single person by numeric ID or UUID. Returns the person's properties, distinct IDs, and metadata.",
+        "category": "Persons",
+        "feature": "persons",
+        "summary": "Get person",
+        "title": "Get person",
+        "required_scopes": ["person:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "persons-property-delete": {
+        "description": "Remove a single property from a person by key. The property is deleted asynchronously via the event pipeline ($unset).",
+        "category": "Persons",
+        "feature": "persons",
+        "summary": "Delete person property",
+        "title": "Delete person property",
+        "required_scopes": ["person:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "persons-property-set": {
+        "description": "Set a single property on a person. The property is updated asynchronously via the event pipeline ($set). Returns 202 Accepted.",
+        "category": "Persons",
+        "feature": "persons",
+        "summary": "Set person property",
+        "title": "Set person property",
+        "required_scopes": ["person:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "persons-bulk-delete": {
+        "description": "Delete up to 1000 persons by PostHog person UUIDs or distinct IDs. Optionally delete associated events and recordings. Pass either `ids` (person UUIDs) or `distinct_ids`. Returns 202 Accepted. This operation is irreversible.",
+        "category": "Persons",
+        "feature": "persons",
+        "summary": "Bulk delete persons",
+        "title": "Bulk delete persons",
+        "required_scopes": ["person:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "persons-cohorts-retrieve": {
+        "description": "Get all cohorts that a specific person belongs to. Requires the person_id query parameter.",
+        "category": "Persons",
+        "feature": "persons",
+        "summary": "Get person cohorts",
+        "title": "Get person cohorts",
+        "required_scopes": ["person:read", "cohort:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "persons-values-retrieve": {
+        "description": "Get distinct values for a person property key. Useful for discovering what values exist for properties like 'plan', 'role', or 'company'. Provide the property key and optionally a search value to filter results.",
+        "category": "Persons",
+        "feature": "persons",
+        "summary": "Get person property values",
+        "title": "Get person property values",
+        "required_scopes": ["person:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "prompt-list": {
