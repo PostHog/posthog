@@ -80,7 +80,7 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
         )
 
 
-class BackupsClickhouseClusterResource(ClickhouseClusterResource):
+class BackupsClickhouseClusterResource(dagster.ConfigurableResource):
     """
     ClickHouse cluster resource that connects as the dedicated 'backups' user.
 
@@ -109,8 +109,6 @@ class BackupsClickhouseClusterResource(ClickhouseClusterResource):
             )
         return get_cluster(
             context.log,
-            host=self.host,
-            cluster=self.cluster,
             client_settings=self.client_settings,
             retry_policy=RetryPolicy(
                 max_attempts=8,
