@@ -36,6 +36,7 @@ jobs:
         name: Build Docker image
         # run these on 4, if they're RAM constrained the FE build will fail randomly in Docker build
         runs-on: depot-ubuntu-latest-4
+        timeout-minutes: 15
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
@@ -79,6 +80,7 @@ jobs:
     lint:
         name: Lint changed Dockerfiles
         runs-on: ubuntu-24.04
+        timeout-minutes: 5
         steps:
             - name: Check out
               uses: actions/checkout@v6

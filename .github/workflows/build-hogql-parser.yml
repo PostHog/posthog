@@ -18,6 +18,7 @@ jobs:
     check-version:
         name: Check version legitimacy
         runs-on: ubuntu-22.04
+        timeout-minutes: 5
         outputs:
             parser-release-needed: ${{ steps.version.outputs.parser-release-needed }}
         steps:
@@ -124,6 +125,7 @@ jobs:
         permissions:
             id-token: write
         runs-on: ubuntu-22.04
+        timeout-minutes: 10
         steps:
             - name: Download wheels from ubuntu-22.04
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0

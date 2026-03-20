@@ -236,6 +236,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             source,
             searchParams,
         }),
+        setReturnConfig: (returnUrl: string, returnLabel: string) => ({ returnUrl, returnLabel }),
+        clearReturnConfig: true,
         onClear: true,
         onBack: true,
         onNext: true,
@@ -396,6 +398,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 setSourceId: (_, { sourceId }) => sourceId,
             },
         ],
+        returnConfig: [
+            null as { returnUrl: string; returnLabel: string } | null,
+            {
+                setReturnConfig: (_, { returnUrl, returnLabel }) => ({ returnUrl, returnLabel }),
+                clearReturnConfig: () => null,
+            },
+        ],
         syncMethodModalOpen: [
             false as boolean,
             {
@@ -552,8 +561,16 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 s.isDirectQueryMode,
                 s.hasWebhookSchemas,
                 (_, props) => props.onComplete,
+                s.returnConfig,
             ],
-            (currentStep, isManualLinkingSelected, isDirectQueryMode, hasWebhookSchemas, onComplete): string => {
+            (
+                currentStep,
+                isManualLinkingSelected,
+                isDirectQueryMode,
+                hasWebhookSchemas,
+                onComplete,
+                returnConfig
+            ): string => {
                 if (currentStep === 3 && isManualLinkingSelected) {
                     return 'Link'
                 }
@@ -577,6 +594,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 if (currentStep === 5) {
                     if (onComplete) {
                         return 'Next'
+                    }
+                    if (returnConfig) {
+                        return `Return to ${returnConfig.returnLabel}`
                     }
                     return 'Return to sources'
                 }
@@ -819,8 +839,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.cancelWizard()
         },
         closeWizard: () => {
+            const returnUrl = values.returnConfig?.returnUrl
             actions.cancelWizard()
-            router.actions.push(urls.sources())
+            router.actions.push(returnUrl ?? urls.sources())
         },
         cancelWizard: () => {
             actions.onClear()
@@ -1050,6 +1071,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     urlToAction(({ actions, values }) => {
         const handleUrlChange = (_: Record<string, string | undefined>, searchParams: Record<string, string>): void => {
             const kind = searchParams.kind?.toLowerCase()
+            const returnUrl = searchParams.returnUrl
+            const returnLabel = searchParams.returnLabel
+
+            if (returnUrl && returnLabel) {
+                actions.setReturnConfig(returnUrl, returnLabel)
+            } else {
+                actions.clearReturnConfig()
+            }
+
             const source = values.connectors?.find((s) => s?.name?.toLowerCase?.() === kind)
             const manualSource = values.manualConnectors?.find((s) => s?.type?.toLowerCase() === kind)
 

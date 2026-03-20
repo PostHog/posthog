@@ -38,6 +38,7 @@ jobs:
     build-and-report:
         name: Build and validate UI Apps
         runs-on: ubuntu-latest
+        timeout-minutes: 10
         needs: changes
         if: needs.changes.outputs.ui-apps == 'true'
         steps:
@@ -137,6 +138,7 @@ jobs:
         needs: [changes, build-and-report]
         name: MCP UI Apps CI
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - name: Check results
