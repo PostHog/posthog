@@ -1,4 +1,4 @@
-import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import posthog from 'posthog-js'
 
@@ -150,6 +150,14 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
             },
         ],
     }),
+    listeners(({ actions, values }) => ({
+        // When billing data refreshes (e.g. after upgrading to paid plan),
+        // touch the form to force error recomputation so the billing check
+        // picks up the new has_active_subscription state
+        [billingLogic.actionTypes.loadBillingSuccess]: () => {
+            actions.setStartupProgramValue('organization_id', values.startupProgram.organization_id)
+        },
+    })),
     forms(({ values, actions, props }) => ({
         startupProgram: {
             defaults: {
