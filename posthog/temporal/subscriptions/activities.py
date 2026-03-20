@@ -166,14 +166,17 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> None:
         )
         return
 
-    assets = await database_sync_to_async(
-        lambda: list(
-            ExportedAsset.objects_including_ttl_deleted.select_related("insight").filter(
+    assets_by_id = await database_sync_to_async(
+        lambda: {
+            a.id: a
+            for a in ExportedAsset.objects_including_ttl_deleted.select_related("insight").filter(
                 pk__in=inputs.exported_asset_ids
             )
-        ),
+        },
         thread_sensitive=False,
     )()
+    # Preserve the order from create_export_assets (sorted by dashboard tile layout)
+    assets = [assets_by_id[aid] for aid in inputs.exported_asset_ids if aid in assets_by_id]
 
     if not assets:
         LOGGER.warning("deliver_subscription.no_assets", subscription_id=inputs.subscription_id)
