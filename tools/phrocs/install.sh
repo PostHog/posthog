@@ -1,10 +1,10 @@
-#!/bin/sh
+#!/bin/bash
 # phrocs installer
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/PostHog/posthog/master/tools/phrocs/install.sh | sh
 
-set -eu
+set -euo pipefail
 
 REPO="PostHog/posthog"
 RELEASE_TAG="phrocs-latest"

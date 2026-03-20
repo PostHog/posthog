@@ -14,7 +14,7 @@ brew tap posthog/tap && brew install phrocs
 **Install script** (macOS and Linux):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/PostHog/posthog/master/tools/phrocs/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/PostHog/posthog/master/tools/phrocs/install.sh | bash
 ```
 
 ## Build

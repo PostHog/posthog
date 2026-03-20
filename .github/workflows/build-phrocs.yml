@@ -95,15 +95,7 @@ jobs:
                   app_id: ${{ secrets.HOMEBREW_TAP_APP_ID }}
                   private_key: ${{ secrets.HOMEBREW_TAP_APP_PRIVATE_KEY }}
 
-            - name: Checkout Homebrew tap
-              uses: actions/checkout@v6
-              if: github.event_name == 'workflow_dispatch'
-              with:
-                  repository: PostHog/homebrew-tap
-                  token: ${{ steps.app-token.outputs.token }}
-                  path: homebrew-tap
-
-            - name: Update Homebrew formula
+            - name: Prepare Homebrew formula
               if: github.event_name == 'workflow_dispatch'
               env:
                   PHROCS_VERSION: ${{ inputs.version }}
@@ -119,11 +111,25 @@ jobs:
                       -e "s/SHA256_DARWIN_ARM64/${SHA256_DARWIN_ARM64}/g" \
                       -e "s/SHA256_LINUX_AMD64/${SHA256_LINUX_AMD64}/g" \
                       -e "s/SHA256_LINUX_ARM64/${SHA256_LINUX_ARM64}/g" \
-                      tools/phrocs/Formula/phrocs.rb > homebrew-tap/Formula/phrocs.rb
+                      tools/phrocs/Formula/phrocs.rb > /tmp/phrocs.rb
 
-                  cd homebrew-tap
-                  git config user.name "github-actions[bot]"
-                  git config user.email "github-actions[bot]@users.noreply.github.com"
-                  git add Formula/phrocs.rb
-                  git commit -m "Brew formula update for phrocs ${PHROCS_VERSION}" || echo "No changes to commit"
-                  git push
+            - name: Checkout Homebrew tap
+              uses: actions/checkout@v6
+              if: github.event_name == 'workflow_dispatch'
+              with:
+                  repository: PostHog/homebrew-tap
+                  token: ${{ steps.app-token.outputs.token }}
+
+            - name: Update Homebrew formula
+              if: github.event_name == 'workflow_dispatch'
+              run: cp /tmp/phrocs.rb Formula/phrocs.rb
+
+            - name: Commit Homebrew formula update
+              if: github.event_name == 'workflow_dispatch'
+              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+              with:
+                  commit_message: 'chore: update phrocs formula to ${{ inputs.version }}'
+                  repo: PostHog/homebrew-tap
+                  branch: main
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
