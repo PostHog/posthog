@@ -42,7 +42,7 @@ import { insightAlertsLogic } from '../insightAlertsLogic'
 import { SnoozeButton } from '../SnoozeButton'
 import { AlertType } from '../types'
 import { AlertDestinationSelector } from './AlertDestinationSelector'
-import { DetectorSelector } from './DetectorSelector'
+import { DetectorSelector, getDefaultWindow } from './DetectorSelector'
 import { InlineAlertNotifications } from './InlineAlertNotifications'
 import { SimulationSummary } from './SimulationSummary'
 
@@ -344,7 +344,7 @@ export function EditAlertModal({
                                                     setAlertFormValue('detector_config', {
                                                         type: 'zscore',
                                                         threshold: 0.9,
-                                                        window: 30,
+                                                        window: getDefaultWindow(alertForm.calculation_interval),
                                                     })
                                                 } else {
                                                     setAlertFormValue('detector_config', null)
@@ -493,6 +493,7 @@ export function EditAlertModal({
                                                 clearSimulation()
                                                 clearSimulationOverlay()
                                             }}
+                                            calculationInterval={alertForm.calculation_interval}
                                         />
                                     )}
 
