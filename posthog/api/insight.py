@@ -131,6 +131,17 @@ EXPORT_QUERY_CACHE_MISS = Counter(
 )
 
 
+def _get_insight_type(insight: Insight) -> str:
+    """Return a normalized lowercase insight type string for analytics."""
+    if insight.query:
+        # New query-based insight — source kind looks like "TrendsQuery", "FunnelsQuery", etc.
+        source = insight.query.get("source", insight.query)
+        kind = source.get("kind", "")
+        return kind.replace("Query", "").lower() if kind else "json"
+    # Legacy filter-based insight
+    return str(insight.filters.get("insight", "TRENDS")).lower()
+
+
 def log_and_report_insight_activity(
     *,
     activity: str,
@@ -480,6 +491,17 @@ class InsightSerializer(InsightBasicSerializer):
                     raise serializers.ValidationError("Dashboard not found")
 
                 DashboardTile.objects.create(insight=insight, dashboard=dashboard, last_refresh=now())
+                report_user_action(
+                    self.context["request"].user,
+                    "dashboard tile added",
+                    {
+                        "tile_type": "insight",
+                        "insight_type": _get_insight_type(insight),
+                        "dashboard_id": dashboard.id,
+                    },
+                    team=insight.team,
+                    request=self.context["request"],
+                )
 
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, insight)
@@ -625,6 +647,18 @@ class InsightSerializer(InsightBasicSerializer):
             if tile.deleted:
                 tile.deleted = False
                 tile.save()
+
+            report_user_action(
+                self.context["request"].user,
+                "dashboard tile added",
+                {
+                    "tile_type": "insight",
+                    "insight_type": _get_insight_type(instance),
+                    "dashboard_id": dashboard.id,
+                },
+                team=instance.team,
+                request=self.context["request"],
+            )
 
         if ids_to_remove:
             # Check permission before removing insight from dashboards
@@ -1005,7 +1039,7 @@ class InsightViewSet(
 
     def get_throttles(self):
         """Apply LLM-specific throttles to AI analysis endpoints."""
-        if self.action in ["analyze", "suggestions"]:
+        if self.action in ["analyze", "suggestions", "generate_name"]:
             return [
                 LLMAnalyticsSummarizationBurstThrottle(),
                 LLMAnalyticsSummarizationSustainedThrottle(),
@@ -1016,7 +1050,7 @@ class InsightViewSet(
     def _validate_ai_feature_access(self) -> None:
         """Validate that AI data processing is approved by the organization."""
         if not self.organization.is_ai_data_processing_approved:
-            raise PermissionDenied("AI data processing must be approved by your organization before using AI analysis")
+            raise PermissionDenied("AI data processing must be approved by your organization")
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if (self.action == "list" or self.action == "retrieve") and str_to_bool(
@@ -1463,6 +1497,8 @@ When set, the specified dashboard's filters and date range override will be appl
     @action(methods=["POST"], detail=False, required_scopes=["insight:write"])
     def generate_name(self, request: Request, **kwargs) -> Response:
         """Generate an AI-suggested name for an insight based on its query configuration."""
+        self._validate_ai_feature_access()
+
         query_data = request.data.get("query")
         if not query_data:
             return Response(

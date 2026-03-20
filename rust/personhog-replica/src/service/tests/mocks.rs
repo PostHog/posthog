@@ -95,6 +95,7 @@ impl storage::DistinctIdLookup for FailingStorage {
         _team_id: i64,
         _person_id: i64,
         _consistency: storage::postgres::ConsistencyLevel,
+        _limit: Option<i64>,
     ) -> storage::StorageResult<Vec<storage::DistinctIdWithVersion>> {
         Err(self.error.clone())
     }
@@ -104,6 +105,7 @@ impl storage::DistinctIdLookup for FailingStorage {
         _team_id: i64,
         _person_ids: &[i64],
         _consistency: storage::postgres::ConsistencyLevel,
+        _limit_per_person: Option<i64>,
     ) -> storage::StorageResult<Vec<storage::DistinctIdMapping>> {
         Err(self.error.clone())
     }
@@ -284,6 +286,7 @@ impl storage::DistinctIdLookup for SuccessStorage {
         _team_id: i64,
         _person_id: i64,
         _consistency: storage::postgres::ConsistencyLevel,
+        _limit: Option<i64>,
     ) -> storage::StorageResult<Vec<storage::DistinctIdWithVersion>> {
         Ok(Vec::new())
     }
@@ -293,6 +296,7 @@ impl storage::DistinctIdLookup for SuccessStorage {
         _team_id: i64,
         _person_ids: &[i64],
         _consistency: storage::postgres::ConsistencyLevel,
+        _limit_per_person: Option<i64>,
     ) -> storage::StorageResult<Vec<storage::DistinctIdMapping>> {
         Ok(Vec::new())
     }
@@ -498,6 +502,7 @@ impl storage::DistinctIdLookup for ConsistencyTrackingStorage {
         _team_id: i64,
         _person_id: i64,
         consistency: storage::postgres::ConsistencyLevel,
+        _limit: Option<i64>,
     ) -> storage::StorageResult<Vec<storage::DistinctIdWithVersion>> {
         self.record(consistency);
         Ok(Vec::new())
@@ -508,6 +513,7 @@ impl storage::DistinctIdLookup for ConsistencyTrackingStorage {
         _team_id: i64,
         _person_ids: &[i64],
         consistency: storage::postgres::ConsistencyLevel,
+        _limit_per_person: Option<i64>,
     ) -> storage::StorageResult<Vec<storage::DistinctIdMapping>> {
         self.record(consistency);
         Ok(Vec::new())
