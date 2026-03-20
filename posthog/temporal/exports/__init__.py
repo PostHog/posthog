@@ -4,6 +4,7 @@ from posthog.temporal.exports.types import EmitDeliveryOutcomeInput, ExportAsset
 
 __all__ = [
     "emit_delivery_outcome",
+    "emit_delivery_started",
     "export_asset_activity",
     "EXPORT_RETRY_POLICY",
     "EmitDeliveryOutcomeInput",

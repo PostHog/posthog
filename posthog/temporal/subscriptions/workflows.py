@@ -6,7 +6,7 @@ import traceback
 
 import temporalio.common
 import temporalio.workflow
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.event_usage import EventSource
 from posthog.slo.types import SloOutcome
@@ -58,8 +58,6 @@ def _extract_error_details(exc: BaseException) -> ExportErrorDetails:
     wraps activity failures as ActivityError → ApplicationError. We narrow
     through that chain to reach the structured details.
     """
-    from temporalio.exceptions import ActivityError, ApplicationError
-
     if not isinstance(exc, ActivityError) or not isinstance(exc.cause, ApplicationError):
         return ExportErrorDetails()
 
@@ -92,8 +90,12 @@ def _build_outcome_assets(
                 ExportAssetResult(
                     exported_asset_id=asset_id,
                     success=False,
-                    exception_class=err.exception_class,
-                    error_trace=err.error_trace,
+                    error=ExportError(
+                        exception_class=err.exception_class or "",
+                        error_trace=err.error_trace or "",
+                    )
+                    if err.exception_class
+                    else None,
                     duration_ms=err.duration_ms,
                     export_format=err.export_format,
                     attempts=err.attempts,
@@ -108,8 +110,6 @@ def _build_outcome_assets(
 
 @temporalio.workflow.defn(name="schedule-all-subscriptions")
 class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
-    """Workflow to schedule all subscriptions that are due for delivery."""
-
     @staticmethod
     def parse_inputs(inputs: list[str]) -> ScheduleAllSubscriptionsWorkflowInputs:
         if not inputs:
@@ -120,7 +120,6 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: ScheduleAllSubscriptionsWorkflowInputs) -> None:
-        # Fetch subscription IDs that are due
         fetch_inputs = FetchDueSubscriptionsActivityInputs(buffer_minutes=inputs.buffer_minutes)
         subscription_ids: list[int] = await temporalio.workflow.execute_activity(
             fetch_due_subscriptions_activity,
@@ -171,8 +170,6 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
 
 @temporalio.workflow.defn(name="process-subscription")
 class ProcessSubscriptionWorkflow(PostHogWorkflow):
-    """Child workflow that handles a single subscription: prepare -> export -> deliver -> emit."""
-
     @staticmethod
     def parse_inputs(inputs: list[str]) -> ProcessSubscriptionWorkflowInputs:
         loaded = json.loads(inputs[0])
@@ -202,8 +199,6 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             )
 
             # Phase 1: Prepare — create ExportedAssets
-            # previous_value is passed so the activity can skip asset creation if the
-            # target value hasn't changed
             prepare_result = await temporalio.workflow.execute_activity(
                 create_export_assets,
                 CreateExportAssetsInputs(
@@ -247,11 +242,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             outcome_assets, successful_asset_ids = _build_outcome_assets(asset_ids, export_results)
             assets_with_content = len(successful_asset_ids)
             total_assets = len(outcome_assets)
-            errors = [
-                ExportError(exception_class=a.exception_class or "", error_trace=a.error_trace or "")
-                for a in outcome_assets
-                if a.exception_class
-            ]
+            errors = [a.error for a in outcome_assets if a.error]
 
             if assets_with_content < total_assets:
                 delivery_outcome = SloOutcome.FAILURE
@@ -299,10 +290,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             # Don't re-raise — let finally run cleanup activities first
 
         finally:
-            # Advance schedule — always for scheduled deliveries, even on failure.
-            # This must not be gated on prepare_result or asset count, otherwise a
-            # persistently broken subscription (e.g. deleted insight) stays "due"
-            # forever and gets re-processed every schedule tick.
+            # Advance schedule — always for scheduled deliveries, even on failure
             if inputs.previous_value is None:
                 await temporalio.workflow.execute_activity(
                     advance_next_delivery_date,
@@ -338,7 +326,9 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     ),
                 )
 
-        # Re-raise after cleanup completes
+        # Re-raise after cleanup completes. We can't re-raise inside the except
+        # block because Temporal's SDK blocks new activity scheduling in the
+        # finally block while an exception is propagating.
         if caught_error:
             raise caught_error
 
