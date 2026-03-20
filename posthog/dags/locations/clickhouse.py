@@ -19,7 +19,7 @@ from posthog.dags.common.resources import BackupsClickhouseClusterResource
 
 from . import resources
 
-_backup_cluster: dagster.ResourceDefinition = BackupsClickhouseClusterResource()
+_backup_cluster = BackupsClickhouseClusterResource()
 
 defs = dagster.Definitions(
     assets=[
@@ -42,8 +42,8 @@ defs = dagster.Definitions(
         person_overrides.squash_person_overrides,
         postgres_to_clickhouse_etl.postgres_to_clickhouse_etl_job,
         property_definitions.property_definitions_ingestion_job,
-        backups.sharded_backup.with_top_level_resources({"cluster": _backup_cluster}),
-        backups.non_sharded_backup.with_top_level_resources({"cluster": _backup_cluster}),
+        backups.sharded_backup.with_top_level_resources({"cluster": _backup_cluster}),  # pyright: ignore[reportArgumentType]
+        backups.non_sharded_backup.with_top_level_resources({"cluster": _backup_cluster}),  # pyright: ignore[reportArgumentType]
     ],
     schedules=[
         export_query_logs_to_s3.query_logs_export_schedule,

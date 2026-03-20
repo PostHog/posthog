@@ -7,13 +7,15 @@ from posthog.dags.common.resources import BackupsClickhouseClusterResource
 
 from . import resources
 
-_logs_cluster: dagster.ResourceDefinition = BackupsClickhouseClusterResource(
-    host=settings.CLICKHOUSE_LOGS_HOST, cluster=settings.CLICKHOUSE_LOGS_CLUSTER
-)
-
 defs = dagster.Definitions(
     jobs=[
-        backups.non_sharded_backup.with_top_level_resources({"cluster": _logs_cluster}),
+        backups.non_sharded_backup.with_top_level_resources(
+            {
+                "cluster": BackupsClickhouseClusterResource(  # pyright: ignore[reportArgumentType]
+                    host=settings.CLICKHOUSE_LOGS_HOST, cluster=settings.CLICKHOUSE_LOGS_CLUSTER
+                )
+            }
+        ),
     ],
     schedules=[
         backups.full_logs_backup_schedule,
