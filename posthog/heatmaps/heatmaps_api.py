@@ -23,6 +23,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.auth import ExportRendererAuthentication
 from posthog.heatmaps.heatmaps_utils import DEFAULT_TARGET_WIDTHS
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
@@ -224,6 +225,7 @@ class HeatmapEventsResponseSerializer(serializers.Serializer):
 
 
 class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    authentication_classes = [ExportRendererAuthentication]
     scope_object = "heatmap"
     scope_object_read_actions = ["list", "retrieve", "events"]
 

@@ -1124,6 +1124,21 @@
             "readOnlyHint": false
         }
     },
+    "prompt-duplicate": {
+        "description": "Duplicate an existing LLM prompt under a new name. Copies the latest version's content to create a new prompt at version 1. Useful for forking a prompt or as a way to rename since names are immutable after creation.",
+        "category": "Prompts",
+        "feature": "prompts",
+        "summary": "Duplicate prompt",
+        "title": "Duplicate prompt",
+        "required_scopes": ["llm_prompt:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "proxy-list": {
         "description": "List all managed reverse proxies configured for the current organization. Returns each proxy's domain, CNAME target, provisioning status, and the maximum number of proxies allowed by the current plan. Use this to check whether a reverse proxy is set up before recommending one.",
         "category": "Reverse proxy",

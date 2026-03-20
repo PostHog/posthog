@@ -1153,6 +1153,7 @@ export function LineGraph_({
             isArea,
             showTrendLines,
             labels,
+            legend?.display,
             hideTooltip,
             showTooltip,
             getTooltip,
