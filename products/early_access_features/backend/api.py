@@ -5,7 +5,7 @@ from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 
 import structlog
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -52,12 +52,32 @@ class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
+    @extend_schema_field(serializers.DictField(help_text="Feature flag payload for this early access feature"))
     def get_payload(self, obj):
         return obj.payload if obj.payload else {}
 
 
 class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
     feature_flag = MinimalFeatureFlagSerializer(read_only=True)
+    name = serializers.CharField(
+        max_length=200,
+        help_text="The name of the early access feature.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="A longer description of what this early access feature does, shown to users in the opt-in UI.",
+    )
+    stage = serializers.ChoiceField(
+        choices=EarlyAccessFeature.Stage.choices,
+        help_text="Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha/beta/general-availability) enables the feature flag for opted-in users.",
+    )
+    documentation_url = serializers.URLField(
+        max_length=800,
+        required=False,
+        allow_blank=True,
+        help_text="URL to external documentation for this feature. Shown to users in the opt-in UI.",
+    )
     payload = serializers.SerializerMethodField()
 
     class Meta:
@@ -74,6 +94,7 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "feature_flag", "created_at"]
 
+    @extend_schema_field(serializers.DictField(help_text="Feature flag payload for this early access feature"))
     def get_payload(self, obj):
         return obj.payload if obj.payload else {}
 
@@ -83,6 +104,7 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
             payload_value = self.initial_data.get("payload")
             validated_data["payload"] = payload_value if payload_value else {}
         stage = validated_data.get("stage", None)
+        rollout_to_all = self.initial_data.get("rollout_to_all", False)
 
         request = self.context["request"]
         user_data = UserBasicSerializer(request.user).data if request.user else None
@@ -91,7 +113,27 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
         if instance.stage != stage:
             send_events_for_early_access_feature_stage_change.delay(str(instance.id), instance.stage, stage)
 
-        if instance.stage not in EarlyAccessFeature.ActiveStage and stage in EarlyAccessFeature.ActiveStage:
+        if instance.stage != stage and stage == EarlyAccessFeature.Stage.GENERAL_AVAILABILITY and rollout_to_all:
+            # When promoting to GA with rollout_to_all, clear super_groups (removing opt-in/opt-out
+            # conditions) and set the flag to 100% rollout so all users see the feature regardless
+            # of their previous enrollment status.
+            related_feature_flag = instance.feature_flag
+            if related_feature_flag:
+                serialized_data_filters = {
+                    **related_feature_flag.filters,
+                    "super_groups": None,
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                }
+
+                serializer = FeatureFlagSerializer(
+                    related_feature_flag,
+                    data={"filters": serialized_data_filters},
+                    context=self.context,
+                    partial=True,
+                )
+                serializer.is_valid(raise_exception=True)
+                serializer.save()
+        elif instance.stage not in EarlyAccessFeature.ActiveStage and stage in EarlyAccessFeature.ActiveStage:
             super_conditions = lambda feature_flag_key: [
                 {
                     "properties": [
@@ -159,11 +201,20 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
 
 
 class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
-    feature_flag_id = serializers.IntegerField(required=False, write_only=True)
+    feature_flag_id = serializers.IntegerField(
+        required=False,
+        write_only=True,
+        help_text="Optional ID of an existing feature flag to link. If omitted, a new flag is auto-created from the feature name. The flag must not already be linked to another feature, must not be group-based, and must not be multivariate.",
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     # Override payload to allow writing (parent uses SerializerMethodField which is read-only)
-    payload = serializers.JSONField(required=False, allow_null=False, default=dict)  # type: ignore
+    payload = serializers.JSONField(
+        required=False,
+        allow_null=False,
+        default=dict,
+        help_text="Arbitrary JSON metadata associated with this feature.",
+    )  # type: ignore
 
     class Meta:
         model = EarlyAccessFeature

@@ -240,7 +240,7 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
 
     await logger.adebug(f"Running count query: {printed}")
 
-    async with get_clickhouse_client(allow_experimental_analyzer=1) as client:
+    async with get_clickhouse_client(enable_analyzer=1) as client:
         result = await client.read_query(printed, query_parameters=context.values)
         count = int(result.decode("utf-8").strip())
         return count
@@ -294,7 +294,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     )
 
     query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
-    async with get_clickhouse_client(allow_experimental_analyzer=1) as client:
+    async with get_clickhouse_client(enable_analyzer=1) as client:
         async with client.apost_query(
             query=table_describe_query, query_parameters=context.values, query_id=str(uuid.uuid4())
         ) as ch_response:
@@ -340,9 +340,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
 
     await logger.adebug(f"Running clickhouse query: {arrow_printed}")
 
-    async with get_clickhouse_client(
-        max_block_size=CLICKHOUSE_MAX_BLOCK_SIZE_ROWS, allow_experimental_analyzer=1
-    ) as client:
+    async with get_clickhouse_client(max_block_size=CLICKHOUSE_MAX_BLOCK_SIZE_ROWS, enable_analyzer=1) as client:
         batches = []
         batches_size = 0
         async for batch in client.astream_query_as_arrow(arrow_printed, query_parameters=context.values):
@@ -372,7 +370,7 @@ def _get_matview_input_objects(
 ) -> tuple[Team, Node, DataWarehouseSavedQuery, DataModelingJob]:
     team = Team.objects.get(id=inputs.team_id)
     node = Node.objects.prefetch_related("saved_query").get(
-        id=inputs.node_id, team_id=inputs.team_id, dag_id_text=inputs.dag_id
+        id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id
     )
     if node.type == NodeType.TABLE:
         raise InvalidNodeTypeException(f"Cannot materialize a TABLE node: {node.name}")

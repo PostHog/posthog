@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { GitHubRepoApi } from '~/generated/core/api.schemas'
 import { Breadcrumb } from '~/types'
@@ -29,7 +30,7 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
     path(['products', 'visual_review', 'frontend', 'scenes', 'visualReviewSettingsSceneLogic']),
 
     connect(() => ({
-        values: [integrationsLogic, ['integrations', 'getGitHubRepositoriesFull']],
+        values: [integrationsLogic, ['integrations', 'getGitHubRepositoriesFull'], teamLogic, ['currentProjectId']],
         actions: [integrationsLogic, ['loadIntegrationsSuccess']],
     })),
 
@@ -41,17 +42,17 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
         saveRepo: true,
     }),
 
-    loaders({
+    loaders(({ values }) => ({
         repos: [
             [] as RepoApi[],
             {
                 loadRepos: async () => {
-                    const response = await visualReviewReposList('@current')
+                    const response = await visualReviewReposList(String(values.currentProjectId))
                     return response.results
                 },
             },
         ],
-    }),
+    })),
 
     reducers({
         editingRepoId: [
@@ -164,7 +165,7 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
         },
         addRepo: async ({ githubRepo }) => {
             try {
-                await visualReviewReposCreate('@current', {
+                await visualReviewReposCreate(String(values.currentProjectId), {
                     repo_external_id: githubRepo.id,
                     repo_full_name: githubRepo.full_name,
                 })
@@ -183,7 +184,7 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
                     const updates: PatchedUpdateRepoRequestInputApi = {
                         baseline_file_paths: formValues.baseline_file_paths,
                     }
-                    await visualReviewReposPartialUpdate('@current', editingRepoId, updates)
+                    await visualReviewReposPartialUpdate(String(values.currentProjectId), editingRepoId, updates)
                     lemonToast.success('Settings saved')
                 }
 

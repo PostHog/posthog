@@ -6,11 +6,16 @@ from posthog.schema import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
+    SuggestedTable,
 )
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import (
+    MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+    FieldType,
+    SimpleSource,
+)
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -55,6 +60,16 @@ class BingAdsSource(SimpleSource[BingAdsSourceConfig], OAuthMixin):
                     ),
                 ],
             ),
+            suggestedTables=[
+                SuggestedTable(
+                    table="campaigns",
+                    tooltip=MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+                ),
+                SuggestedTable(
+                    table="campaign_performance_report",
+                    tooltip=MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+                ),
+            ],
         )
 
     def validate_credentials(
@@ -63,6 +78,12 @@ class BingAdsSource(SimpleSource[BingAdsSourceConfig], OAuthMixin):
         if not config.account_id or not config.bing_ads_integration_id:
             return False, "Account ID and Bing Ads integration are required"
 
+        if not config.account_id.isdigit():
+            return (
+                False,
+                f"Invalid Account ID '{config.account_id}'. Bing Ads Account IDs are numeric. You can find your Account ID in the Bing Ads dashboard under Settings > Account.",
+            )
+
         try:
             self.get_oauth_integration(config.bing_ads_integration_id, team_id)
             return True, None
@@ -70,11 +91,13 @@ class BingAdsSource(SimpleSource[BingAdsSourceConfig], OAuthMixin):
             capture_exception(e)
             return False, f"Failed to validate Bing Ads credentials: {str(e)}"
 
-    def get_schemas(self, config: BingAdsSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: BingAdsSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
         bing_ads_schemas = get_schemas()
         ads_incremental_fields = get_incremental_fields()
 
-        return [
+        schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=ads_incremental_fields.get(endpoint, None) is not None,
@@ -86,6 +109,12 @@ class BingAdsSource(SimpleSource[BingAdsSourceConfig], OAuthMixin):
             )
             for endpoint in bing_ads_schemas.keys()
         ]
+
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+
+        return schemas
 
     def source_for_pipeline(self, config: BingAdsSourceConfig, inputs: SourceInputs) -> SourceResponse:
         integration = self.get_oauth_integration(config.bing_ads_integration_id, inputs.team_id)

@@ -2,7 +2,7 @@ import datetime
 import xml.etree.ElementTree as ET
 
 from posthog.test.base import BaseTest
-from unittest.mock import Mock, patch
+from unittest.mock import ANY, Mock, patch
 
 from posthog.schema import CachedTeamTaxonomyQueryResponse, MaxEventContext, TeamTaxonomyItem, TeamTaxonomyQuery
 
@@ -403,5 +403,6 @@ class TestFormatEventsPrompt(BaseTest):
         # Verify TeamTaxonomyQueryRunner was called correctly
         mock_runner_class.assert_called_once_with(TeamTaxonomyQuery(), self.team)
         mock_runner_class.return_value.run.assert_called_once_with(
-            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+            analytics_props=ANY,
         )

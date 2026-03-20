@@ -1124,6 +1124,7 @@ class Resolver(CloningVisitor):
             node.sample = self.visit(node.sample)
 
             return node
+
         elif isinstance(node.table, ast.UnpivotExpr):
             node = cast(ast.JoinExpr, clone_expr(node))
             if node.constraint and node.constraint.constraint_type == "USING":

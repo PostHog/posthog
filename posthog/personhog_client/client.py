@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import threading
 from typing import Optional
 
@@ -7,6 +8,7 @@ from django.conf import settings
 
 import grpc
 import structlog
+from prometheus_client import Counter, Enum, Histogram
 
 from posthog.personhog_client.interceptor import ClientNameInterceptor, MetricsInterceptor
 from posthog.personhog_client.proto import (
@@ -42,6 +44,70 @@ from posthog.personhog_client.proto import (
 
 logger = structlog.get_logger(__name__)
 
+# -- Channel-level metrics --
+
+PERSONHOG_DJANGO_CHANNEL_STATE = Enum(
+    "personhog_django_grpc_channel_state",
+    "Current gRPC channel connectivity state",
+    labelnames=["client_name"],
+    states=["IDLE", "CONNECTING", "READY", "TRANSIENT_FAILURE", "SHUTDOWN"],
+)
+
+PERSONHOG_DJANGO_CHANNEL_STATE_TRANSITIONS_TOTAL = Counter(
+    "personhog_django_grpc_channel_state_transitions_total",
+    "gRPC channel connectivity state transitions",
+    labelnames=["from_state", "to_state", "client_name"],
+)
+
+PERSONHOG_DJANGO_CONNECTION_ESTABLISHMENT_SECONDS = Histogram(
+    "personhog_django_grpc_connection_establishment_seconds",
+    "Time to establish a gRPC connection (CONNECTING to READY)",
+    labelnames=["client_name"],
+    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0),
+)
+
+
+class _ChannelStateMonitor:
+    """Subscribes to gRPC channel connectivity changes and emits Prometheus metrics."""
+
+    def __init__(self, channel: grpc.Channel, client_name: str) -> None:
+        self._channel = channel
+        self._client_name = client_name
+        self._previous_state: grpc.ChannelConnectivity | None = None
+        self._connecting_since: float | None = None
+        channel.subscribe(self._on_state_change)
+
+    def _on_state_change(self, new_state: grpc.ChannelConnectivity) -> None:
+        prev = self._previous_state
+        self._previous_state = new_state
+
+        PERSONHOG_DJANGO_CHANNEL_STATE.labels(client_name=self._client_name).state(new_state.name)
+        PERSONHOG_DJANGO_CHANNEL_STATE_TRANSITIONS_TOTAL.labels(
+            from_state=prev.name if prev else "NONE",
+            to_state=new_state.name,
+            client_name=self._client_name,
+        ).inc()
+
+        if new_state == grpc.ChannelConnectivity.CONNECTING:
+            self._connecting_since = time.monotonic()
+        elif new_state == grpc.ChannelConnectivity.READY and self._connecting_since is not None:
+            PERSONHOG_DJANGO_CONNECTION_ESTABLISHMENT_SECONDS.labels(
+                client_name=self._client_name,
+            ).observe(time.monotonic() - self._connecting_since)
+            self._connecting_since = None
+        elif new_state in (
+            grpc.ChannelConnectivity.TRANSIENT_FAILURE,
+            grpc.ChannelConnectivity.SHUTDOWN,
+            grpc.ChannelConnectivity.IDLE,
+        ):
+            self._connecting_since = None
+
+    def close(self) -> None:
+        try:
+            self._channel.unsubscribe(self._on_state_change)
+        except Exception:
+            pass
+
 
 class PersonHogClient:
     def __init__(
@@ -66,16 +132,17 @@ class PersonHogClient:
             ("grpc.initial_reconnect_backoff_ms", initial_reconnect_backoff_ms),
             ("grpc.max_send_message_length", max_send_message_length),
             ("grpc.max_receive_message_length", max_recv_message_length),
-            ("grpc.enable_retries", 1),
         ]
         channel = grpc.insecure_channel(addr, options=options)
         self._channel = grpc.intercept_channel(
             channel, ClientNameInterceptor(client_name), MetricsInterceptor(client_name)
         )
+        self._state_monitor = _ChannelStateMonitor(channel, client_name)
         self._stub = PersonHogServiceStub(self._channel)
         self._timeout = timeout_ms / 1000.0
 
     def close(self) -> None:
+        self._state_monitor.close()
         self._channel.close()
 
     # -- Person lookups --

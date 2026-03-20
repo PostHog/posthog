@@ -35,6 +35,7 @@ from posthog.models.integration import (
     GitLabIntegration,
     GoogleAdsIntegration,
     GoogleCloudIntegration,
+    GoogleCloudServiceAccountIntegration,
     Integration,
     JiraIntegration,
     LinearIntegration,
@@ -126,9 +127,19 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         elif validated_data["kind"] == "github":
             config = validated_data.get("config", {})
             installation_id = config.get("installation_id")
+            state = config.get("state")
 
             if not installation_id:
                 raise ValidationError("An installation_id must be provided")
+
+            if not state:
+                raise ValidationError("A state token must be provided")
+
+            cache_key = f"github_state:{request.user.id}"
+            expected_state = cache.get(cache_key)
+            if not expected_state or expected_state != state:
+                raise ValidationError("Invalid or expired state token")
+            cache.delete(cache_key)
 
             instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, request.user)
             return instance
@@ -192,6 +203,33 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 )
             except DatabricksIntegrationError as e:
                 raise ValidationError(str(e))
+            return instance
+
+        elif validated_data["kind"] == "google-cloud-service-account":
+            config = validated_data.get("config", {})
+            service_account_email = config.get("service_account_email")
+            project_id = config.get("project_id")
+            if not (service_account_email and project_id):
+                raise ValidationError("Service account email and project ID must be provided")
+
+            if not all(isinstance(value, str) for value in (service_account_email, project_id)):
+                raise ValidationError("Service account email and project ID must be strings")
+
+            get_organization = self.context.get("get_organization")
+            if get_organization is None:
+                raise ValidationError("Organization context is missing")
+            organization_id = str(get_organization().id)
+
+            instance = GoogleCloudServiceAccountIntegration.integration_from_service_account(
+                team_id=team_id,
+                organization_id=organization_id,
+                service_account_email=service_account_email,
+                project_id=project_id,
+                private_key=config.get("private_key", None),
+                private_key_id=config.get("private_key_id", None),
+                token_uri=config.get("token_uri", None),
+                created_by=request.user,
+            )
             return instance
 
         elif validated_data["kind"] == "azure-blob":
@@ -271,6 +309,9 @@ class IntegrationViewSet(
             response = redirect(installation_url)
             # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (OAuth state, short-lived, needed for cross-site redirect)
             response.set_cookie("ph_github_state", token, max_age=60 * 5)
+            # Store server-side so the backend can enforce that the same user who
+            # initiated the flow is the one completing it (not just cookie-validated).
+            cache.set(f"github_state:{request.user.id}", token, timeout=60 * 5)
 
             return response
 

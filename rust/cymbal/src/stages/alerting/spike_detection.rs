@@ -301,34 +301,31 @@ async fn emit_spiking_events(
     let emit_timer = common_metrics::timing_guard(SPIKE_EMIT_EVENTS_TIME, &[]);
     let events: Vec<(Uuid, InternalEvent)> = acquired_locks
         .iter()
-        .filter_map(|spike| {
+        .map(|spike| {
             let mut event =
                 InternalEventEvent::new(ISSUE_SPIKING_EVENT, spike.issue.id, Utc::now(), None);
-            event.insert_prop("name", spike.issue.name.clone()).ok()?;
+            event
+                .insert_prop("name", spike.issue.name.clone())
+                .expect("insert_prop for name should never fail");
             event
                 .insert_prop("description", spike.issue.description.clone())
-                .ok()?;
+                .expect("insert_prop for description should never fail");
             event
                 .insert_prop("computed_baseline", spike.computed_baseline)
-                .ok()?;
+                .expect("insert_prop for computed_baseline should never fail");
             event
                 .insert_prop("current_bucket_value", spike.current_bucket_value)
-                .ok()?;
-            Some((
+                .expect("insert_prop for current_bucket_value should never fail");
+            (
                 spike.issue.id,
                 InternalEvent {
                     team_id: spike.issue.team_id,
                     event,
                     person: None,
                 },
-            ))
+            )
         })
         .collect();
-
-    if events.is_empty() {
-        emit_timer.fin();
-        return;
-    }
 
     let kafka_events: Vec<&InternalEvent> = events.iter().map(|(_, e)| e).collect();
     let results = send_iter_to_kafka(

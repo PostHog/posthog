@@ -69,24 +69,130 @@ logger = structlog.get_logger(__name__)
 FLAGS_CACHE_EXPIRY_SORTED_SET = "flags_cache_expiry"
 
 
+def _extract_direct_dependency_ids(flag_data: dict[str, Any]) -> set[int]:
+    """
+    Extract direct flag dependency IDs from a serialized flag's filters.
+
+    Scans filters.groups[*].properties for type=="flag" properties and parses
+    their key as an integer flag ID. Inactive/deleted flags return empty deps
+    to match Rust's extract_dependencies behavior.
+    """
+    if not flag_data.get("active", True) or flag_data.get("deleted", False):
+        return set()
+
+    dep_ids: set[int] = set()
+    filters = flag_data.get("filters", {})
+    for group in filters.get("groups") or []:
+        for prop in group.get("properties") or []:
+            if prop.get("type") == "flag":
+                try:
+                    dep_ids.add(int(prop["key"]))
+                except (ValueError, KeyError, TypeError):
+                    continue
+    return dep_ids
+
+
+def _compute_flag_dependencies(flags_data: list[dict[str, Any]]) -> dict[str, Any]:
+    """
+    Compute flag dependency metadata and return evaluation metadata.
+
+    Returns a dict with:
+    - dependency_stages: list of lists of flag IDs grouped by evaluation stage,
+      stage 0 (no deps) first. Flags in the same stage can be evaluated in parallel.
+    - flags_with_missing_deps: sorted list of flag IDs with missing, cyclic, or
+      transitively broken dependencies.
+    - transitive_deps: dict mapping stringified flag ID to sorted list of all
+      transitive dependency flag IDs.
+
+    Uses Kahn's algorithm (layered topological sort) to match the Rust fallback
+    path's petgraph-based cycle handling: all cycle participants are excluded
+    from stages, not just back-edge targets.
+    """
+    id_to_flag: dict[int, dict[str, Any]] = {}
+    for flag in flags_data:
+        flag_id = flag["id"]
+        id_to_flag[flag_id] = flag
+
+    # Build direct dependency edges (may reference unknown flag IDs)
+    direct_deps: dict[int, set[int]] = {}
+    for flag_id in id_to_flag:
+        direct_deps[flag_id] = _extract_direct_dependency_ids(id_to_flag[flag_id])
+
+    # Track flags with missing dependencies (dep ID not in id_to_flag)
+    has_missing: dict[int, bool] = {
+        fid: any(dep_id not in id_to_flag for dep_id in deps) for fid, deps in direct_deps.items()
+    }
+
+    # Build in-degree map (only count edges to known flags)
+    in_degree: dict[int, int] = dict.fromkeys(id_to_flag, 0)
+    # reverse_deps: flag_id → set of flags that depend on it
+    reverse_deps: dict[int, set[int]] = {fid: set() for fid in id_to_flag}
+    for flag_id, deps in direct_deps.items():
+        for dep_id in deps:
+            if dep_id in id_to_flag:
+                in_degree[flag_id] += 1
+                reverse_deps[dep_id].add(flag_id)
+
+    # Kahn's algorithm: peel layers of zero-in-degree nodes
+    dependency_stages: list[list[int]] = []
+    transitive_deps: dict[int, set[int]] = {}
+    queue = sorted(fid for fid, deg in in_degree.items() if deg == 0)
+
+    while queue:
+        for fid in queue:
+            # Compute transitive deps: union of each dep's transitive closure + direct deps
+            td: set[int] = set()
+            for dep_id in direct_deps[fid]:
+                if dep_id in id_to_flag:
+                    td.add(dep_id)
+                    td.update(transitive_deps[dep_id])
+                    if has_missing[dep_id]:
+                        has_missing[fid] = True
+            transitive_deps[fid] = td
+
+        dependency_stages.append(queue)
+
+        next_queue: list[int] = []
+        for fid in queue:
+            for dependent_id in reverse_deps[fid]:
+                in_degree[dependent_id] -= 1
+                if in_degree[dependent_id] == 0:
+                    next_queue.append(dependent_id)
+        queue = sorted(next_queue)
+
+    # Flags still with in_degree > 0 are in cycles.
+    cycled_flags = {fid for fid, deg in in_degree.items() if deg > 0}
+    for fid in cycled_flags:
+        has_missing[fid] = True
+
+    return {
+        "dependency_stages": dependency_stages,
+        "flags_with_missing_deps": sorted(fid for fid, m in has_missing.items() if m),
+        "transitive_deps": {str(fid): sorted(transitive_deps.get(fid, set())) for fid in id_to_flag},
+    }
+
+
 def _get_feature_flags_for_service(team: Team) -> dict[str, Any]:
     """
     Get feature flags for the feature-flags service.
 
-    Fetches all active, non-deleted feature flags for the team and returns them
-    wrapped in a dict that HyperCache can serialize. The actual flag data is in the
-    "flags" key as a list of flag dictionaries.
+    Fetches all feature flags for the team (including inactive, excluding deleted)
+    and returns them wrapped in a dict that HyperCache can serialize. The actual
+    flag data is in the "flags" key as a list of flag dictionaries.
 
     Encrypted remote config flags are excluded since they can only be accessed via
     the dedicated /remote_config endpoint which handles decryption. Including them
     in /flags would return unusable encrypted ciphertext.
 
     Returns:
-        dict: {"flags": [...]} where flags is a list of flag dictionaries
+        dict: {"flags": [...], "evaluation_metadata": {...}} where flags is a list
+        of flag dictionaries and evaluation_metadata contains pre-computed dependency
+        metadata (stages, missing deps, transitive deps).
     """
     # Exclude encrypted remote config flags at DB level for efficiency
     flags = get_feature_flags(team=team, exclude_encrypted_remote_config=True)
     flags_data = serialize_feature_flags(flags)
+    evaluation_metadata = _compute_flag_dependencies(flags_data)
 
     logger.info(
         "Loaded feature flags for service cache",
@@ -96,7 +202,7 @@ def _get_feature_flags_for_service(team: Team) -> dict[str, Any]:
     )
 
     # Wrap in dict for HyperCache compatibility
-    return {"flags": flags_data}
+    return {"flags": flags_data, "evaluation_metadata": evaluation_metadata}
 
 
 def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str, Any]]:
@@ -114,7 +220,7 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
         teams: List of Team objects to load flags for
 
     Returns:
-        Dict mapping team_id to {"flags": [...]} for each team
+        Dict mapping team_id to {"flags": [...], "evaluation_metadata": {...}} for each team
     """
     if not teams:
         return {}
@@ -133,8 +239,8 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
             team__in=teams,
         ).annotate(
             evaluation_tag_names_agg=ArrayAgg(
-                "evaluation_tags__tag__name",
-                filter=Q(evaluation_tags__isnull=False),
+                "flag_evaluation_contexts__evaluation_context__name",
+                filter=Q(flag_evaluation_contexts__isnull=False),
                 distinct=True,
             )
         )
@@ -154,6 +260,7 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
     for team in teams:
         team_flags = flags_by_team_id.get(team.id, [])
         flags_data = serialize_feature_flags(team_flags)
+        evaluation_metadata = _compute_flag_dependencies(flags_data)
 
         logger.info(
             "Loaded feature flags for service cache (batch)",
@@ -162,7 +269,7 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
             flag_count=len(flags_data),
         )
 
-        result[team.id] = {"flags": flags_data}
+        result[team.id] = {"flags": flags_data, "evaluation_metadata": evaluation_metadata}
 
     return result
 

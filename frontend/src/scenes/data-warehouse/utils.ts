@@ -74,6 +74,31 @@ export const syncAnchorIntervalToHumanReadable = (
     } UTC`
 }
 
+export function syncIntervalToShorthand(syncInterval: DataWarehouseSyncInterval | undefined): string {
+    switch (syncInterval) {
+        case '5min':
+            return '5m'
+        case '15min':
+            return '15m'
+        case '30min':
+            return '30m'
+        case '1hour':
+            return '1h'
+        case '6hour':
+            return '6h'
+        case '12hour':
+            return '12h'
+        case '24hour':
+            return '1d'
+        case '7day':
+            return '1w'
+        case '30day':
+            return '30d'
+        default:
+            return 'Never'
+    }
+}
+
 function humanTimeFormatter(hours: number, minutes: number): string {
     const period = hours >= 12 ? 'PM' : 'AM'
     const displayHours = hours % 12 || 12 // Convert 0 to 12 for 12 AM

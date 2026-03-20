@@ -751,6 +751,11 @@ export class ApiRequest {
         return this.logs(projectId).addPathComponent('export')
     }
 
+    // # Tracing
+    public tracingSpans(): ApiRequest {
+        return this.projectsDetail().addPathComponent('tracing').addPathComponent('spans')
+    }
+
     // # Data management
     public eventDefinitions(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('event_definitions')
@@ -2116,6 +2121,32 @@ const api = {
             }
             return await request.get()
         },
+        async getMaterializationPreview(
+            name: string,
+            version?: number,
+            bucketOverrides?: Record<string, string>
+        ): Promise<{
+            can_materialize: boolean
+            reason: string | null
+            transformed_query: string | null
+            range_pairs: { column: string; variables: string[]; bucket_fn: string }[]
+            aggregates: { expression: string; reaggregate_fn: string | null }[]
+        }> {
+            const params: Record<string, any> = {}
+            if (version !== undefined) {
+                params.version = version
+            }
+            if (bucketOverrides) {
+                for (const [col, fn] of Object.entries(bucketOverrides)) {
+                    params[`bucket_overrides[${col}]`] = fn
+                }
+            }
+            let request = new ApiRequest().endpointDetail(name).withAction('materialization_preview')
+            if (Object.keys(params).length > 0) {
+                request = request.withQueryString(params)
+            }
+            return await request.get()
+        },
         async listVersions(name: string): Promise<EndpointVersionType[]> {
             return await new ApiRequest().endpointDetail(name).withAction('versions').get()
         },
@@ -2534,6 +2565,18 @@ const api = {
             columns?: string[]
         }): Promise<{ id: number; export_format: string; has_content: boolean; filename: string }> {
             return new ApiRequest().logsExport().create({ data: { query, columns } })
+        },
+    },
+
+    tracing: {
+        async listSpans(): Promise<{ results: Record<string, any>[] }> {
+            return new ApiRequest().tracingSpans().get()
+        },
+        async getTrace(traceId: string): Promise<{ results: Record<string, any>[] }> {
+            return new ApiRequest().tracingSpans().withAction(`trace/${traceId}`).get()
+        },
+        async sparkline(): Promise<{ results: Record<string, any>[] }> {
+            return new ApiRequest().tracingSpans().withAction('sparkline').get()
         },
     },
 
@@ -4252,7 +4295,9 @@ const api = {
         },
         async update(
             featureId: EarlyAccessFeatureType['id'],
-            data: Pick<EarlyAccessFeatureType, 'name' | 'description' | 'stage' | 'documentation_url'>
+            data: Pick<EarlyAccessFeatureType, 'name' | 'description' | 'stage' | 'documentation_url'> & {
+                rollout_to_all?: boolean
+            }
         ): Promise<EarlyAccessFeatureType> {
             return await new ApiRequest().earlyAccessFeature(featureId).update({ data })
         },
@@ -4663,6 +4708,11 @@ const api = {
         async dagIds(): Promise<{ dag_ids: string[] }> {
             return await new ApiRequest().dataModelingNodes().withAction('dag_ids').get()
         },
+        async lineage(
+            nodeId: DataModelingNode['id']
+        ): Promise<{ nodes: DataModelingNode[]; edges: DataModelingEdge[] }> {
+            return await new ApiRequest().dataModelingNode(nodeId).withAction('lineage').get()
+        },
     },
 
     dataModelingEdges: {
@@ -4750,12 +4800,13 @@ const api = {
         async jobs(
             sourceId: ExternalDataSource['id'],
             before: string | null,
-            after: string | null
+            after: string | null,
+            schemas?: string[]
         ): Promise<ExternalDataJob[]> {
             return await new ApiRequest()
                 .externalDataSource(sourceId)
                 .withAction('jobs')
-                .withQueryString({ before, after })
+                .withQueryString(toParams({ before, after, schemas }, true))
                 .get()
         },
         async updateRevenueAnalyticsConfig(
@@ -4799,6 +4850,10 @@ const api = {
                 .withAction('job_stats')
                 .withQueryString({ days: options?.days })
                 .get(options)
+        },
+
+        async dataOpsDashboard(options?: ApiMethodOptions): Promise<{ dashboard_id: number }> {
+            return await new ApiRequest().dataWarehouse().withAction('data_ops_dashboard').get(options)
         },
     },
 
@@ -5556,8 +5611,16 @@ const api = {
         async list(
             params: {
                 status?: string
+                priority?: string
+                channel_source?: string
+                sla?: string
+                assignee?: string
+                tags?: string
                 distinct_ids?: string
                 search?: string
+                date_from?: string
+                date_to?: string
+                order_by?: string
                 limit?: number
                 offset?: number
             } = {}

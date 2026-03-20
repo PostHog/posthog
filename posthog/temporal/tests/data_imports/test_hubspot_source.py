@@ -26,11 +26,16 @@ import uuid
 import urllib.parse
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import structlog
 
-from posthog.temporal.data_imports.sources.hubspot.hubspot import PROPERTY_LENGTH_LIMIT, _get_properties_str
+from posthog.temporal.data_imports.sources.hubspot.hubspot import (
+    PROPERTY_LENGTH_LIMIT,
+    _backfill_missing_properties,
+    _get_properties_str,
+    get_rows,
+)
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
 
 from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
@@ -204,3 +209,115 @@ def test_hubspot_get_properties_url_length_limit():
             # check that the warning was logged
             mock_warning.assert_called_once()
             assert "Your request to Hubspot is too long to process" in mock_warning.call_args[0][0]
+
+
+@pytest.mark.parametrize(
+    "row, expected_properties, expected_none_keys",
+    [
+        pytest.param(
+            {"name": "Acme", "domain": "acme.com"},
+            ["name", "domain", "status"],
+            ["status"],
+            id="single_missing_prop",
+        ),
+        pytest.param(
+            {"name": "Beta"},
+            ["name", "domain", "status", "owner_id"],
+            ["domain", "status", "owner_id"],
+            id="multiple_missing_props",
+        ),
+        pytest.param(
+            {"name": "Gamma", "domain": "gamma.com", "status": "active"},
+            ["name", "domain", "status"],
+            [],
+            id="no_missing_props",
+        ),
+        pytest.param(
+            {},
+            ["name", "domain"],
+            ["name", "domain"],
+            id="all_props_missing",
+        ),
+        pytest.param(
+            {"name": "Delta"},
+            [],
+            [],
+            id="empty_expected_properties",
+        ),
+    ],
+)
+def test_backfill_missing_properties(row, expected_properties, expected_none_keys):
+    _backfill_missing_properties(row, expected_properties)
+
+    for prop in expected_properties:
+        assert prop in row, f"Property '{prop}' missing after backfill"
+
+    for key in expected_none_keys:
+        assert row[key] is None, f"Expected None for '{key}', got {row[key]}"
+
+
+def test_get_rows_backfills_missing_properties():
+    mock_resumable_manager = MagicMock()
+    mock_resumable_manager.can_resume.return_value = False
+
+    # Mock the HubSpot API to return results with inconsistent properties
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.ok = True
+    mock_response.json.return_value = {
+        "results": [
+            {
+                "id": "1",
+                "properties": {
+                    "createdate": "2024-01-01",
+                    "domain": "acme.com",
+                    "name": "Acme",
+                    "custom_field": "value1",
+                },
+            },
+            {
+                "id": "2",
+                "properties": {
+                    "createdate": "2024-02-01",
+                    "name": "Beta",
+                    # domain and custom_field omitted by HubSpot (null values)
+                },
+            },
+        ],
+        "paging": {},
+    }
+
+    with (
+        patch("posthog.temporal.data_imports.sources.hubspot.hubspot._get_property_names") as mock_props,
+        patch("posthog.temporal.data_imports.sources.hubspot.hubspot.requests.get") as mock_get,
+    ):
+        mock_props.return_value = ["createdate", "domain", "name", "custom_field"]
+        mock_get.return_value = mock_response
+
+        tables = list(
+            get_rows(
+                api_key="dummy",
+                refresh_token="dummy",
+                endpoint="companies",
+                logger=logger,
+                resumable_source_manager=mock_resumable_manager,
+                include_custom_props=True,
+            )
+        )
+
+        assert len(tables) == 1
+        table = tables[0]
+
+        # Both rows should have all columns, including ones HubSpot omitted
+        assert "id" in table.column_names
+        assert "domain" in table.column_names
+        assert "custom_field" in table.column_names
+        assert table.num_rows == 2
+
+        # Second row should have None for omitted properties
+        rows = table.to_pylist()
+        assert rows[1]["domain"] is None
+        assert rows[1]["custom_field"] is None
+        # First row should still have its values
+        assert rows[0]["domain"] == "acme.com"
+        assert rows[0]["custom_field"] == "value1"

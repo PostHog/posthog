@@ -146,6 +146,7 @@ settingExpr: identifier EQ_SINGLE literal;
 windowExpr: winPartitionByClause? winOrderByClause? winFrameClause?;
 winPartitionByClause: PARTITION BY columnExprList;
 winOrderByClause: ORDER BY orderExprList;
+withinGroupClause: WITHIN GROUP LPAREN orderByClause RPAREN;
 winFrameClause: (ROWS | RANGE) winFrameExtend;
 winFrameExtend
     : winFrameBound                             # frameStart
@@ -200,6 +201,7 @@ columnExpr
     | ASTERISK COLUMNS LPAREN columnExprList RPAREN                                      # ColumnExprSpreadColumnsList
     | identifier (LPAREN columnExprs=columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList=columnExprList? RPAREN)? OVER LPAREN windowExpr RPAREN # ColumnExprWinFunction
     | identifier (LPAREN columnExprs=columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList=columnExprList? RPAREN)? OVER identifier               # ColumnExprWinFunctionTarget
+    | identifier LPAREN columnExprs=columnExprList? RPAREN withinGroupClause                                                                        # ColumnExprFunctionWithinGroup
     | identifier (LPAREN columnExprs=columnExprList? RPAREN)? LPAREN DISTINCT? columnArgList=columnExprList? RPAREN                                 # ColumnExprFunction
     | columnExpr LPAREN selectSetStmt RPAREN                                              # ColumnExprCallSelect
     | columnExpr LPAREN columnExprList? RPAREN                                            # ColumnExprCall

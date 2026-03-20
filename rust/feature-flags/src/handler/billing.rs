@@ -1,10 +1,7 @@
 use crate::{
     api::{errors::FlagError, types::FlagsResponse},
     flags::{
-        flag_analytics::{
-            increment_request_count, PRODUCT_TOUR_TARGETING_FLAG_PREFIX,
-            SURVEY_TARGETING_FLAG_PREFIX,
-        },
+        flag_analytics::{increment_request_count, is_billable_flag_key},
         flag_models::FeatureFlagList,
         flag_request::FlagRequestType,
     },
@@ -81,9 +78,7 @@ pub async fn record_usage(
 /// `filtered_out_flag_ids`, so no separate check is needed.
 fn contains_billable_flags(filtered_flags: &FeatureFlagList) -> bool {
     filtered_flags.flags.iter().any(|flag| {
-        !filtered_flags.filtered_out_flag_ids.contains(&flag.id)
-            && !flag.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)
-            && !flag.key.starts_with(PRODUCT_TOUR_TARGETING_FLAG_PREFIX)
+        !filtered_flags.filtered_out_flag_ids.contains(&flag.id) && is_billable_flag_key(&flag.key)
     })
 }
 
@@ -96,6 +91,9 @@ pub fn should_record_usage(filtered_flags: &FeatureFlagList) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::flags::flag_analytics::{
+        PRODUCT_TOUR_TARGETING_FLAG_PREFIX, SURVEY_TARGETING_FLAG_PREFIX,
+    };
     use crate::flags::flag_models::{FeatureFlag, FlagFilters, FlagPropertyGroup};
 
     use std::collections::HashSet;
@@ -114,12 +112,14 @@ mod tests {
                     properties: Some(vec![]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-                holdout_groups: None,
+
+                holdout: None,
             },
             deleted: false,
             active: true,
@@ -210,6 +210,7 @@ mod tests {
         let flag_list = FeatureFlagList {
             flags: vec![disabled_flag.clone()],
             filtered_out_flag_ids: HashSet::from([disabled_flag.id]),
+            evaluation_metadata: None,
         };
 
         // Should NOT record usage when only filtered-out flags are present
@@ -224,6 +225,7 @@ mod tests {
         let flag_list = FeatureFlagList {
             flags: vec![disabled_flag.clone(), active_flag],
             filtered_out_flag_ids: HashSet::from([disabled_flag.id]),
+            evaluation_metadata: None,
         };
 
         // Should record usage when at least one non-filtered, non-survey flag is present
@@ -238,6 +240,7 @@ mod tests {
         let flag_list = FeatureFlagList {
             flags: vec![disabled_survey_flag.clone()],
             filtered_out_flag_ids: HashSet::from([disabled_survey_flag.id]),
+            evaluation_metadata: None,
         };
 
         // Should NOT record usage for filtered-out survey flags
@@ -252,6 +255,7 @@ mod tests {
         let flag_list = FeatureFlagList {
             flags: vec![disabled_flag.clone(), survey_flag],
             filtered_out_flag_ids: HashSet::from([disabled_flag.id]),
+            evaluation_metadata: None,
         };
 
         // Should NOT record usage when only filtered-out and survey flags are present
@@ -294,6 +298,7 @@ mod tests {
         let flag_list = FeatureFlagList {
             flags: vec![disabled_tour_flag.clone()],
             filtered_out_flag_ids: HashSet::from([disabled_tour_flag.id]),
+            evaluation_metadata: None,
         };
 
         // Should NOT record usage for filtered-out product tour flags

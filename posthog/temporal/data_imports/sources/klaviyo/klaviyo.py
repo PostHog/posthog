@@ -1,14 +1,27 @@
-from datetime import date, datetime
+import dataclasses
+from collections.abc import Iterator
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
-from dlt.sources.helpers.requests import Request, Response
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
+import requests
+from structlog.types import FilteringBoundLogger
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.security.outbound_proxy import external_requests
+from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
-from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.klaviyo.settings import KLAVIYO_ENDPOINTS, KlaviyoEndpointConfig
+
+KLAVIYO_BASE_URL = "https://a.klaviyo.com/api"
+
+
+class KlaviyoRetryableError(Exception):
+    pass
+
+
+@dataclasses.dataclass
+class KlaviyoResumeConfig:
+    next_url: str
 
 
 def _format_incremental_value(value: Any) -> str:
@@ -37,86 +50,31 @@ def _build_filter(
         return incremental_filter
 
 
-def get_resource(
-    name: str,
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
-) -> EndpointResource:
-    config = KLAVIYO_ENDPOINTS[name]
+def _build_url(base_url: str, params: dict[str, Any]) -> str:
+    """Build a URL with query params without percent-encoding.
 
-    formatted_last_value = (
-        _format_incremental_value(db_incremental_field_last_value)
-        if should_use_incremental_field and db_incremental_field_last_value
-        else None
-    )
+    Klaviyo's API expects literal brackets, parentheses, and quotes in query params
+    (e.g. page[size]=100, filter=equals(messages.channel,'email')).
+    All param keys and values are constructed internally, so no encoding is needed.
+    """
+    if not params:
+        return base_url
+    parts = [f"{key}={value}" for key, value in params.items()]
+    return f"{base_url}?{'&'.join(parts)}"
 
-    filter_value = _build_filter(config, incremental_field, formatted_last_value)
 
-    params: dict[str, Any] = {}
-    if config.page_size is not None and config.page_size > 0:
-        params["page[size]"] = config.page_size
-    if filter_value:
-        params["filter"] = filter_value
-    if config.sort:
-        params["sort"] = config.sort
-
+def _get_headers(api_key: str) -> dict[str, str]:
     return {
-        "name": config.name,
-        "table_name": config.name,
-        "primary_key": "id",
-        "write_disposition": {
-            "disposition": "merge",
-            "strategy": "upsert",
-        }
-        if should_use_incremental_field
-        else "replace",
-        "endpoint": {
-            "data_selector": "data",
-            "path": config.path,
-            "params": params if params else {},
-        },
-        "table_format": "delta",
-    }
-
-
-class KlaviyoPaginator(BasePaginator):
-    def update_state(self, response: Response, data: list[Any] | None = None) -> None:
-        res = response.json()
-
-        self._next_offset = None
-
-        if not res:
-            self._has_next_page = False
-            return
-
-        links = res.get("links", {})
-        next_url = links.get("next")
-
-        if next_url:
-            self._next_offset = next_url
-            self._has_next_page = True
-        else:
-            self._has_next_page = False
-
-    def update_request(self, request: Request) -> None:
-        if self._next_offset:
-            # Use the full next URL from the response
-            # Clear params since the next URL already contains all query parameters
-            request.url = self._next_offset
-            request.params = {}
-
-
-def validate_credentials(api_key: str) -> bool:
-    url = "https://a.klaviyo.com/api/accounts"
-    headers = {
         "Authorization": f"Klaviyo-API-Key {api_key}",
         "revision": "2024-10-15",
         "Accept": "application/json",
     }
 
+
+def validate_credentials(api_key: str) -> bool:
+    url = f"{KLAVIYO_BASE_URL}/accounts"
     try:
-        response = external_requests.get(url, headers=headers, timeout=10)
+        response = requests.get(url, headers=_get_headers(api_key), timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -130,58 +88,134 @@ def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
+def _build_initial_params(
+    config: KlaviyoEndpointConfig,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+    incremental_field: str | None,
+) -> dict[str, Any]:
+    """Build query params for the initial Klaviyo API request."""
+    params: dict[str, Any] = {}
+
+    if config.page_size is not None and config.page_size > 0:
+        params["page[size]"] = config.page_size
+
+    # On first sync/full refresh, apply a lookback window to avoid fetching the entire history
+    if should_use_incremental_field and not db_incremental_field_last_value and config.default_lookback_days:
+        db_incremental_field_last_value = datetime.now(UTC) - timedelta(days=config.default_lookback_days)
+
+    formatted_last_value = (
+        _format_incremental_value(db_incremental_field_last_value)
+        if should_use_incremental_field and db_incremental_field_last_value
+        else None
+    )
+    filter_value = _build_filter(config, incremental_field, formatted_last_value)
+    if filter_value:
+        params["filter"] = filter_value
+
+    if config.sort:
+        params["sort"] = config.sort
+
+    return params
+
+
+def get_rows(
+    api_key: str,
+    endpoint: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[KlaviyoResumeConfig],
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+    incremental_field: str | None = None,
+) -> Iterator[Any]:
+    config = KLAVIYO_ENDPOINTS[endpoint]
+    headers = _get_headers(api_key)
+    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
+
+    params = _build_initial_params(
+        config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
+    )
+
+    # Check for resume state
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    if resume_config is not None:
+        url = resume_config.next_url
+        logger.debug(f"Klaviyo: resuming from URL: {url}")
+    else:
+        url = _build_url(f"{KLAVIYO_BASE_URL}{config.path}", params)
+
+    @retry(
+        retry=retry_if_exception_type((KlaviyoRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+        stop=stop_after_attempt(5),
+        wait=wait_exponential_jitter(initial=1, max=30),
+        reraise=True,
+    )
+    def fetch_page(page_url: str) -> dict:
+        response = requests.get(page_url, headers=headers, timeout=60)
+
+        if response.status_code == 429 or response.status_code >= 500:
+            raise KlaviyoRetryableError(f"Klaviyo API error (retryable): status={response.status_code}, url={page_url}")
+
+        if not response.ok:
+            logger.error(f"Klaviyo API error: status={response.status_code}, body={response.text}, url={page_url}")
+            response.raise_for_status()
+
+        return response.json()
+
+    while True:
+        data = fetch_page(url)
+
+        items = data.get("data", [])
+        if not items:
+            break
+
+        # Get next page URL before iterating items
+        links = data.get("links", {})
+        next_url = links.get("next")
+
+        for item in items:
+            batcher.batch(_flatten_item(item))
+
+            if batcher.should_yield():
+                py_table = batcher.get_table()
+                yield py_table
+
+                if next_url:
+                    resumable_source_manager.save_state(KlaviyoResumeConfig(next_url=next_url))
+
+        if not next_url:
+            break
+
+        url = next_url
+
+    if batcher.should_yield(include_incomplete_chunk=True):
+        py_table = batcher.get_table()
+        yield py_table
+
+
 def klaviyo_source(
     api_key: str,
     endpoint: str,
-    team_id: int,
-    job_id: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[KlaviyoResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
 ) -> SourceResponse:
     endpoint_config = KLAVIYO_ENDPOINTS[endpoint]
 
-    config: RESTAPIConfig = {
-        "client": {
-            "base_url": "https://a.klaviyo.com/api",
-            "auth": {
-                "type": "api_key",
-                "api_key": f"Klaviyo-API-Key {api_key}",
-                "name": "Authorization",
-                "location": "header",
-            },
-            "headers": {
-                "revision": "2024-10-15",
-                "Accept": "application/json",
-            },
-            "paginator": KlaviyoPaginator(),
-        },
-        "resource_defaults": {
-            "primary_key": "id",
-            "write_disposition": "replace",
-            "endpoint": {
-                "params": {
-                    "page[size]": 100,
-                },
-            },
-        },
-        "resources": [
-            get_resource(
-                endpoint,
-                should_use_incremental_field,
-                db_incremental_field_last_value,
-                incremental_field,
-            )
-        ],
-    }
-
-    resources = rest_api_resources(config, team_id, job_id, None)
-    assert len(resources) == 1
-    resource = resources[0].add_map(_flatten_item)
-
     return SourceResponse(
         name=endpoint,
-        items=lambda: resource,
+        items=lambda: get_rows(
+            api_key=api_key,
+            endpoint=endpoint,
+            logger=logger,
+            resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=db_incremental_field_last_value,
+            incremental_field=incremental_field,
+        ),
         primary_keys=["id"],
         partition_count=1,
         partition_size=1,

@@ -9,9 +9,10 @@ import unittest.mock
 
 from google.cloud import bigquery
 
-from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
+from posthog.models.integration import Integration
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
+from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryInsertInputs,
     bigquery_default_fields,
@@ -71,6 +72,7 @@ async def _run_activity(
     expect_duplicates: bool = False,
     min_ingested_timestamp: dt.datetime = TEST_TIME,
     timestamp_columns: collections.abc.Sequence[str] = (),
+    integration: Integration | None = None,
 ):
     """Helper function to run BigQuery main activity and assert records are exported."""
     insert_inputs = BigQueryInsertInputs(
@@ -85,6 +87,7 @@ async def _run_activity(
         batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
         batch_export_id=str(uuid.uuid4()),
+        integration_id=integration.id if integration is not None else None,
         **bigquery_config,
     )
 
@@ -165,6 +168,7 @@ async def _run_activity(
     ],
     indirect=True,
 )
+@pytest.mark.parametrize("integration", ["key_file", "impersonated", None], indirect=True)
 async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
     clickhouse_client,
     activity_environment,
@@ -178,6 +182,7 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
     data_interval_start,
     data_interval_end,
     ateam,
+    integration,
 ):
     """Test that the `insert_into_bigquery_activity` function inserts data into a BigQuery table.
 
@@ -221,6 +226,7 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
         batch_export_model=batch_export_model,
         bigquery_config=bigquery_config,
         sort_key=sort_key,
+        integration=integration,
     )
 
 

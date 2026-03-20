@@ -121,6 +121,8 @@ def _build_extra(record: dict[str, Any]) -> dict[str, Any]:
 
 
 ZENDESK_TICKETS_CONFIG = SignalSourceTableConfig(
+    source_product="zendesk",
+    source_type="ticket",
     emitter=zendesk_ticket_emitter,
     partition_field="created_at",
     fields=REQUIRED_FIELDS + EXTRA_FIELDS,

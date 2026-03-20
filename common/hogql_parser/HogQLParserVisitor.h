@@ -151,6 +151,8 @@ public:
 
     virtual std::any visitWinOrderByClause(HogQLParser::WinOrderByClauseContext *context) = 0;
 
+    virtual std::any visitWithinGroupClause(HogQLParser::WithinGroupClauseContext *context) = 0;
+
     virtual std::any visitWinFrameClause(HogQLParser::WinFrameClauseContext *context) = 0;
 
     virtual std::any visitFrameStart(HogQLParser::FrameStartContext *context) = 0;
@@ -246,6 +248,8 @@ public:
     virtual std::any visitColumnExprArraySlice(HogQLParser::ColumnExprArraySliceContext *context) = 0;
 
     virtual std::any visitColumnExprNullTupleAccess(HogQLParser::ColumnExprNullTupleAccessContext *context) = 0;
+
+    virtual std::any visitColumnExprFunctionWithinGroup(HogQLParser::ColumnExprFunctionWithinGroupContext *context) = 0;
 
     virtual std::any visitColumnExprPositional(HogQLParser::ColumnExprPositionalContext *context) = 0;
 

@@ -10,14 +10,16 @@ from dateutil import parser
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Organization, Team, WebExperiment
+from posthog.models import Organization, Team
 from posthog.models.action.action import Action
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort.cohort import Cohort
-from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
 from posthog.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
 from posthog.models.user import User
 from posthog.test.test_journeys import journeys_for
+
+from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
+from products.experiments.backend.models.web_experiment import WebExperiment
 
 from ee.api.test.base import APILicensedTest
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
@@ -28,6 +30,55 @@ class TestExperimentCRUD(APILicensedTest):
     def test_can_list_experiments(self):
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_can_list_eligible_feature_flags(self) -> None:
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="eligible-flag",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="wrong-order-flag",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="single-variant-flag",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 100},
+                    ]
+                },
+            },
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/eligible_feature_flags/?order=key")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual([flag["key"] for flag in response.json()["results"]], ["eligible-flag"])
 
     @parameterized.expand(
         [
@@ -99,7 +150,7 @@ class TestExperimentCRUD(APILicensedTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(19, 20)):
+        with self.assertNumQueries(FuzzyInt(18, 22)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -116,7 +167,7 @@ class TestExperimentCRUD(APILicensedTest):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(FuzzyInt(23, 24)):
+        with self.assertNumQueries(FuzzyInt(18, 22)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -532,8 +583,8 @@ class TestExperimentCRUD(APILicensedTest):
 
         self.assertEqual(created_ff.key, ff_key)
         self.assertEqual(
-            created_ff.filters["holdout_groups"],
-            [{"properties": [], "rollout_percentage": 20, "variant": f"holdout-{holdout_id}"}],
+            created_ff.filters["holdout"],
+            {"id": holdout_id, "exclusion_percentage": 20},
         )
 
         exp_id = response.json()["id"]
@@ -567,8 +618,8 @@ class TestExperimentCRUD(APILicensedTest):
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
         self.assertEqual(
-            created_ff.filters["holdout_groups"],
-            [{"properties": [], "rollout_percentage": 5, "variant": f"holdout-{holdout_2_id}"}],
+            created_ff.filters["holdout"],
+            {"id": holdout_2_id, "exclusion_percentage": 5},
         )
 
         # update parameters
@@ -602,8 +653,8 @@ class TestExperimentCRUD(APILicensedTest):
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
         self.assertEqual(
-            created_ff.filters["holdout_groups"],
-            [{"properties": [], "rollout_percentage": 5, "variant": f"holdout-{holdout_2_id}"}],
+            created_ff.filters["holdout"],
+            {"id": holdout_2_id, "exclusion_percentage": 5},
         )
         self.assertEqual(
             created_ff.filters["multivariate"]["variants"],
@@ -626,7 +677,7 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(experiment.holdout_id, None)
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
-        self.assertEqual(created_ff.filters["holdout_groups"], None)
+        self.assertEqual(created_ff.filters["holdout"], None)
 
         # try adding invalid holdout
         response = self.client.patch(
@@ -660,8 +711,8 @@ class TestExperimentCRUD(APILicensedTest):
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
         self.assertEqual(
-            created_ff.filters["holdout_groups"],
-            [{"properties": [], "rollout_percentage": 5, "variant": f"holdout-{holdout_2_id}"}],
+            created_ff.filters["holdout"],
+            {"id": holdout_2_id, "exclusion_percentage": 5},
         )
 
     def test_saved_metrics(self):
@@ -684,11 +735,14 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["name"], "Test Experiment saved metric")
         self.assertEqual(response.json()["description"], "Test description")
+        saved_metric_uuid = response.json()["query"]["uuid"]
+        self.assertTrue(saved_metric_uuid)
         self.assertEqual(
             response.json()["query"],
             {
                 "kind": "ExperimentTrendsQuery",
                 "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                "uuid": saved_metric_uuid,
             },
         )
         self.assertEqual(response.json()["created_by"]["id"], self.user.pk)
@@ -731,6 +785,7 @@ class TestExperimentCRUD(APILicensedTest):
             {
                 "kind": "ExperimentTrendsQuery",
                 "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                "uuid": saved_metric_uuid,
             },
         )
 
@@ -2163,7 +2218,7 @@ class TestExperimentCRUD(APILicensedTest):
                     ]
                 },
                 "aggregation_group_type_index": None,
-                "holdout_groups": None,
+                "holdout": None,
             },
         )
 
@@ -2220,7 +2275,7 @@ class TestExperimentCRUD(APILicensedTest):
                     ]
                 },
                 "aggregation_group_type_index": None,
-                "holdout_groups": None,
+                "holdout": None,
             },
         )
 
@@ -2288,7 +2343,7 @@ class TestExperimentCRUD(APILicensedTest):
                     ]
                 },
                 "aggregation_group_type_index": None,
-                "holdout_groups": None,
+                "holdout": None,
             },
         )
 
@@ -2963,17 +3018,16 @@ class TestExperimentCRUD(APILicensedTest):
                 "filters": {"events": [{"order": 0, "id": "$pageview"}]},
                 "metrics": [
                     {
-                        "kind": "ExperimentTrendsQuery",
-                        "count_query": {
-                            "kind": "TrendsQuery",
-                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                        },
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
                     }
                 ],
                 "metrics_secondary": [
                     {
-                        "kind": "ExperimentTrendsQuery",
-                        "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$click"}]},
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$click"},
                     }
                 ],
                 "stats_config": {"method": "bayesian"},
@@ -3084,17 +3138,16 @@ class TestExperimentCRUD(APILicensedTest):
                 "filters": {"events": [{"order": 0, "id": "$pageview"}]},
                 "metrics": [
                     {
-                        "kind": "ExperimentTrendsQuery",
-                        "count_query": {
-                            "kind": "TrendsQuery",
-                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                        },
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
                     }
                 ],
                 "metrics_secondary": [
                     {
-                        "kind": "ExperimentTrendsQuery",
-                        "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$click"}]},
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$click"},
                     }
                 ],
             },
@@ -3463,6 +3516,96 @@ class TestExperimentCRUD(APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["status"], "draft")
+
+    # ------------------------------------------------------------------
+    # Launch endpoint
+    # ------------------------------------------------------------------
+
+    def test_launch_experiment_endpoint(self):
+        # Create a draft experiment with metrics
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Launch Endpoint Test",
+                "feature_flag_key": "launch-endpoint-flag",
+                "metrics": [
+                    {
+                        "kind": "ExperimentTrendsQuery",
+                        "count_query": {
+                            "kind": "TrendsQuery",
+                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                        },
+                    }
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+        self.assertEqual(response.json()["status"], "draft")
+
+        # Verify flag is inactive
+        flag = FeatureFlag.objects.get(key="launch-endpoint-flag", team=self.team)
+        self.assertFalse(flag.active)
+
+        # Launch the experiment
+        launch_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/launch/",
+        )
+        self.assertEqual(launch_response.status_code, status.HTTP_200_OK)
+
+        data = launch_response.json()
+        self.assertEqual(data["status"], "running")
+        self.assertIsNotNone(data["start_date"])
+
+        # Verify flag is now active
+        flag.refresh_from_db()
+        self.assertTrue(flag.active)
+
+    def test_launch_experiment_endpoint_already_running(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Already Running Endpoint",
+                "feature_flag_key": "already-running-endpoint",
+                "start_date": "2024-01-01T10:00",
+                "metrics": [
+                    {
+                        "kind": "ExperimentTrendsQuery",
+                        "count_query": {
+                            "kind": "TrendsQuery",
+                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                        },
+                    }
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        launch_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/launch/",
+        )
+        self.assertEqual(launch_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_launch_experiment_endpoint_without_metrics(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "No Metrics Endpoint",
+                "feature_flag_key": "no-metrics-endpoint",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        launch_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/launch/",
+        )
+        self.assertEqual(launch_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(launch_response.json()["status"], "running")
 
 
 class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):

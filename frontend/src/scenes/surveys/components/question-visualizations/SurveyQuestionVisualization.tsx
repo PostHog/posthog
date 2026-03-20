@@ -1,8 +1,10 @@
 import { useValues } from 'kea'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { IconCopy } from '@posthog/icons'
+import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber, pluralize } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { AnalyzeResponsesButton } from 'scenes/surveys/components/AnalyzeResponsesButton'
 import { MultipleChoiceQuestionViz } from 'scenes/surveys/components/question-visualizations/MultipleChoiceQuestionViz'
@@ -12,7 +14,7 @@ import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { QuestionProcessedResponses, SurveyQuestion, SurveyQuestionType } from '~/types'
+import { QuestionProcessedResponses, SurveyEventProperties, SurveyQuestion, SurveyQuestionType } from '~/types'
 
 import { SCALE_LABELS } from '../../constants'
 import { isThumbQuestion } from '../../utils'
@@ -75,6 +77,24 @@ function QuestionTitle({
                         <span className={part.className}>{part.text}</span>
                     </span>
                 ))}
+                {question.id && (
+                    <>
+                        <span className="text-border-dark">•</span>
+                        <LemonButton
+                            size="xxsmall"
+                            type="tertiary"
+                            icon={<IconCopy />}
+                            onClick={() =>
+                                void copyToClipboard(
+                                    `${SurveyEventProperties.SURVEY_RESPONSE}_${question.id}`,
+                                    'survey response key'
+                                )
+                            }
+                        >
+                            Copy response key
+                        </LemonButton>
+                    </>
+                )}
             </div>
             <div className="flex flex-row justify-between items-center gap-3">
                 <h3 className="text-xl font-semibold mb-0 leading-tight">

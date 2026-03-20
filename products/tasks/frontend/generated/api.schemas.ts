@@ -37,6 +37,12 @@ export interface PaginatedTaskListApi {
 }
 
 /**
+ * Latest run details for this task
+ * @nullable
+ */
+export type PatchedTaskApiLatestRun = { [key: string]: unknown } | null | null
+
+/**
  * * `error_tracking` - Error Tracking
  * `eval_clusters` - Eval Clusters
  * `user_created` - User Created
@@ -136,7 +142,11 @@ export interface PatchedTaskApi {
     github_integration?: number | null
     /** JSON schema for the task. This is used to validate the output of the task. */
     json_schema?: unknown | null
-    readonly latest_run?: string
+    /**
+     * Latest run details for this task
+     * @nullable
+     */
+    readonly latest_run?: PatchedTaskApiLatestRun
     readonly created_at?: string
     readonly updated_at?: string
     readonly created_by?: UserBasicApi
@@ -169,6 +179,10 @@ export interface TaskRunCreateRequestApi {
      * @nullable
      */
     branch?: string | null
+    /** ID of a previous run to resume from. Must belong to the same task. */
+    resume_from_run_id?: string
+    /** Follow-up user message to include in the resumed run's prompt. */
+    pending_user_message?: string
 }
 
 /**
@@ -472,6 +486,13 @@ export interface ConnectionTokenResponseApi {
 export interface TaskRunRelayMessageRequestApi {
     /** @maxLength 10000 */
     text: string
+}
+
+export interface TaskRunRelayMessageResponseApi {
+    /** Relay status: 'accepted' or 'skipped' */
+    status: string
+    /** Relay workflow ID when accepted */
+    relay_id?: string
 }
 
 /**

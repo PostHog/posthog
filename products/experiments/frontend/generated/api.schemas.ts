@@ -106,6 +106,63 @@ export interface PatchedExperimentHoldoutApi {
 }
 
 /**
+ * Mixin for serializers to add user access control fields
+ */
+export interface ExperimentSavedMetricApi {
+    readonly id: number
+    /** @maxLength 400 */
+    name: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    description?: string | null
+    query: unknown
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+    tags?: unknown[]
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+}
+
+export interface PaginatedExperimentSavedMetricListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ExperimentSavedMetricApi[]
+}
+
+/**
+ * Mixin for serializers to add user access control fields
+ */
+export interface PatchedExperimentSavedMetricApi {
+    readonly id?: number
+    /** @maxLength 400 */
+    name?: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    description?: string | null
+    query?: unknown
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    readonly updated_at?: string
+    tags?: unknown[]
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
+}
+
+/**
  * * `server` - Server
  * `client` - Client
  * `all` - All
@@ -162,6 +219,7 @@ export interface MinimalFeatureFlagApi {
 * `device_id` - Device ID */
     bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
     readonly evaluation_tags: readonly string[]
+    readonly evaluation_contexts: readonly string[]
 }
 
 export interface ExperimentToSavedMetricApi {
@@ -337,6 +395,17 @@ export interface PatchedExperimentApi {
 }
 
 export type ExperimentHoldoutsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ExperimentSavedMetricsListParams = {
     /**
      * Number of results to return per page.
      */

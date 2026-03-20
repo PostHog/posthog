@@ -6,6 +6,7 @@ import { productScenes } from '~/products'
 export const appScenes: Record<Scene | string, () => any> = {
     ...productScenes,
     [Scene.AdvancedActivityLogs]: () => import('./audit-logs/AdvancedActivityLogsScene'),
+    [Scene.AgenticAuthorize]: () => import('./agentic/AgenticAuthorize'),
     [Scene.Approval]: () => import('./approvals/ApprovalDetail'),
     [Scene.AsyncMigrations]: () => import('./instance/AsyncMigrations/AsyncMigrations'),
     [Scene.MaterializedColumns]: () => import('./data-management/MaterializedColumns/MaterializedColumns'),
@@ -27,7 +28,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.DataPipelinesNew]: () => import('./data-pipelines/DataPipelinesNewScene'),
     [Scene.DataWarehouseSourceNew]: () => import('./data-warehouse/new/NewSourceWizard'),
     [Scene.DataWarehouseSource]: () => import('./data-warehouse/settings/DataWarehouseSourceScene'),
-    [Scene.DataWarehouse]: () => import('./data-warehouse/DataWarehouseScene'),
+    [Scene.DataOps]: () => import('./data-warehouse/DataWarehouseScene'),
     [Scene.DeadLetterQueue]: () => import('./instance/DeadLetterQueue/DeadLetterQueue'),
     [Scene.Destinations]: () => import('./data-pipelines/DestinationsScene'),
     [Scene.DebugHog]: () => import('./debug/hog/HogRepl'),

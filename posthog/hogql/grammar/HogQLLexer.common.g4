@@ -124,6 +124,7 @@ WHERE: W H E R E;
 WHILE: W H I L E;
 WINDOW: W I N D O W;
 WITH: W I T H;
+WITHIN: W I T H I N;
 YEAR: Y E A R | Y Y Y Y;
 
 // Tokens
@@ -301,4 +302,3 @@ HOGQLX_TEXT_LT
 
 HOGQLX_TEXT_WS
     : [ \t\r\n]+ -> channel(HIDDEN);
-

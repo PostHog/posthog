@@ -63,6 +63,8 @@ class Command(BaseCommand):
             cluster=CLICKHOUSE_MIGRATIONS_CLUSTER,
             verify_ssl_cert=False,
             randomize_replica_paths=settings.TEST or settings.E2E_TESTING,
+            # don't use the egress proxy, clickhouse is internal
+            trust_env=False,
         )
 
         if options["plan"] or options["check"]:
