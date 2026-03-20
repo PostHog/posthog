@@ -16,7 +16,7 @@ from django.utils.timezone import now
 
 import structlog
 import posthoganalytics
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import CursorPagination
@@ -746,6 +746,15 @@ class BatchExportSerializer(serializers.ModelSerializer):
             except DatabricksIntegrationError as e:
                 raise serializers.ValidationError(str(e))
 
+        if destination_type == BatchExportDestination.Destination.BIGQUERY:
+            team_id = self.context["team_id"]
+            integration = destination_attrs.get("integration")
+            if integration is not None:
+                if integration.team_id != team_id:
+                    raise serializers.ValidationError("Integration does not belong to this team.")
+                if integration.kind != Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT:
+                    raise serializers.ValidationError("Integration is not a Google Cloud service account integration.")
+
         if destination_type == BatchExportDestination.Destination.AZURE_BLOB:
             team_id = self.context["team_id"]
             team = Team.objects.get(id=team_id)
@@ -1183,6 +1192,17 @@ class BatchExportBackfillSerializer(serializers.ModelSerializer):
         model = BatchExportBackfill
         fields = "__all__"
 
+    @extend_schema_field(
+        {
+            "type": "object",
+            "nullable": True,
+            "properties": {
+                "total_runs": {"type": "integer", "nullable": True},
+                "finished_runs": {"type": "integer", "nullable": True},
+                "progress": {"type": "number", "nullable": True},
+            },
+        }
+    )
     def get_progress(self, obj: BatchExportBackfill) -> BatchExportBackfillProgress | None:
         """Return progress information containing total runs, finished runs, and progress percentage.
 

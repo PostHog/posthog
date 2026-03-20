@@ -124,6 +124,17 @@ class VideoSegmentOutcome(BaseModel):
     summary: str
 
 
+class VideoFixSuggestion(BaseModel):
+    """An actionable fix suggestion grounded in observed session behavior."""
+
+    model_config = ConfigDict(frozen=True)
+
+    segment_index: int = Field(description="Index of the segment where the issue was observed")
+    issue: str = Field(description="What went wrong — specific error, failure, or friction point")
+    evidence: str = Field(description="What was observed: exact error message, failed action, or user behavior")
+    suggestion: str = Field(description="Actionable fix or improvement")
+
+
 class ConsolidatedVideoAnalysis(BaseModel):
     """Complete output from video segment consolidation including segments, outcomes, and session-level analysis."""
 
@@ -132,3 +143,7 @@ class ConsolidatedVideoAnalysis(BaseModel):
     segments: list[ConsolidatedVideoSegment]
     session_outcome: VideoSessionOutcome
     segment_outcomes: list[VideoSegmentOutcome]
+    fix_suggestions: list[VideoFixSuggestion] = Field(
+        default_factory=list,
+        description="Actionable fix suggestions grounded in observed issues — only include if there is clear evidence",
+    )

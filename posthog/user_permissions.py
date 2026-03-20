@@ -270,8 +270,8 @@ class UserTeamPermissions:
         if default_access_level == "member":
             return OrganizationMembership.Level.MEMBER
 
-        # No default access control set, all organization members have implicit access
-        return cast("OrganizationMembership.Level", organization_membership.level)
+        # No access control row in the database, admin by default. See: `default_access_level()` in `posthog/rbac/user_access_control.py`
+        return OrganizationMembership.Level.ADMIN
 
 
 class UserDashboardPermissions:

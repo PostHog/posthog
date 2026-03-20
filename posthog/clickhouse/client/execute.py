@@ -36,6 +36,7 @@ from posthog.clickhouse.query_tagging import (
 )
 from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, TEST
+from posthog.settings.data_stores import is_enable_analyzer_team
 from posthog.temporal.common.clickhouse import update_query_tags_with_temporal_info
 from posthog.utils import generate_short_id, patchable
 
@@ -271,6 +272,10 @@ def sync_execute(
         **CLICKHOUSE_PER_TEAM_QUERY_SETTINGS.get(str(team_id), {}),
         **(settings or {}),
     }
+
+    # Only enable if not explicitly disabled — setdefault preserves existing value
+    if team_id is not None and is_enable_analyzer_team(team_id):
+        core_settings.setdefault("enable_analyzer", 1)
 
     kill_switch_level = KillSwitchLevel.OFF if TEST else get_kill_switch_level()
     if kill_switch_level != KillSwitchLevel.OFF and ch_user not in _KILL_SWITCH_EXEMPT_USERS:

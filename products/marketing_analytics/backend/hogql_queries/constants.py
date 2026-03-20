@@ -182,8 +182,8 @@ BASE_COLUMN_MAPPING = {
             ],
         ),
     ),
-    MarketingAnalyticsBaseColumns.REPORTED_CONVERSION: ast.Alias(
-        alias=MarketingAnalyticsBaseColumns.REPORTED_CONVERSION,
+    MarketingAnalyticsBaseColumns.REPORTED_CONVERSIONS: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.REPORTED_CONVERSIONS,
         expr=ast.Call(
             name="round",
             args=[
@@ -222,8 +222,8 @@ BASE_COLUMN_MAPPING = {
             ],
         ),
     ),
-    MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSION: ast.Alias(
-        alias=MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSION,
+    MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS,
         expr=ast.Call(
             name="round",
             args=[
@@ -432,10 +432,10 @@ COLUMN_KIND_MAPPING = {
     MarketingAnalyticsBaseColumns.IMPRESSIONS: "unit",
     MarketingAnalyticsBaseColumns.CPC: "currency",
     MarketingAnalyticsBaseColumns.CTR: "percentage",
-    MarketingAnalyticsBaseColumns.REPORTED_CONVERSION: "unit",
+    MarketingAnalyticsBaseColumns.REPORTED_CONVERSIONS: "unit",
     MarketingAnalyticsBaseColumns.REPORTED_CONVERSION_VALUE: "currency",
     MarketingAnalyticsBaseColumns.REPORTED_ROAS: "unit",
-    MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSION: "currency",
+    MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS: "currency",
 }
 
 # isIncreaseBad mapping for MarketingAnalyticsBaseColumns
@@ -448,10 +448,10 @@ IS_INCREASE_BAD_MAPPING = {
     MarketingAnalyticsBaseColumns.IMPRESSIONS: False,  # More impressions is good
     MarketingAnalyticsBaseColumns.CPC: True,  # Higher CPC is bad
     MarketingAnalyticsBaseColumns.CTR: False,  # Higher CTR is good
-    MarketingAnalyticsBaseColumns.REPORTED_CONVERSION: False,  # More reported conversions is good
+    MarketingAnalyticsBaseColumns.REPORTED_CONVERSIONS: False,  # More reported conversions is good
     MarketingAnalyticsBaseColumns.REPORTED_CONVERSION_VALUE: False,  # Higher conversion value is good
     MarketingAnalyticsBaseColumns.REPORTED_ROAS: False,  # Higher ROAS is good
-    MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSION: True,  # Higher cost per conversion is bad
+    MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS: True,  # Higher cost per conversion is bad
 }
 
 

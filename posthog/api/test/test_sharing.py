@@ -857,6 +857,7 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
             "showInspector": True,
             "legend": False,
             "detailed": True,
+            "theme": "dark",
         }
 
         response = self.client.patch(
@@ -871,7 +872,7 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
     @patch("posthog.api.exports.exporter.export_asset.delay")
     def test_partial_settings_are_filled_with_defaults(self, patched_exporter_task: Mock):
         """Test that partial settings are filled with defaults during validation"""
-        partial_settings = {"whitelabel": True, "legend": True}
+        partial_settings = {"whitelabel": True, "legend": True, "theme": "light"}
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
@@ -885,6 +886,7 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
         expected_settings = {
             "whitelabel": True,
             "legend": True,
+            "theme": "light",
         }
         assert data["settings"] == expected_settings
 

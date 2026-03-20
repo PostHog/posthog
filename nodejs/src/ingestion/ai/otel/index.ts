@@ -3,11 +3,12 @@ import { PluginEvent } from '~/plugin-scaffold'
 import { aiOtelEventTypeCounter, aiOtelMiddlewareCounter } from '../metrics'
 import { mapOtelAttributes } from './attribute-mapping'
 import { pydanticAi } from './middleware/pydantic-ai'
+import { traceloop } from './middleware/traceloop'
 import { OtelLibraryMiddleware } from './middleware/types'
 import { vercelAi } from './middleware/vercel-ai'
 
 // Middleware registry — checked in order, first match wins.
-const MIDDLEWARES: OtelLibraryMiddleware[] = [pydanticAi, vercelAi]
+const MIDDLEWARES: OtelLibraryMiddleware[] = [pydanticAi, traceloop, vercelAi]
 
 export function convertOtelEvent(event: PluginEvent): void {
     const middleware = MIDDLEWARES.find((mw) => mw.matches(event))

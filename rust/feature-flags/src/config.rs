@@ -225,6 +225,13 @@ pub struct Config {
     #[envconfig(default = "")]
     pub behavioral_cohorts_read_database_url: String,
 
+    // Feature gate for realtime cohort evaluation. When false (default), the realtime
+    // cohort block in prepare_flag_evaluation_state is skipped entirely, even if the
+    // behavioral cohorts DB is configured and cohorts with CohortType::Realtime exist.
+    // Set to true to enable realtime cohort membership lookups on the hot path.
+    #[envconfig(from = "ENABLE_REALTIME_COHORT_EVALUATION", default = "false")]
+    pub enable_realtime_cohort_evaluation: bool,
+
     // Cache TTL for realtime cohort membership lookups (seconds).
     #[envconfig(from = "COHORT_MEMBERSHIP_CACHE_TTL_SECONDS", default = "60")]
     pub cohort_membership_cache_ttl_seconds: u64,
@@ -417,6 +424,12 @@ pub struct Config {
 
     #[envconfig(from = "CACHE_TTL_SECONDS", default = "300")]
     pub cache_ttl_seconds: u64,
+
+    #[envconfig(from = "GROUP_TYPE_CACHE_TTL_SECONDS", default = "300")]
+    pub group_type_cache_ttl_seconds: u64,
+
+    #[envconfig(from = "GROUP_TYPE_CACHE_MAX_ENTRIES", default = "50000")]
+    pub group_type_cache_max_entries: u64,
 
     // cookieless, should match the values in plugin-server/src/types.ts, except we don't use sessions here
     #[envconfig(from = "COOKIELESS_DISABLED", default = "false")]
@@ -737,6 +750,7 @@ impl Config {
                 .to_string(),
             behavioral_cohorts_read_database_url:
                 "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
+            enable_realtime_cohort_evaluation: false,
             cohort_membership_cache_ttl_seconds: 60,
             cohort_membership_cache_max_entries: 50_000,
             max_concurrency: 1000,
@@ -763,6 +777,8 @@ impl Config {
             team_ids_to_track: TeamIdCollection::All,
             cohort_cache_capacity_bytes: 268_435_456, // 256 MB
             cache_ttl_seconds: 300,
+            group_type_cache_ttl_seconds: 300,
+            group_type_cache_max_entries: 50_000,
             cookieless_disabled: false,
             cookieless_force_stateless: false,
             cookieless_identifies_ttl_seconds: 345600,

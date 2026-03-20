@@ -168,10 +168,12 @@ def _extract_recent_assistant_text_from_logs(task_run: Any) -> str | None:
     if not log_content.strip():
         return None
 
-    latest_text: str | None = None
-    latest_agent_timestamp: datetime | None = None
-    latest_user_timestamp: datetime | None = None
+    _AGENT_MSG_TYPES = {"agent_message", "agent_message_chunk"}
     cutoff = datetime.utcnow() - timedelta(minutes=5)
+    latest_user_timestamp: datetime | None = None
+    latest_agent_timestamp: datetime | None = None
+
+    parsed_updates: list[tuple[dict, datetime | None]] = []
 
     for line in log_content.strip().split("\n"):
         line = line.strip()
@@ -202,24 +204,31 @@ def _extract_recent_assistant_text_from_logs(task_run: Any) -> str | None:
                 latest_user_timestamp = timestamp
             continue
 
-        if session_update not in {"agent_message", "agent_message_chunk"}:
-            continue
+        parsed_updates.append((update, timestamp))
 
-        content = update.get("content")
-        text: str | None = None
-        if isinstance(content, dict) and content.get("type") == "text" and isinstance(content.get("text"), str):
-            candidate = content["text"].strip()
-            text = candidate or None
-        elif isinstance(update.get("message"), str):
-            candidate = update["message"].strip()
-            text = candidate or None
+        if session_update in _AGENT_MSG_TYPES and timestamp:
+            if latest_agent_timestamp is None or timestamp >= latest_agent_timestamp:
+                latest_agent_timestamp = timestamp
 
-        if not text:
-            continue
+    # Walk backwards: find last agent_message, then collect all consecutive agent messages
+    # TODO: improve this, fine for now but not efficient
+    trailing_parts: list[str] = []
+    found_agent_msg = False
+    for update, _ in reversed(parsed_updates):
+        is_agent_msg = update.get("sessionUpdate") in _AGENT_MSG_TYPES
+        if not found_agent_msg:
+            if is_agent_msg:
+                found_agent_msg = True
+            else:
+                continue
+        if found_agent_msg and not is_agent_msg:
+            break
+        text = _extract_text_from_update(update)
+        if text:
+            trailing_parts.append(text)
 
-        if latest_agent_timestamp is None or (timestamp and timestamp >= latest_agent_timestamp):
-            latest_agent_timestamp = timestamp
-            latest_text = text
+    trailing_parts.reverse()
+    latest_text = "".join(trailing_parts) if trailing_parts else None
 
     if not latest_text:
         return None
@@ -228,6 +237,18 @@ def _extract_recent_assistant_text_from_logs(task_run: Any) -> str | None:
         return None
 
     return latest_text
+
+
+def _extract_text_from_update(update: dict[str, Any]) -> str | None:
+    content = update.get("content")
+    if isinstance(content, dict) and content.get("type") == "text" and isinstance(content.get("text"), str):
+        candidate = content["text"].strip()
+        if candidate:
+            return candidate
+    message = update.get("message")
+    if isinstance(message, str) and message.strip():
+        return message.strip()
+    return None
 
 
 def _has_recent_question_tool_failure(task_run: Any) -> bool:

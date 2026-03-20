@@ -31,6 +31,12 @@ PERSONHOG_DJANGO_REQUEST_COUNT = Counter(
     labelnames=["method", "status", "client_name"],
 )
 
+PERSONHOG_DJANGO_TIMEOUT_TOTAL = Counter(
+    "personhog_django_grpc_timeouts_total",
+    "gRPC requests that exceeded their deadline (DEADLINE_EXCEEDED)",
+    labelnames=["method", "client_name"],
+)
+
 
 def _method_name(client_call_details: grpc.ClientCallDetails) -> str:
     # client_call_details.method is like "/personhog.service.v1.PersonHogService/GetPerson"
@@ -85,10 +91,15 @@ class MetricsInterceptor(grpc.UnaryUnaryClientInterceptor):
             code = response.code()
             status = code.name if code else "OK"
             PERSONHOG_DJANGO_REQUEST_COUNT.labels(method=method, status=status, client_name=self._client_name).inc()
+            if code == grpc.StatusCode.DEADLINE_EXCEEDED:
+                PERSONHOG_DJANGO_TIMEOUT_TOTAL.labels(method=method, client_name=self._client_name).inc()
             return response
         except grpc.RpcError as exc:
-            status = exc.code().name if exc.code() else "UNKNOWN"
+            code = exc.code()
+            status = code.name if code else "UNKNOWN"
             PERSONHOG_DJANGO_REQUEST_COUNT.labels(method=method, status=status, client_name=self._client_name).inc()
+            if code == grpc.StatusCode.DEADLINE_EXCEEDED:
+                PERSONHOG_DJANGO_TIMEOUT_TOTAL.labels(method=method, client_name=self._client_name).inc()
             raise
         finally:
             PERSONHOG_DJANGO_REQUEST_DURATION.labels(method=method, client_name=self._client_name).observe(
