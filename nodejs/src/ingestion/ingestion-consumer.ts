@@ -31,8 +31,10 @@ import {
 } from './analytics'
 import { IngestionConsumerConfig } from './config'
 import { CookielessManager } from './cookieless/cookieless-manager'
-import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT, IngestionOutputs } from './event-processing/ingestion-outputs'
+import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT } from './event-processing/ingestion-outputs'
 import { parseSplitAiEventsConfig } from './event-processing/split-ai-events-step'
+import { resolveOutputs } from './kafka/output-resolver'
+import { KafkaProducerRegistry } from './kafka/producer-registry'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
 import { createContext } from './pipelines/helpers'
@@ -78,6 +80,7 @@ export class IngestionConsumer {
     protected kafkaProducer?: KafkaProducerWrapper
     protected kafkaOverflowProducer?: KafkaProducerWrapper
     public hogTransformer: HogTransformerService
+    private producerRegistry?: KafkaProducerRegistry
     private overflowRedirectService?: OverflowRedirectService
     private overflowLaneTTLRefreshService?: OverflowRedirectService
     private tokenDistinctIdsToDrop: string[] = []
@@ -213,15 +216,14 @@ export class IngestionConsumer {
 
         this.topHog.start()
 
-        // Initialize pipeline
-        const outputs = new IngestionOutputs({
+        // Initialize outputs via the producer registry and output resolver
+        this.producerRegistry = new KafkaProducerRegistry(this.config.KAFKA_CLIENT_RACK)
+        const outputs = await resolveOutputs(this.producerRegistry, {
             [EVENTS_OUTPUT]: {
                 topic: this.config.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-                producer: this.kafkaProducer!,
             },
             [AI_EVENTS_OUTPUT]: {
                 topic: this.config.CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC,
-                producer: this.kafkaProducer!,
             },
         })
 
@@ -292,6 +294,8 @@ export class IngestionConsumer {
         logger.info('🔁', `${this.name} - stopping tophog`)
         await this.topHog.stop()
         // NOTE: Don't disconnect kafkaProducer here as it's shared from deps and managed by the server
+        logger.info('🔁', `${this.name} - stopping producer registry`)
+        await this.producerRegistry?.disconnectAll()
         logger.info('🔁', `${this.name} - stopping kafka overflow producer`)
         await this.kafkaOverflowProducer?.disconnect()
         logger.info('🔁', `${this.name} - stopping hog transformer`)

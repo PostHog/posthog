@@ -4,6 +4,7 @@ import {
     LibrdKafkaError,
     MessageHeader,
     MessageValue,
+    Metadata,
     NumberNullUndefined,
     ProducerGlobalConfig,
     MessageKey as RdKafkaMessageKey,
@@ -39,26 +40,36 @@ export class KafkaProducerWrapper {
     /** Kafka producer used for syncing Postgres and ClickHouse person data. */
     private producer: HighLevelProducer
 
+    private static readonly PRODUCER_DEFAULTS: ProducerGlobalConfig = {
+        'client.id': hostname(),
+        'metadata.broker.list': 'kafka:9092',
+        'linger.ms': 20,
+        log_level: 4, // WARN as the default
+        'batch.size': 8 * 1024 * 1024,
+        'queue.buffering.max.messages': 100_000,
+        'compression.codec': 'snappy',
+        'enable.idempotence': true,
+        'metadata.max.age.ms': 30000, // Refresh metadata every 30s
+        'retry.backoff.ms': 500, // Backoff between retry attempts
+        'socket.timeout.ms': 30000, // Timeout for socket operations
+        'max.in.flight.requests.per.connection': 5, // Required for idempotence ordering
+    }
+
     static async create(kafkaClientRack: string | undefined, mode: KafkaConfigTarget = 'PRODUCER') {
         // NOTE: In addition to some defaults we allow overriding any setting via env vars.
         // This makes it much easier to react to issues without needing code changes
+        return KafkaProducerWrapper.createWithConfig(kafkaClientRack, getKafkaConfigFromEnv(mode))
+    }
 
+    /** Create a producer with a pre-built rdkafka config (merged over defaults). */
+    static async createWithConfig(
+        kafkaClientRack: string | undefined,
+        config: ProducerGlobalConfig
+    ): Promise<KafkaProducerWrapper> {
         const producerConfig: ProducerGlobalConfig = {
-            // Defaults that could be overridden by env vars
-            'client.id': hostname(),
+            ...KafkaProducerWrapper.PRODUCER_DEFAULTS,
             'client.rack': kafkaClientRack,
-            'metadata.broker.list': 'kafka:9092',
-            'linger.ms': 20,
-            log_level: 4, // WARN as the default
-            'batch.size': 8 * 1024 * 1024,
-            'queue.buffering.max.messages': 100_000,
-            'compression.codec': 'snappy',
-            'enable.idempotence': true,
-            'metadata.max.age.ms': 30000, // Refresh metadata every 30s
-            'retry.backoff.ms': 500, // Backoff between retry attempts
-            'socket.timeout.ms': 30000, // Timeout for socket operations
-            'max.in.flight.requests.per.connection': 5, // Required for idempotence ordering
-            ...getKafkaConfigFromEnv(mode),
+            ...config,
             dr_cb: true,
         }
 
@@ -204,6 +215,27 @@ export class KafkaProducerWrapper {
                 }
             })
         )
+    }
+
+    /** Check that the producer can reach the broker and the topic exists. */
+    public async checkTopicExists(topic: string, timeoutMs = 10000): Promise<void> {
+        const metadata = await new Promise<Metadata>((resolve, reject) =>
+            this.producer.getMetadata({ topic, timeout: timeoutMs }, (error, data) => {
+                if (error) {
+                    reject(error)
+                } else {
+                    resolve(data)
+                }
+            })
+        )
+
+        const topicMeta = metadata.topics.find((t) => t.name === topic)
+        if (!topicMeta) {
+            throw new Error(`Topic "${topic}" not found in broker metadata`)
+        }
+        if (topicMeta.partitions.length === 0) {
+            throw new Error(`Topic "${topic}" has no partitions`)
+        }
     }
 }
 
