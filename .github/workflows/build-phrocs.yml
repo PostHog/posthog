@@ -20,6 +20,10 @@ on:
             - '!tools/phrocs/README.md'
             - '.github/workflows/build-phrocs.yml'
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
 permissions:
     contents: write
 
