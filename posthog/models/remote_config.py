@@ -169,8 +169,6 @@ class RemoteConfig(UUIDTModel):
                 **base_config,
                 "version": 2,
                 "triggerGroups": trigger_groups_config.get("groups", []),
-                "groupEvaluationMode": trigger_groups_config.get("groupEvaluationMode", "first_match"),
-                "fallbackSampleRate": trigger_groups_config.get("fallbackSampleRate"),
             }
 
         # V1: Use legacy trigger fields (backward compatible)

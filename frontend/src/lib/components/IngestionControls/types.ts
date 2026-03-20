@@ -73,3 +73,24 @@ export interface ErrorTrackingAutoCaptureControls {
     url_triggers: UrlTriggerConfig[]
     url_blocklist: UrlTriggerConfig[]
 }
+
+// V2: Session Recording Trigger Groups
+export interface SessionRecordingTriggerGroup {
+    id: string
+    name: string
+    sampleRate: number // 0-1
+    minDurationMs?: number // 0-30000
+    conditions: SessionRecordingTriggerConditions
+}
+
+export interface SessionRecordingTriggerConditions {
+    matchType: 'any' | 'all'
+    events?: string[]
+    urls?: UrlTriggerConfig[]
+    flag?: string | LinkedFeatureFlag | null
+}
+
+export interface SessionRecordingTriggerGroupsConfig {
+    version: 2
+    groups: SessionRecordingTriggerGroup[]
+}

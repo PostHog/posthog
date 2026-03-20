@@ -179,7 +179,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
                     "id": "errors",
                     "name": "Error Tracking",
                     "sampleRate": 1.0,
-                    "order": 0,
+                    "minDurationMs": 0,
                     "conditions": {
                         "matchType": "any",
                         "events": ["error", "crash"],
@@ -189,15 +189,13 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
                 {
                     "id": "feature-test",
                     "sampleRate": 0.5,
-                    "order": 1,
+                    "minDurationMs": 10000,
                     "conditions": {
                         "matchType": "all",
-                        "flags": ["new-feature"],
+                        "flag": "new-feature",
                     },
                 },
             ],
-            "groupEvaluationMode": "first_match",
-            "fallbackSampleRate": 0.01,
         }
         # Clear legacy fields to ensure v2 is used
         self.team.session_recording_sample_rate = None
@@ -218,12 +216,14 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
         assert len(config["sessionRecording"]["triggerGroups"]) == 2
         assert config["sessionRecording"]["triggerGroups"][0]["id"] == "errors"
         assert config["sessionRecording"]["triggerGroups"][0]["sampleRate"] == 1.0
+        assert config["sessionRecording"]["triggerGroups"][0]["minDurationMs"] == 0
         assert config["sessionRecording"]["triggerGroups"][1]["id"] == "feature-test"
-        assert config["sessionRecording"]["groupEvaluationMode"] == "first_match"
-        assert config["sessionRecording"]["fallbackSampleRate"] == 0.01
+        assert config["sessionRecording"]["triggerGroups"][1]["minDurationMs"] == 10000
         # V2 fields should be present
         assert "triggerGroups" in config["sessionRecording"]
-        assert "groupEvaluationMode" in config["sessionRecording"]
+        # Removed fields should NOT be present
+        assert "groupEvaluationMode" not in config["sessionRecording"]
+        assert "fallbackSampleRate" not in config["sessionRecording"]
         # V1 fields should NOT be present
         assert "sampleRate" not in config["sessionRecording"]
         assert "eventTriggers" not in config["sessionRecording"]
