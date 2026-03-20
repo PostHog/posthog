@@ -76,8 +76,12 @@ impl Config {
         }
     }
 
-    pub fn backend_keepalive_timeout(&self) -> Duration {
-        Duration::from_secs(self.backend_keepalive_timeout_secs)
+    pub fn backend_keepalive_timeout(&self) -> Option<Duration> {
+        if self.backend_keepalive_timeout_secs == 0 {
+            None
+        } else {
+            Some(Duration::from_secs(self.backend_keepalive_timeout_secs))
+        }
     }
 
     pub fn retry_config(&self) -> RetryConfig {
