@@ -11,38 +11,50 @@ describe('LemonButton', () => {
         cleanup()
     })
 
-    it('does not submit a parent form when disabledReason is set (htmlType submit)', async () => {
+    it.each([
+        {
+            desc: 'submit (disabledReason)',
+            htmlType: 'submit' as const,
+            extraProps: { disabledReason: 'Not allowed' as const },
+            handler: 'onSubmit' as const,
+            label: 'Save',
+        },
+        {
+            desc: 'submit (disabled)',
+            htmlType: 'submit' as const,
+            extraProps: { disabled: true as const },
+            handler: 'onSubmit' as const,
+            label: 'Save',
+        },
+        {
+            desc: 'submit (loading)',
+            htmlType: 'submit' as const,
+            extraProps: { loading: true as const },
+            handler: 'onSubmit' as const,
+            label: 'Save',
+        },
+        {
+            desc: 'reset (disabledReason)',
+            htmlType: 'reset' as const,
+            extraProps: { disabledReason: 'Not allowed' as const },
+            handler: 'onReset' as const,
+            label: 'Reset',
+        },
+    ])('click does not trigger form $handler — $desc', async ({ htmlType, extraProps, handler, label }) => {
         const user = userEvent.setup()
-        const onSubmit = jest.fn()
+        const fn = jest.fn()
 
         render(
-            <form onSubmit={onSubmit}>
-                <LemonButton htmlType="submit" disabledReason="Not allowed">
-                    Save
+            <form {...(handler === 'onSubmit' ? { onSubmit: fn } : { onReset: fn })}>
+                <LemonButton htmlType={htmlType} {...extraProps}>
+                    {label}
                 </LemonButton>
             </form>
         )
 
-        await user.click(screen.getByRole('button', { name: 'Save' }))
+        await user.click(screen.getByRole('button', { name: label }))
 
-        expect(onSubmit).not.toHaveBeenCalled()
-    })
-
-    it('does not submit a parent form when disabled is set (htmlType submit)', async () => {
-        const user = userEvent.setup()
-        const onSubmit = jest.fn()
-
-        render(
-            <form onSubmit={onSubmit}>
-                <LemonButton htmlType="submit" disabled>
-                    Save
-                </LemonButton>
-            </form>
-        )
-
-        await user.click(screen.getByRole('button', { name: 'Save' }))
-
-        expect(onSubmit).not.toHaveBeenCalled()
+        expect(fn).not.toHaveBeenCalled()
     })
 
     it('does not fire onClick when disabledReason is set', async () => {
@@ -92,23 +104,6 @@ describe('LemonButton', () => {
         expect(onSubmit).not.toHaveBeenCalled()
     })
 
-    it('does not reset a parent form when disabledReason is set (htmlType reset)', async () => {
-        const user = userEvent.setup()
-        const onReset = jest.fn()
-
-        render(
-            <form onReset={onReset}>
-                <LemonButton htmlType="reset" disabledReason="Not allowed">
-                    Reset
-                </LemonButton>
-            </form>
-        )
-
-        await user.click(screen.getByRole('button', { name: 'Reset' }))
-
-        expect(onReset).not.toHaveBeenCalled()
-    })
-
     it('still submits when enabled (htmlType submit)', async () => {
         const user = userEvent.setup()
         const onSubmit = jest.fn((e) => e.preventDefault())
@@ -122,22 +117,5 @@ describe('LemonButton', () => {
         await user.click(screen.getByRole('button', { name: 'Save' }))
 
         expect(onSubmit).toHaveBeenCalledTimes(1)
-    })
-
-    it('does not submit a parent form when loading is true (htmlType submit)', async () => {
-        const user = userEvent.setup()
-        const onSubmit = jest.fn()
-
-        render(
-            <form onSubmit={onSubmit}>
-                <LemonButton htmlType="submit" loading>
-                    Save
-                </LemonButton>
-            </form>
-        )
-
-        await user.click(screen.getByRole('button', { name: 'Save' }))
-
-        expect(onSubmit).not.toHaveBeenCalled()
     })
 })
