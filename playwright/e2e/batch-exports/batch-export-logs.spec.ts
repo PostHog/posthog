@@ -47,8 +47,7 @@ test.describe('Batch export logs', () => {
 
         await page.goto(`/pipeline/batch-exports/${MOCK_EXPORT_ID}?tab=logs`)
 
-        // The logs tab should render a log viewer component
-        // It may show "No logs" or a log viewer with empty results
-        await expect(page.getByText('Logs').first()).toBeVisible()
+        // The logs tab should render the LogsViewer with its search input
+        await expect(page.getByPlaceholder('Search messages or invocation ID')).toBeVisible()
     })
 })

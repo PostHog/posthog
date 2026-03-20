@@ -29,7 +29,7 @@ test.describe('Batch export metrics', () => {
 
         await page.goto(`/pipeline/batch-exports/${MOCK_EXPORT_ID}?tab=metrics`)
 
-        // The metrics tab should render content
-        await expect(page.getByText('Metrics').first()).toBeVisible()
+        // The metrics tab should render the metrics summary cards
+        await expect(page.getByText('Rows exported')).toBeVisible()
     })
 })
