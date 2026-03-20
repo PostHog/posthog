@@ -19,7 +19,10 @@ from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.caching.fetch_from_cache import InsightResult
 from posthog.event_usage import EventSource
 from posthog.models import AlertConfiguration, Insight
-from posthog.tasks.alerts.utils import NON_TIME_SERIES_DISPLAY_TYPES, AlertEvaluationResult
+from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.tasks.alerts.detectors import get_detector
+from posthog.tasks.alerts.utils import NON_TIME_SERIES_DISPLAY_TYPES, WRAPPER_NODE_KINDS, AlertEvaluationResult
+from posthog.utils import get_from_dict_or_attr
 
 
 # TODO: move the TrendResult UI type to schema.ts and use that instead
@@ -622,14 +625,8 @@ def simulate_detector_on_insight(
     Returns per-point scores and triggered indices for chart visualization.
     No AlertCheck records are created — this is read-only.
     """
-    from posthog.tasks.alerts.detectors import get_detector
-    from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS
-    from posthog.utils import get_from_dict_or_attr
-
     if insight.query is None:
         raise ValueError("Insight has no valid query.")
-
-    from posthog.schema_migrations.upgrade_manager import upgrade_query
 
     with upgrade_query(insight):
         query = insight.query
