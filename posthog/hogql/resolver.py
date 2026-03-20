@@ -236,7 +236,7 @@ class Resolver(CloningVisitor):
                 temp_join = self.visit_join_expr(node.table)
                 node.table = temp_join
             else:
-                temp_join = self.visit_join_expr(ast.JoinExpr(table=node.table))
+                temp_join = self.visit_join_expr(ast.JoinExpr(table=cast(ast.Field, node.table)))
                 node.table = cast(ast.Expr, temp_join.table)
             base_type = temp_join.type
 
@@ -272,8 +272,8 @@ class Resolver(CloningVisitor):
             for col in node.columns:
                 value_is_tuple = isinstance(col.value_columns, ast.Tuple)
                 name_is_tuple = isinstance(col.name_columns, ast.Tuple)
-                value_len = len(col.value_columns.exprs) if value_is_tuple else 1
-                name_len = len(col.name_columns.exprs) if name_is_tuple else 1
+                value_len = len(cast(ast.Tuple, col.value_columns).exprs) if value_is_tuple else 1
+                name_len = len(cast(ast.Tuple, col.name_columns).exprs) if name_is_tuple else 1
 
                 if value_is_tuple != name_is_tuple:
                     raise QueryError("UNPIVOT value and name columns must both be tuples or both be single columns")
@@ -285,7 +285,7 @@ class Resolver(CloningVisitor):
                     if value_is_tuple:
                         if not value_is_value_tuple:
                             raise QueryError(f"UNPIVOT IN values must be tuples of length {value_len}")
-                        if len(value.exprs) != value_len:
+                        if len(cast(ast.Tuple, value).exprs) != value_len:
                             raise QueryError(f"UNPIVOT IN values must be tuples of length {value_len}")
                     else:
                         if value_is_value_tuple:
@@ -706,13 +706,14 @@ class Resolver(CloningVisitor):
             for alias, table_type in scope.tables.items():
                 asterisk_type = ast.AsteriskType(table_type=table_type)
                 try:
-                    all_fields = self._asterisk_columns(asterisk_type, chain_prefix=[])
+                    raw_fields = self._asterisk_columns(asterisk_type, chain_prefix=[])
                 except QueryError:
                     continue
                 column_aliases = table_column_aliases.get(alias)
+                resolved_fields: list[ast.Expr] = list(raw_fields)
                 if column_aliases:
-                    all_fields = self._apply_column_aliases(all_fields, column_aliases)
-                for field in all_fields:
+                    resolved_fields = self._apply_column_aliases(resolved_fields, column_aliases)
+                for field in resolved_fields:
                     table_fields.append((alias, field))
 
             for table_type in scope.anonymous_tables:
@@ -746,12 +747,12 @@ class Resolver(CloningVisitor):
 
                         found = False
                         filtered_fields: list[tuple[Optional[str], ast.Expr]] = []
-                        for alias, field in remaining_fields:
-                            field_name = str(field.chain[-1]) if isinstance(field, ast.Field) else None
-                            if alias in candidate_aliases and field_name == column_name:
+                        for tbl_alias, tbl_field in remaining_fields:
+                            field_name = str(tbl_field.chain[-1]) if isinstance(tbl_field, ast.Field) else None
+                            if tbl_alias in candidate_aliases and field_name == column_name:
                                 found = True
                                 continue
-                            filtered_fields.append((alias, field))
+                            filtered_fields.append((tbl_alias, tbl_field))
 
                         if not found:
                             raise QueryError(f'Column "{column_name}" in EXCLUDE list was not found in {qualifier}')
@@ -759,14 +760,14 @@ class Resolver(CloningVisitor):
                         remaining_fields = filtered_fields
                         continue
 
-                    filtered_fields: list[tuple[Optional[str], ast.Expr]] = []
+                    unqualified_filtered: list[tuple[Optional[str], ast.Expr]] = []
                     found = False
-                    for alias, field in remaining_fields:
-                        field_name = str(field.chain[-1]) if isinstance(field, ast.Field) else None
+                    for tbl_alias, tbl_field in remaining_fields:
+                        field_name = str(tbl_field.chain[-1]) if isinstance(tbl_field, ast.Field) else None
                         if field_name == column_name:
                             found = True
                             continue
-                        filtered_fields.append((alias, field))
+                        unqualified_filtered.append((tbl_alias, tbl_field))
 
                     if not found:
                         if len(scope.tables) == 1 and len(scope.anonymous_tables) == 0:
@@ -776,7 +777,7 @@ class Resolver(CloningVisitor):
                             table_label = "the selected tables"
                         raise QueryError(f'Column "{column_name}" in EXCLUDE list was not found in {table_label}')
 
-                    remaining_fields = filtered_fields
+                    remaining_fields = unqualified_filtered
 
                 table_fields = remaining_fields
 
@@ -817,14 +818,14 @@ class Resolver(CloningVisitor):
 
                 replace_match_counts = dict.fromkeys(node.replace.keys(), 0)
                 replaced_fields: list[tuple[Optional[str], ast.Expr]] = []
-                for alias, field in table_fields:
-                    field_name = str(field.chain[-1]) if isinstance(field, ast.Field) else None
+                for tbl_alias, tbl_field in table_fields:
+                    field_name = str(tbl_field.chain[-1]) if isinstance(tbl_field, ast.Field) else None
                     if field_name is not None and field_name in node.replace:
                         replacement = clone_expr(node.replace[field_name])
                         replace_match_counts[field_name] += 1
-                        replaced_fields.append((alias, ast.Alias(expr=replacement, alias=field_name)))
+                        replaced_fields.append((tbl_alias, ast.Alias(expr=replacement, alias=field_name)))
                     else:
-                        replaced_fields.append((alias, field))
+                        replaced_fields.append((tbl_alias, tbl_field))
 
                 missing = [name for name, count in replace_match_counts.items() if count == 0]
                 if missing:
@@ -852,7 +853,7 @@ class Resolver(CloningVisitor):
             raise QueryError(f"COLUMNS() has an invalid regex pattern: {e}")
         scope = self.scopes[-1]
         all_table_types: list[ast.TableOrSelectType] = list(scope.tables.values()) + list(scope.anonymous_tables)
-        matched_fields: list[ast.Expr] = []
+        regex_matched_fields: list[ast.Expr] = []
         for table_type in all_table_types:
             asterisk_type = ast.AsteriskType(table_type=table_type)
             try:
@@ -862,10 +863,10 @@ class Resolver(CloningVisitor):
             for field in all_fields:
                 col_name = field.chain[-1] if isinstance(field.chain[-1], str) else str(field.chain[-1])
                 if pattern.search(col_name):
-                    matched_fields.append(field)
-        if not matched_fields:
+                    regex_matched_fields.append(field)
+        if not regex_matched_fields:
             raise QueryError(f"No columns matched the COLUMNS('{node.regex}') expression")
-        return matched_fields
+        return regex_matched_fields
 
     def _apply_column_aliases(self, fields: list[ast.Expr], column_aliases: list[str]) -> list[ast.Expr]:
         if not column_aliases:
@@ -1670,8 +1671,6 @@ class Resolver(CloningVisitor):
 
     def visit_not(self, node: ast.Not):
         node = super().visit_not(node)
-        if node is None:
-            return None
         node.type = ast.BooleanType(nullable=node.expr.type.resolve_constant_type(self.context).nullable)
         return node
 
