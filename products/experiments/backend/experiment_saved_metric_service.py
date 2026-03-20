@@ -39,6 +39,12 @@ class ExperimentSavedMetricService:
             raise ValidationError("Query is required to create a saved metric")
 
         kind = query.get("kind")
+        if kind in {"ExperimentTrendsQuery", "ExperimentFunnelsQuery"}:
+            raise ValidationError(
+                "Legacy metric kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) "
+                "are no longer supported for new saved metrics."
+            )
+
         if kind not in cls.VALID_QUERY_KINDS:
             raise ValidationError(
                 "Metric query kind must be 'ExperimentMetric', 'ExperimentTrendsQuery' or 'ExperimentFunnelsQuery'"

@@ -117,78 +117,61 @@ class TestExperimentService(APIBaseTest):
     # Stats config defaults
     # ------------------------------------------------------------------
 
-    @parameterized.expand(
-        [
-            (
-                "defaults_bayesian",
-                None,
-                None,
-                None,
-                "bayesian",
-                None,
-                None,
-            ),
-            (
-                "defaults_from_team",
-                "frequentist",
-                Decimal("0.90"),
-                None,
-                "frequentist",
-                0.90,
-                0.10,
-            ),
-            (
-                "preserves_provided_method",
-                "bayesian",
-                None,
-                {"method": "frequentist"},
-                "frequentist",
-                None,
-                None,
-            ),
-            (
-                "preserves_provided_confidence",
-                None,
-                Decimal("0.90"),
-                {"method": "bayesian", "bayesian": {"ci_level": 0.99}},
-                "bayesian",
-                0.99,
-                None,
-            ),
-        ]
-    )
-    def test_stats_config(
-        self,
-        test_name: str,
-        team_stats_method: str | None,
-        team_confidence_level: Decimal | None,
-        provided_stats_config: dict | None,
-        expected_method: str,
-        expected_ci_level: float | None,
-        expected_alpha: float | None,
-    ):
-        if team_stats_method:
-            self.team.default_experiment_stats_method = team_stats_method
-        if team_confidence_level:
-            self.team.default_experiment_confidence_level = team_confidence_level
-        if team_stats_method or team_confidence_level:
-            self.team.save()
+    def test_stats_config_defaults_bayesian(self):
+        self._create_flag(key="stats-test")
+        service = self._service()
 
-        self._create_flag(key=f"stats-{test_name}")
+        experiment = service.create_experiment(name="Stats Test", feature_flag_key="stats-test")
+
+        assert experiment.stats_config is not None
+        assert experiment.stats_config["method"] == "bayesian"
+
+    def test_stats_config_defaults_from_team(self):
+        self.team.default_experiment_stats_method = "frequentist"
+        self.team.default_experiment_confidence_level = Decimal("0.90")
+        self.team.save()
+
+        self._create_flag(key="team-defaults")
+        service = self._service()
+
+        experiment = service.create_experiment(name="Team Defaults", feature_flag_key="team-defaults")
+
+        assert experiment.stats_config is not None
+        assert experiment.stats_config["method"] == "frequentist"
+        assert experiment.stats_config["bayesian"]["ci_level"] == 0.90
+        assert abs(experiment.stats_config["frequentist"]["alpha"] - 0.10) < 1e-10
+
+    def test_stats_config_preserves_provided_method(self):
+        self.team.default_experiment_stats_method = "bayesian"
+        self.team.save()
+
+        self._create_flag(key="preserve-method")
         service = self._service()
 
         experiment = service.create_experiment(
-            name=f"Stats {test_name}",
-            feature_flag_key=f"stats-{test_name}",
-            stats_config=provided_stats_config,
+            name="Preserve Method",
+            feature_flag_key="preserve-method",
+            stats_config={"method": "frequentist"},
         )
 
         assert experiment.stats_config is not None
-        assert experiment.stats_config["method"] == expected_method
-        if expected_ci_level is not None:
-            assert experiment.stats_config["bayesian"]["ci_level"] == expected_ci_level
-        if expected_alpha is not None:
-            assert abs(experiment.stats_config["frequentist"]["alpha"] - expected_alpha) < 1e-10
+        assert experiment.stats_config["method"] == "frequentist"
+
+    def test_stats_config_preserves_provided_confidence(self):
+        self.team.default_experiment_confidence_level = Decimal("0.90")
+        self.team.save()
+
+        self._create_flag(key="preserve-confidence")
+        service = self._service()
+
+        experiment = service.create_experiment(
+            name="Preserve Confidence",
+            feature_flag_key="preserve-confidence",
+            stats_config={"method": "bayesian", "bayesian": {"ci_level": 0.99}},
+        )
+
+        assert experiment.stats_config is not None
+        assert experiment.stats_config["bayesian"]["ci_level"] == 0.99
 
     # ------------------------------------------------------------------
     # Metric fingerprints
@@ -293,31 +276,78 @@ class TestExperimentService(APIBaseTest):
     # Flag validation errors
     # ------------------------------------------------------------------
 
-    @parameterized.expand(
-        [
-            (
-                "no_control",
-                [
-                    {"key": "baseline", "name": "Baseline", "rollout_percentage": 50},
-                    {"key": "test", "name": "Test", "rollout_percentage": 50},
-                ],
-                "control",
-            ),
-            (
-                "one_variant",
-                [{"key": "control", "name": "Control", "rollout_percentage": 100}],
-                "at least 2 variants",
-            ),
-        ]
-    )
-    def test_existing_flag_validation_errors(self, test_name: str, variants: list[dict], expected_error: str):
-        self._create_flag(key=f"flag-{test_name}", variants=variants)
+    def test_existing_flag_without_control_raises(self):
+        self._create_flag(
+            key="no-control",
+            variants=[
+                {"key": "baseline", "name": "Baseline", "rollout_percentage": 50},
+                {"key": "test", "name": "Test", "rollout_percentage": 50},
+            ],
+        )
         service = self._service()
 
         with self.assertRaises(ValidationError) as ctx:
-            service.create_experiment(name=f"Test {test_name}", feature_flag_key=f"flag-{test_name}")
+            service.create_experiment(name="Bad Flag", feature_flag_key="no-control")
 
-        assert expected_error in str(ctx.exception)
+        assert "control" in str(ctx.exception)
+
+    def test_existing_flag_with_one_variant_raises(self):
+        self._create_flag(
+            key="one-variant",
+            variants=[{"key": "control", "name": "Control", "rollout_percentage": 100}],
+        )
+        service = self._service()
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.create_experiment(name="One Variant", feature_flag_key="one-variant")
+
+        assert "at least 2 variants" in str(ctx.exception)
+
+    # ------------------------------------------------------------------
+    # Legacy metric validation
+    # ------------------------------------------------------------------
+
+    @parameterized.expand(
+        [
+            ("ExperimentTrendsQuery", {"kind": "ExperimentTrendsQuery", "count_query": {}}),
+            ("ExperimentFunnelsQuery", {"kind": "ExperimentFunnelsQuery", "funnels_query": {}}),
+        ]
+    )
+    def test_create_experiment_rejects_legacy_metric_kinds(self, _: str, metric: dict) -> None:
+        self._create_flag(key="legacy-test")
+        service = self._service()
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.create_experiment(
+                name="Legacy Metric Test",
+                feature_flag_key="legacy-test",
+                metrics=[metric],
+            )
+
+        assert "legacy metric kinds" in str(ctx.exception).lower()
+        assert "ExperimentTrendsQuery" in str(ctx.exception)
+        assert "ExperimentFunnelsQuery" in str(ctx.exception)
+
+    @parameterized.expand(
+        [
+            ("ExperimentTrendsQuery", {"kind": "ExperimentTrendsQuery", "count_query": {}}),
+            ("ExperimentFunnelsQuery", {"kind": "ExperimentFunnelsQuery", "funnels_query": {}}),
+        ]
+    )
+    def test_create_experiment_rejects_legacy_secondary_metric_kinds(self, _: str, metric: dict) -> None:
+        self._create_flag(key="legacy-secondary-test")
+        service = self._service()
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.create_experiment(
+                name="Legacy Secondary Metric Test",
+                feature_flag_key="legacy-secondary-test",
+                metrics_secondary=[metric],
+            )
+
+        assert "legacy metric kinds" in str(ctx.exception).lower()
+        assert "ExperimentTrendsQuery" in str(ctx.exception)
+        assert "ExperimentFunnelsQuery" in str(ctx.exception)
 
     # ------------------------------------------------------------------
     # Saved metrics
@@ -643,20 +673,14 @@ class TestExperimentService(APIBaseTest):
         assert updated.name == "Updated Name"
         assert updated.description == "Updated description"
 
-    @parameterized.expand(
-        [
-            ("extra_keys", {"unknown_key": "value"}, "Can't update keys"),
-            ("different_feature_flag_key", {"get_feature_flag_key": "different-key"}, "Can't update keys"),
-        ]
-    )
-    def test_update_experiment_rejects_invalid_keys(self, _: str, update_data: dict, expected_error: str):
+    def test_update_experiment_rejects_extra_keys(self):
         experiment = self._create_draft_experiment()
         service = self._service()
 
         with self.assertRaises(ValidationError) as ctx:
-            service.update_experiment(experiment, update_data)
+            service.update_experiment(experiment, {"unknown_key": "value"})
 
-        assert expected_error in str(ctx.exception)
+        assert "Can't update keys" in str(ctx.exception)
 
     def test_update_experiment_allows_matching_feature_flag_key(self):
         experiment = self._create_draft_experiment()
@@ -672,6 +696,20 @@ class TestExperimentService(APIBaseTest):
 
         assert updated.name == "Same Key OK"
         assert updated.get_feature_flag_key() == experiment.feature_flag.key
+
+    def test_update_experiment_rejects_different_feature_flag_key(self):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(
+                experiment,
+                {
+                    "get_feature_flag_key": "different-key",
+                },
+            )
+
+        assert "Can't update keys" in str(ctx.exception)
 
     def test_update_experiment_launches_by_setting_start_date(self):
         service = self._service()
@@ -1290,32 +1328,34 @@ class TestExperimentService(APIBaseTest):
         experiment.refresh_from_db()
         assert experiment.exposure_cohort_id == cohort.id
 
-    @parameterized.expand(
-        [
-            ("without_start_date", False, "does not have a start date"),
-            ("duplicate", True, "already has an exposure cohort"),
-        ]
-    )
-    def test_create_exposure_cohort_validation_errors(self, test_name: str, has_start_date: bool, expected_error: str):
-        from posthog.models.cohort import Cohort
-
-        self._create_flag(key=f"cohort-{test_name}")
+    def test_create_exposure_cohort_without_start_date_raises(self):
+        self._create_flag(key="cohort-no-start")
         service = self._service()
-        experiment = service.create_experiment(
-            name=f"Cohort {test_name}",
-            feature_flag_key=f"cohort-{test_name}",
-            start_date=timezone.now() if has_start_date else None,
-        )
-
-        if test_name == "duplicate":
-            cohort = Cohort.objects.create(team=self.team, name="Existing")
-            experiment.exposure_cohort = cohort
-            experiment.save(update_fields=["exposure_cohort"])
+        experiment = service.create_experiment(name="No Start", feature_flag_key="cohort-no-start")
 
         with self.assertRaises(ValidationError) as ctx:
             service.create_exposure_cohort(experiment)
 
-        assert expected_error in str(ctx.exception)
+        assert "does not have a start date" in str(ctx.exception)
+
+    def test_create_exposure_cohort_duplicate_raises(self):
+        from posthog.models.cohort import Cohort
+
+        self._create_flag(key="cohort-dup")
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Dup Cohort",
+            feature_flag_key="cohort-dup",
+            start_date=timezone.now(),
+        )
+        cohort = Cohort.objects.create(team=self.team, name="Existing")
+        experiment.exposure_cohort = cohort
+        experiment.save(update_fields=["exposure_cohort"])
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.create_exposure_cohort(experiment)
+
+        assert "already has an exposure cohort" in str(ctx.exception)
 
     # ------------------------------------------------------------------
     # Timeseries results
@@ -1745,51 +1785,3 @@ class TestExperimentService(APIBaseTest):
         assert result["launched_previous_30d"] == 3
         expected_change = round(((1 - 3) / 3) * 100, 1)
         assert result["percent_change"] == expected_change
-
-    # ------------------------------------------------------------------
-    # Validation - Legacy metrics rejection
-
-    @parameterized.expand(
-        [
-            (
-                "trends_query",
-                {
-                    "kind": "ExperimentTrendsQuery",
-                    "count_query": {
-                        "kind": "TrendsQuery",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    },
-                },
-                True,
-            ),
-            (
-                "funnels_query",
-                {
-                    "kind": "ExperimentFunnelsQuery",
-                    "funnels_query": {
-                        "kind": "FunnelsQuery",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    },
-                },
-                True,
-            ),
-            (
-                "modern_metric",
-                {
-                    "kind": "ExperimentMetric",
-                    "metric_type": "mean",
-                    "source": {"kind": "EventsNode", "event": "$pageview"},
-                },
-                False,
-            ),
-        ]
-    )
-    def test_validate_experiment_metrics(self, _: str, metric: dict, should_raise: bool):
-        if should_raise:
-            with self.assertRaises(ValidationError) as ctx:
-                ExperimentService.validate_experiment_metrics([metric])
-
-            self.assertIn("legacy metric kinds", str(ctx.exception))
-            self.assertIn("no longer supported", str(ctx.exception))
-        else:
-            ExperimentService.validate_experiment_metrics([metric])
