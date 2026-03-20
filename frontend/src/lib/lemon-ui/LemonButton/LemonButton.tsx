@@ -252,16 +252,20 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         truncate && 'LemonButton--truncate',
                         className
                     )}
-                    onClick={
-                        !disabled
-                            ? (event) => {
-                                  if (stopPropagation) {
-                                      event.stopPropagation()
-                                  }
-                                  onClick?.(event)
-                              }
-                            : undefined
-                    }
+                    onClick={(event) => {
+                        if (disabled || disabledReason) {
+                            // Keep the element focusable/hoverable for tooltip UX, while hard-blocking native actions
+                            // like form submission from `type="submit"` buttons.
+                            event.preventDefault()
+                            event.stopPropagation()
+                            return
+                        }
+
+                        if (stopPropagation) {
+                            event.stopPropagation()
+                        }
+                        onClick?.(event)
+                    }}
                     // We are using the ARIA disabled instead of native HTML because of this:
                     // https://css-tricks.com/making-disabled-buttons-more-inclusive/
                     aria-disabled={disabled}
