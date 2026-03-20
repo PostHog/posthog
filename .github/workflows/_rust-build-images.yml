@@ -28,6 +28,10 @@ on:
                 description: 'Additional JSON properties for failure reporting (without outer braces)'
                 type: string
                 default: ''
+            image-filter:
+                description: 'Comma-separated list of images to build (empty = all)'
+                type: string
+                default: ''
         outputs:
             digests:
                 description: 'JSON object mapping image name to digest'
@@ -49,9 +53,23 @@ jobs:
                   sparse-checkout: .github/rust-images.yml
                   sparse-checkout-cone-mode: false
 
-            - name: Read matrix
+            - name: Read and filter matrix
               id: set
-              run: echo "matrix=$(yq -o=json -I=0 '.' .github/rust-images.yml)" >> "$GITHUB_OUTPUT"
+              env:
+                  IMAGE_FILTER: ${{ inputs.image-filter }}
+              run: |
+                  full=$(yq -o=json -I=0 '.' .github/rust-images.yml)
+                  if [ -n "$IMAGE_FILTER" ]; then
+                      matrix=$(echo "$full" | jq -c --arg f "$IMAGE_FILTER" \
+                        '[.[] | select(.image as $img | ($f | split(",") | map(ltrimstr(" ") | rtrimstr(" ")) | index($img)) != null)]')
+                  else
+                      matrix="$full"
+                  fi
+                  if [ "$matrix" = "[]" ]; then
+                      echo "::error::image-filter '$IMAGE_FILTER' matched no images in rust-images.yml"
+                      exit 1
+                  fi
+                  echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
     build:
         name: build ${{ matrix.image }}
