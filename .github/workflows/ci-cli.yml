@@ -11,6 +11,7 @@ jobs:
     tests:
         name: Run tests
         runs-on: ubuntu-latest
+        timeout-minutes: 10
         defaults:
             run:
                 working-directory: cli
@@ -33,6 +34,7 @@ jobs:
     clippy:
         name: Clippy
         runs-on: ubuntu-latest
+        timeout-minutes: 10
         defaults:
             run:
                 working-directory: cli
@@ -51,6 +53,7 @@ jobs:
     format:
         name: Format
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         defaults:
             run:
                 working-directory: cli

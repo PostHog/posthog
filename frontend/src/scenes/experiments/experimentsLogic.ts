@@ -117,6 +117,7 @@ export function isSingleVariantShipped(experiment: Experiment): boolean {
 
     return (
         !!filters &&
+        experiment.feature_flag?.active !== false &&
         Array.isArray(filters.groups?.[0]?.properties) &&
         filters.groups?.[0]?.properties?.length === 0 &&
         filters.groups?.[0]?.rollout_percentage === 100 &&

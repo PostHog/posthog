@@ -1,8 +1,9 @@
-import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { AnyPropertyFilter } from '~/types'
 
@@ -19,10 +20,9 @@ export interface ClusteringConfig {
     updated_at: string
 }
 
-const API_PATH = 'api/environments/@current/llm_analytics/clustering_config'
-
 export const clusteringConfigLogic = kea<clusteringConfigLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'clusters', 'clusteringConfigLogic']),
+    connect(() => ({ values: [teamLogic, ['currentTeamIdStrict']] })),
 
     actions({
         openSettingsPanel: true,
@@ -35,13 +35,18 @@ export const clusteringConfigLogic = kea<clusteringConfigLogicType>([
             { event_filters: [], created_at: '', updated_at: '' } as ClusteringConfig,
             {
                 loadConfig: async () => {
-                    const response = await api.get(API_PATH + '/')
+                    const response = await api.get(
+                        `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_config/`
+                    )
                     return response as ClusteringConfig
                 },
                 saveEventFilters: async () => {
-                    const response = await api.create(API_PATH + '/set_event_filters/', {
-                        event_filters: values.localEventFilters,
-                    })
+                    const response = await api.create(
+                        `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_config/set_event_filters/`,
+                        {
+                            event_filters: values.localEventFilters,
+                        }
+                    )
                     return response as ClusteringConfig
                 },
             },

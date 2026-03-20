@@ -95,8 +95,8 @@ describe('SharingModal (dashboard)', () => {
         // Sharing section label
         expect(await screen.findByText('Sharing')).toBeInTheDocument()
 
-        // Options sub header
-        expect(screen.getByText('Options')).toBeInTheDocument()
+        // Access control section
+        expect(screen.getByText('Access control')).toBeInTheDocument()
 
         // Dashboard options smoke checks
         expect(screen.getByText(/Show PostHog branding/i)).toBeInTheDocument()

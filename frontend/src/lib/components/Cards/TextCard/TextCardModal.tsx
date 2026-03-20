@@ -7,6 +7,7 @@ import { TextCardMarkdownEditor } from 'lib/components/Cards/TextCard/TextCardMa
 import { textCardModalLogic } from 'lib/components/Cards/TextCard/textCardModalLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown'
 
 import { DashboardType, QueryBasedInsightModel } from '~/types'
@@ -75,22 +76,34 @@ export function TextCardModal({
                 id="text-tile-form"
                 enableFormOnSubmit
             >
-                <Field name="body" label="">
-                    {({ value, onChange }) =>
-                        shouldUseLegacyMarkdownEditor ? (
-                            <LemonTextAreaMarkdown
-                                value={value}
+                <div className="flex flex-col gap-4">
+                    <Field name="body" label="">
+                        {({ value, onChange }) =>
+                            shouldUseLegacyMarkdownEditor ? (
+                                <LemonTextAreaMarkdown
+                                    value={value}
+                                    onChange={onChange}
+                                    maxLength={4000}
+                                    minRows={8}
+                                    maxRows={36}
+                                    data-attr="text-card-edit-area"
+                                />
+                            ) : (
+                                <TextCardMarkdownEditor value={value} onChange={onChange} minRows={8} maxRows={36} />
+                            )
+                        }
+                    </Field>
+                    <Field name="transparent_background" label="">
+                        {({ value, onChange }) => (
+                            <LemonSwitch
+                                checked={value}
                                 onChange={onChange}
-                                maxLength={4000}
-                                minRows={8}
-                                maxRows={36}
-                                data-attr="text-card-edit-area"
+                                label="Transparent background"
+                                data-attr="text-card-transparent-background"
                             />
-                        ) : (
-                            <TextCardMarkdownEditor value={value} onChange={onChange} minRows={8} maxRows={36} />
-                        )
-                    }
-                </Field>
+                        )}
+                    </Field>
+                </div>
             </Form>
         </LemonModal>
     )

@@ -251,3 +251,6 @@ tools:
     error-tracking-suppression-rules-destroy:
         operation: error_tracking_suppression_rules_destroy
         enabled: false
+    error-tracking-spike-events-list:
+        operation: error_tracking_spike_events_list
+        enabled: false

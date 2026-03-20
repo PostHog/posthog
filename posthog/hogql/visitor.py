@@ -104,6 +104,14 @@ class TraversingVisitor(Visitor[None]):
     def visit_field(self, node: ast.Field):
         self.visit(node.type)
 
+    def visit_columns_expr(self, node: ast.ColumnsExpr):
+        if node.columns:
+            for expr in node.columns:
+                self.visit(expr)
+
+    def visit_spread_expr(self, node: ast.SpreadExpr):
+        self.visit(node.expr)
+
     def visit_placeholder(self, node: ast.Placeholder):
         self.visit(node.expr)
 
@@ -112,6 +120,9 @@ class TraversingVisitor(Visitor[None]):
             self.visit(expr)
         if node.params:
             for expr in node.params:
+                self.visit(expr)
+        if node.within_group:
+            for expr in node.within_group:
                 self.visit(expr)
 
     def visit_expr_call(self, node: ast.ExprCall):
@@ -153,6 +164,7 @@ class TraversingVisitor(Visitor[None]):
         self.visit(node.where)
         self.visit(node.prewhere)
         self.visit(node.having)
+        self.visit(node.qualify)
         for expr3 in node.group_by or []:
             self.visit(expr3)
         for expr4 in node.order_by or []:
@@ -162,6 +174,10 @@ class TraversingVisitor(Visitor[None]):
         self.visit(node.offset)
         for expr5 in (node.window_exprs or {}).values():
             self.visit(expr5)
+
+    def visit_grouping_set(self, node: ast.GroupingSet):
+        for expr in node.exprs:
+            self.visit(expr)
 
     def visit_select_set_query(self, node: ast.SelectSetQuery):
         self.visit(node.initial_select_query)
@@ -574,6 +590,23 @@ class CloningVisitor(Visitor[Any]):
             field.chain = [node.type.joined_subquery_field_name]
         return field
 
+    def visit_columns_expr(self, node: ast.ColumnsExpr):
+        return ast.ColumnsExpr(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            regex=node.regex,
+            columns=[self.visit(col) for col in node.columns] if node.columns else None,
+        )
+
+    def visit_spread_expr(self, node: ast.SpreadExpr):
+        return ast.SpreadExpr(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            expr=self.visit(node.expr),
+        )
+
     def visit_placeholder(self, node: ast.Placeholder):
         return ast.Placeholder(
             start=None if self.clear_locations else node.start,
@@ -591,6 +624,7 @@ class CloningVisitor(Visitor[Any]):
             args=[self.visit(arg) for arg in node.args],
             params=[self.visit(param) for param in node.params] if node.params is not None else None,
             distinct=node.distinct,
+            within_group=[self.visit(order_by) for order_by in node.within_group] if node.within_group else None,
         )
 
     def visit_expr_call(self, node: ast.ExprCall):
@@ -659,7 +693,9 @@ class CloningVisitor(Visitor[Any]):
             where=self.visit(node.where),
             prewhere=self.visit(node.prewhere),
             having=self.visit(node.having),
+            qualify=self.visit(node.qualify),
             group_by=[self.visit(expr) for expr in node.group_by] if node.group_by else None,
+            group_by_mode=node.group_by_mode,
             order_by=[self.visit(expr) for expr in node.order_by] if node.order_by else None,
             limit_by=self.visit(node.limit_by),
             limit=self.visit(node.limit),
@@ -671,6 +707,14 @@ class CloningVisitor(Visitor[Any]):
             ),
             settings=node.settings.model_copy() if node.settings is not None else None,
             view_name=node.view_name,
+        )
+
+    def visit_grouping_set(self, node: ast.GroupingSet):
+        return ast.GroupingSet(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            exprs=[self.visit(expr) for expr in node.exprs],
         )
 
     def visit_select_set_query(self, node: ast.SelectSetQuery):

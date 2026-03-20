@@ -70,7 +70,7 @@ export const inviteLogic = kea<inviteLogicType>([
                         payload.forEach((payload) => (payload.message = values.message))
                     }
                     return await api.create<OrganizationInviteType[]>(
-                        'api/organizations/@current/invites/bulk/',
+                        `api/organizations/${organizationLogic.values.currentOrganizationId}/invites/bulk/`,
                         payload
                     )
                 },
@@ -108,13 +108,15 @@ export const inviteLogic = kea<inviteLogicType>([
                     return organizationLogic.values.currentOrganization
                         ? (
                               await api.get<PaginatedResponse<OrganizationInviteType>>(
-                                  'api/organizations/@current/invites/'
+                                  `api/organizations/${organizationLogic.values.currentOrganizationId}/invites/`
                               )
                           ).results
                         : []
                 },
                 deleteInvite: async (invite: OrganizationInviteType) => {
-                    await api.delete(`api/organizations/@current/invites/${invite.id}/`)
+                    await api.delete(
+                        `api/organizations/${organizationLogic.values.currentOrganizationId}/invites/${invite.id}/`
+                    )
                     preflightLogic.actions.loadPreflight() // Make sure licensed_users_available is updated
                     lemonToast.success(`Invite for ${invite.target_email} has been canceled`)
                     return values.invites.filter((thisInvite) => thisInvite.id !== invite.id)

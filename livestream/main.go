@@ -93,7 +93,8 @@ func main() {
 			usePubSub = false
 		} else {
 			defer cleanup()
-			log.Printf("Redis pub/sub event transport enabled")
+			log.Printf("Redis pub/sub event transport enabled (publish_workers=%d, publish_buffer_size=%d)",
+				config.Redis.PublishWorkers, config.Redis.PublishBufferSize)
 		}
 	}
 
@@ -133,6 +134,9 @@ func main() {
 				metrics.SessionRecordingStatsQueue.Set(float64(len(sessionStatsChan)) / float64(cap(sessionStatsChan)))
 				metrics.SubQueue.Set(float64(len(subChan)) / float64(cap(subChan)))
 				metrics.UnSubQueue.Set(float64(len(unSubChan)) / float64(cap(unSubChan)))
+				if consumer.Broker != nil {
+					metrics.RedisPublishQueue.Set(consumer.Broker.BufferRatio())
+				}
 			}
 		}
 	}()
@@ -296,6 +300,7 @@ func setupRedisPubSub(
 	tokenRouter := events.NewTokenRouter(subscriberClient, subChan, unSubChan)
 
 	consumer.Broker = broker
+	go broker.Run(ctx)
 	go tokenRouter.Run(ctx)
 
 	cleanup = func() {

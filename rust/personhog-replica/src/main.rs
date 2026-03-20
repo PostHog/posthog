@@ -30,7 +30,7 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 max_connections: config.max_pg_connections,
                 acquire_timeout: config.acquire_timeout(),
                 idle_timeout: config.idle_timeout(),
-                test_before_acquire: true,
+                test_before_acquire: false,
                 statement_timeout_ms: config.statement_timeout(),
                 pool_name: Some("primary".to_string()),
             };

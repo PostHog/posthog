@@ -332,6 +332,9 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
                 locked_instance.sync_frequency_interval = None
                 validated_data["sync_frequency_interval"] = None
             elif sync_frequency:
+                # Clamp deprecated 5min interval to 15min for saved queries
+                if sync_frequency == "5min":
+                    sync_frequency = "15min"
                 sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
                 validated_data["sync_frequency_interval"] = sync_frequency_interval
                 locked_instance.sync_frequency_interval = sync_frequency_interval

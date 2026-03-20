@@ -537,7 +537,6 @@ posthog/schema_migrations/upgrade_manager.py:0: error: Argument 1 to "upgrade" h
 posthog/settings/__init__.py:0: error: Cannot determine type of "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY"  [has-type]
 posthog/settings/__init__.py:0: error: Cannot determine type of "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET"  [has-type]
 posthog/settings/data_stores.py:0: error: Name "DATABASE_URL" already defined on line 0  [no-redef]
-posthog/storage/team_access_cache.py:0: error: Need type annotation for "affected_teams" (hint: "affected_teams: set[<type>] = ...")  [var-annotated]
 posthog/tasks/alerts/checks.py:0: error: Argument 2 to "send_notifications_for_errors" has incompatible type "Any | None"; expected "dict[Any, Any]"  [arg-type]
 posthog/tasks/alerts/checks.py:0: error: Item "None" of "Any | None" has no attribute "kind"  [union-attr]
 posthog/tasks/alerts/test/test_alert_checks.py:0: error: Value of type "Any | None" is not indexable  [index]

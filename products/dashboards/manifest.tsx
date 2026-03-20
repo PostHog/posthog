@@ -14,6 +14,8 @@ export const manifest: ProductManifest = {
             combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
         dashboardTextTile: (id: string | number, textTileId: string | number): string =>
             `${urls.dashboard(id)}/text-tiles/${textTileId}`,
+        dashboardButtonTile: (id: string | number, buttonTileId: string | number): string =>
+            `${urls.dashboard(id)}/button-tiles/${buttonTileId}`,
         dashboardSharing: (id: string | number): string => `/dashboard/${id}/sharing`,
         dashboardSubscriptions: (id: string | number): string => `/dashboard/${id}/subscriptions`,
         dashboardSubscription: (id: string | number, subscriptionId: string): string =>

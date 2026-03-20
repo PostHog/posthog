@@ -227,7 +227,7 @@ CONSTANCE_CONFIG = {
     ),
     "CLICKHOUSE_ENABLE_ANALYZER_TEAMS": (
         get_from_env("CLICKHOUSE_ENABLE_ANALYZER_TEAMS", default=[], type_cast=list[int]),
-        "Comma-separated list of team IDs for which ClickHouse allow_experimental_analyzer is enabled",
+        "Comma-separated list of team IDs for which ClickHouse enable_analyzer is enabled",
         list[int],
     ),
 }

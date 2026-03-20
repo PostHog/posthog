@@ -28,6 +28,7 @@ SUPPORTHOG_SLACK_SCOPE = ",".join(
         "channels:history",
         "channels:read",
         "chat:write",
+        "chat:write.customize",
         "groups:history",
         "groups:read",
         "reactions:read",
