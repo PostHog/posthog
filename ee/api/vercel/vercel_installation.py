@@ -138,6 +138,7 @@ class VercelInstallationViewSet(VercelRegionProxyMixin, VercelErrorResponseMixin
         installation_id = validate_installation_id(self.kwargs.get("installation_id"))
         try:
             response_data = VercelIntegration.delete_installation(installation_id)
+            self.invalidate_installation_cache(installation_id)
         except exceptions.NotFound:
             logger.info(
                 "Installation already deleted",
