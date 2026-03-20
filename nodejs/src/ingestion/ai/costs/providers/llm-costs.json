@@ -2876,7 +2876,8 @@
         "cost": {
             "default": {
                 "prompt_token": 2e-7,
-                "completion_token": 0.0000012
+                "completion_token": 0.00000117,
+                "cache_read_token": 1e-7
             },
             "atlas-cloud-fp8": {
                 "prompt_token": 2.95e-7,
@@ -2884,9 +2885,9 @@
                 "cache_read_token": 3e-8
             },
             "chutes-fp8": {
-                "prompt_token": 3e-7,
-                "completion_token": 0.0000011,
-                "cache_read_token": 1.5e-7
+                "prompt_token": 2e-7,
+                "completion_token": 0.00000117,
+                "cache_read_token": 1e-7
             },
             "deepinfra-fp8": {
                 "prompt_token": 2.7e-7,
@@ -3563,6 +3564,11 @@
                 "prompt_token": 5.5e-7,
                 "completion_token": 0.000003,
                 "cache_read_token": 2.75e-7
+            },
+            "modelrun-fp4": {
+                "prompt_token": 5.5e-7,
+                "completion_token": 0.00000325,
+                "cache_read_token": 1.5e-7
             },
             "moonshotai-int4": {
                 "prompt_token": 6e-7,
