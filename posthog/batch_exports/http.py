@@ -746,6 +746,15 @@ class BatchExportSerializer(serializers.ModelSerializer):
             except DatabricksIntegrationError as e:
                 raise serializers.ValidationError(str(e))
 
+        if destination_type == BatchExportDestination.Destination.BIGQUERY:
+            team_id = self.context["team_id"]
+            integration = destination_attrs.get("integration")
+            if integration is not None:
+                if integration.team_id != team_id:
+                    raise serializers.ValidationError("Integration does not belong to this team.")
+                if integration.kind != Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT:
+                    raise serializers.ValidationError("Integration is not a Google Cloud service account integration.")
+
         if destination_type == BatchExportDestination.Destination.AZURE_BLOB:
             team_id = self.context["team_id"]
             team = Team.objects.get(id=team_id)

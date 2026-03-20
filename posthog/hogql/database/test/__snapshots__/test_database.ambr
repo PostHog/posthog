@@ -3736,6 +3736,84 @@
           "row_count": null,
           "type": "system"
       },
+      "system.early_access_features": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "feature_flag_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "feature_flag_id",
+                  "id": null,
+                  "name": "feature_flag_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "description": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "description",
+                  "id": null,
+                  "name": "description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "stage": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "stage",
+                  "id": null,
+                  "name": "stage",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "documentation_url": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "documentation_url",
+                  "id": null,
+                  "name": "documentation_url",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.early_access_features",
+          "name": "system.early_access_features",
+          "row_count": null,
+          "type": "system"
+      },
       "system.experiments": {
           "fields": {
               "id": {
@@ -7937,6 +8015,84 @@
           },
           "id": "system.error_tracking_issues",
           "name": "system.error_tracking_issues",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.early_access_features": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "feature_flag_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "feature_flag_id",
+                  "id": null,
+                  "name": "feature_flag_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "description": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "description",
+                  "id": null,
+                  "name": "description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "stage": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "stage",
+                  "id": null,
+                  "name": "stage",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "documentation_url": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "documentation_url",
+                  "id": null,
+                  "name": "documentation_url",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.early_access_features",
+          "name": "system.early_access_features",
           "row_count": null,
           "type": "system"
       },

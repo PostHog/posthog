@@ -10,6 +10,7 @@ export type HealthIssueKind =
     | 'reverse_proxy'
     | 'web_vitals'
     | 'ingestion_lag'
+    | 'ingestion_warning'
     | 'sdk_outdated'
     | 'materialized_view_failure'
     | 'external_data_failure'
@@ -69,6 +70,7 @@ export const HEALTH_CATEGORY_CONFIG: Record<HealthIssueCategory, CategoryConfig>
 const KIND_TO_CATEGORY: Record<HealthIssueKind, HealthIssueCategory> = {
     // Ingestion
     ingestion_lag: 'ingestion',
+    ingestion_warning: 'ingestion',
 
     // Pipelines
     external_data_failure: 'pipelines',
@@ -96,7 +98,11 @@ export const KIND_LABELS: Record<HealthIssueKind, string> = {
     reverse_proxy: 'No reverse proxy',
     web_vitals: 'No web vitals',
     ingestion_lag: 'Ingestion lag',
+<<<<<<< HEAD
     external_data_failure: 'External data failures',
+=======
+    ingestion_warning: 'Ingestion warning',
+>>>>>>> master
     sdk_outdated: 'SDK outdated',
     materialized_view_failure: 'Materialized view failure',
 }

@@ -41,6 +41,7 @@ jobs:
     check-skills:
         name: Check agent skills
         runs-on: ubuntu-latest
+        timeout-minutes: 30
         needs: changes
         if: needs.changes.outputs.skills == 'true'
         permissions:
@@ -124,6 +125,7 @@ jobs:
     release-skills:
         name: Release agent skills
         runs-on: ubuntu-latest
+        timeout-minutes: 30
         needs: check-skills
         if: github.ref == 'refs/heads/master'
         permissions:

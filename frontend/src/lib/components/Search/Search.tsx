@@ -487,7 +487,7 @@ function SearchRoot({
             >
                 <Autocomplete.Root
                     items={orderedItems}
-                    filter={null}
+                    mode="none"
                     itemToStringValue={(item) => item?.name ?? ''}
                     actionsRef={actionsRef}
                     inline

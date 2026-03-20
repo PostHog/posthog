@@ -425,6 +425,12 @@ pub struct Config {
     #[envconfig(from = "CACHE_TTL_SECONDS", default = "300")]
     pub cache_ttl_seconds: u64,
 
+    #[envconfig(from = "GROUP_TYPE_CACHE_TTL_SECONDS", default = "300")]
+    pub group_type_cache_ttl_seconds: u64,
+
+    #[envconfig(from = "GROUP_TYPE_CACHE_MAX_ENTRIES", default = "50000")]
+    pub group_type_cache_max_entries: u64,
+
     // cookieless, should match the values in plugin-server/src/types.ts, except we don't use sessions here
     #[envconfig(from = "COOKIELESS_DISABLED", default = "false")]
     pub cookieless_disabled: bool,
@@ -771,6 +777,8 @@ impl Config {
             team_ids_to_track: TeamIdCollection::All,
             cohort_cache_capacity_bytes: 268_435_456, // 256 MB
             cache_ttl_seconds: 300,
+            group_type_cache_ttl_seconds: 300,
+            group_type_cache_max_entries: 50_000,
             cookieless_disabled: false,
             cookieless_force_stateless: false,
             cookieless_identifies_ttl_seconds: 345600,

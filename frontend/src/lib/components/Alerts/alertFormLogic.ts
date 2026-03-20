@@ -12,7 +12,7 @@ import {
     InsightThresholdType,
     InsightsThresholdBounds,
 } from '~/queries/schema/schema-general'
-import { InsightLogicProps, QueryBasedInsightModel } from '~/types'
+import { InsightLogicProps, IntervalType, QueryBasedInsightModel } from '~/types'
 
 import type { alertFormLogicType } from './alertFormLogicType'
 import { alertNotificationLogic } from './alertNotificationLogic'
@@ -52,6 +52,20 @@ export interface AlertFormLogicProps {
     insightId: QueryBasedInsightModel['id']
     onEditSuccess: (alertId?: AlertType['id']) => void
     insightVizDataLogicProps?: InsightLogicProps
+    insightInterval?: IntervalType
+}
+
+function insightIntervalToAlertInterval(interval?: IntervalType | null): AlertCalculationInterval {
+    switch (interval) {
+        case 'hour':
+            return AlertCalculationInterval.HOURLY
+        case 'week':
+            return AlertCalculationInterval.WEEKLY
+        case 'month':
+            return AlertCalculationInterval.MONTHLY
+        default:
+            return AlertCalculationInterval.DAILY
+    }
 }
 
 const getThresholdBounds = (goalLines?: GoalLine[] | null): InsightsThresholdBounds => {
@@ -105,7 +119,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     },
                     subscribed_users: [],
                     checks: [],
-                    calculation_interval: AlertCalculationInterval.DAILY,
+                    calculation_interval: insightIntervalToAlertInterval(props.insightInterval),
                     skip_weekend: false,
                     detector_config: null,
                     insight: props.insightId,

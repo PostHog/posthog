@@ -13,7 +13,7 @@ Drop-in replacement for `mprocs` — reads the same YAML config that `hogli dev:
 │ ● frontend     │                          │  ← sidebar + viewport
 │ ✗ capture      │                          │
 ├────────────────┴──────────────────────────┤
-│ k next  j prev  r restart  q quit  ? help │  ← footer
+│ j next  k prev  r restart  q quit  ? help │  ← footer
 └───────────────────────────────────────────┘
 ```
 
@@ -32,8 +32,8 @@ You typically run phrocs via `hogli dev` rather than directly.
 | Key    | Action                                          |
 | ------ | ----------------------------------------------- |
 | `tab`  | Swap focus sidebar/output                       |
-| `↓/k`  | Next process (sidebar) / scroll down (output)   |
-| `↑/j`  | Previous process (sidebar) / scroll up (output) |
+| `↓/j`  | Next process (sidebar) / scroll down (output)   |
+| `↑/k`  | Previous process (sidebar) / scroll up (output) |
 | `pgdn` | Scroll output down                              |
 | `pgup` | Scroll output up                                |
 | `home` | Jump to top of output                           |

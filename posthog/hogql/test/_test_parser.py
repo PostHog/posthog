@@ -725,6 +725,18 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        @parameterized.expand([["percentile_cont"], ["percentile_disc"]])
+        def test_percentile_calls_within_group(self, function_name: str):
+            self.assertEqual(
+                self._expr(f"{function_name}(0.5) within group (order by foo desc)"),
+                ast.Call(
+                    name=function_name,
+                    args=[],
+                    params=[ast.Constant(value=0.5)],
+                    within_group=[ast.OrderExpr(expr=ast.Field(chain=["foo"]), order="DESC")],
+                ),
+            )
+
         def test_alias(self):
             self.assertEqual(
                 self._expr("1 as asd"),
@@ -894,6 +906,37 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ast.SelectQuery(
                     select=[ast.Constant(value=1)],
                     having=ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Constant(value=1),
+                        right=ast.Constant(value=2),
+                    ),
+                ),
+            )
+
+        def test_select_qualify(self):
+            self.assertEqual(
+                self._select("select 1 qualify true"),
+                ast.SelectQuery(select=[ast.Constant(value=1)], qualify=ast.Constant(value=True)),
+            )
+            self.assertEqual(
+                self._select("select 1 qualify 1 == 2"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    qualify=ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Constant(value=1),
+                        right=ast.Constant(value=2),
+                    ),
+                ),
+            )
+
+        def test_select_qualify_with_having(self):
+            self.assertEqual(
+                self._select("select 1 having true qualify 1 == 2"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    having=ast.Constant(value=True),
+                    qualify=ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
                         left=ast.Constant(value=1),
                         right=ast.Constant(value=2),

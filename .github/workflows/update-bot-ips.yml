@@ -12,6 +12,7 @@ permissions:
 jobs:
     update-bot-ips:
         runs-on: ubuntu-latest
+        timeout-minutes: 5
 
         steps:
             - name: Get app token
