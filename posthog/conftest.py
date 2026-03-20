@@ -425,8 +425,10 @@ def pytest_configure(config):
     from django.test import TestCase, TransactionTestCase
 
     # Set default databases for Django test classes
-    TestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
-    TransactionTestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
+    TestCase.databases = {"default", "persons_db_writer", "persons_db_reader"} | {
+        alias for alias in settings.DATABASES if alias.endswith("_db_writer") or alias.endswith("_db_reader")
+    }
+    TransactionTestCase.databases = TestCase.databases
 
 
 def _runs_on_internal_pr() -> bool:
