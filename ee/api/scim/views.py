@@ -42,27 +42,35 @@ logger = structlog.get_logger(__name__)
 MAX_ITEMS_PER_PAGE = 200
 
 
+class SCIMPaginationError(Exception):
+    """Raised when SCIM pagination query parameters are invalid"""
+
+    def __init__(self, detail: str):
+        self.detail = detail
+        super().__init__(detail)
+
+
 def _parse_scim_pagination(request: Request) -> tuple[int, int]:
     """Parse startIndex and count from SCIM query params.
 
     Returns (start_index, count) following django-scim2 conventions.
-    Raises ValueError for invalid (non-integer) values.
+    Raises SCIMPaginationError for invalid values.
     """
     try:
         start_index = int(request.query_params.get("startIndex", 1))
     except (ValueError, TypeError):
-        raise ValueError("Invalid startIndex value")
+        raise SCIMPaginationError("Invalid startIndex value")
 
     try:
         count = int(request.query_params.get("count", MAX_ITEMS_PER_PAGE))
     except (ValueError, TypeError):
-        raise ValueError("Invalid count value")
+        raise SCIMPaginationError("Invalid count value")
 
     if start_index < 1:
-        raise ValueError("Invalid startIndex (must be >= 1)")
+        raise SCIMPaginationError("Invalid startIndex (must be >= 1)")
 
     if count < 0:
-        raise ValueError("Invalid count (must be >= 0)")
+        raise SCIMPaginationError("Invalid count (must be >= 0)")
 
     count = min(count, MAX_ITEMS_PER_PAGE)
     return start_index, count
@@ -306,9 +314,9 @@ class SCIMUsersView(SCIMBaseView):
 
         try:
             start_index, count = _parse_scim_pagination(request)
-        except ValueError as e:
+        except SCIMPaginationError as e:
             return Response(
-                {"schemas": [constants.SchemaURI.ERROR], "status": 400, "detail": str(e)},
+                {"schemas": [constants.SchemaURI.ERROR], "status": 400, "detail": e.detail},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -472,9 +480,9 @@ class SCIMGroupsView(SCIMBaseView):
 
         try:
             start_index, count = _parse_scim_pagination(request)
-        except ValueError as e:
+        except SCIMPaginationError as e:
             return Response(
-                {"schemas": [constants.SchemaURI.ERROR], "status": 400, "detail": str(e)},
+                {"schemas": [constants.SchemaURI.ERROR], "status": 400, "detail": e.detail},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
