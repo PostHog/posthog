@@ -51,7 +51,6 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
         expected_alert_json = {
             "calculation_interval": "daily",
-            "checks": [],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "created_at": mock.ANY,
             "created_by": mock.ANY,
@@ -80,7 +79,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert response.json() == expected_alert_json
 
         alerts = self.client.get(f"/api/projects/{self.team.id}/alerts")
-        assert alerts.json()["results"] == [expected_alert_json]
+        assert alerts.json()["results"] == [{**expected_alert_json, "checks": []}]
 
         alert_id = response.json()["id"]
         self.client.delete(f"/api/projects/{self.team.id}/alerts/{alert_id}")
