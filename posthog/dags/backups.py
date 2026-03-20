@@ -16,12 +16,6 @@ from dagster_aws.s3 import S3Resource
 from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.dags.common import JobOwners, check_for_concurrent_runs
-from posthog.dags.common.resources import BackupsClickhouseClusterResource
-
-BACKUP_RESOURCE_DEFS = {
-    "cluster": BackupsClickhouseClusterResource(),
-    "s3": S3Resource.configure_at_launch(),
-}
 
 NO_SHARD_PATH = "noshard"
 MAX_WAIT_TRIES = 420  # ~14 hours at 2min intervals — full sharded_events backups can take 8-12 hours
@@ -595,7 +589,6 @@ def cleanup_old_backups(
 
 @dagster.job(
     executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 2}),
-    resource_defs=BACKUP_RESOURCE_DEFS,
 )
 def sharded_backup():
     """
@@ -619,7 +612,6 @@ def sharded_backup():
 
 @dagster.job(
     executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 8}),
-    resource_defs=BACKUP_RESOURCE_DEFS,
 )
 def non_sharded_backup():
     """
