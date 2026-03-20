@@ -25,6 +25,8 @@ from products.data_warehouse.backend.data_load.service import (
 from products.data_warehouse.backend.s3 import get_s3_client
 from products.data_warehouse.backend.types import IncrementalFieldType
 
+type IncrementalFieldValue = str | int | float | None
+
 
 class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
     class Status(models.TextChoices):
@@ -107,14 +109,14 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     @property
-    def incremental_field_last_value(self) -> str | None:
+    def incremental_field_last_value(self) -> IncrementalFieldValue:
         if self.sync_type_config:
             return self.sync_type_config.get("incremental_field_last_value", None)
 
         return None
 
     @property
-    def incremental_field_earliest_value(self) -> str | None:
+    def incremental_field_earliest_value(self) -> IncrementalFieldValue:
         if self.sync_type_config:
             return self.sync_type_config.get("incremental_field_earliest_value", None)
 
