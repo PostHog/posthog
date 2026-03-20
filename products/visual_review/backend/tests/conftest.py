@@ -22,17 +22,6 @@ from products.visual_review.backend.models import Repo
 PRODUCT_DATABASES = {"default", "visual_review_db_writer", "visual_review_db_reader"}
 
 
-def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    """Ensure all django_db-marked tests in this package can access the product databases."""
-    for item in items:
-        for i, marker in enumerate(item.own_markers):
-            if marker.name == "django_db":
-                kwargs = dict(marker.kwargs)
-                kwargs["databases"] = PRODUCT_DATABASES
-                item.own_markers[i] = pytest.Mark(name="django_db", args=marker.args, kwargs=kwargs)
-                break
-
-
 # --- Local Git Repo Fixtures ---
 
 

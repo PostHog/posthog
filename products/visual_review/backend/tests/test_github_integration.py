@@ -22,6 +22,7 @@ import responses
 from products.visual_review.backend import logic
 from products.visual_review.backend.facade.enums import RunStatus, SnapshotResult
 from products.visual_review.backend.models import Artifact, Repo, Run, RunSnapshot
+from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 # --- Fixtures ---
 
@@ -346,7 +347,7 @@ def run_with_changes(vr_project_with_github, local_git_repo):
 # --- Tests ---
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestGitHubCommitOnApprove:
     """Test that approve commits baseline updates to GitHub."""
 
@@ -591,7 +592,7 @@ class TestGitHubCommitOnApprove:
             assert s.approved_hash in ["abc123hash", "def456hash"]
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestGitHubIntegrationErrors:
     """Test error handling for GitHub integration."""
 

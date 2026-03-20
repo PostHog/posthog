@@ -6,6 +6,7 @@ from django.conf import settings
 from django.core.checks import Error, register
 
 from posthog.product_db_config import ProductDBRoute, load_product_db_routes
+from posthog.settings.base_variables import TEST
 
 
 @lru_cache(maxsize=1)
@@ -24,7 +25,11 @@ class ProductDBRouter:
     def db_for_read(self, model, **hints):
         for route in self.routes:
             if route.routes_model(model):
-                return f"{route.database}_db_reader"
+                # In tests, reads go to the writer so they share the same
+                # connection and transaction — otherwise reads can't see
+                # uncommitted writes within the same test.
+                suffix = "_db_writer" if TEST else "_db_reader"
+                return f"{route.database}{suffix}"
         return None
 
     def db_for_write(self, model, **hints):

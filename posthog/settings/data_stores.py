@@ -207,11 +207,12 @@ for route in product_routes:
     DATABASES[reader_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
 
     if TEST:
-        # Tell Django's test runner to create independent test databases and run
+        # Tell Django's test runner to create an independent test database and run
         # migrations (via the router). Without this, test databases are created
-        # but left empty.
+        # but left empty. Reader shares the writer's test database so reads inside
+        # a write transaction see uncommitted data.
         DATABASES[writer_alias]["TEST"] = {"DEPENDENCIES": []}
-        DATABASES[reader_alias]["TEST"] = {"DEPENDENCIES": [], "MIRROR": writer_alias}
+        DATABASES[reader_alias]["TEST"] = {"MIRROR": writer_alias}
 
     if DISABLE_SERVER_SIDE_CURSORS:
         DATABASES[writer_alias]["DISABLE_SERVER_SIDE_CURSORS"] = True

@@ -6,9 +6,10 @@ import pytest
 
 from products.visual_review.backend.facade.enums import RunStatus, SnapshotResult
 from products.visual_review.backend.models import Artifact, Repo, Run, RunSnapshot
+from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestProject:
     def test_str_returns_name(self, team):
         repo = Repo.objects.create(team_id=team.id, repo_external_id=111, repo_full_name="org/my-repo")
@@ -19,7 +20,7 @@ class TestProject:
         assert isinstance(repo.id, uuid.UUID)
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestArtifact:
     @pytest.fixture
     def repo(self, team):
@@ -36,7 +37,7 @@ class TestArtifact:
             Artifact.objects.create(repo=repo, content_hash="hash123", storage_path="p/hash123-dup")
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestRun:
     @pytest.fixture
     def repo(self, team):
@@ -59,7 +60,7 @@ class TestRun:
         assert runs[1].id == run1.id
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestRunSnapshot:
     @pytest.fixture
     def repo(self, team):
