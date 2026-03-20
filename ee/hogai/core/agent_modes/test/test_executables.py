@@ -309,6 +309,10 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
                 "ee.hogai.core.agent_modes.compaction_manager.AnthropicConversationCompactionManager.calculate_token_count",
                 return_value=1000,
             ),
+            patch(
+                "ee.hogai.core.agent_modes.executables.has_llm_gateway_bedrock_feature_flag",
+                return_value=False,
+            ),
         ):
             node = _create_agent_node(self.team, self.user)
 
