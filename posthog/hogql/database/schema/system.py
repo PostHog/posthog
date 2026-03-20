@@ -12,6 +12,7 @@ from posthog.hogql.database.models import (
     TableNode,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.parser import parse_expr
 
 
 class IngestionWarningsTable(Table):
@@ -472,6 +473,7 @@ notebooks: PostgresTable = PostgresTable(
 data_modeling_jobs: PostgresTable = PostgresTable(
     name="data_modeling_jobs",
     postgres_table_name="posthog_datamodelingjob",
+    predicates=[parse_expr("created_at >= today() - interval 30 day")],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),

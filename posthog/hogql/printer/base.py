@@ -385,6 +385,32 @@ class HogQLPrinter(Visitor[str]):
         if self.dialect != "hogql":
             raise NotImplementedError("HogQLPrinter._ensure_team_id_where_clause not overridden")
 
+    def _get_table_predicates(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ) -> list[ast.Expr]:
+        """Return predicate expressions from the table definition, with field types set for proper alias prefixing."""
+        from posthog.hogql.database.postgres_table import PostgresTable
+        from posthog.hogql.visitor import CloningVisitor
+
+        if not isinstance(table_type.table, PostgresTable) or not table_type.table.predicates:
+            return []
+
+        class _PredicateFieldTypeSetter(CloningVisitor):
+            def __init__(self, ttype: ast.TableOrSelectType | None):
+                super().__init__()
+                self._table_type = ttype
+
+            def visit_field(self, node: ast.Field):
+                cloned = ast.Field(chain=list(node.chain))
+                if len(cloned.chain) == 1 and self._table_type is not None:
+                    cloned.type = ast.FieldType(name=cloned.chain[0], table_type=self._table_type)
+                return cloned
+
+        setter = _PredicateFieldTypeSetter(node_type)
+        return [setter.visit(predicate) for predicate in table_type.table.predicates]
+
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         if self.dialect == "hogql":
             return table_type.table.to_printed_hogql()
@@ -418,6 +444,13 @@ class HogQLPrinter(Visitor[str]):
                 team_id_for_on_clause = team_id_expr
             else:
                 extra_where = team_id_expr
+
+            # Apply table-level predicates (e.g., date filters on PostgresTable)
+            for pred in self._get_table_predicates(table_type, node.type):
+                if extra_where is None:
+                    extra_where = pred
+                else:
+                    extra_where = ast.And(exprs=[extra_where, pred])
 
             sql = self._print_table_ref(table_type, node)
 
