@@ -35,10 +35,16 @@ impl ReplicaBackend {
         url: &str,
         timeout: Duration,
         retry_config: RetryConfig,
+        keepalive_interval: Option<Duration>,
+        keepalive_timeout: Duration,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let channel = Channel::from_shared(url.to_string())?
+        let mut endpoint = Channel::from_shared(url.to_string())?
             .timeout(timeout)
-            .connect_lazy();
+            .keep_alive_timeout(keepalive_timeout);
+        if let Some(interval) = keepalive_interval {
+            endpoint = endpoint.http2_keep_alive_interval(interval);
+        }
+        let channel = endpoint.connect_lazy();
 
         Ok(Self {
             client: PersonHogReplicaClient::new(channel),
