@@ -50,6 +50,7 @@ jobs:
               if: github.event_name == 'workflow_dispatch'
               env:
                   GH_TOKEN: ${{ github.token }}
+                  GIT_SHA: ${{ github.sha }}
               run: |
                   gh release create "phrocs-${{ inputs.version }}" \
                       tools/phrocs/dist/phrocs-linux-amd64 \
@@ -58,12 +59,43 @@ jobs:
                       tools/phrocs/dist/phrocs-darwin-arm64 \
                       tools/phrocs/dist/checksums.txt \
                       --title "phrocs-${{ inputs.version }}" \
-                      --notes "Built from commit ${{ github.sha }}"
+                      --notes "Built from commit ${{ env.GIT_SHA }}"
+
+            - name: Update latest release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  GIT_SHA: ${{ github.sha }}
+              run: |
+                  gh release delete phrocs-latest --yes || true
+                  git push origin :refs/tags/phrocs-latest || true
+                  gh release create phrocs-latest \
+                      tools/phrocs/dist/phrocs-linux-amd64 \
+                      tools/phrocs/dist/phrocs-linux-arm64 \
+                      tools/phrocs/dist/phrocs-darwin-amd64 \
+                      tools/phrocs/dist/phrocs-darwin-arm64 \
+                      tools/phrocs/dist/checksums.txt \
+                      --title "phrocs-latest" \
+                      --notes "Built from commit ${{ env.GIT_SHA }}" \
+                      --latest=false
+
+            - name: Generate Homebrew tap token
+              if: github.event_name == 'workflow_dispatch'
+              id: app-token
+              uses: getsentry/action-github-app-token@v3
+              with:
+                  app_id: ${{ secrets.HOMEBREW_TAP_APP_ID }}
+                  private_key: ${{ secrets.HOMEBREW_TAP_APP_PRIVATE_KEY }}
+
+            - name: Checkout Homebrew tap
+              if: github.event_name == 'workflow_dispatch'
+              uses: actions/checkout@v6
+              with:
+                  repository: PostHog/homebrew-tap
+                  token: ${{ steps.app-token.outputs.token }}
+                  path: homebrew-tap
 
             - name: Update Homebrew formula
               if: github.event_name == 'workflow_dispatch'
-              env:
-                  GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
               run: |
                   VERSION="${{ inputs.version }}"
 
@@ -78,30 +110,11 @@ jobs:
                       -e "s/SHA256_DARWIN_ARM64/${SHA256_DARWIN_ARM64}/g" \
                       -e "s/SHA256_LINUX_AMD64/${SHA256_LINUX_AMD64}/g" \
                       -e "s/SHA256_LINUX_ARM64/${SHA256_LINUX_ARM64}/g" \
-                      tools/phrocs/Formula/phrocs.rb > /tmp/phrocs.rb
+                      tools/phrocs/Formula/phrocs.rb > homebrew-tap/Formula/phrocs.rb
 
-                  git clone "https://x-access-token:${GH_TOKEN}@github.com/PostHog/homebrew-tap.git" /tmp/homebrew-tap
-                  mkdir -p /tmp/homebrew-tap/Formula
-                  cp /tmp/phrocs.rb /tmp/homebrew-tap/Formula/phrocs.rb
-                  cd /tmp/homebrew-tap
+                  cd homebrew-tap
                   git config user.name "github-actions[bot]"
                   git config user.email "github-actions[bot]@users.noreply.github.com"
                   git add Formula/phrocs.rb
                   git commit -m "Brew formula update for phrocs ${VERSION}" || echo "No changes to commit"
                   git push
-
-            - name: Update latest release
-              env:
-                  GH_TOKEN: ${{ github.token }}
-              run: |
-                  gh release delete phrocs-latest --yes || true
-                  git push origin :refs/tags/phrocs-latest || true
-                  gh release create phrocs-latest \
-                      tools/phrocs/dist/phrocs-linux-amd64 \
-                      tools/phrocs/dist/phrocs-linux-arm64 \
-                      tools/phrocs/dist/phrocs-darwin-amd64 \
-                      tools/phrocs/dist/phrocs-darwin-arm64 \
-                      tools/phrocs/dist/checksums.txt \
-                      --title "phrocs-latest" \
-                      --notes "Built from commit ${{ github.sha }}" \
-                      --latest=false
