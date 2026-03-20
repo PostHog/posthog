@@ -229,18 +229,6 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
     settings.DATABASES["persons_db_writer"]["NAME"] = test_persons_db_name
     settings.DATABASES["persons_db_reader"]["NAME"] = test_persons_db_name
 
-    # Update product database NAMEs to use test-prefixed names
-    from posthog.product_db_config import load_product_db_routes
-
-    for route in load_product_db_routes(settings.BASE_DIR):
-        writer_alias = f"{route.database}_db_writer"
-        reader_alias = f"{route.database}_db_reader"
-        test_product_db_name = test_db_name + f"_{route.database}"
-        if writer_alias in settings.DATABASES:
-            settings.DATABASES[writer_alias]["NAME"] = test_product_db_name
-        if reader_alias in settings.DATABASES:
-            settings.DATABASES[reader_alias]["NAME"] = test_product_db_name
-
     # Drop Person-related tables from default database and all FK constraints
     # These tables will exist in the persons_db_writer database via sqlx migrations
     with django_db_blocker.unblock():
