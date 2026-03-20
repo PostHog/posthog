@@ -158,9 +158,9 @@ describe('Experiment component', () => {
             const { sceneLogic } = renderExperimentViewPage(tabId, experimentData)
 
             await waitFor(() => {
-                expect(screen.getAllByText('Add primary metric').length).toBeGreaterThan(0)
+                screen.getAllByText('Add primary metric')
             })
-            expect(screen.getAllByText('Add secondary metric').length).toBeGreaterThan(0)
+            screen.getAllByText('Add secondary metric')
 
             // No creation form should be shown in view mode
             expect(screen.queryByTestId('experiment-wizard')).not.toBeInTheDocument()
