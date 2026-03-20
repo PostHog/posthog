@@ -1,11 +1,17 @@
 # phrocs Build Workflow
 #
 # Triggers:
-#   - Push to master (paths: tools/phrocs/**) → creates versioned + phrocs-latest releases
+#   - Push to master (paths: tools/phrocs/**) → updates phrocs-latest release
+#   - Manual dispatch with version input       → creates phrocs-X.Y.Z semver release + updates Homebrew
 
 name: Build phrocs
 
 on:
+    workflow_dispatch:
+        inputs:
+            version:
+                description: 'Semver version (e.g. 1.0.1)'
+                required: true
     push:
         branches:
             - master
@@ -22,10 +28,6 @@ jobs:
         runs-on: ubuntu-24.04
 
         steps:
-            - name: Set version
-              id: version
-              run: echo "value=$(date +%Y%m%d-%H%M%S)" >> "$GITHUB_OUTPUT"
-
             - name: Checkout repository
               uses: actions/checkout@v6
 
@@ -37,26 +39,56 @@ jobs:
                   cache-dependency-path: tools/phrocs/go.sum
 
             - name: Build all platform binaries
-              run: cd tools/phrocs && make build-all VERSION="${{ steps.version.outputs.value }}"
+              run: cd tools/phrocs && make build-all VERSION="${{ inputs.version || 'dev' }}"
 
             - name: Generate checksums
               run: |
                   cd tools/phrocs/dist
                   sha256sum phrocs-* > checksums.txt
 
-            - name: Create versioned release
+            - name: Create semver release
+              if: github.event_name == 'workflow_dispatch'
               env:
                   GH_TOKEN: ${{ github.token }}
               run: |
-                  gh release create "phrocs-${{ steps.version.outputs.value }}" \
+                  gh release create "phrocs-${{ inputs.version }}" \
                       tools/phrocs/dist/phrocs-linux-amd64 \
                       tools/phrocs/dist/phrocs-linux-arm64 \
                       tools/phrocs/dist/phrocs-darwin-amd64 \
                       tools/phrocs/dist/phrocs-darwin-arm64 \
                       tools/phrocs/dist/checksums.txt \
-                      --title "phrocs-${{ steps.version.outputs.value }}" \
-                      --notes "Built from commit ${{ github.sha }}" \
-                      --latest=false
+                      --title "phrocs-${{ inputs.version }}" \
+                      --notes "Built from commit ${{ github.sha }}"
+
+            - name: Update Homebrew formula
+              if: github.event_name == 'workflow_dispatch'
+              env:
+                  GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+              run: |
+                  VERSION="${{ inputs.version }}"
+
+                  SHA256_DARWIN_AMD64=$(grep phrocs-darwin-amd64 tools/phrocs/dist/checksums.txt | awk '{print $1}')
+                  SHA256_DARWIN_ARM64=$(grep phrocs-darwin-arm64 tools/phrocs/dist/checksums.txt | awk '{print $1}')
+                  SHA256_LINUX_AMD64=$(grep phrocs-linux-amd64 tools/phrocs/dist/checksums.txt | awk '{print $1}')
+                  SHA256_LINUX_ARM64=$(grep phrocs-linux-arm64 tools/phrocs/dist/checksums.txt | awk '{print $1}')
+
+                  sed \
+                      -e "s/VERSION_PLACEHOLDER/${VERSION}/g" \
+                      -e "s/SHA256_DARWIN_AMD64/${SHA256_DARWIN_AMD64}/g" \
+                      -e "s/SHA256_DARWIN_ARM64/${SHA256_DARWIN_ARM64}/g" \
+                      -e "s/SHA256_LINUX_AMD64/${SHA256_LINUX_AMD64}/g" \
+                      -e "s/SHA256_LINUX_ARM64/${SHA256_LINUX_ARM64}/g" \
+                      tools/phrocs/Formula/phrocs.rb > /tmp/phrocs.rb
+
+                  git clone "https://x-access-token:${GH_TOKEN}@github.com/PostHog/homebrew-tap.git" /tmp/homebrew-tap
+                  mkdir -p /tmp/homebrew-tap/Formula
+                  cp /tmp/phrocs.rb /tmp/homebrew-tap/Formula/phrocs.rb
+                  cd /tmp/homebrew-tap
+                  git config user.name "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+                  git add Formula/phrocs.rb
+                  git commit -m "Brew formula update for phrocs ${VERSION}" || echo "No changes to commit"
+                  git push
 
             - name: Update latest release
               env:
@@ -71,5 +103,5 @@ jobs:
                       tools/phrocs/dist/phrocs-darwin-arm64 \
                       tools/phrocs/dist/checksums.txt \
                       --title "phrocs-latest" \
-                      --notes "Latest build (same as phrocs-${{ steps.version.outputs.value }})" \
+                      --notes "Built from commit ${{ github.sha }}" \
                       --latest=false
