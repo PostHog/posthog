@@ -119,6 +119,10 @@ class HogQLPrinter(Visitor[str]):
             return f"{self._print_identifier(node.name)} AS {self.visit(node.expr)}"
         return f"{self.visit(node.expr)} AS {self._print_identifier(node.name)}"
 
+    def visit_grouping_set(self, node: ast.GroupingSet):
+        inner = ", ".join(self.visit(e) for e in node.exprs)
+        return f"({inner})"
+
     def visit_select_set_query(self, node: ast.SelectSetQuery):
         self._indent -= 1
         ret = self.visit(node.initial_select_query)
@@ -209,8 +213,16 @@ class HogQLPrinter(Visitor[str]):
         )
         prewhere = self.visit(node.prewhere) if node.prewhere else None
         where = self.visit(where) if where else None
-        group_by = [self.visit(column) for column in node.group_by] if node.group_by else None
+        group_by: list[str] | None = None
+        if node.group_by:
+            if node.group_by_mode == "grouping_sets":
+                group_by = [self.visit(gs) for gs in node.group_by]
+            else:
+                group_by = [self.visit(column) for column in node.group_by]
         having = self.visit(node.having) if node.having else None
+        if node.qualify is not None and self.dialect != "postgres":
+            raise QueryError("QUALIFY is not supported in the '{}' dialect".format(self.dialect))
+        qualify = self.visit(node.qualify) if node.qualify else None
         order_by = [self.visit(column) for column in node.order_by] if node.order_by else None
 
         array_join = ""
@@ -236,8 +248,19 @@ class HogQLPrinter(Visitor[str]):
             array_join if array_join else None,
             f"PREWHERE{space}" + prewhere if prewhere else None,
             f"WHERE{space}" + where if where else None,
-            f"GROUP BY{space}{comma.join(group_by)}" if group_by and len(group_by) > 0 else None,
+            (
+                f"GROUP BY{space}GROUPING SETS ({comma.join(group_by)})"
+                if node.group_by_mode == "grouping_sets"
+                else f"GROUP BY{space}CUBE({comma.join(group_by)})"
+                if node.group_by_mode == "cube"
+                else f"GROUP BY{space}ROLLUP({comma.join(group_by)})"
+                if node.group_by_mode == "rollup"
+                else f"GROUP BY{space}{comma.join(group_by)}"
+            )
+            if group_by and len(group_by) > 0
+            else None,
             f"HAVING{space}" + having if having else None,
+            f"QUALIFY{space}" + qualify if qualify else None,
             f"WINDOW{space}" + window if window else None,
             f"ORDER BY{space}{comma.join(order_by)}" if order_by and len(order_by) > 0 else None,
         ]
@@ -566,6 +589,15 @@ class HogQLPrinter(Visitor[str]):
         # When printing HogQL, we print the properties out as a chain as they are.
         return ".".join([self._print_hogql_identifier_or_index(identifier) for identifier in node.chain])
 
+    def visit_columns_expr(self, node: ast.ColumnsExpr):
+        raise ImpossibleASTError("Unexpected ast.ColumnsExpr. This should have been expanded by the resolver.")
+
+    def visit_spread_expr(self, node: ast.SpreadExpr):
+        raise ImpossibleASTError(
+            "*COLUMNS(...) can only be used to unpack columns inside function call arguments. "
+            "Use COLUMNS(...) for top-level column selection."
+        )
+
     def visit_call(self, node: ast.Call):
         func_meta = (
             find_hogql_aggregation(node.name)
@@ -616,6 +648,11 @@ class HogQLPrinter(Visitor[str]):
                 )
             )
         elif func_meta := find_hogql_aggregation(node.name):
+            if func_meta.requires_within_group and node.within_group is None:
+                raise QueryError(f"Aggregation '{node.name}' requires WITHIN GROUP")
+            if node.within_group is not None and self.dialect == "clickhouse":
+                raise QueryError(f"Aggregation '{node.name}' with WITHIN GROUP is not supported in ClickHouse dialect")
+
             validate_function_args(
                 node.args,
                 func_meta.min_args,
@@ -646,11 +683,26 @@ class HogQLPrinter(Visitor[str]):
 
             arg_strings = [self.visit(arg) for arg in node.args]
             params = [self.visit(param) for param in node.params] if node.params is not None else None
+            within_group = (
+                f" WITHIN GROUP (ORDER BY {', '.join(self.visit(expr) for expr in node.within_group)})"
+                if node.within_group
+                else ""
+            )
 
             params_part = f"({', '.join(params)})" if params is not None else ""
-            args_part = f"({'DISTINCT ' if node.distinct else ''}{', '.join(arg_strings)})"
+            args_part = (
+                ""
+                if node.within_group is not None and len(arg_strings) == 0 and not node.distinct
+                else f"({'DISTINCT ' if node.distinct else ''}{', '.join(arg_strings)})"
+            )
 
-            return f"{node.name if self.dialect == 'hogql' else func_meta.clickhouse_name}{params_part}{args_part}"
+            if node.within_group is not None and not func_meta.requires_within_group:
+                raise QueryError(f"Aggregation '{node.name}' does not support WITHIN GROUP")
+
+            return (
+                f"{node.name if self.dialect == 'hogql' else func_meta.clickhouse_name}"
+                f"{params_part}{args_part}{within_group}"
+            )
 
         elif func_meta := find_hogql_function(node.name):
             validate_function_args(

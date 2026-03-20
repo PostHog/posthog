@@ -103,6 +103,7 @@ jobs:
             - name: Build wheels
               run: cd common/hogql_parser && python -m cibuildwheel --output-dir dist
               env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   CIBW_ARCHS_MACOS: ${{ matrix.cibw_archs_macos }}
                   CIBW_ARCHS_LINUX: ${{ matrix.cibw_archs_linux }}
                   MACOSX_DEPLOYMENT_TARGET: ${{ matrix.MACOSX_DEPLOYMENT_TARGET }}

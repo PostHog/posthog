@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from django.db import transaction
 from django.db.models import Case, Count, F, Prefetch, Q, QuerySet, Value, When
 from django.db.models.functions import Now
+from django.utils import timezone
 
 import pydantic
 from rest_framework.exceptions import ValidationError
@@ -22,7 +23,12 @@ from posthog.event_usage import EventSource, report_user_action
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.models.cohort import Cohort
 from posthog.models.evaluation_context import FeatureFlagEvaluationContext
-from posthog.models.experiment import (
+from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.filters.filter import Filter
+from posthog.models.team.team import Team
+from posthog.utils import str_to_bool
+
+from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentHoldout,
     ExperimentMetricResult,
@@ -30,10 +36,6 @@ from posthog.models.experiment import (
     ExperimentTimeseriesRecalculation,
     holdout_filters_for_flag,
 )
-from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.filters.filter import Filter
-from posthog.models.team.team import Team
-from posthog.utils import str_to_bool
 
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
@@ -369,6 +371,24 @@ class ExperimentService:
         if "control" not in [variant["key"] for variant in variants]:
             raise ValidationError("Feature flag must have a variant with key 'control'")
 
+    @staticmethod
+    def _recompute_fingerprints(
+        metrics: list[dict],
+        start_date: datetime | None,
+        stats_config: dict | None,
+        exposure_criteria: dict | None,
+    ) -> list[dict]:
+        """Recompute fingerprints for a list of metrics. Returns a new list with updated fingerprints."""
+        stats_method = "bayesian" if stats_config is None else stats_config.get("method", "bayesian")
+        updated = []
+        for metric in metrics:
+            metric_copy = deepcopy(metric)
+            metric_copy["fingerprint"] = compute_metric_fingerprint(
+                metric_copy, start_date, stats_method, exposure_criteria
+            )
+            updated.append(metric_copy)
+        return updated
+
     def _apply_stats_config_defaults(self, stats_config: dict | None) -> dict:
         """Apply team-level defaults to stats_config."""
         result = dict(stats_config or {})
@@ -512,6 +532,42 @@ class ExperimentService:
                 )
 
     # ------------------------------------------------------------------
+    # Launch
+    # ------------------------------------------------------------------
+
+    @transaction.atomic
+    def launch_experiment(self, experiment: Experiment) -> Experiment:
+        """Launch a draft experiment: validate readiness, set start_date, activate feature flag."""
+        if not experiment.is_draft:
+            raise ValidationError("Experiment has already been launched.")
+
+        # Validate feature flag configuration
+        feature_flag = experiment.feature_flag
+        self._validate_existing_flag(feature_flag)
+
+        # Set start_date
+        experiment.start_date = timezone.now()
+
+        # Recompute metric fingerprints with the new start_date
+        for metric_field in ["metrics", "metrics_secondary"]:
+            metrics = getattr(experiment, metric_field, None)
+            if metrics:
+                setattr(
+                    experiment,
+                    metric_field,
+                    self._recompute_fingerprints(
+                        metrics, experiment.start_date, experiment.stats_config, experiment.exposure_criteria
+                    ),
+                )
+
+        # Activate feature flag
+        feature_flag.active = True
+        feature_flag.save()
+
+        experiment.save()
+        return experiment
+
+    # ------------------------------------------------------------------
     # Update
     # ------------------------------------------------------------------
 
@@ -623,18 +679,9 @@ class ExperimentService:
         for metric_field in ["metrics", "metrics_secondary"]:
             metrics = update_data.get(metric_field, getattr(experiment, metric_field, None))
             if metrics:
-                updated_metrics = []
-                for metric in metrics:
-                    metric_copy = deepcopy(metric)
-                    stats_method = "bayesian" if stats_config is None else stats_config.get("method", "bayesian")
-                    metric_copy["fingerprint"] = compute_metric_fingerprint(
-                        metric_copy,
-                        start_date,
-                        stats_method,
-                        exposure_criteria,
-                    )
-                    updated_metrics.append(metric_copy)
-                update_data[metric_field] = updated_metrics
+                update_data[metric_field] = self._recompute_fingerprints(
+                    metrics, start_date, stats_config, exposure_criteria
+                )
 
         # --- metric ordering sync + validation -----------------------------
         self._sync_ordering_with_metric_changes(experiment, update_data)

@@ -45,6 +45,7 @@ export interface TraceReviewScoreUpsertPayload {
 
 export interface TraceReviewUpsertPayload {
     trace_id: string
+    queue_id?: string | null
     comment?: string | null
     scores: TraceReviewScoreUpsertPayload[]
 }

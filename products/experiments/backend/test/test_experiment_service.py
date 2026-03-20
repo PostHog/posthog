@@ -1,5 +1,6 @@
 from datetime import timedelta
 from decimal import Decimal
+from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -11,15 +12,15 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.models import FeatureFlag, Team
 from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
-from posthog.models.experiment import (
+
+from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentHoldout,
     ExperimentMetricResult,
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
 )
-
-from products.experiments.backend.experiment_service import ExperimentService
 
 
 class TestExperimentService(APIBaseTest):
@@ -971,7 +972,8 @@ class TestExperimentService(APIBaseTest):
         service.update_experiment(experiment, {"holdout": holdout})
 
         experiment.feature_flag.refresh_from_db()
-        assert experiment.feature_flag.filters["holdout_groups"] == holdout.filters
+        assert experiment.feature_flag.filters["holdout"] == {"id": holdout.id, "exclusion_percentage": 10}
+        assert "holdout_groups" not in experiment.feature_flag.filters
 
     # ------------------------------------------------------------------
     # Duplicate experiment
@@ -1073,6 +1075,192 @@ class TestExperimentService(APIBaseTest):
         links = list(dup.experimenttosavedmetric_set.all())
         assert len(links) == 1
         assert links[0].saved_metric_id == sm.id
+
+    # ------------------------------------------------------------------
+    # Launch experiment
+    # ------------------------------------------------------------------
+
+    _DEFAULT_METRIC = {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m1", "event": "$pageview"}
+
+    def _create_launchable_experiment(
+        self,
+        name: str = "Launchable",
+        feature_flag_key: str = "launchable-flag",
+        **kwargs: Any,
+    ) -> Experiment:
+        kwargs.setdefault("metrics", [self._DEFAULT_METRIC])
+        kwargs.setdefault("primary_metrics_ordered_uuids", ["m1"])
+        return self._service().create_experiment(name=name, feature_flag_key=feature_flag_key, **kwargs)
+
+    def test_launch_experiment_success(self):
+        experiment = self._create_launchable_experiment(name="Launch Test", feature_flag_key="launch-new-flag")
+
+        assert experiment.is_draft
+        assert experiment.feature_flag.active is False
+
+        launched = self._service().launch_experiment(experiment)
+
+        assert launched.start_date is not None
+        assert not launched.is_draft
+        assert launched.status == Experiment.Status.RUNNING
+        launched.feature_flag.refresh_from_db()
+        assert launched.feature_flag.active is True
+
+    def test_launch_experiment_sets_fingerprints(self):
+        self._create_flag(key="fp-launch")
+        experiment = self._create_launchable_experiment(name="Fingerprint Launch", feature_flag_key="fp-launch")
+
+        # Draft metrics have fingerprints computed with start_date=None
+        assert experiment.metrics is not None
+        draft_fingerprint = experiment.metrics[0].get("fingerprint")
+
+        launched = self._service().launch_experiment(experiment)
+
+        # After launch, fingerprints should be recomputed with the new start_date
+        assert launched.metrics is not None
+        launch_fingerprint = launched.metrics[0].get("fingerprint")
+        assert launch_fingerprint is not None
+        assert launch_fingerprint != draft_fingerprint
+
+    def test_launch_experiment_already_running_raises(self):
+        experiment = self._create_launchable_experiment(name="Already Running", feature_flag_key="already-running-flag")
+        service = self._service()
+        service.launch_experiment(experiment)
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.launch_experiment(experiment)
+
+        assert "already been launched" in str(ctx.exception)
+
+    def test_launch_experiment_already_stopped_raises(self):
+        experiment = self._create_launchable_experiment(name="Already Stopped", feature_flag_key="already-stopped-flag")
+        service = self._service()
+        service.launch_experiment(experiment)
+        service.update_experiment(experiment, {"end_date": timezone.now()})
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.launch_experiment(experiment)
+
+        assert "already been launched" in str(ctx.exception)
+
+    def test_launch_experiment_without_metrics(self):
+        experiment = self._create_launchable_experiment(
+            name="No Metrics",
+            feature_flag_key="no-metrics-flag",
+            metrics=[],
+            primary_metrics_ordered_uuids=None,
+        )
+
+        launched = self._service().launch_experiment(experiment)
+
+        assert launched.start_date is not None
+        assert launched.status == Experiment.Status.RUNNING
+
+    def test_launch_experiment_with_only_secondary_metrics(self):
+        self._create_flag(key="secondary-only")
+        experiment = self._service().create_experiment(
+            name="Secondary Only",
+            feature_flag_key="secondary-only",
+            metrics_secondary=[self._DEFAULT_METRIC],
+            secondary_metrics_ordered_uuids=["m1"],
+        )
+
+        launched = self._service().launch_experiment(experiment)
+
+        assert launched.start_date is not None
+        assert launched.status == Experiment.Status.RUNNING
+
+    def test_launch_experiment_with_linked_active_flag(self):
+        """Pre-existing flag that is already active (rolled out). Launch should succeed and flag stays active."""
+        flag = self._create_flag(key="already-active")
+        assert flag.active is True  # FeatureFlag default
+
+        experiment = self._create_launchable_experiment(name="Linked Active Flag", feature_flag_key="already-active")
+
+        launched = self._service().launch_experiment(experiment)
+
+        assert launched.start_date is not None
+        assert launched.status == Experiment.Status.RUNNING
+        launched.feature_flag.refresh_from_db()
+        assert launched.feature_flag.active is True
+
+    def test_launch_experiment_with_linked_inactive_flag(self):
+        """Pre-existing flag that is inactive. Launch should activate it."""
+        flag = self._create_flag(key="inactive-flag")
+        flag.active = False
+        flag.save()
+
+        experiment = self._create_launchable_experiment(name="Linked Inactive Flag", feature_flag_key="inactive-flag")
+
+        launched = self._service().launch_experiment(experiment)
+
+        assert launched.start_date is not None
+        launched.feature_flag.refresh_from_db()
+        assert launched.feature_flag.active is True
+
+    def test_launch_experiment_with_linked_flag_preserves_conditions(self):
+        """Pre-existing flag with custom release conditions. Launch should preserve them."""
+        flag = self._create_flag(key="custom-conditions")
+        flag.filters = {
+            "groups": [
+                {
+                    "properties": [{"key": "country", "value": "US", "type": "person"}],
+                    "rollout_percentage": 50,
+                },
+                {"properties": [], "rollout_percentage": 100},
+            ],
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ]
+            },
+        }
+        flag.save()
+
+        experiment = self._create_launchable_experiment(name="Custom Conditions", feature_flag_key="custom-conditions")
+
+        launched = self._service().launch_experiment(experiment)
+
+        launched.feature_flag.refresh_from_db()
+        groups = launched.feature_flag.filters["groups"]
+        assert len(groups) == 2
+        assert groups[0]["properties"] == [{"key": "country", "value": "US", "type": "person"}]
+        assert groups[0]["rollout_percentage"] == 50
+
+    def test_launch_experiment_flag_modified_to_invalid_raises(self):
+        """Flag modified after experiment creation to remove control variant. Launch should fail."""
+        flag = self._create_flag(key="will-break")
+        experiment = self._create_launchable_experiment(name="Will Break", feature_flag_key="will-break")
+
+        # Simulate someone modifying the flag to remove "control"
+        flag.filters["multivariate"]["variants"] = [
+            {"key": "variant_a", "rollout_percentage": 50},
+            {"key": "variant_b", "rollout_percentage": 50},
+        ]
+        flag.save()
+        experiment.feature_flag.refresh_from_db()
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().launch_experiment(experiment)
+
+        assert "control" in str(ctx.exception).lower()
+
+    def test_launch_experiment_flag_reduced_to_single_variant_raises(self):
+        """Flag modified to have only 1 variant. Launch should fail."""
+        flag = self._create_flag(key="single-variant")
+        experiment = self._create_launchable_experiment(name="Single Variant", feature_flag_key="single-variant")
+
+        flag.filters["multivariate"]["variants"] = [
+            {"key": "control", "rollout_percentage": 100},
+        ]
+        flag.save()
+        experiment.feature_flag.refresh_from_db()
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().launch_experiment(experiment)
+
+        assert "at least 2 variants" in str(ctx.exception)
 
     # ------------------------------------------------------------------
     # Exposure cohort

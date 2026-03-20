@@ -131,6 +131,17 @@ EXPORT_QUERY_CACHE_MISS = Counter(
 )
 
 
+def _get_insight_type(insight: Insight) -> str:
+    """Return a normalized lowercase insight type string for analytics."""
+    if insight.query:
+        # New query-based insight — source kind looks like "TrendsQuery", "FunnelsQuery", etc.
+        source = insight.query.get("source", insight.query)
+        kind = source.get("kind", "")
+        return kind.replace("Query", "").lower() if kind else "json"
+    # Legacy filter-based insight
+    return str(insight.filters.get("insight", "TRENDS")).lower()
+
+
 def log_and_report_insight_activity(
     *,
     activity: str,
@@ -480,6 +491,17 @@ class InsightSerializer(InsightBasicSerializer):
                     raise serializers.ValidationError("Dashboard not found")
 
                 DashboardTile.objects.create(insight=insight, dashboard=dashboard, last_refresh=now())
+                report_user_action(
+                    self.context["request"].user,
+                    "dashboard tile added",
+                    {
+                        "tile_type": "insight",
+                        "insight_type": _get_insight_type(insight),
+                        "dashboard_id": dashboard.id,
+                    },
+                    team=insight.team,
+                    request=self.context["request"],
+                )
 
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, insight)
@@ -625,6 +647,18 @@ class InsightSerializer(InsightBasicSerializer):
             if tile.deleted:
                 tile.deleted = False
                 tile.save()
+
+            report_user_action(
+                self.context["request"].user,
+                "dashboard tile added",
+                {
+                    "tile_type": "insight",
+                    "insight_type": _get_insight_type(instance),
+                    "dashboard_id": dashboard.id,
+                },
+                team=instance.team,
+                request=self.context["request"],
+            )
 
         if ids_to_remove:
             # Check permission before removing insight from dashboards

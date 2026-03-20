@@ -105,31 +105,31 @@ func TestUpdate_windowSizeSetsReady(t *testing.T) {
 
 func TestNavigation_nextProc(t *testing.T) {
 	m := readyModel(t, "backend", "celery", "frontend")
-	// k = next proc
-	m = update(m, keypress('k'))
+	// j = next proc
+	m = update(m, keypress('j'))
 	if m.servicesCursor != 1 {
-		t.Errorf("cursor after k: got %d, want 1", m.servicesCursor)
+		t.Errorf("cursor after j: got %d, want 1", m.servicesCursor)
 	}
-	m = update(m, keypress('k'))
+	m = update(m, keypress('j'))
 	if m.servicesCursor != 2 {
-		t.Errorf("cursor after k k: got %d, want 2", m.servicesCursor)
+		t.Errorf("cursor after j j: got %d, want 2", m.servicesCursor)
 	}
 }
 
 func TestNavigation_prevProc(t *testing.T) {
 	m := readyModel(t, "backend", "celery", "frontend")
 	m.servicesCursor = 2
-	// j = prev proc
-	m = update(m, keypress('j'))
+	// k = prev proc
+	m = update(m, keypress('k'))
 	if m.servicesCursor != 1 {
-		t.Errorf("cursor after j: got %d, want 1", m.servicesCursor)
+		t.Errorf("cursor after k: got %d, want 1", m.servicesCursor)
 	}
 }
 
 func TestNavigation_clampsAtBottom(t *testing.T) {
 	m := readyModel(t, "backend", "frontend")
 	m.servicesCursor = 1
-	m = update(m, keypress('k'))
+	m = update(m, keypress('j'))
 	if m.servicesCursor != 1 {
 		t.Errorf("cursor should clamp at %d, got %d", 1, m.servicesCursor)
 	}
@@ -138,7 +138,7 @@ func TestNavigation_clampsAtBottom(t *testing.T) {
 func TestNavigation_clampsAtTop(t *testing.T) {
 	m := readyModel(t, "backend", "frontend")
 	m.servicesCursor = 0
-	m = update(m, keypress('j'))
+	m = update(m, keypress('k'))
 	if m.servicesCursor != 0 {
 		t.Errorf("cursor should clamp at 0, got %d", m.servicesCursor)
 	}
@@ -250,15 +250,15 @@ func TestCopyMode_navigation(t *testing.T) {
 	m = update(m, keypress('c')) // enter copy mode
 	initial := m.copyCursor
 
-	// k = next line in copy mode
-	m = update(m, keypress('k'))
-	if m.copyCursor != initial+1 {
-		t.Errorf("k in copy mode: copyCursor want %d, got %d", initial+1, m.copyCursor)
-	}
-	// j = prev line in copy mode
+	// j = next line in copy mode
 	m = update(m, keypress('j'))
+	if m.copyCursor != initial+1 {
+		t.Errorf("j in copy mode: copyCursor want %d, got %d", initial+1, m.copyCursor)
+	}
+	// k = prev line in copy mode
+	m = update(m, keypress('k'))
 	if m.copyCursor != initial {
-		t.Errorf("j in copy mode: copyCursor want %d, got %d", initial, m.copyCursor)
+		t.Errorf("k in copy mode: copyCursor want %d, got %d", initial, m.copyCursor)
 	}
 }
 

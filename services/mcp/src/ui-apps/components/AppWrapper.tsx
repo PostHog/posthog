@@ -203,22 +203,24 @@ export function AppWrapper<T>({ children, ...options }: AppWrapperProps<T>): Rea
                 }}
             >
                 <ExpandButton app={app} onDisplayModeChanged={refreshContainerDimensions} />
-                {posthogUrl ? (
-                    <Link
-                        href={posthogUrl}
-                        external
-                        onClick={(e) => {
-                            e.preventDefault()
-                            openLink(posthogUrl)
-                        }}
-                        className="text-xs"
-                    >
+                <span className="ml-auto">
+                    {posthogUrl ? (
+                        <Link
+                            href={posthogUrl}
+                            external
+                            onClick={(e) => {
+                                e.preventDefault()
+                                openLink(posthogUrl)
+                            }}
+                            className="text-xs"
+                        >
+                            <PostHogLogo size={16} />
+                            <span>View in PostHog</span>
+                        </Link>
+                    ) : (
                         <PostHogLogo size={16} />
-                        <span>View in PostHog</span>
-                    </Link>
-                ) : (
-                    <PostHogLogo size={16} />
-                )}
+                    )}
+                </span>
             </footer>
         </div>
     )

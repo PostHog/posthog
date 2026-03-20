@@ -11,6 +11,7 @@ import type { textCardModalLogicType } from './textCardModalLogicType'
 
 export interface TextTileForm {
     body: string
+    transparent_background: boolean
 }
 
 export interface TextCardModalProps {
@@ -21,10 +22,12 @@ export interface TextCardModalProps {
 
 const MAX_TEXT_CARD_BODY_LENGTH = 4000
 
-const getTileBody = (dashboard: DashboardType<QueryBasedInsightModel>, textTileId: number): string => {
-    const dashboardTiles = dashboard.tiles
-    const matchedTile = dashboardTiles?.find((tt) => tt.id === textTileId)
-    return matchedTile?.text?.body || ''
+const getExistingTextTile = (dashboard: DashboardType<QueryBasedInsightModel>, textTileId: number): TextTileForm => {
+    const tile = dashboard.tiles?.find((tt) => tt.id === textTileId)
+    return {
+        body: tile?.text?.body || '',
+        transparent_background: tile?.transparent_background ?? false,
+    }
 }
 
 export const textCardModalLogic = kea<textCardModalLogicType>([
@@ -78,12 +81,9 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
     })),
     forms(({ props, actions }) => ({
         textTile: {
-            defaults: {
-                body:
-                    props.textTileId && props.textTileId !== 'new'
-                        ? getTileBody(props.dashboard, props.textTileId)
-                        : '',
-            } as TextTileForm,
+            defaults: (props.textTileId && props.textTileId !== 'new'
+                ? getExistingTextTile(props.dashboard, props.textTileId)
+                : { body: '', transparent_background: false }) as TextTileForm,
             errors: ({ body }) => {
                 return {
                     body: !body.trim()
@@ -95,14 +95,27 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
             },
             submit: (formValues) => {
                 // only id and body, layout and color could be out-of-date
-                const textTiles = (props.dashboard.tiles || []).map((t) => ({ id: t.id, text: t.text }))
+                const textTiles = (props.dashboard.tiles || []).map((t) => ({
+                    id: t.id,
+                    text: t.text,
+                    transparent_background: t.transparent_background,
+                }))
 
                 if (props.textTileId === 'new') {
-                    actions.updateDashboard({ id: props.dashboard.id, tiles: [{ text: formValues }] })
+                    actions.updateDashboard({
+                        id: props.dashboard.id,
+                        tiles: [
+                            {
+                                text: { body: formValues.body },
+                                transparent_background: formValues.transparent_background,
+                            },
+                        ],
+                    })
                 } else {
                     const updatedTiles = [...textTiles].reduce((acc, tile) => {
                         if (tile.id === props.textTileId && tile.text) {
                             tile.text.body = formValues.body
+                            ;(tile as Partial<DashboardTile>).transparent_background = formValues.transparent_background
                             acc.push(tile)
                         }
                         return acc
