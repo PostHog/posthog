@@ -22,7 +22,7 @@ describe('EvaluationManagerService', () => {
         await resetTestDatabase()
         manager = new EvaluationManagerService(hub.postgres, hub.pubSub)
 
-        const team = await getTeam(hub, 2)
+        const team = await getTeam(hub.postgres, 2)
 
         teamId1 = await createTeam(hub.postgres, team!.organization_id)
         teamId2 = await createTeam(hub.postgres, team!.organization_id)

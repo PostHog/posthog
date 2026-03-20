@@ -34,7 +34,7 @@ const meta: Meta = {
             get: {
                 '/api/projects/:team_id/dashboard_templates/': {},
                 '/api/projects/:id/integrations': { results: [] },
-                '/api/organizations/@current/pipeline_destinations/': { results: [] },
+                '/api/organizations/:organization_id/pipeline_destinations/': { results: [] },
                 '/api/projects/:id/pipeline_destination_configs/': { results: [] },
                 '/api/projects/:id/batch_exports/': { results: [] },
                 '/api/projects/:id/surveys/': { results: [] },
@@ -84,10 +84,6 @@ export const SidePanelNotebooks: StoryFn = () => {
 
 export const SidePanelMax: StoryFn = () => {
     return <BaseTemplate panel={SidePanelTab.Max} />
-}
-
-export const SidePanelSdkDoctor: StoryFn = () => {
-    return <BaseTemplate panel={SidePanelTab.SdkDoctor} />
 }
 
 export const SidePanelActivity: StoryFn = () => {

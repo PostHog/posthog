@@ -6,7 +6,7 @@ import structlog
 from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_templates import DashboardTemplate
-from posthog.models.dashboard_tile import DashboardTile, Text
+from posthog.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from posthog.models.insight import Insight
 from posthog.models.tag import Tag
 
@@ -497,12 +497,30 @@ def create_from_template(dashboard: Dashboard, template: DashboardTemplate, user
                 color=template_tile.get("color"),
                 layouts=template_tile.get("layouts"),
                 body=template_tile.get("body"),
+                transparent_background=template_tile.get("transparent_background"),
+            )
+        elif template_tile["type"] == "BUTTON":
+            _create_tile_for_button(
+                dashboard,
+                color=template_tile.get("color"),
+                layouts=template_tile.get("layouts"),
+                url=template_tile.get("url", ""),
+                text=template_tile.get("text", ""),
+                placement=template_tile.get("placement", "left"),
+                style=template_tile.get("style", "primary"),
+                transparent_background=template_tile.get("transparent_background"),
             )
         else:
             logger.error("dashboard_templates.creation.unknown_type", template=template)
 
 
-def _create_tile_for_text(dashboard: Dashboard, body: str, layouts: dict, color: Optional[str]) -> None:
+def _create_tile_for_text(
+    dashboard: Dashboard,
+    body: str,
+    layouts: dict,
+    color: Optional[str],
+    transparent_background: Optional[bool] = None,
+) -> None:
     text = Text.objects.create(
         team=dashboard.team,
         body=body,
@@ -512,6 +530,33 @@ def _create_tile_for_text(dashboard: Dashboard, body: str, layouts: dict, color:
         dashboard=dashboard,
         layouts=layouts,
         color=color,
+        transparent_background=transparent_background,
+    )
+
+
+def _create_tile_for_button(
+    dashboard: Dashboard,
+    url: str,
+    text: str,
+    layouts: dict,
+    color: Optional[str],
+    placement: str = "left",
+    style: str = "primary",
+    transparent_background: Optional[bool] = None,
+) -> None:
+    button_tile = ButtonTile.objects.create(
+        team=dashboard.team,
+        url=url,
+        text=text,
+        placement=placement,
+        style=style,
+    )
+    DashboardTile.objects.create(
+        button_tile=button_tile,
+        dashboard=dashboard,
+        layouts=layouts,
+        color=color,
+        transparent_background=transparent_background,
     )
 
 

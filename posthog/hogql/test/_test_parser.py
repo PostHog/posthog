@@ -725,6 +725,18 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        @parameterized.expand([["percentile_cont"], ["percentile_disc"]])
+        def test_percentile_calls_within_group(self, function_name: str):
+            self.assertEqual(
+                self._expr(f"{function_name}(0.5) within group (order by foo desc)"),
+                ast.Call(
+                    name=function_name,
+                    args=[],
+                    params=[ast.Constant(value=0.5)],
+                    within_group=[ast.OrderExpr(expr=ast.Field(chain=["foo"]), order="DESC")],
+                ),
+            )
+
         def test_alias(self):
             self.assertEqual(
                 self._expr("1 as asd"),
@@ -3172,5 +3184,40 @@ def parser_test_factory(backend: HogQLParserBackend):
             assert cte is not None
             assert cte.using_key == ["a"]
             assert cte.columns is None
+
+        def test_select_from_values(self):
+            self.assertEqual(
+                self._select("SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS v(id, name)"),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["*"])],
+                    select_from=ast.JoinExpr(
+                        table=ast.ValuesQuery(
+                            rows=[
+                                [ast.Constant(value=1), ast.Constant(value="a")],
+                                [ast.Constant(value=2), ast.Constant(value="b")],
+                            ]
+                        ),
+                        alias="v",
+                        alias_columns=["id", "name"],
+                    ),
+                ),
+            )
+
+        def test_select_from_values_no_alias_columns(self):
+            self.assertEqual(
+                self._select("SELECT * FROM (VALUES (1), (2)) AS v"),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["*"])],
+                    select_from=ast.JoinExpr(
+                        table=ast.ValuesQuery(
+                            rows=[
+                                [ast.Constant(value=1)],
+                                [ast.Constant(value=2)],
+                            ]
+                        ),
+                        alias="v",
+                    ),
+                ),
+            )
 
     return TestParser

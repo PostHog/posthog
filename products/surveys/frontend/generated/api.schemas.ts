@@ -156,6 +156,13 @@ export const ResponseSamplingIntervalTypeEnumApi = {
 } as const
 
 /**
+ * @nullable
+ */
+export type SurveyApiConditions = { [key: string]: unknown } | null | null
+
+export type SurveyApiFeatureFlagKeysItem = { [key: string]: string | null }
+
+/**
  * Mixin for serializers to add user access control fields
  */
 export interface SurveyApi {
@@ -286,7 +293,8 @@ export interface SurveyApi {
         ```
          */
     questions?: unknown | null
-    readonly conditions: string
+    /** @nullable */
+    readonly conditions: SurveyApiConditions
     appearance?: unknown | null
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -301,7 +309,7 @@ export interface SurveyApi {
      * @nullable
      */
     responses_limit?: number | null
-    readonly feature_flag_keys: readonly unknown[]
+    readonly feature_flag_keys: readonly SurveyApiFeatureFlagKeysItem[]
     /**
      * @minimum 0
      * @maximum 500
@@ -734,6 +742,11 @@ export interface FeatureFlagConditionGroupSchemaApi {
      * @nullable
      */
     variant?: string | null
+    /**
+     * Group type index for this condition set. None means person-level aggregation.
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
 }
 
 export interface FeatureFlagMultivariateVariantSchemaApi {

@@ -5,3 +5,26 @@
 CONTRIBUTING.md export-ignore
 CODE_OF_CONDUCT.md export-ignore
 posthog/temporal/ai/video_segment_clustering/tests/mock_video_segments_embeddings.npy filter=lfs diff=lfs merge=lfs -text
+
+# Generated code: exclude from GitHub Linguist stats and suppress diffs.
+frontend/src/generated/** linguist-generated
+frontend/src/lib/posthog-typed.ts linguist-generated
+frontend/src/products.tsx linguist-generated
+frontend/src/queries/latest-versions.json linguist-generated
+frontend/src/queries/schema.json linguist-generated
+frontend/src/queries/validators.js linguist-generated
+frontend/src/taxonomy/core-filter-definitions-by-group.json linguist-generated
+
+products/*/frontend/generated/** linguist-generated
+
+services/mcp/schema/generated-tool-definitions.json linguist-generated
+services/mcp/src/api/generated.ts linguist-generated
+services/mcp/src/generated/** linguist-generated
+services/mcp/src/tools/generated/** linguist-generated
+
+posthog/personhog_client/proto/generated/** linguist-generated
+posthog/schema.py linguist-generated
+posthog/temporal/data_imports/sources/generated_configs.py linguist-generated
+posthog/temporal/proxy_service/proto/*_pb2*.py linguist-generated
+
+nodejs/src/ingestion/ai/costs/providers/canonical-providers.ts linguist-generated

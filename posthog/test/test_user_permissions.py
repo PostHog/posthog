@@ -32,8 +32,10 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         self.organization.save()
 
     def test_team_effective_membership_level(self):
+        # When no AccessControl rows exist, the default project access level is "admin"
+        # so all org members get ADMIN effective membership level
         with self.assertNumQueries(3):
-            assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.MEMBER
+            assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
 
     def test_team_effective_membership_level_updated(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -112,18 +114,20 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         assert self.team.id in self.permissions().team_ids_visible_for_user
 
     def test_team_effective_membership_level_new_access_control_non_private_team(self):
-        """Test that all organization members have access to a non-private team with the new access control system"""
+        """Test that all organization members have access to a non-private team with the new access control system.
+        When no AccessControl rows exist, the default project access level is "admin",
+        so all org members get ADMIN effective membership level."""
 
         # Set up team with new access control system
-        # Team is not private (no AccessControl objects), so organization level is used
+        # Team is not private (no AccessControl objects), default access level is admin
 
         # Set up user as a member
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
-        # Check effective membership level
+        # Check effective membership level - defaults to ADMIN when no access controls exist
         with self.assertNumQueries(3):
-            assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.MEMBER
+            assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
 
     def test_team_effective_membership_level_new_access_control_private_team_admin(self):
         """Test that organization admins have access to a private team with the new access control system"""
@@ -479,6 +483,18 @@ class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):
         )
 
     def test_dashboard_can_restrict(self):
+        from ee.models.rbac.access_control import AccessControl
+
+        # Explicitly set project default access to member level so the user
+        # doesn't get the implicit admin default
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="member",
+        )
         assert not self.dashboard_permissions().can_restrict
 
     def test_dashboard_can_restrict_as_admin(self):
@@ -500,8 +516,21 @@ class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):
         assert self.dashboard_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
 
     def test_dashboard_effective_privilege_level_when_collaborators_can_edit(self):
+        from ee.models.rbac.access_control import AccessControl
+
         self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         self.dashboard.save()
+
+        # Explicitly set project default access to member level so the user
+        # doesn't get the implicit admin default (which would grant can_restrict)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="member",
+        )
 
         assert self.dashboard_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_VIEW
 
@@ -532,8 +561,21 @@ class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):
         assert self.dashboard_permissions().can_edit
 
     def test_dashboard_can_edit_not_collaborator(self):
+        from ee.models.rbac.access_control import AccessControl
+
         self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         self.dashboard.save()
+
+        # Explicitly set project default access to member level so the user
+        # doesn't get the implicit admin default (which would grant can_restrict -> can_edit)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="member",
+        )
 
         assert not self.dashboard_permissions().can_edit
 
@@ -610,7 +652,20 @@ class TestUserInsightPermissions(BaseTest, WithPermissionsBase):
         )
 
     def test_effective_privilege_level_all_limited(self):
+        from ee.models.rbac.access_control import AccessControl
+
         Dashboard.objects.all().update(restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT)
+
+        # Explicitly set project default access to member level so the user
+        # doesn't get the implicit admin default (which would grant can_restrict -> can_edit)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="member",
+        )
 
         assert self.insight_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_VIEW
 
@@ -651,7 +706,7 @@ class TestUserPermissionsEfficiency(BaseTest, WithPermissionsBase):
         user_permissions = self.permissions()
         user_permissions.set_preloaded_dashboard_tiles(tiles)
 
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(4):
             assert user_permissions.current_team.effective_membership_level is not None
             assert user_permissions.dashboard(dashboard).effective_restriction_level is not None
             assert user_permissions.dashboard(dashboard).can_restrict is not None

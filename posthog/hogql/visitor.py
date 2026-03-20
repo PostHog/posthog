@@ -113,6 +113,9 @@ class TraversingVisitor(Visitor[None]):
         if node.params:
             for expr in node.params:
                 self.visit(expr)
+        if node.within_group:
+            for expr in node.within_group:
+                self.visit(expr)
 
     def visit_expr_call(self, node: ast.ExprCall):
         self.visit(node.expr)
@@ -134,6 +137,11 @@ class TraversingVisitor(Visitor[None]):
             self.visit(expr)
         self.visit(node.constraint)
         self.visit(node.next_join)
+
+    def visit_values_query(self, node: ast.ValuesQuery):
+        for row in node.rows:
+            for expr in row:
+                self.visit(expr)
 
     def visit_select_query(self, node: ast.SelectQuery):
         # :TRICKY: when adding new fields, also add them to visit_select_query of resolver.py
@@ -586,6 +594,7 @@ class CloningVisitor(Visitor[Any]):
             args=[self.visit(arg) for arg in node.args],
             params=[self.visit(param) for param in node.params] if node.params is not None else None,
             distinct=node.distinct,
+            within_group=[self.visit(order_by) for order_by in node.within_group] if node.within_group else None,
         )
 
     def visit_expr_call(self, node: ast.ExprCall):
@@ -626,9 +635,18 @@ class CloningVisitor(Visitor[Any]):
             next_join=self.visit(node.next_join),
             table_final=node.table_final,
             alias=node.alias,
+            alias_columns=node.alias_columns,
             join_type=node.join_type,
             constraint=self.visit(node.constraint),
             sample=self.visit(node.sample),
+        )
+
+    def visit_values_query(self, node: ast.ValuesQuery):
+        return ast.ValuesQuery(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            rows=[[self.visit(expr) for expr in row] for row in node.rows],
         )
 
     def visit_select_query(self, node: ast.SelectQuery):

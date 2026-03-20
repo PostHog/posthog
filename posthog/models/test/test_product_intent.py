@@ -8,7 +8,6 @@ from unittest.mock import patch
 from posthog.schema import ProductIntentContext, ProductKey
 
 from posthog.models.dashboard import Dashboard
-from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.file_system.user_product_list import UserProductList
 from posthog.models.insight import Insight
@@ -16,6 +15,8 @@ from posthog.models.product_intent.product_intent import ProductIntent, calculat
 from posthog.models.surveys.survey import Survey
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.utils import get_instance_realm
+
+from products.experiments.backend.models.experiment import Experiment
 
 
 class TestProductIntent(BaseTest):
