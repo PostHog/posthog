@@ -368,12 +368,12 @@ class AlertSerializer(serializers.ModelSerializer):
         # Parameter ranges: (min, max, name)
         PARAM_RANGES: dict[str, tuple[float, float, str]] = {
             "threshold": (0.0, 1.0, "Sensitivity threshold"),
-            "window": (5, 100, "Window size"),
+            "window": (5, 1000, "Window size"),
             "n_estimators": (10, 500, "Number of trees"),
             "n_neighbors": (1, 50, "Number of neighbors"),
             "n_bins": (5, 50, "Number of bins"),
             "multiplier": (0.5, 10.0, "IQR multiplier"),
-            "training_offset_n": (1, 100, "Training offset"),
+            "training_offset_n": (1, 500, "Training offset"),
         }
 
         for param, (min_val, max_val, label) in PARAM_RANGES.items():

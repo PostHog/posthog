@@ -687,7 +687,7 @@ function WindowSizeInput({
             <LemonInput
                 type="number"
                 min={5}
-                max={100}
+                max={1000}
                 step={5}
                 value={config.window ?? 30}
                 onChange={(val) =>
