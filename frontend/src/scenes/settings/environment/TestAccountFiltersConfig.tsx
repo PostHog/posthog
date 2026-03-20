@@ -8,6 +8,7 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { Link } from 'lib/lemon-ui/Link'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -97,7 +98,7 @@ function TestAccountFiltersConfig(): JSX.Element {
                         </p>
                         <p>
                             If you rely on these features, please use inline person property filters instead.{' '}
-                            <Link to="https://posthog.com/docs/cdp/destinations#filtering" target="blank">
+                            <Link to="https://posthog.com/docs/cdp/destinations#filtering" target="_blank">
                                 Learn more in our docs
                             </Link>
                         </p>
@@ -118,6 +119,9 @@ function TestAccountFiltersConfig(): JSX.Element {
                                 </li>
                             ))}
                         </ul>
+                        <Link to="https://posthog.com/docs/cdp/destinations#filtering" target="_blank">
+                            Learn more in our docs
+                        </Link>
                     </LemonBanner>
                 )}
                 {!!testAccountFilterFrequentMistakes && testAccountFilterFrequentMistakes.length > 0 && (
