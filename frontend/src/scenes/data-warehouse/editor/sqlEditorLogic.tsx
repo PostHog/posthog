@@ -1602,10 +1602,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                     const queryToOpen = searchParams.open_query ? searchParams.open_query : query
 
-                    actions.editInsight(queryToOpen, insight)
                     if (insight.query) {
                         actions.setSourceQuery(insight.query as DataVisualizationNode)
                     }
+                    actions.editInsight(queryToOpen, insight)
                     actions.setActiveTab(OutputTab.Visualization)
 
                     // Only run the query if the results aren't already cached locally and we're not using the open_query search param

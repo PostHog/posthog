@@ -258,6 +258,28 @@ describe('sqlEditorLogic', () => {
             })
         })
 
+        it('preserves editingInsight when reopening after starting from a new SQL tab', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            logic.actions.createTab('SELECT 1')
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            router.actions.push(urls.sqlEditor(), { open_insight: MOCK_INSIGHT_SHORT_ID })
+
+            await expectLogic(logic)
+                .toDispatchActions(['editInsight', 'createTab', 'updateTab'])
+                .toMatchValues({
+                    editingInsight: partial({
+                        short_id: MOCK_INSIGHT_SHORT_ID,
+                    }),
+                })
+        })
+
         it('does not dispatch syncUrlWithQuery before the API responds', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
