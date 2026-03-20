@@ -1,5 +1,7 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
+import { teamLogic } from 'scenes/teamLogic'
 
 import { Breadcrumb } from '~/types'
 
@@ -11,6 +13,10 @@ export type ReviewState = 'needs_review' | 'clean' | 'processing' | 'stale'
 
 export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
     path(['products', 'visual_review', 'frontend', 'scenes', 'visualReviewRunsSceneLogic']),
+
+    connect(() => ({
+        values: [teamLogic, ['currentProjectId']],
+    })),
 
     actions({
         setActiveTab: (tab: ReviewState) => ({ tab }),
@@ -30,7 +36,7 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
             [] as RunApi[],
             {
                 loadRuns: async () => {
-                    const response = await visualReviewRunsList('@current', {
+                    const response = await visualReviewRunsList(String(values.currentProjectId), {
                         review_state: values.activeTab,
                     })
                     return response.results
@@ -41,7 +47,7 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
             { needs_review: 0, clean: 0, processing: 0, stale: 0 } as ReviewStateCountsApi,
             {
                 loadCounts: async () => {
-                    return await visualReviewRunsCountsRetrieve('@current')
+                    return await visualReviewRunsCountsRetrieve(String(values.currentProjectId))
                 },
             },
         ],
@@ -49,7 +55,7 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
             null as RepoApi | null,
             {
                 loadRepo: async () => {
-                    const response = await visualReviewReposList('@current')
+                    const response = await visualReviewReposList(String(values.currentProjectId))
                     return response.results[0] || null
                 },
             },

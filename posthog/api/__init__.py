@@ -48,6 +48,7 @@ from products.error_tracking.backend.api import (
     ErrorTrackingIssueViewSet,
     ErrorTrackingReleaseViewSet,
     ErrorTrackingSpikeDetectionConfigViewSet,
+    ErrorTrackingSpikeEventViewSet,
     ErrorTrackingStackFrameViewSet,
     ErrorTrackingSuppressionRuleViewSet,
     ErrorTrackingSymbolSetViewSet,
@@ -71,6 +72,8 @@ from products.llm_analytics.backend.api import (
     LLMProviderKeyValidationViewSet,
     LLMProviderKeyViewSet,
     LLMProxyViewSet,
+    ReviewQueueItemViewSet,
+    ReviewQueueViewSet,
     ScoreDefinitionViewSet,
     TraceReviewViewSet,
 )
@@ -941,6 +944,13 @@ environments_router.register(
 )
 
 environments_router.register(
+    r"error_tracking/spike_events",
+    ErrorTrackingSpikeEventViewSet,
+    "environment_error_tracking_spike_events",
+    ["team_id"],
+)
+
+environments_router.register(
     r"error_tracking/git-provider-file-links",
     GitProviderFileLinksViewSet,
     "environment_error_tracking_git_provider_file_links",
@@ -1293,6 +1303,20 @@ environments_router.register(
     r"llm_analytics/sentiment",
     LLMAnalyticsSentimentViewSet,
     "environment_llm_analytics_sentiment",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/review_queue_items",
+    ReviewQueueItemViewSet,
+    "environment_llm_analytics_review_queue_items",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/review_queues",
+    ReviewQueueViewSet,
+    "environment_llm_analytics_review_queues",
     ["team_id"],
 )
 

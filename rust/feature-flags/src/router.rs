@@ -37,8 +37,9 @@ use crate::{
         flag_definitions_rate_limiter::FlagDefinitionsRateLimiter,
         flags_rate_limiter::{FlagsRateLimiter, IpRateLimiter},
     },
-    cohorts::cohort_cache_manager::CohortCacheManager,
+    cohorts::{cohort_cache_manager::CohortCacheManager, membership::CohortMembershipProvider},
     config::{Config, ServiceMode, TeamIdCollection},
+    flags::flag_group_type_mapping::GroupTypeCacheManager,
     metrics::{
         consts::{
             FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_REQUESTS_COUNTER,
@@ -60,6 +61,7 @@ pub struct State {
     pub dedicated_redis_client: Option<Arc<dyn RedisClient + Send + Sync>>,
     pub database_pools: Arc<DatabasePools>,
     pub cohort_cache_manager: Arc<CohortCacheManager>,
+    pub group_type_cache_manager: Arc<GroupTypeCacheManager>,
     pub geoip: Arc<GeoIpClient>,
     pub team_ids_to_track: TeamIdCollection,
     pub feature_flags_billing_limiter: FeatureFlagsLimiter,
@@ -87,6 +89,8 @@ pub struct State {
     /// In-memory negative cache for invalid API tokens, preventing repeated
     /// Redis/S3/PG lookups for tokens that don't correspond to any team
     pub team_negative_cache: NegativeCache,
+    /// Provider for realtime/behavioral cohort membership lookups
+    pub cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -95,6 +99,7 @@ pub fn router(
     dedicated_redis_client: Option<Arc<dyn RedisClient + Send + Sync>>,
     database_pools: Arc<DatabasePools>,
     cohort_cache: Arc<CohortCacheManager>,
+    group_type_cache: Arc<GroupTypeCacheManager>,
     geoip: Arc<GeoIpClient>,
     liveness: HealthRegistry,
     feature_flags_billing_limiter: FeatureFlagsLimiter,
@@ -106,6 +111,7 @@ pub fn router(
     config_hypercache_reader: Arc<HyperCacheReader>,
     rayon_dispatcher: RayonDispatcher,
     team_negative_cache: NegativeCache,
+    cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
     config: Config,
 ) -> Router {
     // Initialize flag definitions rate limiter with default and custom team rates
@@ -172,6 +178,7 @@ pub fn router(
         dedicated_redis_client,
         database_pools,
         cohort_cache_manager: cohort_cache,
+        group_type_cache_manager: group_type_cache,
         geoip,
         team_ids_to_track: config.team_ids_to_track.clone(),
         feature_flags_billing_limiter,
@@ -187,6 +194,7 @@ pub fn router(
         config_hypercache_reader,
         rayon_dispatcher,
         team_negative_cache,
+        cohort_membership_provider,
     };
 
     // Very permissive CORS policy, as old SDK versions

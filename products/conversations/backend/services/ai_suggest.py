@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -16,15 +17,20 @@ from posthog.hogql_queries.ai.session_batch_events_query_runner import (
 )
 from posthog.llm.gateway_client import get_llm_client
 from posthog.models.comment import Comment
+from posthog.models.person.util import get_persons_by_distinct_ids
 
 from products.conversations.backend.services.ai_suggest_schema import (
     RefinedQuerySchema,
     ResponseValidationSchema,
     SuggestedReplySchema,
 )
-from products.conversations.backend.services.prompts.generate_response_system import GENERATE_RESPONSE_SYSTEM_PROMPT
+from products.conversations.backend.services.prompts.generate_response_system import (
+    build_generate_response_system_prompt,
+)
 from products.conversations.backend.services.prompts.refine_query_system import REFINE_QUERY_SYSTEM_PROMPT
 from products.conversations.backend.services.prompts.validate_response_system import VALIDATE_RESPONSE_SYSTEM_PROMPT
+
+from ee.models.assistant import CoreMemory
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -234,6 +240,82 @@ def _llm_call_with_retry(client, messages: list[dict], response_format, max_toke
     raise RuntimeError("Unreachable")
 
 
+PERSON_PROPERTY_ALLOWLIST = frozenset(
+    {
+        "$geoip_country_name",
+        "$geoip_city_name",
+        "$geoip_time_zone",
+        "$browser",
+        "$os",
+        "$initial_referrer",
+        "$initial_referring_domain",
+    }
+)
+
+PRIORITY_PERSON_PROPERTIES = (
+    "email",
+    "name",
+    "first_name",
+    "last_name",
+    "plan",
+    "company",
+    "organization",
+)
+
+MAX_PERSON_PROPERTIES = 30
+
+
+def _load_core_memory(team: Team) -> str:
+    try:
+        core_memory = CoreMemory.objects.get(team=team)
+        return core_memory.formatted_text
+    except CoreMemory.DoesNotExist:
+        return ""
+
+
+def _load_person_properties(team: Team, distinct_id: str) -> dict:
+    try:
+        persons = get_persons_by_distinct_ids(team_id=team.pk, distinct_ids=[distinct_id])
+        if persons:
+            return persons[0].properties or {}
+    except Exception:
+        capture_exception(additional_properties={"distinct_id": distinct_id})
+    return {}
+
+
+def _format_person_context(properties: dict) -> str:
+    if not properties:
+        return ""
+
+    def _is_usable(key: str, value: object) -> bool:
+        if value is None or value == "":
+            return False
+        if key.startswith("$") and key not in PERSON_PROPERTY_ALLOWLIST:
+            return False
+        return True
+
+    filtered: dict[str, str] = {}
+
+    for key in PRIORITY_PERSON_PROPERTIES:
+        if key in properties and _is_usable(key, properties[key]):
+            filtered[key] = str(properties[key])
+
+    for key, value in properties.items():
+        if len(filtered) >= MAX_PERSON_PROPERTIES:
+            break
+        if key in filtered:
+            continue
+        if not _is_usable(key, value):
+            continue
+        filtered[key] = str(value)
+
+    if not filtered:
+        return ""
+
+    lines = [f"- {key}: {value}" for key, value in filtered.items()]
+    return "\n".join(lines)
+
+
 class AISuggestPipeline:
     """
     Multi-phase RAG pipeline for generating AI-suggested replies.
@@ -255,6 +337,12 @@ class AISuggestPipeline:
         self.user_distinct_id = user_distinct_id
         self.client = get_llm_client(product="django")
         self.conversation_text = format_conversation(ticket, messages)
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            mem_future = pool.submit(_load_core_memory, team)
+            person_future = pool.submit(_load_person_properties, team, ticket.distinct_id)
+            self.core_memory_text = mem_future.result()
+            self.customer_context_text = _format_person_context(person_future.result())
 
         self.refined_query: RefinedQuerySchema | None = None
         self.retrieved_context: str | None = None
@@ -363,11 +451,15 @@ class AISuggestPipeline:
         # TODO: 3.2 — Apply custom Guidance rules (tone, behavior, response style)
 
         user_content = self._build_generation_prompt()
+        system_prompt = build_generate_response_system_prompt(
+            core_memory_text=self.core_memory_text,
+            customer_context_text=self.customer_context_text,
+        )
 
         parsed, completion = _llm_call_with_retry(
             self.client,
             messages=[
-                {"role": "system", "content": GENERATE_RESPONSE_SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content},
             ],
             response_format=SuggestedReplySchema,

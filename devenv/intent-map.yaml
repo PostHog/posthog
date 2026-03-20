@@ -140,6 +140,11 @@ capabilities:
         requires: [flag_evaluation]
         docker_profiles: []
 
+    nodejs_error_tracking:
+        description: 'Node.js Error Tracking - exception event ingestion'
+        requires: [event_ingestion]
+        docker_profiles: []
+
     batch_imports:
         description: 'Batch data import worker'
         requires: [event_ingestion]
@@ -183,7 +188,15 @@ intents:
 
     error_tracking:
         description: 'Track and analyze application errors'
-        capabilities: [event_ingestion, error_symbolication, embedding_service, property_definitions, nodejs_cdp]
+        capabilities:
+            [
+                event_ingestion,
+                error_symbolication,
+                embedding_service,
+                property_definitions,
+                nodejs_cdp,
+                nodejs_error_tracking,
+            ]
 
     session_replay:
         description: 'Record and replay user sessions'

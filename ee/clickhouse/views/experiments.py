@@ -1,10 +1,8 @@
 import asyncio
-from enum import Enum
 from typing import Any, Literal
 
 from django.conf import settings
-from django.db.models import Case, F, Prefetch, Q, QuerySet, Value, When
-from django.db.models.functions import Now
+from django.db.models import Prefetch, QuerySet
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
@@ -24,7 +22,6 @@ from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.models import Survey
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.evaluation_context import FeatureFlagEvaluationContext
-from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentTimeseriesRecalculation
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team.team import Team
@@ -32,9 +29,13 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
-from posthog.utils import str_to_bool
 
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.models.experiment import (
+    Experiment,
+    ExperimentHoldout,
+    ExperimentTimeseriesRecalculation,
+)
 from products.product_tours.backend.models import ProductTour
 
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
@@ -240,18 +241,6 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         return service.update_experiment(instance, validated_data, serializer_context=self.context)
 
 
-class ExperimentQueryStatus(str, Enum):
-    """
-    Note: The frontend still treats paused experiments as a UI-only variant of "running"
-    when the linked flag is disabled, so the API only filters on stored experiment statuses.
-    """
-
-    DRAFT = "draft"
-    RUNNING = "running"
-    STOPPED = "stopped"
-    ALL = "all"
-
-
 @extend_schema(tags=["experiments"])
 class EnterpriseExperimentsViewSet(
     ForbidDestroyModel, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet
@@ -272,108 +261,14 @@ class EnterpriseExperimentsViewSet(
     ordering = "-created_at"
 
     def safely_get_queryset(self, queryset) -> QuerySet:
-        """Override to filter out deleted experiments and apply filters."""
-        include_deleted = False
-        if self.action in ("partial_update", "update") and hasattr(self, "request"):
-            deleted_value = self.request.data.get("deleted")
-            if deleted_value is not None:
-                include_deleted = not str_to_bool(deleted_value)
-
-        if not include_deleted:
-            queryset = queryset.exclude(deleted=True)
-
-        # Only apply filters for list view, not detail view
-        if self.action == "list":
-            # filtering by status
-            status = self.request.query_params.get("status")
-            if status:
-                normalized_status = status.lower()
-                if normalized_status == "complete":
-                    normalized_status = ExperimentQueryStatus.STOPPED.value
-
-                try:
-                    status_enum = ExperimentQueryStatus(normalized_status)
-                except ValueError:
-                    status_enum = None
-
-                if status_enum and status_enum != ExperimentQueryStatus.ALL:
-                    if status_enum == ExperimentQueryStatus.DRAFT:
-                        queryset = queryset.filter(
-                            Q(status=Experiment.Status.DRAFT) | Q(status__isnull=True, start_date__isnull=True)
-                        )
-                    elif status_enum == ExperimentQueryStatus.RUNNING:
-                        queryset = queryset.filter(
-                            Q(status=Experiment.Status.RUNNING)
-                            | Q(status__isnull=True, start_date__isnull=False, end_date__isnull=True)
-                        )
-                    elif status_enum == ExperimentQueryStatus.STOPPED:
-                        queryset = queryset.filter(
-                            Q(status=Experiment.Status.STOPPED) | Q(status__isnull=True, end_date__isnull=False)
-                        )
-
-            # filtering by creator id
-            created_by_id = self.request.query_params.get("created_by_id")
-            if created_by_id:
-                queryset = queryset.filter(created_by_id=created_by_id)
-
-            # archived
-            archived = self.request.query_params.get("archived")
-            if archived is not None:
-                archived_bool = archived.lower() == "true"
-                queryset = queryset.filter(archived=archived_bool)
-            else:
-                queryset = queryset.filter(archived=False)
-
-            # feature_flag_id
-            feature_flag_id = self.request.query_params.get("feature_flag_id")
-            if feature_flag_id:
-                try:
-                    feature_flag_id_int = int(feature_flag_id)
-                    queryset = queryset.filter(feature_flag_id=feature_flag_id_int)
-                except ValueError:
-                    raise ValidationError("feature_flag_id must be an integer")
-
-        # search by name
-        search = self.request.query_params.get("search")
-        if search:
-            queryset = queryset.filter(Q(name__icontains=search))
-
-        # Ordering
-        order = self.request.query_params.get("order")
-        if order:
-            # Handle computed field sorting
-            if order in ["duration", "-duration"]:
-                # Duration = end_date - start_date (or now() - start_date if running)
-                queryset = queryset.annotate(
-                    computed_duration=Case(
-                        When(start_date__isnull=True, then=Value(None)),
-                        When(end_date__isnull=False, then=F("end_date") - F("start_date")),
-                        default=Now() - F("start_date"),
-                    )
-                )
-                queryset = queryset.order_by(f"{'-' if order.startswith('-') else ''}computed_duration")
-            elif order in ["status", "-status"]:
-                # Status ordering: Draft (no start) -> Running (no end) -> Complete (has end)
-                # Annotate with numeric status values for clear ordering
-                queryset = queryset.annotate(
-                    computed_status=Case(
-                        When(start_date__isnull=True, then=Value(0)),  # Draft
-                        When(end_date__isnull=True, then=Value(1)),  # Running
-                        default=Value(2),  # Complete
-                    )
-                )
-                if order.startswith("-"):
-                    # Descending: Complete -> Running -> Draft
-                    queryset = queryset.order_by(F("computed_status").desc())
-                else:
-                    # Ascending: Draft -> Running -> Complete
-                    queryset = queryset.order_by(F("computed_status").asc())
-            else:
-                queryset = queryset.order_by(order)
-        else:
-            queryset = queryset.order_by("-created_at")
-
-        return queryset
+        request = getattr(self, "request", None)
+        service = ExperimentService(team=self.team, user=getattr(request, "user", None))
+        return service.filter_experiments_queryset(
+            queryset,
+            action=self.action,
+            query_params=getattr(request, "query_params", None),
+            request_data=getattr(request, "data", None),
+        )
 
     # ******************************************
     # /projects/:id/experiments/requires_flag_implementation
@@ -390,9 +285,41 @@ class EnterpriseExperimentsViewSet(
 
         return Response({"result": warning})
 
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def launch(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Launch a draft experiment.
+
+        Validates the experiment is in draft state, activates its linked feature flag,
+        sets start_date to the current server time, and transitions the experiment to running.
+        Returns 400 if the experiment has already been launched or if the feature flag
+        configuration is invalid (e.g. missing "control" variant or fewer than 2 variants).
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        launched_experiment = service.launch_experiment(experiment)
+        return Response(ExperimentSerializer(launched_experiment, context=self.get_serializer_context()).data)
+
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def duplicate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         source_experiment: Experiment = self.get_object()
+
+        legacy_kinds = ("ExperimentTrendsQuery", "ExperimentFunnelsQuery")
+        all_metrics = (source_experiment.metrics or []) + (source_experiment.metrics_secondary or [])
+        has_legacy_inline = any(m.get("kind") in legacy_kinds for m in all_metrics)
+        has_legacy_saved = source_experiment.experimenttosavedmetric_set.filter(
+            saved_metric__query__kind__in=legacy_kinds
+        ).exists()
+        if has_legacy_inline or has_legacy_saved:
+            return Response(
+                {"detail": "Duplication is not supported for experiments using legacy metrics."},
+                status=400,
+            )
+
         feature_flag_key = request.data.get("feature_flag_key")
 
         service = ExperimentService(team=self.team, user=request.user)

@@ -129,7 +129,7 @@ def update_cached_state(
     if result is not None:  # This is particularly the case for HogQL-based queries, which cache.set() on their own
         from posthog.caching.query_cache_routing import get_query_cache
 
-        query_cache = get_query_cache(team_id)
+        query_cache = get_query_cache()
         query_cache.set(cache_key, result, ttl if ttl is not None else settings.CACHED_RESULTS_TTL)
         INSIGHT_CACHE_WRITE_COUNTER.inc()
 

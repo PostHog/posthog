@@ -15,6 +15,7 @@ jobs:
     check-sdk-requirements:
         name: Check for SDK version requirements
         runs-on: ubuntu-24.04
+        timeout-minutes: 5
 
         steps:
             - name: Check for SDK-related changes
@@ -52,6 +53,7 @@ jobs:
 
     check-docs-generated:
         name: Check SDK docs are up to date
+        timeout-minutes: 5
         uses: ./.github/workflows/ci-docs-check.yml
         with:
             source_file: frontend/src/scenes/surveys/surveyVersionRequirements.ts

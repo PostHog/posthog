@@ -603,6 +603,86 @@ class TestResolver(BaseTest):
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(node) == self.snapshot
 
+    @parameterized.expand(
+        [
+            ("regex", "select COLUMNS('time') from events", ["timestamp"]),
+            ("regex_caret", "select COLUMNS('^event$') from events", ["event"]),
+            ("list", "select COLUMNS(event, timestamp) from events", ["event", "timestamp"]),
+            ("subquery", "select COLUMNS('a') from (select 1 as a1, 2 as a2, 3 as b1)", ["a1", "a2"]),
+        ]
+    )
+    def test_columns_expr_resolves(self, _name: str, query: str, expected_names: list[str]):
+        node = self._select(query)
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        column_names = [
+            col.type.name if isinstance(col.type, ast.FieldType) else cast(ast.Alias, col).alias for col in node.select
+        ]
+        assert sorted(column_names) == sorted(expected_names)
+
+    def test_columns_expr_no_match_raises(self):
+        node = self._select("select COLUMNS('^nonexistent_xyz$') from events")
+        with self.assertRaises(QueryError) as e:
+            resolve_types(node, self.context, dialect="clickhouse")
+        assert "No columns matched" in str(e.exception)
+
+    def test_columns_expr_subquery(self):
+        node = self._select("select COLUMNS('a') from (select 1 as a1, 2 as a2, 3 as b1)")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        column_names = [
+            col.type.name if isinstance(col.type, ast.FieldType) else cast(ast.Alias, col).alias for col in node.select
+        ]
+        assert sorted(column_names) == ["a1", "a2"]
+
+    @parameterized.expand(
+        [
+            (
+                "regex",
+                "select coalesce(*COLUMNS('a')) from (select 1 as a1, 2 as a2, 3 as b1)",
+                "coalesce",
+                ["a1", "a2"],
+            ),
+            (
+                "list",
+                "select coalesce(*COLUMNS(event, timestamp)) from events",
+                "coalesce",
+                ["event", "timestamp"],
+            ),
+        ]
+    )
+    def test_spread_columns_in_function_call(self, _name, query, expected_fn, expected_args):
+        node = self._select(query)
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        call = node.select[0]
+        assert isinstance(call, ast.Call)
+        assert call.name == expected_fn
+        assert len(call.args) == len(expected_args)
+        arg_names = [
+            arg.type.name if isinstance(arg.type, ast.FieldType) else arg.type.alias
+            for arg in call.args
+            if isinstance(arg.type, (ast.FieldType, ast.FieldAliasType))
+        ]
+        assert sorted(arg_names) == sorted(expected_args)
+
+    @parameterized.expand(
+        [
+            (
+                "top_level",
+                "select *COLUMNS('^event$') from events",
+                "*COLUMNS",
+            ),
+            (
+                "no_match",
+                "select coalesce(*COLUMNS('^nonexistent$')) from events",
+                "No columns matched",
+            ),
+        ]
+    )
+    def test_spread_columns_raises(self, _name, query, expected_msg):
+        with self.assertRaises(QueryError) as e:
+            node = self._select(query)
+            resolve_types(node, self.context, dialect="clickhouse")
+        assert expected_msg in str(e.exception)
+
     def test_lambda_parent_scope(self):
         # does not raise
         node = self._select("select timestamp, arrayMap(x -> x + timestamp, [2]) as am from events")
@@ -1196,3 +1276,65 @@ class TestResolver(BaseTest):
                 self.context,
                 dialect="postgres",
             )
+
+    def test_values_query_basic(self):
+        expr = self._select("SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS v (id, name)")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert isinstance(expr.select_from, ast.JoinExpr)
+        assert isinstance(expr.select_from.type, ast.SelectQueryAliasType)
+        assert expr.select_from.alias == "v"
+        assert isinstance(expr.select_from.type.select_query_type, ast.SelectQueryType)
+        columns = expr.select_from.type.select_query_type.columns
+        assert "id" in columns
+        assert "name" in columns
+
+    def test_values_query_default_column_names(self):
+        expr = self._select("SELECT * FROM (VALUES (1, 'a')) AS v")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert isinstance(expr.select_from, ast.JoinExpr)
+        assert isinstance(expr.select_from.table, ast.ValuesQuery)
+        assert expr.select_from.table.type is not None
+        columns = expr.select_from.table.type.columns
+        assert "col0" in columns
+        assert "col1" in columns
+
+    def test_values_query_row_length_mismatch(self):
+        with self.assertRaisesMessage(QueryError, "VALUES row 2 has 1 columns, expected 2"):
+            expr = self._select("SELECT * FROM (VALUES (1, 'a'), (2)) AS v")
+            resolve_types(expr, self.context, dialect="postgres")
+
+    def test_values_query_alias_column_count_mismatch(self):
+        with self.assertRaisesMessage(QueryError, "VALUES has 2 column(s) but 3 column name(s) were provided"):
+            expr = self._select("SELECT * FROM (VALUES (1, 'a')) AS v (id, name, extra)")
+            resolve_types(expr, self.context, dialect="postgres")
+
+    def test_subquery_alias_columns_remap(self):
+        # Subquery with alias column list: SELECT * FROM (SELECT 1, 'a') AS v(id, name)
+        # The resolver should remap columns so that v.id and v.name resolve correctly,
+        # and SELECT * expansion uses the aliased names, not the original ones.
+        expr = self._select("SELECT * FROM (SELECT 1, 'a') AS v(id, name)")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
+        assert isinstance(expr.select_from, ast.JoinExpr)
+        assert isinstance(expr.select_from.type, ast.SelectQueryAliasType)
+        assert isinstance(expr.select_from.type.select_query_type, ast.SelectQueryType)
+        columns = expr.select_from.type.select_query_type.columns
+        assert "id" in columns, f"Expected 'id' in columns, got {list(columns.keys())}"
+        assert "name" in columns, f"Expected 'name' in columns, got {list(columns.keys())}"
+
+    def test_subquery_alias_columns_qualified_access(self):
+        # Qualified access via alias column names should resolve
+        expr = self._select("SELECT v.id, v.name FROM (SELECT 1, 'a') AS v(id, name)")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
+        assert len(expr.select) == 2
+        for col in expr.select:
+            assert isinstance(col, ast.Alias)
+            assert isinstance(col.expr, ast.Field)
+            assert isinstance(col.expr.type, ast.FieldType)
+        assert cast(ast.Alias, expr.select[0]).alias == "id"
+        assert cast(ast.Alias, expr.select[1]).alias == "name"
+
+    def test_subquery_alias_columns_count_mismatch(self):
+        # Providing wrong number of alias columns for a subquery should error
+        with self.assertRaises(QueryError):
+            expr = self._select("SELECT * FROM (SELECT 1, 'a') AS v(id, name, extra)")
+            resolve_types(expr, self.context, dialect="clickhouse")

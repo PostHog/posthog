@@ -3,6 +3,8 @@ from datetime import date, datetime
 from typing import Any, Optional, cast
 from uuid import UUID
 
+import re2
+
 from posthog.hogql import ast
 from posthog.hogql.ast import ConstantType, FieldTraverserType
 from posthog.hogql.base import _T_AST
@@ -170,6 +172,31 @@ class Resolver(CloningVisitor):
 
         return result
 
+    def visit_values_query(self, node: ast.ValuesQuery):
+        resolved_rows: list[list[ast.Expr]] = []
+        for row in node.rows:
+            resolved_rows.append([self.visit(expr) for expr in row])
+
+        if resolved_rows:
+            expected_len = len(resolved_rows[0])
+            for i, row in enumerate(resolved_rows):
+                if len(row) != expected_len:
+                    raise QueryError(f"VALUES row {i + 1} has {len(row)} columns, expected {expected_len}")
+
+        columns: dict[str, ast.Type] = {}
+        if resolved_rows:
+            for j, expr in enumerate(resolved_rows[0]):
+                col_name = f"col{j}"
+                columns[col_name] = expr.type or ast.UnknownType()
+
+        result = ast.ValuesQuery(
+            start=node.start,
+            end=node.end,
+            rows=resolved_rows,
+        )
+        result.type = ast.SelectQueryType(columns=columns)
+        return result
+
     def visit_cte(self, node: ast.CTE):
         self.cte_counter += 1
 
@@ -324,6 +351,14 @@ class Resolver(CloningVisitor):
         # Visit all the "SELECT a,b,c" columns. Mark each for export in "columns".
         select_nodes = []
         for expr in node.select or []:
+            if isinstance(expr, ast.SpreadExpr):
+                raise QueryError("*COLUMNS(...) is not valid as a top-level SELECT item. Use COLUMNS(...) instead.")
+            if isinstance(expr, ast.ColumnsExpr):
+                expanded = self._columns_expr_exprs(expr)
+                for col in expanded:
+                    visited_col = self.visit(col)
+                    select_nodes.append(visited_col)
+                continue
             new_expr = self.visit(expr)
             if isinstance(new_expr.type, ast.AsteriskType):
                 columns = self._asterisk_columns(new_expr.type, chain_prefix=new_expr.chain[:-1])
@@ -379,8 +414,10 @@ class Resolver(CloningVisitor):
         new_node.where = self.visit(node.where)
         new_node.prewhere = self.visit(node.prewhere)
         new_node.having = self.visit(node.having)
+        new_node.qualify = self.visit(node.qualify)
         if node.group_by:
             new_node.group_by = [self.visit(expr) for expr in node.group_by]
+        new_node.group_by_mode = node.group_by_mode
         if node.order_by:
             new_node.order_by = [self.visit(expr) for expr in node.order_by]
         new_node.limit_by = self.visit(node.limit_by)
@@ -430,6 +467,33 @@ class Resolver(CloningVisitor):
         else:
             raise QueryError(f"Can't expand asterisk (*) on a type of type {type(asterisk.table_type).__name__}")
 
+    def _columns_expr_exprs(self, node: ast.ColumnsExpr) -> list[ast.Expr]:
+        """Expand a COLUMNS() expression into individual fields or expressions."""
+        if node.columns is not None:
+            return list(node.columns)
+
+        regex = node.regex or ""
+        try:
+            pattern = re2.compile(regex)
+        except re2.error as e:
+            raise ResolutionError(f"COLUMNS() has an invalid regex pattern: {e}")
+        scope = self.scopes[-1]
+        all_table_types: list[ast.TableOrSelectType] = list(scope.tables.values()) + list(scope.anonymous_tables)
+        matched_fields: list[ast.Expr] = []
+        for table_type in all_table_types:
+            asterisk_type = ast.AsteriskType(table_type=table_type)
+            try:
+                all_fields = self._asterisk_columns(asterisk_type, chain_prefix=[])
+            except QueryError:
+                continue
+            for field in all_fields:
+                col_name = field.chain[-1] if isinstance(field.chain[-1], str) else str(field.chain[-1])
+                if pattern.search(col_name):
+                    matched_fields.append(field)
+        if not matched_fields:
+            raise QueryError(f"No columns matched the COLUMNS('{node.regex}') expression")
+        return matched_fields
+
     def visit_join_expr(self, node: ast.JoinExpr):
         """Visit each FROM and JOIN table or subquery."""
 
@@ -467,7 +531,7 @@ class Resolver(CloningVisitor):
 
                 # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
                 node.type = node_type
-                node.table = cast(ast.Field, clone_expr(node.table))
+                node.table = clone_expr(cast(ast.Field, node.table))
                 node.table.type = cte_table_type
                 node.next_join = self.visit(node.next_join)
                 node.alias = table_alias
@@ -577,6 +641,38 @@ class Resolver(CloningVisitor):
                 node.constraint = self.visit_join_constraint(node.constraint)
 
             node.table = cast(ast.SelectQuery, super().visit(node.table))
+
+            # Remap column names if alias_columns is provided (e.g. AS v(id, name))
+            if node.alias_columns and node.table.type:
+                # Find the SelectQuery to count columns from the select list
+                inner_select: ast.SelectQuery | ast.SelectSetQuery = node.table
+                if isinstance(inner_select, ast.SelectSetQuery):
+                    inner = inner_select.initial_select_query
+                    while isinstance(inner, ast.SelectSetQuery):
+                        inner = inner.initial_select_query
+                    inner_select = inner
+
+                num_cols = len(cast(ast.SelectQuery, inner_select).select)
+                if len(node.alias_columns) != num_cols:
+                    raise QueryError(
+                        f"Subquery has {num_cols} column(s) but {len(node.alias_columns)} column name(s) were provided"
+                    )
+
+                # Remap the SelectQueryType columns dict
+                select_query_type = cast(ast.SelectQueryType, node.table.type)
+                if isinstance(node.table.type, ast.SelectSetQueryType):
+                    first_type = node.table.type.types[0]
+                    while isinstance(first_type, ast.SelectSetQueryType):
+                        first_type = first_type.types[0]
+                    select_query_type = cast(ast.SelectQueryType, first_type)
+
+                # Build new columns from the select list's types, keyed by the alias column names
+                select_list = cast(ast.SelectQuery, inner_select).select
+                select_query_type.columns = {
+                    new_name: (expr.type if expr.type is not None else ast.UnknownType())
+                    for new_name, expr in zip(node.alias_columns, select_list)
+                }
+
             if isinstance(node.table, ast.SelectQuery) and node.table.view_name is not None and node.alias is not None:
                 if node.alias in scope.tables:
                     raise QueryError(
@@ -602,6 +698,50 @@ class Resolver(CloningVisitor):
                 scope.anonymous_tables.append(cast(ast.SelectQueryType | ast.SelectSetQueryType, node.type))
 
             # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
+            node.next_join = self.visit(node.next_join)
+            if node.constraint and node.constraint.constraint_type == "ON":
+                node.constraint = self.visit_join_constraint(node.constraint)
+            node.sample = self.visit(node.sample)
+
+            return node
+
+        elif isinstance(node.table, ast.ValuesQuery):
+            node = cast(ast.JoinExpr, clone_expr(node))
+            node.table = cast(ast.ValuesQuery, self.visit(node.table))
+
+            # Auto-generate alias and alias_columns when omitted so the
+            # printed SQL contains column names that match the resolved
+            # SelectQueryType (sugar syntax like DuckDB's col0, col1, ...).
+            if not node.alias_columns and node.table.type:
+                node.alias_columns = list(node.table.type.columns.keys())
+                if node.alias is None:
+                    node.alias = "values"
+
+            # Remap column names if alias_columns is provided
+            if node.alias_columns and node.table.type:
+                num_cols = len(node.table.type.columns)
+                if len(node.alias_columns) != num_cols:
+                    raise QueryError(
+                        f"VALUES has {num_cols} column(s) but {len(node.alias_columns)} column name(s) were provided"
+                    )
+                original_columns = node.table.type.columns
+                node.table.type.columns = {
+                    new_name: list(original_columns.values())[i] for i, new_name in enumerate(node.alias_columns)
+                }
+
+            if node.alias is not None:
+                if node.alias in scope.tables:
+                    raise QueryError(
+                        f'Already have joined a table called "{node.alias}". Can\'t join another one with the same name.'
+                    )
+                node.type = ast.SelectQueryAliasType(
+                    alias=node.alias, select_query_type=cast(ast.SelectQueryType, node.table.type)
+                )
+                scope.tables[node.alias] = node.type
+            else:
+                node.type = cast(ast.TableOrSelectType, node.table.type)
+                scope.anonymous_tables.append(cast(ast.SelectQueryType, node.type))
+
             node.next_join = self.visit(node.next_join)
             if node.constraint and node.constraint.constraint_type == "ON":
                 node.constraint = self.visit_join_constraint(node.constraint)
@@ -662,6 +802,25 @@ class Resolver(CloningVisitor):
 
     def visit_call(self, node: ast.Call):
         """Visit function calls."""
+
+        # Expand *COLUMNS(...) in function arguments
+        expanded_args: list[ast.Expr] = []
+        has_spread = False
+        for arg in node.args:
+            if isinstance(arg, ast.SpreadExpr) and isinstance(arg.expr, ast.ColumnsExpr):
+                expanded_args.extend(self._columns_expr_exprs(arg.expr))
+                has_spread = True
+            else:
+                expanded_args.append(arg)
+        if has_spread:
+            node = ast.Call(
+                name=node.name,
+                args=expanded_args,
+                params=node.params,
+                distinct=node.distinct,
+                start=node.start,
+                end=node.end,
+            )
 
         if func_meta := find_hogql_posthog_function(node.name):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)

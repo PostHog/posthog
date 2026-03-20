@@ -9,6 +9,8 @@ use symbolic::demangle::{Demangle, DemangleOptions};
 use symbolic::symcache::{SymCache, SymCacheConverter};
 use zip::ZipArchive;
 
+use posthog_symbol_data::{read_symbol_data, AppleDsym};
+
 use crate::{
     error::{AppleError, ResolveError},
     symbol_store::{Fetcher, Parser},
@@ -53,8 +55,13 @@ impl Parser for AppleProvider {
     type Err = ResolveError;
 
     async fn parse(&self, source: Self::Source) -> Result<ParsedAppleSymbols, ResolveError> {
-        // CLI uploads raw zip data directly
-        ParsedAppleSymbols::from_dsym_zip(source)
+        // Try to unwrap symbol_data container first (new format),
+        // fall back to raw ZIP for backward compatibility with existing uploads
+        let zip_data = match read_symbol_data::<AppleDsym>(source.clone()) {
+            Ok(dsym) => dsym.data,
+            Err(_) => source,
+        };
+        ParsedAppleSymbols::from_dsym_zip(zip_data)
     }
 }
 

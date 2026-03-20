@@ -279,7 +279,9 @@ export function LineGraph_({
     const { timezone, isTrends, isFunnels, breakdownFilter, interval, insightData } = useValues(
         insightVizDataLogic(insightProps)
     )
-    const { theme, getTrendsColor, getTrendsHidden, hoveredDatasetIndex } = useValues(trendsDataLogic(insightProps))
+    const { theme, getTrendsColor, getTrendsHidden, hoveredDatasetIndex, currentPeriodResult } = useValues(
+        trendsDataLogic(insightProps)
+    )
     const { setHoveredDatasetIndex } = useActions(trendsDataLogic(insightProps))
 
     const { tooltipId, hideTooltip, showTooltip, getTooltip, positionTooltip } = useInsightTooltip()
@@ -570,7 +572,7 @@ export function LineGraph_({
             }
             const xAxisTickCallback = createXAxisTickCallback({
                 interval: interval ?? 'day',
-                allDays: filteredDatasets[0]?.days ?? [],
+                allDays: currentPeriodResult?.days ?? [],
                 timezone,
             })
 
@@ -768,6 +770,7 @@ export function LineGraph_({
                                         interval={interval}
                                         dateRange={insightData?.resolved_date_range}
                                         showShiftKeyHint={isBar && isStacked && !isHighlightBarMode && !inSurveyView}
+                                        formatCompareLabel={tooltipConfig?.formatCompareLabel}
                                         renderSeries={(value, datum) => {
                                             const hasBreakdown =
                                                 datum.breakdown_value !== undefined && !!datum.breakdown_value

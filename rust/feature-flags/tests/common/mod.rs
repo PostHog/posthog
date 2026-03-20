@@ -13,6 +13,7 @@ use reqwest::header::CONTENT_TYPE;
 use tokio::net::TcpListener;
 use tokio::sync::Notify;
 
+use feature_flags::cohorts::membership::NoOpCohortMembershipProvider;
 use feature_flags::config::Config;
 use feature_flags::rayon_dispatcher::RayonDispatcher;
 use feature_flags::server::serve;
@@ -315,11 +316,20 @@ impl ServerHandle {
                     }
                 };
 
+            let group_type_cache = Arc::new(
+                feature_flags::flags::flag_group_type_mapping::GroupTypeCacheManager::new(
+                    persons_reader.clone(),
+                    Some(config.group_type_cache_max_entries),
+                    Some(config.group_type_cache_ttl_seconds),
+                ),
+            );
+
             let app = feature_flags::router::router(
                 redis_writer_client.clone(), // Use writer client for both reads and writes in tests
                 None,                        // No dedicated flags Redis in tests
                 database_pools,
                 cohort_cache,
+                group_type_cache,
                 geoip_service,
                 health,
                 feature_flags_billing_limiter,
@@ -331,6 +341,7 @@ impl ServerHandle {
                 config_hypercache_reader,
                 RayonDispatcher::new(2, None),
                 NegativeCache::new(10_000, 300),
+                Arc::new(NoOpCohortMembershipProvider),
                 config,
             );
 
