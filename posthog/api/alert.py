@@ -593,8 +593,10 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 series_index=series_index,
                 date_from=date_from,
             )
-        except (ValueError, RuntimeError, IndexError) as e:
+        except (ValueError, IndexError) as e:
             raise ValidationError(str(e))
+        except RuntimeError:
+            raise ValidationError("Simulation failed: unable to compute results for this insight.")
 
         response_serializer = AlertSimulateResponseSerializer(result)
         return Response(response_serializer.data)
