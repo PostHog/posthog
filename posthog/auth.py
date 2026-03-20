@@ -412,7 +412,7 @@ class JwtAuthentication(authentication.BaseAuthentication):
 
 class ExportRendererAuthentication(authentication.BaseAuthentication):
     """
-    Scoped authentication for the Chromium export renderer.
+    Read-only authentication for the Chromium export renderer.
     Only viewsets that explicitly include this in authentication_classes will accept these tokens.
     Tokens use the EXPORT_RENDERER audience, which JwtAuthentication does not accept.
     """
@@ -430,9 +430,7 @@ class ExportRendererAuthentication(authentication.BaseAuthentication):
             info = decode_jwt(token, PosthogJwtAudience.EXPORT_RENDERER)
             user = User.objects.get(pk=info["id"])
             return user, None
-        except jwt.DecodeError:
-            return None
-        except jwt.InvalidAudienceError:
+        except (jwt.DecodeError, jwt.InvalidAudienceError, jwt.ExpiredSignatureError):
             return None
         except Exception:
             raise AuthenticationFailed(detail="Token invalid.")
