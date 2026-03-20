@@ -7,7 +7,6 @@ from celery import Celery
 from celery.canvas import Signature
 from celery.schedules import crontab
 
-import posthog.tasks.team_access_cache_tasks  # noqa: F401 — register no-op tasks so in-flight Celery messages don't fail
 from posthog.approvals.tasks import expire_old_change_requests, validate_pending_change_requests
 from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.clickhouse.client.execute_async import QueryStatusManager
