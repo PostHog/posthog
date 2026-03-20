@@ -1,6 +1,7 @@
 import re
 from typing import Any
 
+import structlog
 from rest_framework import decorators, exceptions, serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -13,6 +14,8 @@ from ee.api.vercel.vercel_error_mixin import VercelErrorResponseMixin
 from ee.api.vercel.vercel_permission import VercelPermission
 from ee.api.vercel.vercel_region_proxy_mixin import VercelRegionProxyMixin
 from ee.vercel.integration import VercelIntegration
+
+logger = structlog.get_logger(__name__)
 
 
 class VercelCredentialsSerializer(serializers.Serializer):
@@ -133,7 +136,15 @@ class VercelInstallationViewSet(VercelRegionProxyMixin, VercelErrorResponseMixin
         Implements: https://vercel.com/docs/integrations/create-integration/marketplace-api#delete-installation
         """
         installation_id = validate_installation_id(self.kwargs.get("installation_id"))
-        response_data = VercelIntegration.delete_installation(installation_id)
+        try:
+            response_data = VercelIntegration.delete_installation(installation_id)
+        except exceptions.NotFound:
+            logger.info(
+                "Installation already deleted",
+                installation_id=installation_id,
+                integration="vercel",
+            )
+            response_data = {"finalized": True}
 
         return Response(response_data, status=200)
 
