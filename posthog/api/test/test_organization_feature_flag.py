@@ -12,12 +12,12 @@ from posthog.api.dashboards.dashboard import Dashboard
 from posthog.models import FeatureFlag
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import sort_cohorts_topologically
-from posthog.models.experiment import Experiment
 from posthog.models.scheduled_change import ScheduledChange
 from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
 
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.experiments.backend.models.experiment import Experiment
 
 
 class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):

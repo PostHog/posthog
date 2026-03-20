@@ -68,6 +68,7 @@ selectStmt:
     where=whereClause?
     groupByClause? (WITH (CUBE | ROLLUP))? (WITH TOTALS)?
     havingClause?
+    qualifyClause?
     windowClause?
     orderByClause?
     limitByClause?
@@ -82,8 +83,15 @@ arrayJoinClause: (LEFT | INNER)? ARRAY JOIN columnExprList;
 windowClause: WINDOW identifier AS LPAREN windowExpr RPAREN (COMMA identifier AS LPAREN windowExpr RPAREN)*;
 prewhereClause: PREWHERE columnExpr;
 whereClause: WHERE columnExpr;
-groupByClause: GROUP BY ((CUBE | ROLLUP) LPAREN columnExprList RPAREN | columnExprList);
+groupByClause: GROUP BY (
+    (CUBE | ROLLUP) LPAREN columnExprList RPAREN
+    | GROUPING SETS LPAREN groupingSetList RPAREN
+    | columnExprList
+    );
+groupingSetList: groupingSet (COMMA groupingSet)*;
+groupingSet: LPAREN columnExprList? RPAREN;
 havingClause: HAVING columnExpr;
+qualifyClause: QUALIFY columnExpr;
 orderByClause: ORDER BY orderExprList;
 projectionOrderByClause: ORDER BY columnExprList;
 limitByClause: LIMIT limitExpr BY columnExprList;
@@ -93,6 +101,9 @@ limitAndOffsetClause
     ;
 offsetOnlyClause: OFFSET columnExpr;
 settingsClause: SETTINGS settingExprList;
+
+valuesClause: VALUES valuesRow (COMMA valuesRow)*;
+valuesRow: LPAREN columnExpr (COMMA columnExpr)* RPAREN;
 
 joinExpr
     : joinExpr joinOp? JOIN joinExpr joinConstraintClause  # JoinExprOp
@@ -128,6 +139,7 @@ settingExpr: identifier EQ_SINGLE literal;
 windowExpr: winPartitionByClause? winOrderByClause? winFrameClause?;
 winPartitionByClause: PARTITION BY columnExprList;
 winOrderByClause: ORDER BY orderExprList;
+withinGroupClause: WITHIN GROUP LPAREN orderByClause RPAREN;
 winFrameClause: (ROWS | RANGE) winFrameExtend;
 winFrameExtend
     : winFrameBound                             # frameStart
@@ -161,8 +173,13 @@ columnExpr
     | SUBSTRING LPAREN columnExpr FROM columnExpr (FOR columnExpr)? RPAREN                # ColumnExprSubstring
     | TIMESTAMP STRING_LITERAL                                                            # ColumnExprTimestamp
     | TRIM LPAREN (BOTH | LEADING | TRAILING) string FROM columnExpr RPAREN               # ColumnExprTrim
+    | COLUMNS LPAREN STRING_LITERAL RPAREN                                                # ColumnExprColumnsRegex
+    | COLUMNS LPAREN columnExprList RPAREN                                                # ColumnExprColumnsList
+    | ASTERISK COLUMNS LPAREN STRING_LITERAL RPAREN                                      # ColumnExprSpreadColumnsRegex
+    | ASTERISK COLUMNS LPAREN columnExprList RPAREN                                      # ColumnExprSpreadColumnsList
     | identifier (LPAREN columnExprs=columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList=columnExprList? RPAREN)? OVER LPAREN windowExpr RPAREN # ColumnExprWinFunction
     | identifier (LPAREN columnExprs=columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList=columnExprList? RPAREN)? OVER identifier               # ColumnExprWinFunctionTarget
+    | identifier LPAREN columnExprs=columnExprList? RPAREN withinGroupClause                                                                        # ColumnExprFunctionWithinGroup
     | identifier (LPAREN columnExprs=columnExprList? RPAREN)? LPAREN DISTINCT? columnArgList=columnExprList? RPAREN                                 # ColumnExprFunction
     | columnExpr LPAREN selectSetStmt RPAREN                                              # ColumnExprCallSelect
     | columnExpr LPAREN columnExprList? RPAREN                                            # ColumnExprCall
@@ -264,13 +281,15 @@ withExprColumnNameList: LPAREN identifier (COMMA identifier)* RPAREN;
 columnIdentifier: placeholder | ((tableIdentifier DOT)? nestedIdentifier);
 nestedIdentifier: identifier (DOT identifier)*;
 tableExpr
-    : tableIdentifier                    # TableExprIdentifier
-    | tableFunctionExpr                  # TableExprFunction
-    | LPAREN selectSetStmt RPAREN      # TableExprSubquery
-    | tableExpr (alias | AS identifier)  # TableExprAlias
-    | hogqlxTagElement                   # TableExprTag
-    | placeholder                        # TableExprPlaceholder
+    : tableIdentifier                                                   # TableExprIdentifier
+    | tableFunctionExpr                                                 # TableExprFunction
+    | LPAREN selectSetStmt RPAREN                                       # TableExprSubquery
+    | LPAREN valuesClause RPAREN                                        # TableExprValues
+    | tableExpr (alias | AS identifier tableAliasColumnNameList?)       # TableExprAlias
+    | hogqlxTagElement                                                  # TableExprTag
+    | placeholder                                                       # TableExprPlaceholder
     ;
+tableAliasColumnNameList: LPAREN identifier (COMMA identifier)* RPAREN;
 tableFunctionExpr: identifier LPAREN tableArgList? RPAREN;
 tableIdentifier: (databaseIdentifier DOT)? nestedIdentifier;
 tableArgList: columnExpr (COMMA columnExpr)* COMMA?;
@@ -296,16 +315,16 @@ interval: SECOND | MINUTE | HOUR | DAY | WEEK | MONTH | QUARTER | YEAR;
 keyword
     // except NULL_SQL, INF, NAN_SQL
     : ALL | AND | ANTI | ANY | ARRAY | AS | ASCENDING | ASOF | BETWEEN | BOTH | BY | CASE
-    | CAST | COHORT | COLLATE | CROSS | CUBE | CURRENT | DATE | DESC | DESCENDING
+    | CAST | COHORT | COLLATE | COLUMNS | CROSS | CUBE | CURRENT | DATE | DESC | DESCENDING
     | DISTINCT | ELSE | END | EXTRACT | FINAL | FIRST
     | FOR | FOLLOWING | FROM | FULL | GROUP | HAVING | ID | IS
-    | IF | ILIKE | IN | INNER | INTERVAL | JOIN | KEY
+    | GROUPING | IF | ILIKE | IN | INNER | INTERVAL | JOIN | KEY
     | LAST | LEADING | LEFT | LIKE | LIMIT
     | NAME | NOT | NULLS | OFFSET | ON | OR | ORDER | OUTER | OVER | PARTITION
-    | PRECEDING | PREWHERE | RANGE | RECURSIVE | RETURN | RIGHT | ROLLUP | ROW
-    | ROWS | SAMPLE | SELECT | SEMI | SETTINGS | SUBSTRING
+    | PRECEDING | PREWHERE | QUALIFY | RANGE | RECURSIVE | RETURN | RIGHT | ROLLUP | ROW
+    | ROWS | SAMPLE | SELECT | SEMI | SETS | SETTINGS | SUBSTRING
     | THEN | TIES | TIMESTAMP | TOTALS | TRAILING | TRIM | TRUNCATE | TO | TOP
-    | UNBOUNDED | UNION | USING | WHEN | WHERE | WINDOW | WITH
+    | UNBOUNDED | UNION | USING | VALUES | WHEN | WHERE | WINDOW | WITH | WITHIN
     ;
 keywordForAlias
     : DATE | FIRST | ID | KEY

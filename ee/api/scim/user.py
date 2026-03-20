@@ -1,6 +1,7 @@
 from typing import Optional, Union
 
 from django.db import transaction
+from django.db.models import QuerySet
 
 from django_scim import constants
 from django_scim.adapters import SCIMUser
@@ -451,9 +452,7 @@ class PostHogSCIMUser(SCIMUser):
                 raise ValueError("Email is required and cannot be removed")
 
     @classmethod
-    def get_for_organization(cls, organization_domain: OrganizationDomain) -> list["PostHogSCIMUser"]:
-        """
-        Get all users for a specific organization domain.
-        """
-        users = User.objects.filter(organization_membership__organization=organization_domain.organization)
-        return [cls(user, organization_domain) for user in users]
+    def get_queryset_for_organization(cls, organization_domain: OrganizationDomain) -> QuerySet[User]:
+        return User.objects.filter(organization_membership__organization=organization_domain.organization).order_by(
+            "id"
+        )

@@ -2,7 +2,12 @@ use crate::{
     api::types::FlagValue,
     cohorts::cohort_models::{Cohort, CohortId},
     config::{Config, DEFAULT_TEST_CONFIG},
-    flags::flag_models::{FeatureFlag, FeatureFlagRow, FlagFilters, FlagPropertyGroup},
+    flags::{
+        flag_group_type_mapping::{
+            GroupTypeCacheManager, GroupTypeFetchError, GroupTypeMapping, GroupTypeMappingFetcher,
+        },
+        flag_models::{FeatureFlag, FeatureFlagRow, FlagFilters, FlagPropertyGroup},
+    },
     properties::property_models::{OperatorType, PropertyFilter, PropertyType},
     team::team_models::Team,
 };
@@ -807,12 +812,13 @@ pub fn create_test_flag(
                 properties: Some(vec![]),
                 rollout_percentage: Some(100.0),
                 variant: None,
+                ..Default::default()
             }],
             multivariate: None,
             aggregation_group_type_index: None,
             payloads: None,
             super_groups: None,
-            holdout_groups: None,
+
             holdout: None,
         }),
         deleted: deleted.unwrap_or(false),
@@ -878,12 +884,13 @@ pub fn create_test_flag_with_properties(
                 properties: Some(filters),
                 rollout_percentage: Some(100.0),
                 variant: None,
+                ..Default::default()
             }],
             multivariate: None,
             aggregation_group_type_index: None,
             payloads: None,
             super_groups: None,
-            holdout_groups: None,
+
             holdout: None,
         }),
         None,
@@ -1261,7 +1268,7 @@ impl TestContext {
         let pak_id = format!("test_pak_{}", &uuid::Uuid::new_v4().to_string()[..8]);
         let api_key_value = format!("phx_{}", &uuid::Uuid::new_v4().to_string()[..12]);
 
-        let secure_value = crate::api::auth::hash_personal_api_key(&api_key_value);
+        let secure_value = crate::api::auth::hash_key_value(&api_key_value);
 
         let mut conn = self.non_persons_writer.get_connection().await?;
 
@@ -1304,6 +1311,41 @@ impl TestContext {
         query.build().execute(&mut *conn).await?;
 
         Ok((pak_id, api_key_value))
+    }
+
+    /// Creates a project secret API key with hashed value (SHA256 mode)
+    pub async fn create_project_secret_api_key(
+        &self,
+        team_id: i32,
+        label: &str,
+        scopes: Option<Vec<&str>>,
+    ) -> Result<String, Error> {
+        let key_id = format!("test_psk_{}", &uuid::Uuid::new_v4().to_string()[..8]);
+        let raw_key = format!("phs_{}", &uuid::Uuid::new_v4().to_string()[..12]);
+
+        let secure_value = crate::api::auth::hash_key_value(&raw_key);
+        let mask_value = format!("...{}", &raw_key[raw_key.len().saturating_sub(5)..]);
+
+        let mut conn = self.non_persons_writer.get_connection().await?;
+
+        let scopes_vec: Option<Vec<String>> =
+            scopes.map(|s| s.iter().map(|v| v.to_string()).collect());
+
+        sqlx::query(
+            r#"INSERT INTO posthog_projectsecretapikey
+               (id, team_id, label, mask_value, secure_value, scopes, created_at)
+               VALUES ($1, $2, $3, $4, $5, $6, NOW())"#,
+        )
+        .bind(&key_id)
+        .bind(team_id)
+        .bind(label)
+        .bind(&mask_value)
+        .bind(&secure_value)
+        .bind(&scopes_vec)
+        .execute(&mut *conn)
+        .await?;
+
+        Ok(raw_key)
     }
 
     /// Creates a team with both public token and secret API token
@@ -1514,4 +1556,27 @@ impl TestContext {
         .await?;
         Ok(())
     }
+}
+
+pub struct MockGroupTypeFetcher {
+    pub mapping: GroupTypeMapping,
+}
+
+#[async_trait]
+impl GroupTypeMappingFetcher for MockGroupTypeFetcher {
+    async fn fetch(
+        &self,
+        _team_id: common_types::TeamId,
+    ) -> Result<GroupTypeMapping, GroupTypeFetchError> {
+        Ok(self.mapping.clone())
+    }
+}
+
+pub fn mock_group_type_cache(
+    types_to_indexes: std::collections::HashMap<String, i32>,
+) -> Arc<GroupTypeCacheManager> {
+    let fetcher = MockGroupTypeFetcher {
+        mapping: GroupTypeMapping::new(types_to_indexes),
+    };
+    Arc::new(GroupTypeCacheManager::new_with_fetcher(fetcher, None, None))
 }

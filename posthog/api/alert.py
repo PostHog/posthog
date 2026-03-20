@@ -10,7 +10,7 @@ from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
-from posthog.schema import AlertCondition, AlertState, InsightThreshold, TrendsAlertConfig
+from posthog.schema import AlertCondition, AlertState, DetectorConfig, InsightThreshold, TrendsAlertConfig
 
 from posthog.api.documentation import extend_schema_field
 from posthog.api.insight import InsightBasicSerializer
@@ -42,8 +42,20 @@ class TrendsAlertConfigField(serializers.JSONField):
     pass
 
 
+@extend_schema_field(DetectorConfig)  # type: ignore[arg-type]
+class DetectorConfigField(serializers.JSONField):
+    pass
+
+
 class ThresholdSerializer(serializers.ModelSerializer):
-    configuration = ThresholdConfigurationField()
+    configuration = ThresholdConfigurationField(
+        help_text="Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage).",
+    )
+    name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional name for the threshold.",
+    )
 
     class Meta:
         model = Threshold
@@ -75,6 +87,10 @@ class AlertCheckSerializer(serializers.ModelSerializer):
             "calculated_value",
             "state",
             "targets_notified",
+            "anomaly_scores",
+            "triggered_points",
+            "triggered_dates",
+            "interval",
         ]
         read_only_fields = fields
 
@@ -101,6 +117,13 @@ class AlertSubscriptionSerializer(serializers.ModelSerializer):
         return data
 
 
+@extend_schema_field(
+    {
+        "type": "string",
+        "nullable": True,
+        "description": "Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.",
+    }
+)
 class RelativeDateTimeField(serializers.DateTimeField):
     def to_internal_value(self, data):
         return data
@@ -108,13 +131,33 @@ class RelativeDateTimeField(serializers.DateTimeField):
 
 class AlertSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    checks = AlertCheckSerializer(many=True, read_only=True)
-    threshold = ThresholdSerializer()
-    condition = AlertConditionField(required=False, allow_null=True)
-    config = TrendsAlertConfigField(required=False, allow_null=True)
+    checks = AlertCheckSerializer(
+        many=True,
+        read_only=True,
+        help_text="The last 5 alert check results (only populated on retrieve).",
+    )
+    threshold = ThresholdSerializer(
+        help_text="Threshold configuration with bounds and type for evaluating the alert.",
+    )
+    condition = AlertConditionField(
+        required=False,
+        allow_null=True,
+        help_text="Alert condition type. Determines how the value is evaluated: absolute_value, relative_increase, or relative_decrease.",
+    )
+    config = TrendsAlertConfigField(
+        required=False,
+        allow_null=True,
+        help_text="Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval).",
+    )
+    detector_config = DetectorConfigField(required=False, allow_null=True)
     insight = TeamScopedPrimaryKeyRelatedField(
         queryset=Insight.objects.all(),
         help_text="Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object.",
+    )
+    name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Human-readable name for the alert.",
     )
     # nosemgrep: unscoped-primary-key-related-field — User model is not team-scoped; validate_subscribed_users() checks team membership
     subscribed_users = serializers.PrimaryKeyRelatedField(
@@ -124,8 +167,35 @@ class AlertSerializer(serializers.ModelSerializer):
         allow_empty=True,
         help_text="User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object.",
     )
-    snoozed_until = RelativeDateTimeField(allow_null=True, required=False)
-    last_value = serializers.FloatField(read_only=True, allow_null=True)
+    enabled = serializers.BooleanField(
+        required=False,
+        help_text="Whether the alert is actively being evaluated.",
+    )
+    calculation_interval = serializers.ChoiceField(
+        choices=AlertConfiguration.CALCULATION_INTERVAL_CHOICES,
+        required=False,
+        allow_null=True,
+        help_text="How often the alert is checked: hourly, daily, weekly, or monthly.",
+    )
+    snoozed_until = RelativeDateTimeField(
+        allow_null=True,
+        required=False,
+        help_text="Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.",
+    )
+    skip_weekend = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Skip alert evaluation on weekends (Saturday and Sunday).",
+    )
+    state = serializers.CharField(
+        read_only=True,
+        help_text="Current alert state: Firing, Not firing, Errored, or Snoozed.",
+    )
+    last_value = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="The last calculated value from the most recent alert check.",
+    )
 
     class Meta:
         model = AlertConfiguration
@@ -145,6 +215,7 @@ class AlertSerializer(serializers.ModelSerializer):
             "next_check_at",
             "checks",
             "config",
+            "detector_config",
             "calculation_interval",
             "snoozed_until",
             "skip_weekend",
@@ -264,6 +335,59 @@ class AlertSerializer(serializers.ModelSerializer):
             analytics_props=get_request_analytics_properties(self.context["request"]),
         )
         return instance
+
+    def validate_detector_config(self, value):
+        if value is None:
+            return value
+
+        import pydantic
+
+        try:
+            validated = DetectorConfig.model_validate(value)
+        except pydantic.ValidationError:
+            raise ValidationError("Invalid detector configuration.")
+
+        # Ensemble requires at least 2 sub-detectors
+        root = validated.root if hasattr(validated, "root") else validated
+        if getattr(root, "type", None) == "ensemble" and hasattr(root, "detectors"):
+            if len(root.detectors) < 2:
+                raise ValidationError("Ensemble detector requires at least 2 sub-detectors.")
+            for sub in root.detectors:
+                sub_dict: dict = sub.model_dump() if hasattr(sub, "model_dump") else sub  # type: ignore[assignment]
+                self._validate_detector_params(sub_dict)
+        else:
+            self._validate_detector_params(value)
+
+        return validated.model_dump() if hasattr(validated, "model_dump") else value
+
+    @staticmethod
+    def _validate_detector_params(config: dict) -> None:
+        """Validate detector parameter ranges match frontend constraints."""
+        # Parameter ranges: (min, max, name)
+        PARAM_RANGES: dict[str, tuple[float, float, str]] = {
+            "threshold": (0.0, 1.0, "Sensitivity threshold"),
+            "window": (5, 100, "Window size"),
+            "n_estimators": (10, 500, "Number of trees"),
+            "n_neighbors": (1, 50, "Number of neighbors"),
+            "n_bins": (5, 50, "Number of bins"),
+            "multiplier": (0.5, 10.0, "IQR multiplier"),
+            "training_offset_n": (1, 100, "Training offset"),
+        }
+
+        for param, (min_val, max_val, label) in PARAM_RANGES.items():
+            val = config.get(param)
+            if val is not None:
+                if val < min_val or val > max_val:
+                    raise ValidationError(f"{label} must be between {min_val} and {max_val}.")
+
+        preprocessing = config.get("preprocessing")
+        if preprocessing and isinstance(preprocessing, dict):
+            smooth_n = preprocessing.get("smooth_n")
+            if smooth_n is not None and (smooth_n < 0 or smooth_n > 30):
+                raise ValidationError("Smoothing window must be between 0 and 30.")
+            lags_n = preprocessing.get("lags_n")
+            if lags_n is not None and (lags_n < 0 or lags_n > 10):
+                raise ValidationError("Lag features must be between 0 and 10.")
 
     def validate_snoozed_until(self, value):
         if value is not None and not isinstance(value, str):

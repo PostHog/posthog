@@ -34,13 +34,20 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from './config/kafka-topics'
+import {
+    createCookielessRedisConnectionConfig,
+    createIngestionRedisConnectionConfig,
+    createPosthogRedisConnectionConfig,
+} from './config/redis-pools'
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
 import { CookielessManager } from './ingestion/cookieless/cookieless-manager'
+import { ErrorTrackingConsumer } from './ingestion/error-tracking/error-tracking-consumer'
 import { IngestionConsumer, IngestionConsumerDeps } from './ingestion/ingestion-consumer'
 import { IngestionTestingConsumer } from './ingestion/ingestion-testing-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { onShutdown } from './lifecycle'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
+import { TracesIngestionConsumer } from './logs-ingestion/traces-ingestion-consumer'
 import { SessionRecordingIngester } from './session-recording/consumer'
 import { RecordingApi } from './session-replay/recording-api/recording-api'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
@@ -126,7 +133,11 @@ export class PluginServer {
 
         const capabilities = getPluginServerCapabilities(this.config)
 
-        const needsIngestion = !!(capabilities.ingestionV2Combined || capabilities.ingestionV2)
+        const needsIngestion = !!(
+            capabilities.ingestionV2Combined ||
+            capabilities.ingestionV2 ||
+            capabilities.errorTrackingIngestion
+        )
 
         const needsCdp = !!(
             capabilities.cdpProcessedEvents ||
@@ -142,6 +153,7 @@ export class PluginServer {
             capabilities.cdpBatchHogFlow
         )
         const needsLogs = !!capabilities.logsIngestion
+        const needsTraces = !!capabilities.tracesIngestion
 
         try {
             // 1. Shared infrastructure (always needed)
@@ -161,7 +173,7 @@ export class PluginServer {
 
             // 4. CDP + Logs services (posthog redis, quota limiting)
             let cdpLogsServices: ReturnType<typeof this.createCdpLogsServices> | undefined
-            if (needsCdp || needsLogs) {
+            if (needsCdp || needsLogs || needsTraces) {
                 cdpLogsServices = this.createCdpLogsServices(teamManager)
             }
 
@@ -451,6 +463,51 @@ export class PluginServer {
                 })
             }
 
+            if (capabilities.errorTrackingIngestion) {
+                serviceLoaders.push(async () => {
+                    const config = {
+                        groupId: this.config.ERROR_TRACKING_CONSUMER_GROUP_ID,
+                        topic: this.config.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC,
+                        dlqTopic: this.config.ERROR_TRACKING_CONSUMER_DLQ_TOPIC,
+                        overflowTopic: this.config.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC,
+                        outputTopic: this.config.ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC,
+                        cymbalBaseUrl: this.config.ERROR_TRACKING_CYMBAL_BASE_URL,
+                        cymbalTimeoutMs: this.config.ERROR_TRACKING_CYMBAL_TIMEOUT_MS,
+                        lane: this.config.INGESTION_LANE ?? 'main',
+                        overflowBucketCapacity: this.config.ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY,
+                        overflowBucketReplenishRate: this.config.ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE,
+                        statefulOverflowEnabled: this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_ENABLED,
+                        statefulOverflowRedisTTLSeconds: this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
+                        statefulOverflowLocalCacheTTLSeconds:
+                            this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
+                        pipeline: this.config.INGESTION_PIPELINE ?? 'error_tracking',
+                    }
+                    const deps = {
+                        kafkaProducer: this.kafkaProducer!,
+                        kafkaMetricsProducer: this.kafkaMetricsProducer!,
+                        teamManager,
+                        hogTransformer: createHogTransformerService(this.config, hogTransformerDeps!),
+                        groupTypeManager: ingestionServices!.groupTypeManager,
+                        redisPool: this.redisPool!,
+                        personRepository: ingestionCdpServices!.personRepository,
+                    }
+                    const consumer = new ErrorTrackingConsumer(config, deps)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
+            if (capabilities.tracesIngestion) {
+                serviceLoaders.push(async () => {
+                    const consumer = new TracesIngestionConsumer(this.config, {
+                        teamManager,
+                        quotaLimiting: cdpLogsServices!.quotaLimiting,
+                    })
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
             if (capabilities.cdpBatchHogFlow) {
                 serviceLoaders.push(async () => {
                     const consumer = new CdpBatchHogFlowRequestsConsumer(this.config, cdpDeps!)
@@ -512,22 +569,7 @@ export class PluginServer {
 
         logger.info('🤔', 'Connecting to ingestion Redis...')
         this.redisPool = createRedisPoolFromConfig({
-            connection: this.config.INGESTION_REDIS_HOST
-                ? {
-                      url: this.config.INGESTION_REDIS_HOST,
-                      options: { port: this.config.INGESTION_REDIS_PORT },
-                      name: 'ingestion-redis',
-                  }
-                : this.config.POSTHOG_REDIS_HOST
-                  ? {
-                        url: this.config.POSTHOG_REDIS_HOST,
-                        options: {
-                            port: this.config.POSTHOG_REDIS_PORT,
-                            password: this.config.POSTHOG_REDIS_PASSWORD,
-                        },
-                        name: 'ingestion-redis',
-                    }
-                  : { url: this.config.REDIS_URL, name: 'ingestion-redis' },
+            connection: createIngestionRedisConnectionConfig(this.config),
             poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
             poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
         })
@@ -579,13 +621,7 @@ export class PluginServer {
     } {
         logger.info('🤔', 'Connecting to cookieless Redis...')
         this.cookielessRedisPool = createRedisPoolFromConfig({
-            connection: this.config.COOKIELESS_REDIS_HOST
-                ? {
-                      url: this.config.COOKIELESS_REDIS_HOST,
-                      options: { port: this.config.COOKIELESS_REDIS_PORT ?? 6379 },
-                      name: 'cookieless-redis',
-                  }
-                : { url: this.config.REDIS_URL, name: 'cookieless-redis' },
+            connection: createCookielessRedisConnectionConfig(this.config),
             poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
             poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
         })
@@ -601,16 +637,7 @@ export class PluginServer {
     private createCdpLogsServices(teamManager: TeamManager): { quotaLimiting: QuotaLimiting } {
         logger.info('🤔', 'Connecting to PostHog Redis...')
         this.posthogRedisPool = createRedisPoolFromConfig({
-            connection: this.config.POSTHOG_REDIS_HOST
-                ? {
-                      url: this.config.POSTHOG_REDIS_HOST,
-                      options: {
-                          port: this.config.POSTHOG_REDIS_PORT,
-                          password: this.config.POSTHOG_REDIS_PASSWORD,
-                      },
-                      name: 'posthog-redis',
-                  }
-                : { url: this.config.REDIS_URL, name: 'posthog-redis' },
+            connection: createPosthogRedisConnectionConfig(this.config),
             poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
             poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
         })

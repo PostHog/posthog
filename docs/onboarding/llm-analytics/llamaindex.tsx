@@ -75,7 +75,7 @@ export const getLlamaIndexSteps = (ctx: OnboardingComponentsContext): StepDefini
                             )
 
                             llm = LlamaOpenAI(
-                                model="gpt-4o-mini",
+                                model="gpt-5-mini",
                                 api_key="your_openai_api_key",
                             )
                             llm._client = openai_client

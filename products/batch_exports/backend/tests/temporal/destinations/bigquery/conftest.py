@@ -6,7 +6,19 @@ import warnings
 
 import pytest
 
+import pytest_asyncio
 from google.cloud import bigquery
+
+from posthog.models.integration import Integration
+
+from products.batch_exports.backend.tests.temporal.destinations.bigquery.utils import (
+    impersonated_integration,
+    key_file_integration,
+    set_service_account_description_for_integration,
+)
+from products.batch_exports.backend.tests.temporal.destinations.s3.utils import (
+    check_valid_credentials as has_valid_aws_credentials,
+)
 
 
 @pytest.fixture
@@ -54,6 +66,42 @@ def bigquery_dataset(bigquery_config, bigquery_client) -> typing.Generator[bigqu
         warnings.warn(
             f"Failed to clean up dataset: {dataset_id} due to '{exc.__class__.__name__}': {str(exc)}", stacklevel=1
         )
+
+
+@pytest.fixture
+def service_account_description(aorganization, request) -> str:
+    try:
+        description = request.param
+    except Exception:
+        return f"posthog:{str(aorganization.id)}"
+
+    if description is None:
+        return f"posthog:{str(aorganization.id)}"
+    return description
+
+
+@pytest_asyncio.fixture
+async def integration(
+    request, aorganization, ateam, bigquery_config, service_account_description
+) -> None | Integration:
+    try:
+        integration_type = request.param
+    except Exception:
+        return None
+
+    match integration_type:
+        case "impersonated":
+            if not await has_valid_aws_credentials():
+                pytest.skip("AWS credentials not available")
+
+            integration = await impersonated_integration(ateam, bigquery_config)
+            await set_service_account_description_for_integration(integration, service_account_description)
+        case "key_file":
+            integration = await key_file_integration(ateam, bigquery_config)
+        case _:
+            integration = None
+
+    return integration
 
 
 @pytest.fixture
