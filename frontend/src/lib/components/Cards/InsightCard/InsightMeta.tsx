@@ -49,15 +49,11 @@ import {
     DashboardTile,
     ExporterFormat,
     InsightColor,
+    InsightLogicProps,
     QueryBasedInsightModel,
 } from '~/types'
 
-import {
-    canToggleDisplayLabelsInInsightQuery,
-    getDisplayLabelsToggleMode,
-    isDisplayLabelsEnabledInInsightQuery,
-    toggleDisplayLabelsInInsightQuery,
-} from './displayLabelsToggle'
+import { getDisplayLabelsToggleText, toggleDisplayLabelsInInsightQuery } from './displayLabelsToggle'
 import { InsightCardProps } from './InsightCard'
 import { InsightDetails } from './InsightDetails'
 import { InsightMoveToDashboardMenu } from './InsightMoveToDashboardMenu'
@@ -123,10 +119,18 @@ export function InsightMeta({
     onDragHandleMouseDown,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, dashboards, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
-    const { insightProps, insightFeedback } = useValues(insightLogic)
-    const { setInsightFeedback } = useActions(insightLogic)
-    const { exportContext, insightData } = useValues(insightDataLogic(insightProps))
-    const { samplingFactor } = useValues(insightVizDataLogic(insightProps))
+    const insightLogicProps: InsightLogicProps = {
+        dashboardItemId: insight.short_id,
+        dashboardId,
+        cachedInsight: insight,
+        filtersOverride: filtersOverride ?? null,
+        variablesOverride: variablesOverride ?? null,
+        tileFiltersOverride: tile?.filters_overrides ?? null,
+    }
+    const { insightFeedback, canToggleDisplayLabelsForInsight } = useValues(insightLogic(insightLogicProps))
+    const { setInsightFeedback } = useActions(insightLogic(insightLogicProps))
+    const { exportContext, insightData } = useValues(insightDataLogic(insightLogicProps))
+    const { samplingFactor } = useValues(insightVizDataLogic(insightLogicProps))
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { updateInsightDirect } = useActions(insightsModel)
     const { reportDashboardInsightMetaUpdated, reportDashboardInsightValuesOnSeriesToggled } =
@@ -143,17 +147,7 @@ export function InsightMeta({
         placement === DashboardPlacement.Builtin
 
     const isSqlInsight = isDataVisualizationNode(insight.query)
-    const canToggleDisplayLabelsForQuery = canToggleDisplayLabelsInInsightQuery(insight.query)
-    const displayLabelsShown = isDisplayLabelsEnabledInInsightQuery(insight.query)
-    const displayLabelsToggleMode = getDisplayLabelsToggleMode(insight.query)
-    const displayLabelsToggleText =
-        displayLabelsToggleMode === 'pie_labels'
-            ? displayLabelsShown
-                ? 'Hide labels on series'
-                : 'Show labels on series'
-            : displayLabelsShown
-              ? 'Hide values on series'
-              : 'Show values on series'
+    const displayLabelsToggleText = getDisplayLabelsToggleText(insight.query)
     const showCompactHeading = !showCompactTile || (!filtersOverride?.date_from && !isSqlInsight)
 
     const topHeadingProps = {
@@ -178,7 +172,7 @@ export function InsightMeta({
                   AccessControlLevel.Editor
               )
             : true
-    const canToggleDisplayLabels = isDashboardCardPlacement && canEditInsight && canToggleDisplayLabelsForQuery
+    const canToggleDisplayLabels = isDashboardCardPlacement && canEditInsight && canToggleDisplayLabelsForInsight
 
     // For dashboard-specific actions (remove from dashboard, change tile color), check dashboard permissions
     const currentDashboard = dashboardId ? nameSortedDashboards.find((d) => d.id === dashboardId) : null
@@ -508,7 +502,7 @@ export function InsightMeta({
                                     {
                                         export_format: ExporterFormat.PNG,
                                         insight: insight.id,
-                                        dashboard: insightProps.dashboardId,
+                                        dashboard: insightLogicProps.dashboardId,
                                     },
                                     {
                                         export_format: ExporterFormat.CSV,

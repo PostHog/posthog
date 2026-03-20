@@ -1,7 +1,7 @@
 import { NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
 
 import { isFunnelsQuery, isInsightVizNode, isLifecycleQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
-import { ChartDisplayType, QueryBasedInsightModel } from '~/types'
+import { ChartDisplayType, FunnelVizType, QueryBasedInsightModel } from '~/types'
 
 export type DisplayLabelsToggleMode = 'pie_labels' | 'series_values'
 
@@ -20,7 +20,15 @@ export function canToggleDisplayLabelsInInsightQuery(query: QueryBasedInsightMod
         return !NON_VALUES_ON_SERIES_DISPLAY_TYPES.includes(display)
     }
 
-    return isFunnelsQuery(query.source) || isLifecycleQuery(query.source)
+    if (isFunnelsQuery(query.source)) {
+        return query.source.funnelsFilter?.funnelVizType === FunnelVizType.Trends
+    }
+
+    if (isLifecycleQuery(query.source)) {
+        return true
+    }
+
+    return false
 }
 
 export function isDisplayLabelsEnabledInInsightQuery(query: QueryBasedInsightModel['query']): boolean {
@@ -61,6 +69,17 @@ export function getDisplayLabelsToggleMode(query: QueryBasedInsightModel['query'
     }
 
     return null
+}
+
+export function getDisplayLabelsToggleText(query: QueryBasedInsightModel['query']): string {
+    const displayLabelsShown = isDisplayLabelsEnabledInInsightQuery(query)
+    const displayLabelsToggleMode = getDisplayLabelsToggleMode(query)
+
+    if (displayLabelsToggleMode === 'pie_labels') {
+        return displayLabelsShown ? 'Hide labels on series' : 'Show labels on series'
+    }
+
+    return displayLabelsShown ? 'Hide values on series' : 'Show values on series'
 }
 
 export function toggleDisplayLabelsInInsightQuery(
