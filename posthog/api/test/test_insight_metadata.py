@@ -93,3 +93,4 @@ class TestGenerateInsightMetadata(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["name"] == "Test Name"
+        assert response.json()["description"] == "Test description."
