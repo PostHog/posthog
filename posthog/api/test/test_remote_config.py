@@ -141,6 +141,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
 
     def test_session_recording_v1_config(self):
         """Test that legacy session recording config returns v1 format"""
+        self.team.session_recording_opt_in = True
         self.team.session_recording_sample_rate = 0.5
         self.team.session_recording_event_trigger_config = ["pageview", "click"]
         self.team.session_recording_url_trigger_config = [{"url": "/checkout", "matching": "regex"}]
@@ -172,6 +173,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
 
     def test_session_recording_v2_config(self):
         """Test that trigger groups config returns v2 format"""
+        self.team.session_recording_opt_in = True
         self.team.session_recording_trigger_groups = {
             "version": 2,
             "groups": [
@@ -197,9 +199,11 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
                 },
             ],
         }
-        # Clear legacy fields to ensure v2 is used
-        self.team.session_recording_sample_rate = None
+        # Set V1 fields for backward compatibility fallback
+        self.team.session_recording_sample_rate = 0.1
         self.team.session_recording_event_trigger_config = []
+        self.team.session_recording_url_trigger_config = []
+        self.team.session_recording_trigger_match_type_config = None
         self.team.save()
 
         from posthog.models.remote_config import RemoteConfig
@@ -224,11 +228,12 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
         # Removed fields should NOT be present
         assert "groupEvaluationMode" not in config["sessionRecording"]
         assert "fallbackSampleRate" not in config["sessionRecording"]
-        # V1 fields should NOT be present
-        assert "sampleRate" not in config["sessionRecording"]
-        assert "eventTriggers" not in config["sessionRecording"]
-        assert "linkedFlag" not in config["sessionRecording"]
-        assert "triggerMatchType" not in config["sessionRecording"]
+        # V1 fields SHOULD be present for backward compatibility with old SDKs
+        assert config["sessionRecording"]["sampleRate"] == "0.1"
+        assert config["sessionRecording"]["eventTriggers"] == []
+        assert config["sessionRecording"]["linkedFlag"] is None
+        assert config["sessionRecording"]["urlTriggers"] == []
+        assert config["sessionRecording"]["triggerMatchType"] is None
 
     def test_session_recording_url_blocklist_in_both_versions(self):
         """Test that URL blocklist is included in both v1 and v2 configs"""
@@ -236,6 +241,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
         self.team.session_recording_url_blocklist_config = url_blocklist
 
         # Test V1 (legacy)
+        self.team.session_recording_opt_in = True
         self.team.session_recording_sample_rate = 0.5
         self.team.session_recording_trigger_groups = None
         self.team.save()
@@ -255,7 +261,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
         # Test V2 (trigger groups)
         self.team.session_recording_trigger_groups = {
             "version": 2,
-            "groups": [{"id": "test", "sampleRate": 0.5, "order": 0, "conditions": {"matchType": "any"}}],
+            "groups": [{"id": "test", "sampleRate": 0.5, "conditions": {"matchType": "any"}}],
         }
         self.team.save()
 

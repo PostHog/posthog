@@ -529,6 +529,10 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
                 "urlBlocklist": [],
                 "eventTriggers": [],
                 "triggerMatchType": None,
+                "canvasFps": None,
+                "canvasQuality": None,
+                "recordCanvas": False,
+                "version": 1,
                 "scriptConfig": {"script": "posthog-recorder"},
             },
             "errorTracking": {

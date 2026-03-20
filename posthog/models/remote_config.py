@@ -162,16 +162,7 @@ class RemoteConfig(UUIDTModel):
             "canvasQuality": canvas_quality,
         }
 
-        # V2: Check for trigger groups configuration
-        if team.session_recording_trigger_groups:
-            trigger_groups_config = team.session_recording_trigger_groups
-            return {
-                **base_config,
-                "version": 2,
-                "triggerGroups": trigger_groups_config.get("groups", []),
-            }
-
-        # V1: Use legacy trigger fields (backward compatible)
+        # Build V1 fields (for backward compatibility with old SDKs)
         sample_rate = (
             str(team.session_recording_sample_rate) if team.session_recording_sample_rate is not None else None
         )
@@ -188,14 +179,30 @@ class RemoteConfig(UUIDTModel):
             else:
                 linked_flag = linked_flag_key
 
-        return {
-            **base_config,
-            "version": 1,
+        v1_fields = {
             "sampleRate": sample_rate,
             "linkedFlag": linked_flag,
             "urlTriggers": team.session_recording_url_trigger_config,
             "eventTriggers": team.session_recording_event_trigger_config,
             "triggerMatchType": team.session_recording_trigger_match_type_config,
+        }
+
+        # V2: If trigger groups configured, send V2 + V1 fallback fields
+        if team.session_recording_trigger_groups:
+            trigger_groups_config = team.session_recording_trigger_groups
+            return {
+                **base_config,
+                "version": 2,
+                "triggerGroups": trigger_groups_config.get("groups", []),
+                # Include V1 fields for backward compatibility with old SDKs
+                **v1_fields,
+            }
+
+        # V1 only: Use legacy trigger fields
+        return {
+            **base_config,
+            "version": 1,
+            **v1_fields,
         }
 
     @tracer.start_as_current_span("RemoteConfig.build_config")

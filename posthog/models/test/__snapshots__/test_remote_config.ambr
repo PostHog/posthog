@@ -27,6 +27,8 @@
     }),
     'productTours': False,
     'sessionRecording': dict({
+      'canvasFps': None,
+      'canvasQuality': None,
       'consoleLogRecordingEnabled': True,
       'domains': list([
         'https://*.example.com',
@@ -38,6 +40,7 @@
       'masking': None,
       'minimumDurationMilliseconds': None,
       'networkPayloadCapture': None,
+      'recordCanvas': False,
       'recorderVersion': 'v2',
       'sampleRate': None,
       'scriptConfig': dict({
@@ -48,6 +51,7 @@
       ]),
       'urlTriggers': list([
       ]),
+      'version': 1,
     }),
     'siteApps': list([
     ]),
