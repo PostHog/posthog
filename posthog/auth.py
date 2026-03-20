@@ -418,6 +418,8 @@ class ExportRendererAuthentication(authentication.BaseAuthentication):
     keyword = "Bearer"
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        if request.method not in ("GET", "HEAD"):
+            return None
         if "authorization" not in request.headers:
             return None
         authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.headers["authorization"])
@@ -428,7 +430,7 @@ class ExportRendererAuthentication(authentication.BaseAuthentication):
             info = decode_jwt(token, PosthogJwtAudience.EXPORT_RENDERER)
             user = User.objects.get(pk=info["id"])
             return user, None
-        except (jwt.DecodeError, jwt.InvalidAudienceError, jwt.ExpiredSignatureError):
+        except (jwt.DecodeError, jwt.InvalidAudienceError):
             return None
         except Exception:
             raise AuthenticationFailed(detail="Token invalid.")

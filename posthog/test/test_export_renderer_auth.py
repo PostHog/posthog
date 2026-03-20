@@ -54,6 +54,23 @@ class TestExportRendererAuthentication(APIBaseTest):
         )
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
+    @parameterized.expand(
+        [
+            ("post",),
+            ("put",),
+            ("patch",),
+            ("delete",),
+        ]
+    )
+    def test_export_renderer_token_rejected_for_write_method(self, method: str):
+        client = self._unauthenticated_client()
+        token = self._make_export_renderer_token()
+        response = getattr(client, method)(
+            f"/api/environments/{self.team.id}/session_recordings",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
     def test_expired_export_renderer_token_rejected(self):
         client = self._unauthenticated_client()
         token = encode_jwt(
