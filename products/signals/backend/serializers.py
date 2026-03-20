@@ -148,6 +148,8 @@ class SignalReportSerializer(serializers.ModelSerializer):
             data = json.loads(art.content)
         except (json.JSONDecodeError, TypeError, ValueError):
             return None
+        if not isinstance(data, dict):
+            return None
         p = data.get("priority")
         return p if isinstance(p, str) else None
 
