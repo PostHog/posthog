@@ -332,9 +332,15 @@ async fn fetch_person_and_cohorts(
     })
 }
 
-/// Fetch group properties from the non_persons_reader pool.
+/// Fetch group properties from the database.
 ///
-/// Acquires its own connection. Independent of person/cohort queries.
+/// Acquires its own connection from the provided reader pool.
+/// Independent of person/cohort queries, so it can run concurrently.
+///
+/// NOTE: `posthog_group` lives in the persons database (same as person/cohort
+/// tables), so this uses the same `persons_reader` pool. The two connections
+/// acquired in parallel (one for person+cohort, one for groups) both come from
+/// the same pool.
 async fn fetch_group_properties(
     reader: &PostgresReader,
     team_id: TeamId,
@@ -342,14 +348,14 @@ async fn fetch_group_properties(
 ) -> Result<GroupResult, FlagError> {
     let conn_acquisition_start = Instant::now();
     let conn_result =
-        get_connection_with_metrics(reader, "non_persons_reader", "fetch_group_properties").await;
+        get_connection_with_metrics(reader, "persons_reader", "fetch_group_properties").await;
     let conn_acquisition_duration = conn_acquisition_start.elapsed();
 
     let mut conn = match conn_result {
         Ok(conn) => {
             info!(
                 conn_acquisition_ms = conn_acquisition_duration.as_millis(),
-                "non_persons_reader connection acquired"
+                "persons_reader connection acquired for group query"
             );
             conn
         }
@@ -371,7 +377,7 @@ async fn fetch_group_properties(
                 pool_idle = pool_idle,
                 pool_in_use = pool_in_use,
                 error = ?e,
-                "Failed to acquire non_persons_reader connection"
+                "Failed to acquire persons_reader connection for group query"
             );
 
             return Err(FlagError::from(e));
@@ -379,7 +385,7 @@ async fn fetch_group_properties(
     };
 
     let query_labels = [
-        ("pool".to_string(), "non_persons_reader".to_string()),
+        ("pool".to_string(), "persons_reader".to_string()),
         ("team_id".to_string(), team_id.to_string()),
     ];
 
@@ -493,9 +499,8 @@ fn apply_person_cohort_to_state(
 /// Fetch and locally cache all properties for a given distinct ID and team ID.
 ///
 /// This function fetches person, cohort, and group properties and applies them to the
-/// evaluation state. Person + cohort queries use `persons_reader`; group queries use
-/// `non_persons_reader`. When groups are needed, both branches run in parallel via
-/// `tokio::try_join!`.
+/// evaluation state. When groups are needed, person+cohort and group queries run in
+/// parallel via `tokio::try_join!`, each acquiring its own connection from the same pool.
 #[instrument(skip_all, fields(
     team_id = %team_id,
     distinct_id = %distinct_id,
@@ -504,8 +509,7 @@ fn apply_person_cohort_to_state(
 ))]
 pub async fn fetch_and_locally_cache_all_relevant_properties(
     flag_evaluation_state: &mut FlagEvaluationState,
-    persons_reader: PostgresReader,
-    non_persons_reader: PostgresReader,
+    reader: PostgresReader,
     distinct_id: String,
     team_id: TeamId,
     group_type_to_key: &HashMap<GroupTypeIndex, String>,
@@ -519,18 +523,8 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     with_canonical_log(|log| log.db_property_fetches += 1);
 
     // Log pool stats before attempting connections
-    if let Some(stats) = persons_reader.as_ref().get_pool_stats() {
+    if let Some(stats) = reader.as_ref().get_pool_stats() {
         info!(
-            pool = "persons_reader",
-            pool_size = stats.size,
-            pool_idle = stats.num_idle,
-            pool_in_use = stats.size.saturating_sub(stats.num_idle as u32),
-            "Connection pool stats before acquiring connection"
-        );
-    }
-    if let Some(stats) = non_persons_reader.as_ref().get_pool_stats() {
-        info!(
-            pool = "non_persons_reader",
             pool_size = stats.size,
             pool_idle = stats.num_idle,
             pool_in_use = stats.size.saturating_sub(stats.num_idle as u32),
@@ -544,8 +538,8 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         // .await while borrowed), so double-borrow cannot occur. Do NOT refactor to
         // tokio::spawn — that would create separate tasks and break task-local access.
         let (person_cohort, group) = tokio::try_join!(
-            fetch_person_and_cohorts(&persons_reader, team_id, &distinct_id, &static_cohort_ids),
-            fetch_group_properties(&non_persons_reader, team_id, group_type_to_key),
+            fetch_person_and_cohorts(&reader, team_id, &distinct_id, &static_cohort_ids),
+            fetch_group_properties(&reader, team_id, group_type_to_key),
         )?;
 
         apply_person_cohort_to_state(flag_evaluation_state, person_cohort, &distinct_id);
@@ -554,8 +548,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         }
     } else {
         let person_cohort =
-            fetch_person_and_cohorts(&persons_reader, team_id, &distinct_id, &static_cohort_ids)
-                .await?;
+            fetch_person_and_cohorts(&reader, team_id, &distinct_id, &static_cohort_ids).await?;
         apply_person_cohort_to_state(flag_evaluation_state, person_cohort, &distinct_id);
     }
 

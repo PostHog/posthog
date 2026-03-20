@@ -1842,7 +1842,6 @@ impl FeatureFlagMatcher {
         match fetch_and_locally_cache_all_relevant_properties(
             &mut self.flag_evaluation_state,
             self.router.get_persons_reader().clone(),
-            self.router.get_non_persons_reader().clone(),
             self.distinct_id.clone(),
             self.team_id,
             &group_data,
