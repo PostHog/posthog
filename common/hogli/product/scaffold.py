@@ -101,8 +101,18 @@ def _add_to_django_settings(product_name: str, *, dry_run: bool) -> None:
     _register_in_file(DJANGO_SETTINGS, "Django settings", app_config, write, dry_run=dry_run)
 
 
-def _add_to_db_routing(product_name: str, *, dry_run: bool) -> None:
-    route_entry = f"    - app_label: {product_name}\n      database: {product_name}\n"
+def _get_existing_databases() -> list[str]:
+    """Read unique database names from db_routing.yaml."""
+    if not DB_ROUTING_YAML.exists():
+        return []
+    import yaml
+
+    config = yaml.safe_load(DB_ROUTING_YAML.read_text()) or {}
+    return sorted({r["database"] for r in config.get("routes", []) if r.get("database")})
+
+
+def _add_to_db_routing(product_name: str, database_name: str, *, dry_run: bool) -> None:
+    route_entry = f"    - app_label: {product_name}\n      database: {database_name}\n"
 
     def write(content: str) -> str:
         return content.rstrip() + "\n" + route_entry
@@ -182,14 +192,24 @@ def bootstrap_product(name: str, dry_run: bool, force: bool) -> None:
     _add_to_django_settings(name, dry_run=dry_run)
 
     if dry_run:
-        _add_to_db_routing(name, dry_run=True)
+        _add_to_db_routing(name, name, dry_run=True)
     else:
         click.echo(
             "\n  Products get their own database by default — this isolates locks, "
             "connections, and migrations so one product can't bring down the app. "
             "This is new but fully working. Reach out in #team-devex with questions."
         )
-        if not click.confirm("  Skip separate database?", default=False):
-            _add_to_db_routing(name, dry_run=False)
-        else:
+        existing_dbs = _get_existing_databases()
+        if existing_dbs:
+            click.echo(f"  Existing databases: {', '.join(existing_dbs)}")
+            click.echo("  You can share a database with another product from the same team.")
+
+        if click.confirm("  Skip separate database?", default=False):
             click.echo("  Skipped. You can add it later in products/db_routing.yaml.")
+        else:
+            db_name = click.prompt(
+                "  Database name",
+                default=name,
+                show_default=True,
+            )
+            _add_to_db_routing(name, db_name, dry_run=False)
