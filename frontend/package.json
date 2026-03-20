@@ -286,7 +286,6 @@
         "@types/md5": "^2.3.0",
         "@types/node": "catalog:",
         "@types/papaparse": "^5.3.8",
-        "@types/pngjs": "^6.0.1",
         "@types/query-selector-shadow-dom": "^1.0.0",
         "@types/react": "catalog:",
         "@types/react-dom": "catalog:",

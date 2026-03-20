@@ -1238,9 +1238,6 @@ importers:
       '@types/papaparse':
         specifier: ^5.3.8
         version: 5.3.8
-      '@types/pngjs':
-        specifier: ^6.0.1
-        version: 6.0.1
       '@types/query-selector-shadow-dom':
         specifier: ^1.0.0
         version: 1.0.0
@@ -11164,9 +11161,6 @@ packages:
 
   '@types/pixelmatch@5.2.4':
     resolution: {integrity: sha512-HDaSHIAv9kwpMN7zlmwfTv6gax0PiporJOipcrGsVNF3Ba+kryOZc0Pio5pn6NhisgWr7TaajlPEKTbTAypIBQ==}
-
-  '@types/pngjs@6.0.1':
-    resolution: {integrity: sha512-J39njbdW1U/6YyVXvC9+1iflZghP8jgRf2ndYghdJb5xL49LYDB+1EuAxfbuJ2IBbWIL3AjHPQhgaTxT3YaYeg==}
 
   '@types/prettier@2.7.3':
     resolution: {integrity: sha512-+68kP9yzs4LMp7VNh8gdzMSPZFL44MLGqiHWvttYJe+6qnuVr4Ek9wSBQoveqY/r+LwjCcU29kNVkidwim+kYA==}
@@ -33138,10 +33132,6 @@ snapshots:
   '@types/pica@9.0.1': {}
 
   '@types/pixelmatch@5.2.4':
-    dependencies:
-      '@types/node': 22.18.8
-
-  '@types/pngjs@6.0.1':
     dependencies:
       '@types/node': 22.18.8
 
