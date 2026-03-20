@@ -18,6 +18,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.temporal.data_imports.sources import SourceRegistry
+from posthog.temporal.data_imports.sources.common.base import WebhookSource
 
 from products.data_warehouse.backend.data_load.service import (
     cancel_external_data_workflow,
@@ -32,6 +33,10 @@ from products.data_warehouse.backend.direct_postgres import (
     hide_direct_postgres_table,
     postgres_schema_metadata_to_dwh_columns,
     upsert_direct_postgres_table,
+)
+from products.data_warehouse.backend.external_data_source.webhooks import (
+    create_and_register_webhook,
+    get_or_create_webhook_hog_function,
 )
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema
 from products.data_warehouse.backend.models.external_data_schema import (
@@ -238,7 +243,52 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
             trigger_external_data_workflow(instance)
 
-        return super().update(instance, validated_data)
+        updated_instance = super().update(instance, validated_data)
+
+        if sync_type == ExternalDataSchema.SyncType.INCREMENTAL:
+            self._maybe_create_webhook(updated_instance)
+
+        return updated_instance
+
+    def _maybe_create_webhook(self, schema: ExternalDataSchema) -> None:
+        source = schema.source
+        if not source.job_inputs:
+            return
+
+        try:
+            source_type = ExternalDataSourceType(source.source_type)
+            source_impl = SourceRegistry.get_source(source_type)
+        except Exception as e:
+            capture_exception(e)
+            return
+
+        if not isinstance(source_impl, WebhookSource):
+            return
+
+        config = source_impl.parse_config(source.job_inputs)
+        source_schemas = source_impl.get_schemas(config, schema.team_id)
+        webhook_source_schemas = {s.name for s in source_schemas if s.supports_webhooks}
+
+        if schema.name not in webhook_source_schemas:
+            return
+
+        try:
+            hog_fn_result = get_or_create_webhook_hog_function(
+                team=schema.team,
+                source=source_impl,
+                source_id=str(source.pk),
+                eligible_schemas=[schema],
+            )
+
+            if hog_fn_result.error or not hog_fn_result.hog_function:
+                logger.warning("Failed to create webhook hog function", error=hog_fn_result.error)
+                return
+
+            if hog_fn_result.hog_function_created:
+                # Only register the webhook if we're creating the hog function when it didn't exist previously
+                create_and_register_webhook(source_impl, config, hog_fn_result, schema.team_id)
+        except Exception as e:
+            logger.exception("Failed to create webhook during schema update", error=str(e))
 
 
 class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
@@ -383,6 +433,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "incremental_available": schema.supports_incremental,
             "append_available": schema.supports_append,
             "full_refresh_available": True,
+            "supports_webhooks": schema.supports_webhooks,
         }
 
         return Response(status=status.HTTP_200_OK, data=data)

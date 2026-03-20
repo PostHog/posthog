@@ -3,6 +3,8 @@ from datetime import date, datetime
 from typing import Any, Optional, cast
 from uuid import UUID
 
+import re2
+
 from posthog.hogql import ast
 from posthog.hogql.ast import ConstantType, FieldTraverserType
 from posthog.hogql.base import _T_AST
@@ -349,6 +351,14 @@ class Resolver(CloningVisitor):
         # Visit all the "SELECT a,b,c" columns. Mark each for export in "columns".
         select_nodes = []
         for expr in node.select or []:
+            if isinstance(expr, ast.SpreadExpr):
+                raise QueryError("*COLUMNS(...) is not valid as a top-level SELECT item. Use COLUMNS(...) instead.")
+            if isinstance(expr, ast.ColumnsExpr):
+                expanded = self._columns_expr_exprs(expr)
+                for col in expanded:
+                    visited_col = self.visit(col)
+                    select_nodes.append(visited_col)
+                continue
             new_expr = self.visit(expr)
             if isinstance(new_expr.type, ast.AsteriskType):
                 columns = self._asterisk_columns(new_expr.type, chain_prefix=new_expr.chain[:-1])
@@ -404,8 +414,10 @@ class Resolver(CloningVisitor):
         new_node.where = self.visit(node.where)
         new_node.prewhere = self.visit(node.prewhere)
         new_node.having = self.visit(node.having)
+        new_node.qualify = self.visit(node.qualify)
         if node.group_by:
             new_node.group_by = [self.visit(expr) for expr in node.group_by]
+        new_node.group_by_mode = node.group_by_mode
         if node.order_by:
             new_node.order_by = [self.visit(expr) for expr in node.order_by]
         new_node.limit_by = self.visit(node.limit_by)
@@ -454,6 +466,33 @@ class Resolver(CloningVisitor):
                 raise QueryError("Can't expand asterisk (*) on subquery")
         else:
             raise QueryError(f"Can't expand asterisk (*) on a type of type {type(asterisk.table_type).__name__}")
+
+    def _columns_expr_exprs(self, node: ast.ColumnsExpr) -> list[ast.Expr]:
+        """Expand a COLUMNS() expression into individual fields or expressions."""
+        if node.columns is not None:
+            return list(node.columns)
+
+        regex = node.regex or ""
+        try:
+            pattern = re2.compile(regex)
+        except re2.error as e:
+            raise ResolutionError(f"COLUMNS() has an invalid regex pattern: {e}")
+        scope = self.scopes[-1]
+        all_table_types: list[ast.TableOrSelectType] = list(scope.tables.values()) + list(scope.anonymous_tables)
+        matched_fields: list[ast.Expr] = []
+        for table_type in all_table_types:
+            asterisk_type = ast.AsteriskType(table_type=table_type)
+            try:
+                all_fields = self._asterisk_columns(asterisk_type, chain_prefix=[])
+            except QueryError:
+                continue
+            for field in all_fields:
+                col_name = field.chain[-1] if isinstance(field.chain[-1], str) else str(field.chain[-1])
+                if pattern.search(col_name):
+                    matched_fields.append(field)
+        if not matched_fields:
+            raise QueryError(f"No columns matched the COLUMNS('{node.regex}') expression")
+        return matched_fields
 
     def visit_join_expr(self, node: ast.JoinExpr):
         """Visit each FROM and JOIN table or subquery."""
@@ -763,6 +802,25 @@ class Resolver(CloningVisitor):
 
     def visit_call(self, node: ast.Call):
         """Visit function calls."""
+
+        # Expand *COLUMNS(...) in function arguments
+        expanded_args: list[ast.Expr] = []
+        has_spread = False
+        for arg in node.args:
+            if isinstance(arg, ast.SpreadExpr) and isinstance(arg.expr, ast.ColumnsExpr):
+                expanded_args.extend(self._columns_expr_exprs(arg.expr))
+                has_spread = True
+            else:
+                expanded_args.append(arg)
+        if has_spread:
+            node = ast.Call(
+                name=node.name,
+                args=expanded_args,
+                params=node.params,
+                distinct=node.distinct,
+                start=node.start,
+                end=node.end,
+            )
 
         if func_meta := find_hogql_posthog_function(node.name):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)

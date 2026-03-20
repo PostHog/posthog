@@ -24,23 +24,11 @@ jobs:
 
         steps:
             - uses: actions/checkout@v6
-              with:
-                  sparse-checkout: |
-                      rust/Cargo.toml
-                      rust/Cargo.lock
-                      rust/common/symbol_data/
-                  sparse-checkout-cone-mode: false
-                  clean: false
 
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
                   toolchain: 1.91.1
-
-            - name: Install jq
-              run: |
-                  sudo apt-get update
-                  sudo apt-get install -y jq
 
             - name: Verify tag matches crate version
               run: |
@@ -52,22 +40,11 @@ jobs:
                   fi
                   echo "Publishing posthog-symbol-data v$CRATE_VERSION"
 
-            - name: Obtain crates.io publish token via OIDC
-              id: oidc
-              run: |
-                  set -euo pipefail
-
-                  OIDC_TOKEN=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-                      "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https://crates.io" | jq -re '.value')
-
-                  CRATES_TOKEN=$(curl -sSf -X POST "https://crates.io/api/v1/tokens/oidc" \
-                      -H "Content-Type: application/json" \
-                      -d "{\"oidc_token\":\"$OIDC_TOKEN\"}" | jq -re '.token')
-
-                  echo "::add-mask::$CRATES_TOKEN"
-                  echo "token=$CRATES_TOKEN" >> "$GITHUB_OUTPUT"
+            - name: Authenticate with crates.io
+              id: auth
+              uses: rust-lang/crates-io-auth-action@b7e9a28eded4986ec6b1fa40eeee8f8f165559ec # v1.0.3
 
             - name: Publish to crates.io
               env:
-                  CRATES_IO_TOKEN: ${{ steps.oidc.outputs.token }}
-              run: cargo publish -p posthog-symbol-data --token "$CRATES_IO_TOKEN"
+                  CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+              run: cargo publish -p posthog-symbol-data

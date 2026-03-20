@@ -3570,9 +3570,9 @@
                 "cache_read_token": 1e-7
             },
             "nextbit-fp4": {
-                "prompt_token": 0.0000013,
+                "prompt_token": 0.000001,
                 "completion_token": 0.0000045,
-                "cache_read_token": 7.5e-7
+                "cache_read_token": 6e-7
             },
             "novita": {
                 "prompt_token": 5.7e-7,

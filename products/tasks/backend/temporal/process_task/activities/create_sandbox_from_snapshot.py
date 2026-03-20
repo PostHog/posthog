@@ -67,19 +67,21 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
         except Task.DoesNotExist as e:
             raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
 
-        try:
-            github_token = get_github_token(ctx.github_integration_id) or ""
-        except Exception as e:
-            raise GitHubAuthenticationError(
-                f"Failed to get GitHub token for integration {ctx.github_integration_id}",
-                {
-                    "github_integration_id": ctx.github_integration_id,
-                    "task_id": ctx.task_id,
-                    "team_id": ctx.team_id,
-                    "error": str(e),
-                },
-                cause=e,
-            )
+        github_token = ""
+        if ctx.github_integration_id is not None:
+            try:
+                github_token = get_github_token(ctx.github_integration_id) or ""
+            except Exception as e:
+                raise GitHubAuthenticationError(
+                    f"Failed to get GitHub token for integration {ctx.github_integration_id}",
+                    {
+                        "github_integration_id": ctx.github_integration_id,
+                        "task_id": ctx.task_id,
+                        "team_id": ctx.team_id,
+                        "error": str(e),
+                    },
+                    cause=e,
+                )
 
         try:
             access_token = create_oauth_access_token(task)

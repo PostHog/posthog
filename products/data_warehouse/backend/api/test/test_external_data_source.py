@@ -1514,6 +1514,7 @@ class TestExternalDataSource(APIBaseTest):
                     "append_available": True,
                     "incremental_field": "id",
                     "sync_type": None,
+                    "supports_webhooks": False,
                 }
             ]
 
@@ -1564,6 +1565,7 @@ class TestExternalDataSource(APIBaseTest):
                     "append_available": True,
                     "incremental_field": "id",
                     "sync_type": None,
+                    "supports_webhooks": False,
                 }
             ]
 
@@ -3065,3 +3067,330 @@ class TestExternalDataSource(APIBaseTest):
                     [200, 201],
                     f"Expected acceptance for valid prefix '{prefix}'",
                 )
+
+
+class TestCreateWebhook(APIBaseTest):
+    def _webhook_result(self, success=True, error=None, extra_inputs=None):
+        from posthog.temporal.data_imports.sources.common.base import WebhookCreationResult
+
+        return WebhookCreationResult(success=success, error=error, extra_inputs=extra_inputs or {})
+
+    def _create_stripe_source(self, job_inputs=None) -> ExternalDataSource:
+        if job_inputs is None:
+            job_inputs = {"stripe_secret_key": "sk_test_123"}
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs=job_inputs,
+        )
+
+    def _create_incremental_schema(self, source: ExternalDataSource, name: str) -> ExternalDataSchema:
+        return ExternalDataSchema.objects.create(
+            name=name,
+            team_id=self.team.pk,
+            source=source,
+            sync_type="incremental",
+            should_sync=True,
+        )
+
+    def _create_hog_function_template(self):
+        from posthog.models.hog_function_template import HogFunctionTemplate
+
+        return HogFunctionTemplate.objects.create(
+            template_id="template-warehouse-source-stripe",
+            name="Stripe warehouse source webhook",
+            description="Receive Stripe webhook events for data warehouse ingestion",
+            code="// test code",
+            code_language="hog",
+            inputs_schema=[
+                {
+                    "type": "string",
+                    "key": "signing_secret",
+                    "label": "Signing secret",
+                    "required": False,
+                    "secret": True,
+                },
+                {
+                    "type": "boolean",
+                    "key": "bypass_signature_check",
+                    "label": "Bypass signature check",
+                    "default": False,
+                    "required": False,
+                    "secret": False,
+                },
+                {
+                    "type": "json",
+                    "key": "schema_mapping",
+                    "label": "Schema mapping",
+                    "required": True,
+                    "secret": False,
+                    "hidden": True,
+                },
+                {
+                    "type": "string",
+                    "key": "source_id",
+                    "label": "Source ID",
+                    "required": True,
+                    "secret": False,
+                    "hidden": True,
+                },
+            ],
+            type="warehouse_source_webhook",
+            status="alpha",
+            category=[],
+        )
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    def test_create_webhook_success(self, mock_create_webhook, _mock_flag):
+        mock_create_webhook.return_value = self._webhook_result()
+        from posthog.models.hog_functions.hog_function import HogFunction
+        from posthog.temporal.data_imports.sources.stripe.constants import RESOURCE_TO_STRIPE_OBJECT_TYPE
+
+        self._create_hog_function_template()
+        source = self._create_stripe_source()
+        schema = self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["success"] is True
+        assert "/public/webhooks/dwh/" in data["webhook_url"]
+        assert data["error"] is None
+
+        hog_function = HogFunction.objects.get(team=self.team, type="warehouse_source_webhook")
+        assert hog_function.template_id == "template-warehouse-source-stripe"
+        assert hog_function.inputs is not None
+        schema_mapping = hog_function.inputs["schema_mapping"]["value"]
+        expected_object_type = RESOURCE_TO_STRIPE_OBJECT_TYPE[STRIPE_CUSTOMER_RESOURCE_NAME]
+        assert expected_object_type in schema_mapping
+        assert schema_mapping[expected_object_type] == str(schema.id)
+
+        assert hog_function.inputs["source_id"]["value"] == str(source.pk)
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    def test_create_webhook_no_job_inputs(self, _mock_flag):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs=None,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["message"] == "Source has no configuration"
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    def test_create_webhook_no_eligible_schemas(self, _mock_flag):
+        self._create_hog_function_template()
+        source = self._create_stripe_source()
+        ExternalDataSchema.objects.create(
+            name=STRIPE_CUSTOMER_RESOURCE_NAME,
+            team_id=self.team.pk,
+            source=source,
+            sync_type="full_refresh",
+            should_sync=True,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["message"] == "No webhook-eligible incremental schemas found for this source"
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    def test_create_webhook_external_creation_fails(self, mock_create_webhook, _mock_flag):
+        mock_create_webhook.return_value = self._webhook_result(success=False, error="Permission denied")
+        from posthog.models.hog_functions.hog_function import HogFunction
+
+        self._create_hog_function_template()
+        source = self._create_stripe_source()
+        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["success"] is False
+        assert data["error"] == "Permission denied"
+        assert "/public/webhooks/dwh/" in data["webhook_url"]
+
+        assert HogFunction.objects.filter(team=self.team, type="warehouse_source_webhook").exists()
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_create_webhook_url_uses_cloud_deployment(self, mock_create_webhook, _mock_flag):
+        mock_create_webhook.return_value = self._webhook_result()
+        self._create_hog_function_template()
+        source = self._create_stripe_source()
+        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["webhook_url"].startswith("https://webhooks.us.posthog.com")
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    @override_settings(CLOUD_DEPLOYMENT=None, SITE_URL="https://my.posthog.instance")
+    def test_create_webhook_url_uses_site_url_for_self_hosted(self, mock_create_webhook, _mock_flag):
+        mock_create_webhook.return_value = self._webhook_result()
+        self._create_hog_function_template()
+        source = self._create_stripe_source()
+        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["webhook_url"].startswith("https://my.posthog.instance")
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    def test_create_webhook_merges_schemas_on_update(self, mock_create_webhook, _mock_flag):
+        mock_create_webhook.return_value = self._webhook_result()
+        from posthog.models.hog_functions.hog_function import HogFunction
+        from posthog.temporal.data_imports.sources.stripe.constants import RESOURCE_TO_STRIPE_OBJECT_TYPE
+
+        self._create_hog_function_template()
+        source = self._create_stripe_source()
+        self._create_incremental_schema(source, STRIPE_CHARGE_RESOURCE_NAME)
+
+        # First call: creates HogFunction with Charge schema
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        # Now add a Customer schema and call again
+        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        hog_function = HogFunction.objects.get(team=self.team, type="warehouse_source_webhook")
+
+        assert hog_function.inputs is not None
+
+        schema_mapping = hog_function.inputs["schema_mapping"]["value"]
+
+        assert hog_function.inputs["source_id"]["value"] == str(source.pk)
+
+        charge_object_type = RESOURCE_TO_STRIPE_OBJECT_TYPE[STRIPE_CHARGE_RESOURCE_NAME]
+        customer_object_type = RESOURCE_TO_STRIPE_OBJECT_TYPE[STRIPE_CUSTOMER_RESOURCE_NAME]
+        assert charge_object_type in schema_mapping
+        assert customer_object_type in schema_mapping
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    def test_create_webhook_template_not_in_db(self, _mock_flag):
+        source = self._create_stripe_source()
+        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "sync_hog_function_templates" in response.json()["message"]
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    def test_create_webhook_saves_extra_inputs(self, mock_create_webhook, _mock_flag):
+        from posthog.models.hog_functions.hog_function import HogFunction
+
+        mock_create_webhook.return_value = self._webhook_result(extra_inputs={"signing_secret": "whsec_test123"})
+
+        self._create_hog_function_template()
+        source = self._create_stripe_source()
+        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["success"] is True
+
+        hog_function = HogFunction.objects.get(team=self.team, type="warehouse_source_webhook")
+        # signing_secret is marked as secret in the template, so it gets moved to encrypted_inputs on save
+        assert hog_function.encrypted_inputs is not None
+        assert hog_function.encrypted_inputs["signing_secret"]["value"] == "whsec_test123"
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    def test_update_webhook_inputs(self, mock_create_webhook, _mock_flag):
+        from posthog.models.hog_functions.hog_function import HogFunction
+
+        mock_create_webhook.return_value = self._webhook_result()
+
+        self._create_hog_function_template()
+        source = self._create_stripe_source()
+        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+
+        # First create the webhook to set up the HogFunction
+        self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/")
+
+        # Now update the inputs manually
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_webhook_inputs/",
+            data={"inputs": {"signing_secret": "whsec_manual123"}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["success"] is True
+
+        hog_function = HogFunction.objects.get(team=self.team, type="warehouse_source_webhook")
+        assert hog_function.encrypted_inputs is not None
+        assert hog_function.encrypted_inputs["signing_secret"]["value"] == "whsec_manual123"
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    def test_update_webhook_inputs_rejects_invalid_keys(self, _mock_flag):
+        source = self._create_stripe_source()
+        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_webhook_inputs/",
+            data={"inputs": {"nonexistent_key": "value"}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Invalid input keys" in response.json()["message"]
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    def test_update_webhook_inputs_no_hog_function(self, _mock_flag):
+        source = self._create_stripe_source()
+        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_webhook_inputs/",
+            data={"inputs": {"signing_secret": "whsec_test"}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "No webhook function found" in response.json()["message"]

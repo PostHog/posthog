@@ -1,5 +1,10 @@
 # posthog-cli
 
+# 0.7.3
+
+- feat: enable symbol set compression
+- fix: fix process command reading from stdin
+
 # 0.7.2
 
 - feat: allow reading files and directories from stdin

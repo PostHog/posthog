@@ -59,10 +59,13 @@ describe('PropertyValue', () => {
         const input = screen.getByRole('textbox')
         userEvent.click(input)
 
-        // Wait for options to load and appear
-        await waitFor(() => {
-            expect(screen.getByText('Chrome')).toBeInTheDocument()
-        })
+        // Wait for options to load and appear (300ms debounce + async fetch needs headroom under CI load)
+        await waitFor(
+            () => {
+                expect(screen.getByText('Chrome')).toBeInTheDocument()
+            },
+            { timeout: 3000 }
+        )
 
         const callCountAfterLoad = loadPropertyValuesSpy.mock.calls.length
 

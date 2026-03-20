@@ -438,6 +438,8 @@ const InfiniteListRow = ({
                 {...commonDivProps}
                 className={clsx(commonDivProps.className, isDisabledItem && 'cursor-not-allowed opacity-60')}
                 data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
+                data-ph-capture-attribute-taxonomic-group={resolvedListGroupType}
+                data-ph-capture-attribute-taxonomic-group-name={resolvedItemGroup.name}
                 role="option"
                 aria-selected={isSelected}
                 aria-disabled={isDisabledItem}

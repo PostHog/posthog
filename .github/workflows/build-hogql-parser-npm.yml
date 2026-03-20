@@ -156,6 +156,7 @@ jobs:
             - uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9.1.4
               with:
                   add: '["frontend/package.json", "pnpm-lock.yaml"]'
+                  commit: '--no-verify'
                   message: 'Use new @posthog/hogql-parser npm version'
                   default_author: github_actions
                   github_token: ${{ steps.app-token.outputs.token }}
