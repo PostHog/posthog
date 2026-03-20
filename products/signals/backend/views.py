@@ -254,11 +254,9 @@ class SignalReportViewSet(
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     queryset = SignalReport.objects.all()
-    _DEFAULT_SIGNAL_REPORT_ORDERING = "pipeline,-updated_at"
+    _DEFAULT_SIGNAL_REPORT_ORDERING = "status,-updated_at"
     _SIGNAL_REPORT_ORDERING_FIELDS: dict[str, str] = {
-        "pipeline": "pipeline_status_rank",
-        "pipeline_status_rank": "pipeline_status_rank",
-        "stage": "pipeline_status_rank",
+        "status": "pipeline_status_rank",
         "signal_count": "signal_count",
         "total_weight": "total_weight",
         "created_at": "created_at",
@@ -278,7 +276,7 @@ class SignalReportViewSet(
         search = self.request.query_params.get("search")
         if search:
             qs = qs.filter(Q(title__icontains=search) | Q(summary__icontains=search))
-        # `ordering` query param (comma-separated) lists DB columns; use `pipeline` for stage rank (ready first when asc).
+        # `ordering=status` uses semantic stage rank (annotation), not lexicographic `status` column order.
         qs = qs.annotate(
             pipeline_status_rank=Case(
                 When(status=SignalReport.Status.READY, then=Value(0)),

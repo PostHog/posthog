@@ -78,7 +78,7 @@ class TestSignalReportDeleteAPI(APIBaseTest):
 
 
 class TestSignalReportListAPI(APIBaseTest):
-    """GET list/retrieve: `priority` from actionability artefacts; `ordering` (comma-separated, e.g. `pipeline,-total_weight`)."""
+    """GET list/retrieve: `priority` from actionability artefacts; `ordering` (comma-separated, e.g. `status,-total_weight`)."""
 
     def _list_url(self, **query) -> str:
         base = f"/api/projects/{self.team.id}/signal_reports/"
@@ -193,7 +193,7 @@ class TestSignalReportListAPI(APIBaseTest):
     # --- ordering ---
 
     def test_ready_before_candidate_even_if_candidate_has_higher_weight(self):
-        """With `pipeline` first, stage dominates; then `-total_weight`."""
+        """With `status` first, stage rank dominates; then `-total_weight`."""
         low_ready = self._create_report(
             title="Ready",
             summary="s",
@@ -210,7 +210,7 @@ class TestSignalReportListAPI(APIBaseTest):
         response = self.client.get(
             self._list_url(
                 status="ready,candidate",
-                ordering="pipeline,-total_weight",
+                ordering="status,-total_weight",
             )
         )
         assert response.status_code == status.HTTP_200_OK
@@ -233,15 +233,15 @@ class TestSignalReportListAPI(APIBaseTest):
         response = self.client.get(
             self._list_url(
                 status="ready",
-                ordering="pipeline,-total_weight",
+                ordering="status,-total_weight",
             )
         )
         assert response.status_code == status.HTTP_200_OK
         ids = [r["id"] for r in response.json()["results"]]
         assert ids.index(str(heavy.id)) < ids.index(str(light.id))
 
-    def test_ordering_by_total_weight_only_crosses_pipeline(self):
-        """Without `pipeline`, `ordering=-total_weight` is a global sort by weight."""
+    def test_ordering_by_total_weight_only_crosses_status_rank(self):
+        """Without `status`, `ordering=-total_weight` is a global sort by weight."""
         low_ready = self._create_report(
             title="Ready",
             summary="s",
