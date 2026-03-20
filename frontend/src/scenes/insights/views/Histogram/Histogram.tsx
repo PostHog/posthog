@@ -172,16 +172,19 @@ export function Histogram({
                     )
 
                     // y-axis label
+                    const _yAxisLabel = getOrCreateEl(_svg, 'text#y-axis-label', () =>
+                        _svg.append('svg:text').attr('id', 'y-axis-label').classed('y-axis-label', true)
+                    )
                     if (yAxisLabel) {
-                        const _yAxisLabel = getOrCreateEl(_svg, 'text#y-axis-label', () =>
-                            _svg.append('svg:text').attr('id', 'y-axis-label').classed('y-axis-label', true)
-                        )
+                        const plotMidY = (config.margin.top + (config.height - config.margin.bottom)) / 2
                         _yAxisLabel
                             .text(yAxisLabel)
                             .attr('text-anchor', 'middle')
-                            .attr('transform', `translate(12, ${config.height / 2}) rotate(-90)`)
+                            .attr('transform', `translate(${config.margin.left / 3}, ${plotMidY}) rotate(-90)`)
                             .attr('font-size', '12px')
                             .attr('fill', 'var(--text-secondary, #666)')
+                    } else {
+                        _yAxisLabel.text('')
                     }
 
                     // y-gridlines
