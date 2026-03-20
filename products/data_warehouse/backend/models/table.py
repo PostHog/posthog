@@ -275,14 +275,13 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         if result is None:
             raise Exception("No columns types provided by clickhouse in get_columns")
 
-        columns = {
-            str(item[0]): {
-                "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
-                "clickhouse": item[1],
-                "valid": True,
-            }
-            for item in result
-        }
+        columns: DataWarehouseTableIntrospectedColumns = {}
+        for item in result:
+            columns[str(item[0])] = DataWarehouseTableIntrospectedColumn(
+                hogql=CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
+                clickhouse=item[1],
+                valid=True,
+            )
 
         return columns
 
