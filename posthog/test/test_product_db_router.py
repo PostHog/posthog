@@ -30,7 +30,8 @@ class TestProductDBRouter(SimpleTestCase):
     def test_routes_visual_review_model_to_configured_aliases(self) -> None:
         model = SimpleNamespace(_meta=SimpleNamespace(app_label="visual_review", model_name="run"))
 
-        self.assertEqual(self.router.db_for_read(model), "visual_review_db_reader")
+        # In TEST mode, reads go to the writer so they share the same transaction.
+        self.assertEqual(self.router.db_for_read(model), "visual_review_db_writer")
         self.assertEqual(self.router.db_for_write(model), "visual_review_db_writer")
 
     def test_does_not_route_other_apps(self) -> None:
