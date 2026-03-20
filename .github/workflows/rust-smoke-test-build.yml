@@ -61,6 +61,7 @@ jobs:
         name: resolve image filter
         runs-on: ubuntu-latest
         timeout-minutes: 2
+        permissions: {}
         outputs:
             filter: ${{ steps.parse.outputs.filter }}
         steps:
