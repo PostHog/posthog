@@ -149,7 +149,7 @@ class TestExperimentSavedMetricService(APIBaseTest):
         )
 
         assert updated.query["uuid"] == original_uuid
-        assert updated.query["count_query"]["series"][0]["event"] == "$pageleave"
+        assert updated.query["source"]["event"] == "$pageleave"
 
     def test_update_saved_metric_rejects_uuid_changes(self) -> None:
         saved_metric = self._service().create_saved_metric(
