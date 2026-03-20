@@ -6,6 +6,9 @@ name: Build rust smoke test images
 #
 # Usage: add the 'smoke_test' label to your PR. Images rebuild on every push
 # while the label is present. Remove the label to stop builds.
+#
+# Image list: .github/rust-images.yml
+# Build steps: .github/workflows/_rust-build-images.yml
 
 on:
     pull_request:
@@ -14,6 +17,8 @@ on:
             - 'rust/**'
             - 'proto/**'
             - '.github/workflows/rust-smoke-test-build.yml'
+            - '.github/workflows/_rust-build-images.yml'
+            - '.github/rust-images.yml'
 
 concurrency:
     group: rust-smoke-test-${{ github.event.pull_request.number }}
@@ -23,6 +28,7 @@ jobs:
     authorize:
         name: authorize smoke test
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: |
             contains(github.event.pull_request.labels.*.name, 'smoke_test') &&
             github.event.pull_request.head.repo.full_name == github.repository
@@ -39,159 +45,20 @@ jobs:
                       exit 1
                   fi
 
-    build:
-        name: build ${{ matrix.image }}
+    build-images:
         needs: authorize
-        strategy:
-            matrix:
-                include:
-                    - image: capture
-                      dockerfile: ./rust/Dockerfile
-                      project: kshskj225r
-                    - image: hook-api
-                      dockerfile: ./rust/Dockerfile
-                      project: c1bwj4j4qg
-                    - image: hook-janitor
-                      dockerfile: ./rust/Dockerfile
-                      project: c1bwj4j4qg
-                    - image: hook-worker
-                      dockerfile: ./rust/Dockerfile
-                      project: c1bwj4j4qg
-                    - image: hook-migrator
-                      dockerfile: ./rust/Dockerfile.migrate-hooks
-                      project: c1bwj4j4qg
-                    - image: sqlx-migrate
-                      dockerfile: ./rust/Dockerfile.sqlx-migrate
-                      project: jmsz6gms8g
-                    - image: cyclotron-janitor
-                      dockerfile: ./rust/Dockerfile
-                      project: r4zm8vtlbw
-                    - image: property-defs-rs
-                      dockerfile: ./rust/Dockerfile
-                      project: vznmbshh6q
-                    - image: cymbal
-                      dockerfile: ./rust/Dockerfile
-                      project: 8dq0xkk0ck
-                    - image: embedding-worker
-                      dockerfile: ./rust/Dockerfile
-                      project: 8dq0xkk0ck
-                    - image: feature-flags
-                      dockerfile: ./rust/Dockerfile
-                      project: vglf58qgzw
-                    - image: batch-import-worker
-                      dockerfile: ./rust/Dockerfile
-                      project: 4ppc15q4bv
-                    - image: capture-logs
-                      dockerfile: ./rust/Dockerfile
-                      project: c1bwj4j4qg
-                    - image: kafka-deduplicator
-                      dockerfile: ./rust/Dockerfile
-                      project: vznmbshh6q
-                    - image: personhog-replica
-                      dockerfile: ./rust/Dockerfile
-                      project: vq4lxdfdv2
-                    - image: personhog-router
-                      dockerfile: ./rust/Dockerfile
-                      project: wqvvpmzgbk
-                    - image: kafka-assigner
-                      dockerfile: ./rust/Dockerfile
-                      project: 6kjc85bwm7
-        runs-on: depot-ubuntu-22.04
+        uses: ./.github/workflows/_rust-build-images.yml
+        with:
+            tag-rules: |
+                type=ref,event=pr
+                type=sha
+                type=raw,value=${{ github.head_ref }}
+            checkout-ref: ${{ github.event.pull_request.head.sha }}
+            timeout-minutes: 30
+            event-name: posthog-rust-smoke-test-image-build
+            extra-failure-props: '"pr": "${{ github.event.pull_request.number }}"'
+        secrets: inherit
         permissions:
-            id-token: write # allow issuing OIDC tokens for this workflow run
-            contents: read # allow reading the repo contents
-            packages: write # allow push to ghcr.io
-
-        defaults:
-            run:
-                working-directory: rust
-
-        steps:
-            - name: Check Out Repo
-              # Use sparse checkout to only select files in rust directory
-              # Turning off cone mode ensures that files in the project root are not included during checkout
-              uses: actions/checkout@v6
-              with:
-                  ref: ${{ github.event.pull_request.head.sha }}
-                  sparse-checkout: |
-                      rust/
-                      proto/
-                  sparse-checkout-cone-mode: false
-
-            - name: Copy proto files into rust build context
-              working-directory: .
-              run: cp -r proto rust/proto
-
-            - name: Set up Depot CLI
-              uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1.6.0
-
-            - name: Set up QEMU
-              uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
-              with:
-                  image: tonistiigi/binfmt:qemu-v10.2.1@sha256:7c76af7ed8714b80e3fc6d6d1c748ebcac867ad6b631167d0a6d3d92952151ea
-                  platforms: all
-
-            - name: Login to ghcr.io
-              uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
-              with:
-                  registry: ghcr.io
-                  username: ${{ github.actor }}
-                  password: ${{ secrets.GITHUB_TOKEN }}
-                  logout: false
-
-            - name: Docker meta
-              id: meta
-              uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
-              with:
-                  images: ghcr.io/posthog/posthog/${{ matrix.image }}
-                  tags: |
-                      type=ref,event=pr
-                      type=sha
-                      type=raw,value=${{ github.head_ref }}
-
-            - name: Set up Docker Buildx
-              id: buildx
-              uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
-
-            - name: Retrieve sccache configuration
-              id: sccache
-              run: |
-                  echo "endpoint=$SCCACHE_WEBDAV_ENDPOINT" >> "$GITHUB_OUTPUT"
-                  echo "::add-mask::$SCCACHE_WEBDAV_TOKEN"
-                  echo "token=$SCCACHE_WEBDAV_TOKEN" >> "$GITHUB_OUTPUT"
-
-            - name: Build and push image
-              id: docker_build
-              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
-              with:
-                  project: ${{ matrix.project }}
-                  context: ./rust/
-                  file: ${{ matrix.dockerfile }}
-                  push: true
-                  tags: ${{ steps.meta.outputs.tags }}
-                  labels: ${{ steps.meta.outputs.labels }}
-                  platforms: linux/arm64,linux/amd64
-                  build-args: |
-                      SCCACHE_LOG=debug
-                      SCCACHE_NO_DAEMON=1
-                      BIN=${{ matrix.image }}
-                  secrets: |
-                      SCCACHE_WEBDAV_ENDPOINT=${{ steps.sccache.outputs.endpoint }}
-                      SCCACHE_WEBDAV_TOKEN=${{ steps.sccache.outputs.token }}
-
-            - name: report failure
-              if: failure()
-              uses: PostHog/posthog-github-action@8c42e50f2c52e002eabb9bee3f69b152ee8fc1dd # v1.0.1
-              with:
-                  posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
-                  event: 'posthog-rust-smoke-test-image-build'
-                  properties: '{"status": "failure", "commit_hash": "${{ github.sha }}", "image": "${{ matrix.image }}", "pr": "${{ github.event.pull_request.number }}"}'
-
-            - name: Container image digest
-              id: digest
-              env:
-                  IMAGE_DIGEST: ${{ steps.docker_build.outputs.digest }}
-                  IMAGE_NAME: ${{ matrix.image }}
-              run: |
-                  echo "$IMAGE_DIGEST"
-                  echo "${IMAGE_NAME}_digest=$IMAGE_DIGEST" >> $GITHUB_OUTPUT
+            id-token: write
+            contents: read
+            packages: write
