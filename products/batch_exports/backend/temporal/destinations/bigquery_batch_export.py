@@ -1530,6 +1530,7 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             batch_export_schema=inputs.batch_export_schema,
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=bigquery_default_fields(),
+            integration_id=inputs.integration_id,
         )
 
         await execute_batch_export_using_internal_stage(
