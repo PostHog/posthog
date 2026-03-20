@@ -8,14 +8,14 @@ from posthog.schema import (
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common import config
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
 from posthog.temporal.data_imports.sources.generated_configs import HubspotSourceConfig
 from posthog.temporal.data_imports.sources.hubspot.auth import hubspot_refresh_access_token
-from posthog.temporal.data_imports.sources.hubspot.hubspot import hubspot
+from posthog.temporal.data_imports.sources.hubspot.hubspot import HubspotResumeConfig, hubspot_source
 from posthog.temporal.data_imports.sources.hubspot.settings import ENDPOINTS as HUBSPOT_ENDPOINTS
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
@@ -28,7 +28,7 @@ class HubspotSourceOldConfig(config.Config):
 
 
 @SourceRegistry.register
-class HubspotSource(SimpleSource[HubspotSourceConfig | HubspotSourceOldConfig], OAuthMixin):
+class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig, HubspotResumeConfig], OAuthMixin):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.HUBSPOT
@@ -65,9 +65,13 @@ class HubspotSource(SimpleSource[HubspotSourceConfig | HubspotSourceOldConfig], 
         return HubspotSourceOldConfig.from_dict(job_inputs)
 
     def get_schemas(
-        self, config: HubspotSourceConfig | HubspotSourceOldConfig, team_id: int, with_counts: bool = False
+        self,
+        config: HubspotSourceConfig | HubspotSourceOldConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
     ) -> list[SourceSchema]:
-        return [
+        schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=False,
@@ -77,8 +81,20 @@ class HubspotSource(SimpleSource[HubspotSourceConfig | HubspotSourceOldConfig], 
             for endpoint in HUBSPOT_ENDPOINTS
         ]
 
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+
+        return schemas
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[HubspotResumeConfig]:
+        return ResumableSourceManager[HubspotResumeConfig](inputs, HubspotResumeConfig)
+
     def source_for_pipeline(
-        self, config: HubspotSourceConfig | HubspotSourceOldConfig, inputs: SourceInputs
+        self,
+        config: HubspotSourceConfig | HubspotSourceOldConfig,
+        resumable_source_manager: ResumableSourceManager[HubspotResumeConfig],
+        inputs: SourceInputs,
     ) -> SourceResponse:
         if isinstance(config, HubspotSourceConfig):
             integration = self.get_oauth_integration(config.hubspot_integration_id, inputs.team_id)
@@ -102,11 +118,10 @@ class HubspotSource(SimpleSource[HubspotSourceConfig | HubspotSourceOldConfig], 
             else:
                 hubspot_access_code = config_hubspot_access_code
 
-        return dlt_source_to_source_response(
-            hubspot(
-                api_key=hubspot_access_code,
-                refresh_token=refresh_token,
-                endpoints=[inputs.schema_name],
-                logger=inputs.logger,
-            )
+        return hubspot_source(
+            api_key=hubspot_access_code,
+            refresh_token=refresh_token,
+            endpoint=inputs.schema_name,
+            logger=inputs.logger,
+            resumable_source_manager=resumable_source_manager,
         )

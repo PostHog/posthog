@@ -20,8 +20,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { onboardingLogic } from './onboardingLogic'
 import { USE_CASE_OPTIONS } from './productRecommendations'
-import { getProductIcon } from './productSelection/ProductSelection'
-import { availableOnboardingProducts } from './utils'
+import { availableOnboardingProducts, getProductIcon } from './utils'
 
 const ONBOARDING_TAB_ID = 'onboarding'
 

@@ -12,7 +12,6 @@
 - Environment:
   - Use flox when available — prefer `flox activate -- bash -c "<command>"` if commands fail
     - Never use `flox activate` in interactive sessions (it hangs if you try)
-  - If local hooks fail with missing Husky bootstrap files (for example `.husky/_/husky.sh`) or missing `lint-staged`, run `pnpm install --frozen-lockfile --filter=.` once in the repo root
 - Tests:
   - All tests: `pytest`
   - Single test: `pytest path/to/test.py::TestClass::test_method`
@@ -55,6 +54,10 @@ Examples:
 - `fix(cohorts): handle empty cohort in query builder`
 - `chore(ci): update GitHub Actions workflow`
 - `chore: update AGENTS.md instructions`
+
+### PR descriptions
+
+Follow the PR description template in `.github/pull_request_template.md` when creating or updating PR descriptions. Keep the descriptions of changes higher-level, focusing on key details for the human reviewer to evaluate the rationale for the approach, and the overall architecture.
 
 ### Rules
 

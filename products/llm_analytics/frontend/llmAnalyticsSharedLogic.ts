@@ -24,10 +24,12 @@ export const LLM_ANALYTICS_DATA_COLLECTION_NODE_ID = 'llm-analytics-data'
 export type LLMAnalyticsTabId =
     | 'dashboard'
     | 'generations'
+    | 'reviews'
     | 'traces'
     | 'users'
     | 'errors'
     | 'tools'
+    | 'sentiment'
     | 'sessions'
     | 'playground'
     | 'datasets'
@@ -138,6 +140,8 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
             (sceneKey): LLMAnalyticsTabId => {
                 if (sceneKey === 'llmAnalyticsGenerations') {
                     return 'generations'
+                } else if (sceneKey === 'llmAnalyticsReviews') {
+                    return 'reviews'
                 } else if (sceneKey === 'llmAnalyticsTraces') {
                     return 'traces'
                 } else if (sceneKey === 'llmAnalyticsUsers') {
@@ -146,6 +150,8 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
                     return 'errors'
                 } else if (sceneKey === 'llmAnalyticsTools') {
                     return 'tools'
+                } else if (sceneKey === 'llmAnalyticsSentiment') {
+                    return 'sentiment'
                 } else if (sceneKey === 'llmAnalyticsSessions') {
                     return 'sessions'
                 } else if (sceneKey === 'llmAnalyticsPlayground') {
@@ -179,12 +185,14 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
     }),
 
     tabAwareUrlToAction(({ actions, values }) => {
-        function applySearchParams({
-            filters,
-            date_from,
-            date_to,
-            filter_test_accounts,
-        }: Record<string, unknown>): void {
+        const KNOWN_PARAMS = new Set(['filters', 'date_from', 'date_to', 'filter_test_accounts'])
+
+        function applySearchParams(
+            searchParams: Record<string, unknown>,
+            options?: { stripStaleParams?: boolean }
+        ): void {
+            const { filters, date_from, date_to, filter_test_accounts } = searchParams
+
             const parsedFilters = isAnyPropertyFilters(filters) ? filters : []
             if (!objectsEqual(parsedFilters, values.propertyFilters)) {
                 actions.setPropertyFilters(parsedFilters)
@@ -202,6 +210,21 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
             if (filterTestAccountsValue !== values.shouldFilterTestAccounts) {
                 actions.setShouldFilterTestAccounts(filterTestAccountsValue)
             }
+
+            // Strip stale params from the URL (e.g. event, timestamp, msg from trace view).
+            // Skip for tabs that manage their own URL state (e.g. reviews has page, search, kind, etc).
+            if (options?.stripStaleParams !== false) {
+                const hasStaleParams = Object.keys(searchParams).some((key) => !KNOWN_PARAMS.has(key))
+                if (hasStaleParams) {
+                    const cleanParams: Record<string, unknown> = {}
+                    for (const key of KNOWN_PARAMS) {
+                        if (searchParams[key] !== undefined) {
+                            cleanParams[key] = searchParams[key]
+                        }
+                    }
+                    router.actions.replace(router.values.location.pathname, cleanParams)
+                }
+            }
         }
 
         return {
@@ -213,39 +236,51 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
                 })
             },
             [urls.llmAnalyticsGenerations()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmAnalyticsReviews()]: (_, searchParams) =>
+                applySearchParams(searchParams, { stripStaleParams: false }),
             [urls.llmAnalyticsTraces()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsUsers()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsErrors()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsTools()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmAnalyticsSentiment()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsSessions()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsPlayground()]: (_, searchParams) => applySearchParams(searchParams),
         }
     }),
 
-    tabAwareActionToUrl(() => ({
-        setPropertyFilters: ({ propertyFilters }) => [
-            router.values.location.pathname,
-            {
-                ...router.values.searchParams,
-                filters: propertyFilters.length > 0 ? propertyFilters : undefined,
-            },
-        ],
-        setDates: ({ dateFrom, dateTo }) => [
-            router.values.location.pathname,
-            {
-                ...router.values.searchParams,
-                date_from: dateFrom === INITIAL_EVENTS_DATE_FROM ? undefined : dateFrom || undefined,
-                date_to: dateTo || undefined,
-            },
-        ],
-        setShouldFilterTestAccounts: ({ shouldFilterTestAccounts }) => [
-            router.values.location.pathname,
-            {
-                ...router.values.searchParams,
-                filter_test_accounts: shouldFilterTestAccounts ? 'true' : undefined,
-            },
-        ],
-    })),
+    tabAwareActionToUrl(() => {
+        // Only preserve params that belong to the shared logic — drop stale
+        // params from other pages (e.g. event, timestamp, msg from trace view).
+        function sharedSearchParams(): Record<string, unknown> {
+            const { filters, date_from, date_to, filter_test_accounts } = router.values.searchParams
+            return { filters, date_from, date_to, filter_test_accounts }
+        }
+
+        return {
+            setPropertyFilters: ({ propertyFilters }) => [
+                router.values.location.pathname,
+                {
+                    ...sharedSearchParams(),
+                    filters: propertyFilters.length > 0 ? propertyFilters : undefined,
+                },
+            ],
+            setDates: ({ dateFrom, dateTo }) => [
+                router.values.location.pathname,
+                {
+                    ...sharedSearchParams(),
+                    date_from: dateFrom === INITIAL_EVENTS_DATE_FROM ? undefined : dateFrom || undefined,
+                    date_to: dateTo || undefined,
+                },
+            ],
+            setShouldFilterTestAccounts: ({ shouldFilterTestAccounts }) => [
+                router.values.location.pathname,
+                {
+                    ...sharedSearchParams(),
+                    filter_test_accounts: shouldFilterTestAccounts ? 'true' : undefined,
+                },
+            ],
+        }
+    }),
 
     afterMount(({ actions, values }) => {
         actions.loadAIEventDefinition()

@@ -8,15 +8,15 @@ import collections.abc
 
 import orjson
 import pyarrow as pa
-from structlog import get_logger
 
 from posthog.batch_exports.models import BatchExportRun
-from posthog.batch_exports.service import aupdate_batch_export_run
+from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.service import aupdate_batch_export_run
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 
 T = typing.TypeVar("T")
-LOGGER = get_logger()
+LOGGER = get_write_only_logger(__name__)
 
 
 def peek_first_and_rewind(
@@ -320,7 +320,9 @@ def handle_non_retryable_errors(non_retryable_error_types: typing.Sequence[str])
                 # If it's not, we re-raise the error.
                 # TODO: Use actual exception classes instead of strings.
                 if e.__class__.__name__ in non_retryable_error_types:
+                    LOGGER.exception("Non-retryable error caught in activity")
                     return BatchExportResult.from_exception(e)
+                LOGGER.exception("Retryable error caught in activity")
                 raise
 
         return wrapper

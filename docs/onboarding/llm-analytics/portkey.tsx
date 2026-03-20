@@ -173,7 +173,7 @@ export const getPortkeySteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 file: 'Python',
                                 code: dedent`
                                     response = client.chat.completions.create(
-                                        model="@<integration-slug>/gpt-4o-mini",
+                                        model="@<integration-slug>/gpt-5-mini",
                                         messages=[
                                             {"role": "user", "content": "Tell me a fun fact about hedgehogs"}
                                         ],
@@ -192,7 +192,7 @@ export const getPortkeySteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 file: 'Node',
                                 code: dedent`
                                     const completion = await openai.chat.completions.create({
-                                        model: "@<integration-slug>/gpt-4o-mini",
+                                        model: "@<integration-slug>/gpt-5-mini",
                                         messages: [{ role: "user", content: "Tell me a fun fact about hedgehogs" }],
                                         posthogDistinctId: "user_123", // optional
                                         posthogTraceId: "trace_123", // optional

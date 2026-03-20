@@ -2,7 +2,6 @@ import { Meta } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
 import { router } from 'kea-router'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -24,7 +23,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-05-25',
-        featureFlags: [FEATURE_FLAGS.ONBOARDING_REVERSE_PROXY],
     },
     decorators: [
         mswDecorator({
@@ -100,7 +98,7 @@ const meta: Meta = {
                 },
             },
             patch: {
-                '/api/environments/@current/add_product_intent/': {},
+                '/api/environments/:team_id/add_product_intent/': {},
             },
         }),
     ],
@@ -318,95 +316,6 @@ export const InviteTeammates = (): JSX.Element => {
         setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
         router.actions.push(
             urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.INVITE_TEAMMATES })
-        )
-    })
-
-    return <App />
-}
-
-export const ReverseProxy = (): JSX.Element => {
-    useMountedLogic(onboardingLogic)
-
-    useStorybookMocks({
-        get: {
-            '/api/organizations/:organization_id/proxy_records': {
-                results: [],
-                max_proxy_records: 2,
-            },
-        },
-    })
-
-    const { setProduct } = useActions(onboardingLogic)
-
-    useDelayedOnMountEffect(() => {
-        setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
-        router.actions.push(
-            urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.REVERSE_PROXY })
-        )
-    })
-
-    return <App />
-}
-
-export const ReverseProxyWaitingForDns = (): JSX.Element => {
-    useMountedLogic(onboardingLogic)
-
-    useStorybookMocks({
-        get: {
-            '/api/organizations/:organization_id/proxy_records': {
-                results: [
-                    {
-                        id: 'proxy-1',
-                        domain: 't.example.com',
-                        status: 'waiting',
-                        target_cname: 't-example-com.proxy.posthog.cc',
-                    },
-                ],
-                max_proxy_records: 2,
-            },
-        },
-    })
-
-    const { setProduct } = useActions(onboardingLogic)
-
-    useDelayedOnMountEffect(() => {
-        setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
-        router.actions.push(
-            urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.REVERSE_PROXY })
-        )
-    })
-
-    return <App />
-}
-ReverseProxyWaitingForDns.parameters = {
-    testOptions: { waitForLoadersToDisappear: false },
-}
-
-export const ReverseProxyVerified = (): JSX.Element => {
-    useMountedLogic(onboardingLogic)
-
-    useStorybookMocks({
-        get: {
-            '/api/organizations/:organization_id/proxy_records': {
-                results: [
-                    {
-                        id: 'proxy-1',
-                        domain: 't.example.com',
-                        status: 'valid',
-                        target_cname: 't-example-com.proxy.posthog.cc',
-                    },
-                ],
-                max_proxy_records: 2,
-            },
-        },
-    })
-
-    const { setProduct } = useActions(onboardingLogic)
-
-    useDelayedOnMountEffect(() => {
-        setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
-        router.actions.push(
-            urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.REVERSE_PROXY })
         )
     })
 

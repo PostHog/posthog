@@ -24,6 +24,8 @@ from posthog.temporal.data_imports.sources.generated_configs import get_config_f
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
+MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP = "Required for Marketing analytics to work with this source."
+
 ConfigType = TypeVar("ConfigType", bound=Config)
 ConfigType_contra = TypeVar("ConfigType_contra", bound=Config, contravariant=True)
 
@@ -69,7 +71,9 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         return {}
 
-    def get_schemas(self, config: ConfigType, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: ConfigType, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
         raise NotImplementedError()
 
     @property

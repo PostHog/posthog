@@ -1,5 +1,6 @@
 import time
 import asyncio
+from typing import Any
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
@@ -13,10 +14,8 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.messaging.backfill_precalculated_person_properties_coordinator_workflow import (
     BackfillPrecalculatedPersonPropertiesCoordinatorInputs,
 )
-from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
-    CohortFilters,
-    PersonPropertyFilter,
-)
+from posthog.temporal.messaging.filter_storage import store_filters
+from posthog.temporal.messaging.types import PersonPropertyFilter
 
 logger = structlog.get_logger(__name__)
 
@@ -67,6 +66,7 @@ def extract_person_property_filters(cohort: Cohort) -> list[PersonPropertyFilter
             PersonPropertyFilter(
                 condition_hash=condition_hash,
                 bytecode=bytecode,
+                cohort_ids=[],  # Will be populated during deduplication
             )
         )
 
@@ -148,8 +148,10 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(f"Found {len(cohorts)} realtime cohort(s) to process for team {team_id}"))
 
-        # Collect all cohorts and their filters
-        cohort_filters_list = []
+        # Collect and deduplicate filters across all cohorts
+        condition_map: dict[str, tuple[list[Any], set[int]]] = {}
+        cohort_ids = []
+        total_original_filters = 0
         for cohort in cohorts:
             if cohort.cohort_type != CohortType.REALTIME:
                 self.stdout.write(
@@ -169,30 +171,58 @@ class Command(BaseCommand):
                 )
                 continue
 
-            self.stdout.write(
-                self.style.SUCCESS(f"Processing cohort {cohort.id}: found {len(filters)} person property filters")
-            )
+            cohort_ids.append(cohort.id)
+            total_original_filters += len(filters)
+            self.stdout.write(self.style.SUCCESS(f"Cohort {cohort.id}: found {len(filters)} person property filters"))
+
+            # Deduplicate by condition_hash
             for f in filters:
-                self.stdout.write(f"  - conditionHash: {f.condition_hash}")
+                if f.condition_hash not in condition_map:
+                    condition_map[f.condition_hash] = (f.bytecode, {cohort.id})
+                    self.stdout.write(f"  + New condition: {f.condition_hash}")
+                else:
+                    # Condition already exists, just add this cohort ID
+                    condition_map[f.condition_hash][1].add(cohort.id)
+                    self.stdout.write(f"  = Duplicate condition: {f.condition_hash}")
 
-            # Add cohort filters to the list
-            cohort_filters_list.append(CohortFilters(cohort_id=cohort.id, filters=filters))
-
-        if not cohort_filters_list:
-            self.stdout.write(self.style.WARNING("No cohorts with person property filters found"))
+        if not condition_map:
+            self.stdout.write(self.style.WARNING("No person property filters found across any cohorts"))
             return
 
-        # Run single coordinator workflow for all cohorts
-        total_filters = sum(len(cf.filters) for cf in cohort_filters_list)
+        # Convert to list of PersonPropertyFilter objects with deterministic ordering
+        deduplicated_filters = [
+            PersonPropertyFilter(
+                condition_hash=condition_hash,
+                bytecode=bytecode,
+                cohort_ids=sorted(cohort_set),  # Sort cohort IDs for deterministic order
+            )
+            for condition_hash, (bytecode, cohort_set) in sorted(
+                condition_map.items()
+            )  # Sort by condition_hash for deterministic order
+        ]
+
+        # Sort cohort_ids for deterministic workflow ordering
+        cohort_ids = sorted(cohort_ids)
+
         self.stdout.write(
             self.style.SUCCESS(
-                f"\nProcessing {len(cohort_filters_list)} cohorts with {total_filters} total filters in a single coordinator workflow"
+                f"\nDeduplicated {len(deduplicated_filters)} unique conditions across {len(cohort_ids)} cohorts"
+            )
+        )
+        for filter_obj in deduplicated_filters:
+            self.stdout.write(f"  - {filter_obj.condition_hash} (used by cohorts: {filter_obj.cohort_ids})")
+
+        # Run single coordinator workflow with true deduplication
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"\nProcessing {len(cohort_ids)} cohorts: reduced {total_original_filters} filters to {len(deduplicated_filters)} unique conditions"
             )
         )
 
         workflow_id = self.run_temporal_workflow(
             team_id=team_id,
-            cohort_filters=cohort_filters_list,
+            filters=deduplicated_filters,
+            cohort_ids=cohort_ids,
             parallelism=parallelism,
             batch_size=batch_size,
             workflows_per_batch=workflows_per_batch,
@@ -203,8 +233,8 @@ class Command(BaseCommand):
             self.style.SUCCESS(
                 f"\nSuccessfully started single coordinator workflow for team {team_id}\n"
                 f"  Workflow ID: {workflow_id}\n"
-                f"  Cohorts: {[cf.cohort_id for cf in cohort_filters_list]}\n"
-                f"  Total filters: {total_filters}\n"
+                f"  Cohorts: {cohort_ids}\n"
+                f"  Unique conditions: {len(deduplicated_filters)}\n"
                 f"  Parallelism: {parallelism} workers"
             )
         )
@@ -215,7 +245,8 @@ class Command(BaseCommand):
     def run_temporal_workflow(
         self,
         team_id: int,
-        cohort_filters: list[CohortFilters],
+        filters: list[PersonPropertyFilter],
+        cohort_ids: list[int],
         parallelism: int,
         batch_size: int,
         workflows_per_batch: int,
@@ -227,10 +258,17 @@ class Command(BaseCommand):
             # Connect to Temporal
             client = await async_connect()
 
-            # Create coordinator workflow inputs
+            # Store filters in Redis and get storage key
+            filter_storage_key = store_filters(filters, team_id)
+            self.stdout.write(
+                self.style.SUCCESS(f"Stored {len(filters)} filters in Redis with key: {filter_storage_key}")
+            )
+
+            # Create coordinator workflow inputs with filter storage key
             inputs = BackfillPrecalculatedPersonPropertiesCoordinatorInputs(
                 team_id=team_id,
-                cohort_filters=cohort_filters,
+                filter_storage_key=filter_storage_key,
+                cohort_ids=cohort_ids,
                 parallelism=parallelism,
                 batch_size=batch_size,
                 workflows_per_batch=workflows_per_batch,

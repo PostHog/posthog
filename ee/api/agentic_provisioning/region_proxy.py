@@ -11,7 +11,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.models.oauth import find_oauth_refresh_token
-from posthog.security.outbound_proxy import external_requests
 from posthog.utils import get_instance_region
 
 from . import AUTH_CODE_CACHE_PREFIX
@@ -58,7 +57,7 @@ def _proxy_to_region(request: Request, target_domain: str) -> Response:
     headers[PROXY_LOOP_HEADER] = "1"
 
     try:
-        response = external_requests.request(
+        response = requests.request(
             method=request.method or "GET",
             url=target_url,
             headers=headers,

@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use axum::async_trait;
+use async_trait::async_trait;
 
 use common_types::error_tracking::RawFrameId;
 use moka::future::{Cache, CacheBuilder};

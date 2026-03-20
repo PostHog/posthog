@@ -76,18 +76,6 @@ jobs:
                   echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
                   echo "- Digest: \`$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
 
-    deploy_preview:
-        name: Deploy preview environment
-        uses: ./.github/workflows/pr-preview-deploy.yml
-        # these permissions are required by pr-preview-deploy.yml
-        permissions:
-            id-token: write
-            contents: read
-            deployments: write
-        needs: [posthog_build, changes]
-        secrets: inherit
-        if: ${{ contains(github.event.pull_request.labels.*.name, 'deploy') && needs.changes.outputs.docker_files == 'true' }}
-
     lint:
         name: Lint changed Dockerfiles
         runs-on: ubuntu-24.04

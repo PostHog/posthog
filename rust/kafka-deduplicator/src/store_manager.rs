@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use dashmap::DashMap;
 use futures::stream::{self, StreamExt};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -23,6 +23,11 @@ pub enum StoreError {
     Other(#[from] anyhow::Error),
 }
 
+use chrono::Utc;
+
+use crate::checkpoint::metadata::CheckpointMetadata;
+use crate::kafka::batch_consumer::OnCommit;
+use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::types::Partition;
 use crate::metrics::MetricsHelper;
 use crate::metrics_const::{
@@ -33,14 +38,13 @@ use crate::metrics_const::{
 use crate::rebalance_tracker::RebalanceTracker;
 use crate::rocksdb::metrics_consts::ROCKSDB_OLDEST_DATA_AGE_SECONDS_GAUGE;
 use crate::store::{DeduplicationStore, DeduplicationStoreConfig};
-use crate::utils::{format_partition_dir, format_store_path};
+use crate::utils::format_store_path;
 
 /// Information about folder sizes on disk
 #[derive(Debug, Clone)]
 struct FolderInfo {
     name: String,
     size_bytes: u64,
-    subfolder_count: usize,
 }
 
 impl FolderInfo {
@@ -85,18 +89,11 @@ impl fmt::Display for CleanupStatus {
             .map(|p| p.to_string())
             .collect();
 
-        // Format folder info as compact list with sizes and subfolder counts
+        // Format folder info as compact list with sizes
         let folders: Vec<String> = self
             .folder_info
             .iter()
-            .map(|fi| {
-                format!(
-                    "{}({} subdirs):{:.2}MB",
-                    fi.name,
-                    fi.subfolder_count,
-                    fi.size_mb()
-                )
-            })
+            .map(|fi| format!("{}:{:.2}MB", fi.name, fi.size_mb()))
             .collect();
 
         write!(
@@ -362,6 +359,7 @@ impl StoreManager {
         let store_config = DeduplicationStoreConfig {
             path: path.to_path_buf(),
             max_capacity: self.store_config.max_capacity,
+            rocksdb: self.store_config.rocksdb.clone(),
         };
         let restored = DeduplicationStore::new(store_config, topic.to_string(), partition)
             .with_context(|| {
@@ -391,6 +389,86 @@ impl StoreManager {
         }
 
         Ok(())
+    }
+
+    /// Check if a partition has fresh local data and return its metadata if so.
+    ///
+    /// Reads `metadata.json` from the partition's store directory and validates that its
+    /// `updated_at` timestamp is within `max_staleness` of now. Returns `Some(metadata)` if
+    /// the local store is fresh, `None` if stale, missing, or corrupt.
+    ///
+    /// The caller is responsible for opening RocksDB (via `restore_imported_store`) after a
+    /// `Some` return — this method only validates freshness.
+    pub async fn try_restore_local_store(
+        &self,
+        topic: &str,
+        partition: i32,
+        max_staleness: Duration,
+    ) -> Option<CheckpointMetadata> {
+        let store_path = format_store_path(&self.store_config.path, topic, partition);
+
+        let metadata = match CheckpointMetadata::load_from_dir(&store_path).await {
+            Ok(m) => m,
+            Err(_) => return None, // missing or corrupt
+        };
+
+        let age = (Utc::now() - metadata.updated_at)
+            .to_std()
+            .unwrap_or(Duration::MAX);
+
+        if age > max_staleness {
+            return None; // stale
+        }
+
+        Some(metadata)
+    }
+
+    /// Update metadata.json for a partition after a successful Kafka offset commit.
+    ///
+    /// Loads existing metadata (or creates a new skeleton if missing), updates the consumer
+    /// and producer offsets, and writes it back. Failures are non-fatal: if the store
+    /// directory doesn't exist yet or the write fails, a warning is logged and processing
+    /// continues normally.
+    pub async fn update_metadata_for_partition(
+        &self,
+        topic: &str,
+        partition: i32,
+        consumer_offset: i64,
+        producer_offset: i64,
+    ) {
+        let store_path = format_store_path(&self.store_config.path, topic, partition);
+        if !store_path.exists() {
+            return;
+        }
+
+        let mut metadata = match CheckpointMetadata::load_from_dir(&store_path).await {
+            Ok(m) => m,
+            Err(_) => {
+                // No existing metadata.json — create a skeleton for local tracking only.
+                // sequence=0 and empty files list are fine: this metadata is only used for
+                // local recovery (offsets + freshness), never for S3 restoration.
+                CheckpointMetadata::new(
+                    topic.to_string(),
+                    partition,
+                    Utc::now(),
+                    0,
+                    consumer_offset,
+                    producer_offset,
+                )
+            }
+        };
+
+        metadata.consumer_offset = consumer_offset;
+        metadata.producer_offset = producer_offset;
+
+        if let Err(e) = metadata.write_to_dir(&store_path).await {
+            warn!(
+                topic = topic,
+                partition = partition,
+                error = %e,
+                "Failed to update metadata.json after commit (non-fatal)"
+            );
+        }
     }
 
     /// Unregister a store from the DashMap without deleting files (Step 1 of two-step cleanup).
@@ -426,13 +504,8 @@ impl StoreManager {
     ///
     /// Must be called after `unregister_store()` to ensure RocksDB is closed first.
     pub fn cleanup_store_files(&self, topic: &str, partition: i32) -> Result<()> {
-        let partition_dir = self
-            .store_config
-            .path
-            .join(format_partition_dir(topic, partition));
-        let partition_dir_str = partition_dir.to_string_lossy().to_string();
-
-        let partition_path = partition_dir;
+        let partition_path = format_store_path(&self.store_config.path, topic, partition);
+        let partition_dir_str = partition_path.to_string_lossy().to_string();
 
         if partition_path.exists() {
             match std::fs::remove_dir_all(&partition_path) {
@@ -482,15 +555,17 @@ impl StoreManager {
     ) -> Result<()> {
         let start = Instant::now();
 
-        // Build HashSet of owned partition dir names for O(1) lookup
-        let owned_dirs: HashSet<String> = owned
+        // Build set of owned store paths for O(1) lookup
+        let owned_paths: HashSet<PathBuf> = owned
             .iter()
-            .map(|p| format_partition_dir(p.topic(), p.partition_number()))
+            .map(|p| format_store_path(&self.store_config.path, p.topic(), p.partition_number()))
             .collect();
 
-        // Scan disk for all partition directories (tokio::fs to avoid blocking)
+        // Scan disk: <base>/<topic>/<partition>/ structure
         let base_path = &self.store_config.path;
-        let entries: Vec<PathBuf> = match tokio::fs::read_dir(base_path).await {
+        let mut unowned_paths = Vec::new();
+
+        let mut topic_dirs = match tokio::fs::read_dir(base_path).await {
             Err(e) => {
                 warn!(
                     path = %base_path.display(),
@@ -499,49 +574,60 @@ impl StoreManager {
                 );
                 return Ok(());
             }
-            Ok(mut read_dir) => {
-                let mut vec = Vec::new();
-                while let Some(entry) = read_dir
-                    .next_entry()
-                    .await
-                    .map_err(|e| {
-                        warn!(
-                            path = %base_path.display(),
-                            error = ?e,
-                            "Error reading directory entry during cleanup"
-                        );
-                    })
-                    .ok()
-                    .flatten()
-                {
-                    let is_dir = entry
-                        .file_type()
-                        .await
-                        .map(|ft| ft.is_dir())
-                        .unwrap_or(false);
-                    if !is_dir {
-                        continue;
-                    }
-                    let path = entry.path();
-                    let unowned = path
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .map(|name| !owned_dirs.contains(name))
-                        .unwrap_or(false);
-                    if unowned {
-                        vec.push(path);
-                    }
-                }
-                vec
-            }
+            Ok(rd) => rd,
         };
 
-        if entries.is_empty() {
+        while let Ok(Some(topic_entry)) = topic_dirs.next_entry().await {
+            let is_dir = topic_entry
+                .file_type()
+                .await
+                .map(|ft| ft.is_dir())
+                .unwrap_or(false);
+            if !is_dir {
+                continue;
+            }
+
+            let topic_path = topic_entry.path();
+            let mut partition_dirs = match tokio::fs::read_dir(&topic_path).await {
+                Ok(rd) => rd,
+                Err(_) => continue,
+            };
+
+            let mut topic_has_owned = false;
+            let mut unowned_partition_paths: Vec<PathBuf> = Vec::new();
+            while let Ok(Some(partition_entry)) = partition_dirs.next_entry().await {
+                let is_dir = partition_entry
+                    .file_type()
+                    .await
+                    .map(|ft| ft.is_dir())
+                    .unwrap_or(false);
+                if !is_dir {
+                    continue;
+                }
+
+                let partition_path = partition_entry.path();
+                if owned_paths.contains(&partition_path) {
+                    topic_has_owned = true;
+                } else {
+                    unowned_partition_paths.push(partition_path);
+                }
+            }
+
+            if !topic_has_owned {
+                // No owned partitions remain — delete the whole topic dir in one shot
+                unowned_paths.push(topic_path);
+            } else {
+                // Only delete unowned partitions; keep topic dir for owned children
+                unowned_paths.extend(unowned_partition_paths);
+            }
+        }
+
+        if unowned_paths.is_empty() {
             debug!("No unowned partition directories to clean up");
             return Ok(());
         }
 
-        let count = entries.len();
+        let count = unowned_paths.len();
         info!(
             count = count,
             parallelism = parallelism,
@@ -549,7 +635,7 @@ impl StoreManager {
         );
 
         // Delete in parallel with bounded concurrency
-        let results: Vec<std::io::Result<()>> = stream::iter(entries)
+        let results: Vec<std::io::Result<()>> = stream::iter(unowned_paths)
             .map(|path| async move {
                 let path_str = path.display().to_string();
                 match tokio::fs::remove_dir_all(&path).await {
@@ -891,17 +977,12 @@ impl StoreManager {
         info!("All deduplication stores have been closed");
     }
 
-    /// Build the path for a store based on topic and partition
-    /// Each store gets a unique timestamp-based subdirectory to avoid conflicts
+    /// Build the path for a store based on topic and partition.
+    /// Each partition gets a single directory: `<base>/<topic>/<partition>/`
     fn build_store_path(&self, topic: &str, partition: i32) -> String {
-        format_store_path(
-            &self.store_config.path,
-            topic,
-            partition,
-            chrono::Utc::now(),
-        )
-        .to_string_lossy()
-        .to_string()
+        format_store_path(&self.store_config.path, topic, partition)
+            .to_string_lossy()
+            .to_string()
     }
 
     /// Ensure the parent directory for a store path exists
@@ -943,35 +1024,35 @@ impl StoreManager {
         assigned_partitions
             .sort_by(|a, b| a.topic.cmp(&b.topic).then(a.partition.cmp(&b.partition)));
 
-        // Get folder sizes from filesystem
+        // Get folder sizes from filesystem (<base>/<topic>/<partition>/ structure)
         let mut folder_info = Vec::new();
         let mut total_disk_usage_bytes = 0u64;
 
-        if let Ok(entries) = std::fs::read_dir(&self.store_config.path) {
-            for entry in entries.flatten() {
-                if let Ok(metadata) = entry.metadata() {
-                    if metadata.is_dir() {
-                        let partition_folder_name = entry.file_name().to_string_lossy().to_string();
-                        let folder_size =
-                            StoreManager::get_directory_size(&entry.path()).unwrap_or(0);
+        if let Ok(topic_entries) = std::fs::read_dir(&self.store_config.path) {
+            for topic_entry in topic_entries.flatten() {
+                if !topic_entry.metadata().map(|m| m.is_dir()).unwrap_or(false) {
+                    continue;
+                }
+                let topic_name = topic_entry.file_name().to_string_lossy().to_string();
 
-                        // Count timestamped subdirectories (actual store instances)
-                        let mut timestamped_stores_count = 0;
-                        if let Ok(subentries) = std::fs::read_dir(entry.path()) {
-                            timestamped_stores_count = subentries
-                                .flatten()
-                                .filter(|e| {
-                                    // Check if it's a directory and looks like a timestamp
-                                    e.metadata().map(|m| m.is_dir()).unwrap_or(false)
-                                })
-                                .count();
+                if let Ok(partition_entries) = std::fs::read_dir(topic_entry.path()) {
+                    for partition_entry in partition_entries.flatten() {
+                        if !partition_entry
+                            .metadata()
+                            .map(|m| m.is_dir())
+                            .unwrap_or(false)
+                        {
+                            continue;
                         }
+                        let partition_name =
+                            partition_entry.file_name().to_string_lossy().to_string();
+                        let folder_size =
+                            StoreManager::get_directory_size(&partition_entry.path()).unwrap_or(0);
 
                         total_disk_usage_bytes += folder_size;
                         folder_info.push(FolderInfo {
-                            name: partition_folder_name,
+                            name: format!("{topic_name}/{partition_name}"),
                             size_bytes: folder_size,
-                            subfolder_count: timestamped_stores_count,
                         });
                     }
                 }
@@ -1007,216 +1088,51 @@ impl StoreManager {
         Ok(size)
     }
 
-    /// Get the newest WAL (*.log) file modification time within a single timestamp directory.
-    /// Returns None if no WAL files are found.
-    fn get_wal_mtime(timestamp_dir: &Path) -> Option<SystemTime> {
-        let mut newest: Option<SystemTime> = None;
-
-        if let Ok(files) = std::fs::read_dir(timestamp_dir) {
-            for file_entry in files.flatten() {
-                let file_path = file_entry.path();
-                if file_path.extension().is_some_and(|e| e == "log") {
-                    if let Ok(file_meta) = file_entry.metadata() {
-                        if let Ok(mtime) = file_meta.modified() {
-                            newest = Some(newest.map_or(mtime, |n: SystemTime| n.max(mtime)));
-                        }
-                    }
-                }
-            }
-        }
-
-        newest
+    /// Get the modification time of a directory.
+    fn get_dir_mtime(dir: &Path) -> Option<SystemTime> {
+        std::fs::metadata(dir).ok().and_then(|m| m.modified().ok())
     }
 
-    /// Get the modification time of a timestamp directory.
-    /// This catches checkpoint imports in progress (directory created/modified but no LOCK/WAL yet).
-    fn get_dir_mtime(timestamp_dir: &Path) -> Option<SystemTime> {
-        std::fs::metadata(timestamp_dir)
-            .ok()
-            .and_then(|m| m.modified().ok())
-    }
-
-    /// Collect all timestamp subdirectories as cleanup candidates.
-    /// Returns Vec of (topic_partition_name, full_timestamp_dir_path, is_assigned).
-    /// Does NOT filter by safety checks - that happens during the deletion loop.
+    /// Clean up unowned partition directories that are stale.
     ///
-    /// For ASSIGNED partitions: collects all timestamp subdirs EXCEPT the active store path.
-    /// For UNASSIGNED partitions: collects all timestamp subdirs.
-    fn collect_orphan_candidates(&self) -> Vec<(String, PathBuf, bool)> {
-        let mut candidates = Vec::new();
-
-        // Build a map of partition_dir_name -> active store path for assigned partitions
-        let mut active_store_paths: std::collections::HashMap<String, PathBuf> =
-            std::collections::HashMap::new();
-        for entry in self.stores.iter() {
-            let partition = entry.key();
-            let store = entry.value();
-            let dir_name = format_partition_dir(partition.topic(), partition.partition_number());
-            active_store_paths.insert(dir_name, store.get_db_path().clone());
-        }
-
-        info!(
-            "Collecting orphan candidates. Currently assigned partitions: {:?}",
-            active_store_paths.keys().collect::<Vec<_>>()
-        );
-
-        // Scan the store directory for all partition directories
-        let Ok(partition_entries) = std::fs::read_dir(&self.store_config.path) else {
-            return candidates;
-        };
-
-        for partition_entry in partition_entries.flatten() {
-            let Ok(metadata) = partition_entry.metadata() else {
-                continue;
-            };
-            if !metadata.is_dir() {
-                continue;
-            }
-
-            let partition_dir_name = partition_entry.file_name().to_string_lossy().to_string();
-
-            // Skip if doesn't match topic_partition pattern (e.g., not a partition dir)
-            if !partition_dir_name.contains('_') {
-                continue;
-            }
-
-            // Check if this partition is assigned (has an active store)
-            let active_path = active_store_paths.get(&partition_dir_name);
-            let is_assigned = active_path.is_some();
-
-            // Enumerate all timestamp subdirectories under this partition
-            let partition_path = partition_entry.path();
-            let Ok(timestamp_entries) = std::fs::read_dir(&partition_path) else {
-                continue;
-            };
-
-            for ts_entry in timestamp_entries.flatten() {
-                let Ok(ts_metadata) = ts_entry.metadata() else {
-                    continue;
-                };
-                if !ts_metadata.is_dir() {
-                    continue;
-                }
-
-                let ts_path = ts_entry.path();
-
-                // For assigned partitions, skip the active store path
-                if let Some(active) = active_path {
-                    if &ts_path == active {
-                        continue; // Active store - never consider for deletion
-                    }
-                }
-
-                candidates.push((partition_dir_name.clone(), ts_path, is_assigned));
-            }
-        }
-
-        debug!(
-            "Found {} orphan timestamp directory candidates",
-            candidates.len()
-        );
-        candidates
-    }
-
-    /// Check if a specific timestamp directory is safe to delete as an orphan.
-    /// Returns false (NOT safe) if:
-    /// - WAL files have been modified within the staleness threshold
-    /// - Directory modified within staleness threshold (checkpoint import)
-    /// - This specific timestamp path is the currently active store
-    fn is_safe_to_delete_timestamp_dir(
-        &self,
-        timestamp_dir: &Path,
-        _parent_dir_name: &str,
-        orphan_min_staleness: Duration,
-    ) -> bool {
-        let ts_dir_display = timestamp_dir.display();
-
-        // Check 1: WAL files modified recently - store may still be active
-        // Use Duration::ZERO on elapsed() failure to be conservative (treat as just modified)
-        if let Some(wal_mtime) = Self::get_wal_mtime(timestamp_dir) {
-            let elapsed = wal_mtime.elapsed().unwrap_or(Duration::ZERO);
-            if elapsed < orphan_min_staleness {
-                info!(
-                    path = %ts_dir_display,
-                    wal_age_secs = elapsed.as_secs(),
-                    min_staleness_secs = orphan_min_staleness.as_secs(),
-                    "Orphan safety check: WAL file too recent, skipping deletion"
-                );
-                return false;
-            }
-        }
-
-        // Check 2: Directory modified recently - checkpoint import in progress
-        // Use Duration::ZERO on elapsed() failure to be conservative (treat as just modified)
-        if let Some(dir_mtime) = Self::get_dir_mtime(timestamp_dir) {
-            let elapsed = dir_mtime.elapsed().unwrap_or(Duration::ZERO);
-            if elapsed < orphan_min_staleness {
-                info!(
-                    path = %ts_dir_display,
-                    dir_age_secs = elapsed.as_secs(),
-                    min_staleness_secs = orphan_min_staleness.as_secs(),
-                    "Orphan safety check: directory too recent, skipping deletion"
-                );
-                return false;
-            }
-        }
-
-        // Check 3: Skip if this specific timestamp path is the currently active store
-        // (This is a defense-in-depth check - collect_orphan_candidates already filters these)
-        for entry in self.stores.iter() {
-            let store = entry.value();
-            if store.get_db_path() == timestamp_dir {
-                info!(
-                    path = %ts_dir_display,
-                    "Orphan safety check: this is an active store path, skipping deletion"
-                );
-                return false;
-            }
-        }
-
-        // All checks passed - safe to delete
-        true
-    }
-
-    /// Clean up orphaned timestamp directories from both assigned and unassigned partitions.
+    /// With single-directory-per-partition layout (`<base>/<topic>/<partition>/`),
+    /// this finds partition directories that don't belong to any active store
+    /// and whose directory mtime exceeds the staleness threshold.
     ///
-    /// For ASSIGNED partitions: cleans up old timestamp subdirs (not the active store).
-    /// For UNASSIGNED partitions: cleans up all timestamp subdirs.
-    ///
-    /// Safety checks before deletion:
+    /// Safety checks:
     /// 1. Skip if stores map is empty (startup race)
     /// 2. Skip if rebalancing is in progress
-    /// 3. For each candidate timestamp dir: check WAL mtime, dir mtime, and verify not active store
+    /// 3. Only delete directories older than orphan_min_staleness
     pub fn cleanup_orphaned_directories(&self, orphan_min_staleness: Duration) -> Result<u64> {
-        // Guard: skip cleanup if no stores are registered yet (startup race) or
-        // all stores were just unregistered (rebalance). This prevents deleting
-        // valid directories before partition assignment completes.
         if self.stores.is_empty() {
             debug!("Skipping orphan cleanup - no stores registered");
             return Ok(0);
         }
 
-        // Guard: skip cleanup during rebalance to avoid deleting directories
-        // that are about to be assigned to us
         if self.rebalance_tracker.is_rebalancing() {
             debug!("Skipping orphan cleanup - rebalance in progress");
             return Ok(0);
         }
 
-        // Collect timestamp subdirectories from both assigned and unassigned partitions
-        // (excluding active store paths for assigned partitions)
-        let candidates = self.collect_orphan_candidates();
-
-        if candidates.is_empty() {
-            debug!("No orphaned timestamp directories found");
-            return Ok(0);
-        }
+        // Build set of active store paths
+        let active_paths: HashSet<PathBuf> = self
+            .stores
+            .iter()
+            .map(|entry| entry.value().get_db_path().clone())
+            .collect();
 
         let mut total_freed = 0u64;
 
-        for (parent_dir_name, timestamp_path, is_assigned) in candidates {
-            // Re-check rebalance mid-loop - abort to avoid deleting directories
-            // that may be about to be assigned
+        // Scan <base>/<topic>/<partition>/ structure
+        let Ok(topic_entries) = std::fs::read_dir(&self.store_config.path) else {
+            return Ok(0);
+        };
+
+        for topic_entry in topic_entries.flatten() {
+            if !topic_entry.metadata().map(|m| m.is_dir()).unwrap_or(false) {
+                continue;
+            }
+
             if self.rebalance_tracker.is_rebalancing() {
                 info!(
                     "Aborting orphan cleanup - rebalance started. Freed {} bytes so far",
@@ -1225,55 +1141,78 @@ impl StoreManager {
                 return Ok(total_freed);
             }
 
-            // Safety checks: WAL mtime, dir mtime, verify not active store path
-            if !self.is_safe_to_delete_timestamp_dir(
-                &timestamp_path,
-                &parent_dir_name,
-                orphan_min_staleness,
-            ) {
-                debug!(
-                    path = %timestamp_path.display(),
-                    is_assigned = is_assigned,
-                    "Skipping orphan candidate - failed safety checks"
-                );
+            let topic_path = topic_entry.path();
+            let Ok(partition_entries) = std::fs::read_dir(&topic_path) else {
                 continue;
+            };
+
+            for partition_entry in partition_entries.flatten() {
+                if !partition_entry
+                    .metadata()
+                    .map(|m| m.is_dir())
+                    .unwrap_or(false)
+                {
+                    continue;
+                }
+
+                let partition_path = partition_entry.path();
+
+                // Skip active stores
+                if active_paths.contains(&partition_path) {
+                    continue;
+                }
+
+                // Check staleness via directory mtime
+                let is_stale = Self::get_dir_mtime(&partition_path)
+                    .map(|mtime| mtime.elapsed().unwrap_or(Duration::ZERO) >= orphan_min_staleness)
+                    .unwrap_or(true);
+
+                if !is_stale {
+                    debug!(
+                        path = %partition_path.display(),
+                        "Skipping orphan candidate - directory too recent"
+                    );
+                    continue;
+                }
+
+                let dir_size = Self::get_directory_size(&partition_path).unwrap_or(0);
+
+                match std::fs::remove_dir_all(&partition_path) {
+                    Ok(_) => {
+                        info!(
+                            path = %partition_path.display(),
+                            size_mb = dir_size as f64 / (1024.0 * 1024.0),
+                            "Removed orphaned partition directory"
+                        );
+                        metrics::counter!(
+                            CLEANUP_OPERATIONS_COUNTER,
+                            "partition_status" => "unassigned"
+                        )
+                        .increment(1);
+                        total_freed += dir_size;
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Failed to remove orphaned partition directory {}: {}",
+                            partition_path.display(),
+                            e
+                        );
+                    }
+                }
             }
 
-            let dir_size = Self::get_directory_size(&timestamp_path).unwrap_or(0);
-
-            match std::fs::remove_dir_all(&timestamp_path) {
-                Ok(_) => {
-                    let partition_status = if is_assigned {
-                        "assigned"
-                    } else {
-                        "unassigned"
-                    };
-                    info!(
-                        partition_status = partition_status,
-                        path = %timestamp_path.display(),
-                        size_mb = dir_size as f64 / (1024.0 * 1024.0),
-                        "Removed orphaned timestamp directory"
-                    );
-                    metrics::counter!(
-                        CLEANUP_OPERATIONS_COUNTER,
-                        "partition_status" => partition_status
-                    )
-                    .increment(1);
-                    total_freed += dir_size;
-                }
-                Err(e) => {
-                    warn!(
-                        "Failed to remove orphaned timestamp directory {}: {}",
-                        timestamp_path.display(),
-                        e
-                    );
-                }
+            // Clean up empty topic directories
+            if std::fs::read_dir(&topic_path)
+                .map(|mut rd| rd.next().is_none())
+                .unwrap_or(false)
+            {
+                let _ = std::fs::remove_dir(&topic_path);
             }
         }
 
         if total_freed > 0 {
             info!(
-                "Cleaned up {:.2} MB of orphaned timestamp directories",
+                "Cleaned up {:.2} MB of orphaned partition directories",
                 total_freed as f64 / (1024.0 * 1024.0)
             );
         }
@@ -1314,8 +1253,48 @@ impl CleanupTaskHandle {
     }
 }
 
+/// Bridges `OnCommit` to `StoreManager::update_metadata_for_partition`.
+///
+/// Constructed by the pipeline builder so `BatchConsumer` stays decoupled from
+/// store internals. Each committed partition triggers a metadata update;
+/// failures are non-fatal and logged inside `update_metadata_for_partition`.
+pub struct MetadataCommitCallback {
+    store_manager: Arc<StoreManager>,
+    offset_tracker: Arc<OffsetTracker>,
+}
+
+impl MetadataCommitCallback {
+    pub fn new(store_manager: Arc<StoreManager>, offset_tracker: Arc<OffsetTracker>) -> Self {
+        Self {
+            store_manager,
+            offset_tracker,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl OnCommit for MetadataCommitCallback {
+    async fn on_commit(&self, offsets: &HashMap<Partition, i64>) {
+        for (partition, consumer_offset) in offsets {
+            let producer_offset = self
+                .offset_tracker
+                .get_producer_offset(partition)
+                .unwrap_or(0);
+            self.store_manager
+                .update_metadata_for_partition(
+                    partition.topic(),
+                    partition.partition_number(),
+                    *consumer_offset,
+                    producer_offset,
+                )
+                .await;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use crate::rocksdb::store::RocksDbConfig;
     use crate::store::{TimestampKey, TimestampMetadata};
     use crate::test_utils::create_test_tracker;
 
@@ -1330,6 +1309,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 100, // Very small capacity to test the logic
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
@@ -1369,6 +1349,7 @@ mod tests {
         let zero_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 0,
+            rocksdb: RocksDbConfig::default(),
         };
         let zero_manager = Arc::new(StoreManager::new(zero_config, create_test_tracker()));
         assert!(
@@ -1383,6 +1364,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 5_000, // Small capacity
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
@@ -1431,6 +1413,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1_000_000,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
@@ -1459,6 +1442,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 0, // Unlimited capacity
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
@@ -1477,6 +1461,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1024 * 1024 * 1024, // 1GB
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = StoreManager::new(config, create_test_tracker());
@@ -1518,6 +1503,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1024 * 1024 * 1024,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
@@ -1574,6 +1560,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1024 * 1024 * 1024,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = StoreManager::new(config, create_test_tracker());
@@ -1611,6 +1598,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1024 * 1024 * 1024,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = StoreManager::new(config, create_test_tracker());
@@ -1655,6 +1643,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1024 * 1024 * 1024,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = StoreManager::new(config, create_test_tracker());
@@ -1682,15 +1671,19 @@ mod tests {
         manager.unregister_store("test-topic", 0);
         assert_eq!(manager.get_active_store_count(), 0);
 
-        // Rapid re-assign - pre-create new store
+        // Drop store1 to release the RocksDB lock before re-opening the same path.
+        // With flat partition paths, store1 and store2 share the same directory, so
+        // the lock must be released before the re-assign can open a new instance.
+        drop(store1);
+
+        // Rapid re-assign - pre-create new store for the same partition path
         let store2 = manager
             .get_or_create_for_rebalance("test-topic", 0)
             .await
             .unwrap();
         assert_eq!(manager.get_active_store_count(), 1);
 
-        // The new store should be fresh (different RocksDB instance with new timestamp path)
-        // But both stores should work independently
+        // The new store reuses the same partition directory and retains previously written data
         let event2 = RawEvent {
             event: "test_event_2".to_string(),
             distinct_id: Some(serde_json::Value::String("test_user_2".to_string())),
@@ -1716,6 +1709,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1024 * 1024 * 1024,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = StoreManager::new(config, create_test_tracker());
@@ -1756,6 +1750,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1024 * 1024 * 1024,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
@@ -1813,6 +1808,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1024 * 1024 * 1024,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
@@ -1880,6 +1876,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 100, // Very small to trigger cleanup
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
@@ -1924,6 +1921,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1024 * 1024 * 1024,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
@@ -1956,6 +1954,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1024 * 1024 * 1024,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
@@ -1989,6 +1988,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1024 * 1024 * 1024,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
@@ -1998,7 +1998,7 @@ mod tests {
 
         // Test 1: Directory in stores map should NOT be deleted
         // (the existing test-topic_0 directory)
-        let active_dir = temp_dir.path().join("test-topic_0");
+        let active_dir = temp_dir.path().join("test-topic").join("0");
         assert!(active_dir.exists(), "Active store directory should exist");
         let freed = manager
             .cleanup_orphaned_directories(Duration::from_secs(0))
@@ -2033,6 +2033,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = StoreManager::new(config, create_test_tracker());
@@ -2056,6 +2057,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = StoreManager::new(config, create_test_tracker());
@@ -2082,6 +2084,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = StoreManager::new(config, create_test_tracker());
@@ -2114,73 +2117,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_orphan_cleanup_cleans_old_timestamp_dirs_under_assigned_partition() {
-        // Test that orphan cleanup removes OLD timestamp dirs under ASSIGNED partitions,
-        // but NOT the active store path.
-        let temp_dir = TempDir::new().unwrap();
-        let config = DeduplicationStoreConfig {
-            path: temp_dir.path().to_path_buf(),
-            max_capacity: 1024 * 1024 * 1024,
-        };
-
-        let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
-
-        // Create a store for partition 0 (this will create a timestamp subdir)
-        manager.get_or_create("test-topic", 0).await.unwrap();
-        assert_eq!(manager.get_active_store_count(), 1);
-
-        // Get the active store's path
-        let active_store = manager.get("test-topic", 0).unwrap();
-        let active_path = active_store.get_db_path().clone();
-
-        // Verify active store exists and extract its timestamp for comparison
-        assert!(active_path.exists(), "Active store path should exist");
-        let active_timestamp = active_path
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .to_string();
-
-        // Create an OLD timestamp subdir under the same partition (simulating a previous import)
-        // Use a timestamp that is LEXICOGRAPHICALLY SMALLER than the active one to simulate
-        // a genuinely old failed import attempt
-        let partition_dir = temp_dir.path().join("test-topic_0");
-        let old_timestamp_subdir = partition_dir.join("0000000001"); // Old timestamp (before active)
-        std::fs::create_dir_all(&old_timestamp_subdir).unwrap();
-        std::fs::write(old_timestamp_subdir.join("dummy.sst"), b"old data").unwrap();
-        assert!(
-            old_timestamp_subdir.exists(),
-            "Old timestamp dir should exist"
-        );
-
-        // Sanity check: verify the old timestamp is indeed before the active one
-        assert!(
-            "0000000001" < active_timestamp.as_str(),
-            "Test setup error: old timestamp should be before active timestamp"
-        );
-
-        // Orphan cleanup should remove the OLD timestamp dir but NOT the active one
-        let freed = manager
-            .cleanup_orphaned_directories(Duration::from_secs(0))
-            .unwrap();
-
-        assert!(freed > 0, "Should have freed some bytes");
-        assert!(
-            !old_timestamp_subdir.exists(),
-            "OLD timestamp dir should be removed"
-        );
-        assert!(
-            active_path.exists(),
-            "ACTIVE store path should NOT be removed"
-        );
-        assert_eq!(
-            manager.get_active_store_count(),
-            1,
-            "Store should still be registered"
-        );
-    }
-
-    #[tokio::test]
     async fn test_orphan_cleanup_never_deletes_active_store_path() {
         // Defense-in-depth test: even if collect_orphan_candidates somehow includes
         // the active store path, is_safe_to_delete_timestamp_dir should prevent deletion.
@@ -2188,6 +2124,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1024 * 1024 * 1024,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
@@ -2226,68 +2163,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_orphan_cleanup_handles_multiple_old_timestamps_under_assigned() {
-        // Test that multiple old timestamp dirs under an assigned partition are all cleaned up
-        let temp_dir = TempDir::new().unwrap();
-        let config = DeduplicationStoreConfig {
-            path: temp_dir.path().to_path_buf(),
-            max_capacity: 1024 * 1024 * 1024,
-        };
-
-        let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
-
-        // Create a store for partition 0
-        manager.get_or_create("test-topic", 0).await.unwrap();
-        let active_store = manager.get("test-topic", 0).unwrap();
-        let active_path = active_store.get_db_path().clone();
-
-        // Create multiple OLD timestamp subdirs (simulating multiple failed imports)
-        // Use timestamps that are BEFORE the active one (small numbers)
-        let partition_dir = temp_dir.path().join("test-topic_0");
-        let old_dirs: Vec<_> = (1..=3)
-            .map(|i| {
-                let old_dir = partition_dir.join(format!("000000000{}", i));
-                std::fs::create_dir_all(&old_dir).unwrap();
-                std::fs::write(old_dir.join("dummy.sst"), b"old data").unwrap();
-                old_dir
-            })
-            .collect();
-
-        // Verify all old dirs exist
-        for old_dir in &old_dirs {
-            assert!(old_dir.exists(), "Old dir should exist: {:?}", old_dir);
-        }
-
-        // Orphan cleanup should remove ALL old timestamp dirs
-        let freed = manager
-            .cleanup_orphaned_directories(Duration::from_secs(0))
-            .unwrap();
-
-        assert!(freed > 0, "Should have freed some bytes");
-
-        // All old dirs should be removed
-        for old_dir in &old_dirs {
-            assert!(
-                !old_dir.exists(),
-                "Old dir should be removed: {:?}",
-                old_dir
-            );
-        }
-
-        // Active store should still exist
-        assert!(active_path.exists(), "Active store should NOT be removed");
-        assert_eq!(manager.get_active_store_count(), 1);
-    }
-
-    #[tokio::test]
     async fn test_orphan_cleanup_mixed_assigned_and_unassigned_partitions() {
         // Test that orphan cleanup correctly handles a mix of:
-        // - Assigned partitions (clean old timestamps, keep active)
-        // - Unassigned partitions (clean all timestamps)
+        // - Assigned partitions (keep active partition dir intact)
+        // - Unassigned partitions (delete entire partition dir)
         let temp_dir = TempDir::new().unwrap();
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1024 * 1024 * 1024,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
@@ -2302,32 +2186,24 @@ mod tests {
         let active_store_1 = manager.get("test-topic", 1).unwrap();
         let active_path_1 = active_store_1.get_db_path().clone();
 
-        // Create old timestamp under assigned partition 0
-        let partition_0_dir = temp_dir.path().join("test-topic_0");
-        let old_ts_under_assigned = partition_0_dir.join("0000000001");
-        std::fs::create_dir_all(&old_ts_under_assigned).unwrap();
-        std::fs::write(old_ts_under_assigned.join("dummy.sst"), b"old").unwrap();
-
-        // Create an unassigned partition (partition 99) with timestamp dirs
-        let unassigned_dir = temp_dir.path().join("test-topic_99");
-        let unassigned_ts_1 = unassigned_dir.join("0000000001");
-        let unassigned_ts_2 = unassigned_dir.join("0000000002");
-        std::fs::create_dir_all(&unassigned_ts_1).unwrap();
-        std::fs::create_dir_all(&unassigned_ts_2).unwrap();
-        std::fs::write(unassigned_ts_1.join("dummy.sst"), b"orphan1").unwrap();
-        std::fs::write(unassigned_ts_2.join("dummy.sst"), b"orphan2").unwrap();
+        // Create an unassigned partition (partition 99) with some data files
+        let unassigned_dir = temp_dir.path().join("test-topic").join("99");
+        std::fs::create_dir_all(&unassigned_dir).unwrap();
+        std::fs::write(unassigned_dir.join("dummy1.sst"), b"orphan1").unwrap();
+        std::fs::write(unassigned_dir.join("dummy2.sst"), b"orphan2").unwrap();
 
         // Verify setup
-        assert!(old_ts_under_assigned.exists());
-        assert!(unassigned_ts_1.exists());
-        assert!(unassigned_ts_2.exists());
+        assert!(unassigned_dir.exists());
 
         // Run orphan cleanup
         let freed = manager
             .cleanup_orphaned_directories(Duration::from_secs(0))
             .unwrap();
 
-        assert!(freed > 0, "Should have freed bytes from orphans");
+        assert!(
+            freed > 0,
+            "Should have freed bytes from the unassigned partition"
+        );
 
         // Verify: active stores for assigned partitions are untouched
         assert!(
@@ -2339,20 +2215,10 @@ mod tests {
             "Active store for partition 1 should exist"
         );
 
-        // Verify: old timestamp under assigned partition is cleaned
+        // Verify: the unassigned partition directory is fully cleaned
         assert!(
-            !old_ts_under_assigned.exists(),
-            "Old timestamp under assigned partition should be cleaned"
-        );
-
-        // Verify: all timestamps under unassigned partition are cleaned
-        assert!(
-            !unassigned_ts_1.exists(),
-            "Unassigned partition timestamp 1 should be cleaned"
-        );
-        assert!(
-            !unassigned_ts_2.exists(),
-            "Unassigned partition timestamp 2 should be cleaned"
+            !unassigned_dir.exists(),
+            "Unassigned partition dir should be deleted"
         );
 
         // Stores still registered
@@ -2367,6 +2233,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1024 * 1024 * 1024,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
@@ -2379,7 +2246,7 @@ mod tests {
 
         let store_0 = manager.get("test-topic", 0).unwrap();
         let store_path_0 = store_0.get_db_path().clone();
-        let partition_dir_0 = temp_dir.path().join("test-topic_0");
+        let partition_dir_0 = temp_dir.path().join("test-topic").join("0");
 
         // Verify store 0 exists on disk
         assert!(store_path_0.exists(), "Store 0 path should exist");
@@ -2424,5 +2291,121 @@ mod tests {
             store_1.get_db_path().exists(),
             "Store 1 should still exist (still assigned)"
         );
+    }
+
+    mod try_restore_local_store_tests {
+        use super::*;
+        use crate::checkpoint::config::DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS;
+        use crate::checkpoint::metadata::CheckpointMetadata;
+        use crate::test_utils::create_test_store_manager;
+        use crate::utils::format_store_path;
+        use chrono::Utc;
+
+        #[tokio::test]
+        async fn test_returns_metadata_when_fresh() {
+            let temp_dir = TempDir::new().unwrap();
+            let manager = create_test_store_manager(temp_dir.path().to_path_buf());
+            let store_path = format_store_path(temp_dir.path(), "test-topic", 0);
+            tokio::fs::create_dir_all(&store_path).await.unwrap();
+
+            let mut metadata =
+                CheckpointMetadata::new("test-topic".to_string(), 0, Utc::now(), 1, 100, 50);
+            metadata.write_to_dir(&store_path).await.unwrap();
+
+            let result = manager
+                .try_restore_local_store(
+                    "test-topic",
+                    0,
+                    Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
+                )
+                .await;
+
+            assert!(result.is_some(), "Should return metadata for fresh store");
+            let loaded = result.unwrap();
+            assert_eq!(loaded.consumer_offset, 100);
+            assert_eq!(loaded.producer_offset, 50);
+        }
+
+        #[tokio::test]
+        async fn test_returns_none_when_missing() {
+            let temp_dir = TempDir::new().unwrap();
+            let manager = create_test_store_manager(temp_dir.path().to_path_buf());
+
+            // No metadata.json written — directory doesn't even exist
+            let result = manager
+                .try_restore_local_store(
+                    "test-topic",
+                    0,
+                    Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
+                )
+                .await;
+
+            assert!(
+                result.is_none(),
+                "Should return None when metadata is missing"
+            );
+        }
+
+        #[tokio::test]
+        async fn test_returns_none_when_stale() {
+            let temp_dir = TempDir::new().unwrap();
+            let manager = create_test_store_manager(temp_dir.path().to_path_buf());
+            let store_path = format_store_path(temp_dir.path(), "test-topic", 0);
+            tokio::fs::create_dir_all(&store_path).await.unwrap();
+
+            // Write metadata with an old updated_at by setting attempt_timestamp far in the past
+            // then manually writing JSON with an old updated_at
+            let old_timestamp = Utc::now() - chrono::Duration::hours(3);
+            let json = serde_json::json!({
+                "id": CheckpointMetadata::generate_id(old_timestamp),
+                "topic": "test-topic",
+                "partition": 0,
+                "attempt_timestamp": old_timestamp,
+                "sequence": 1,
+                "consumer_offset": 50,
+                "producer_offset": 25,
+                "updated_at": old_timestamp,
+                "files": []
+            });
+            let path = store_path.join("metadata.json");
+            tokio::fs::write(&path, serde_json::to_string_pretty(&json).unwrap())
+                .await
+                .unwrap();
+
+            // 2h max staleness — 3h old timestamp should be stale
+            let result = manager
+                .try_restore_local_store(
+                    "test-topic",
+                    0,
+                    Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
+                )
+                .await;
+
+            assert!(result.is_none(), "Should return None for stale metadata");
+        }
+
+        #[tokio::test]
+        async fn test_returns_none_when_corrupt() {
+            let temp_dir = TempDir::new().unwrap();
+            let manager = create_test_store_manager(temp_dir.path().to_path_buf());
+            let store_path = format_store_path(temp_dir.path(), "test-topic", 0);
+            tokio::fs::create_dir_all(&store_path).await.unwrap();
+
+            // Write invalid JSON
+            let path = store_path.join("metadata.json");
+            tokio::fs::write(&path, b"not valid json at all!!!")
+                .await
+                .unwrap();
+
+            let result = manager
+                .try_restore_local_store(
+                    "test-topic",
+                    0,
+                    Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
+                )
+                .await;
+
+            assert!(result.is_none(), "Should return None for corrupt metadata");
+        }
     }
 }

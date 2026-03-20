@@ -55,7 +55,7 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
         ],
     })),
     windowValues(() => ({
-        modalMode: (window: Window) => window.innerWidth < 992, // Sync width threshold with Sass variable $lg!
+        modalMode: (window: Window) => window?.innerWidth < 992, // Sync width threshold with Sass variable $lg!
     })),
     listeners(({ actions, values, cache }) => ({
         // NOTE: We explicitly reference the actions instead of connecting so that people don't accidentally

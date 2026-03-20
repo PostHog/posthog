@@ -477,6 +477,7 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
@@ -732,6 +733,7 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
@@ -761,6 +763,7 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
@@ -1015,6 +1018,7 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
@@ -1229,6 +1233,7 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
@@ -1402,6 +1407,7 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
@@ -1880,6 +1886,7 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
@@ -2149,6 +2156,7 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
@@ -2665,19 +2673,20 @@
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.9
   '''
-  SELECT "posthog_featureflagevaluationtag"."id",
-         "posthog_featureflagevaluationtag"."feature_flag_id",
-         "posthog_featureflagevaluationtag"."tag_id",
-         "posthog_featureflagevaluationtag"."created_at",
-         "posthog_tag"."id",
-         "posthog_tag"."name",
-         "posthog_tag"."team_id"
-  FROM "posthog_featureflagevaluationtag"
-  INNER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
-  WHERE "posthog_featureflagevaluationtag"."feature_flag_id" IN (1,
-                                                                 2,
-                                                                 3,
-                                                                 4,
-                                                                 5 /* ... */)
+  SELECT "posthog_featureflagevaluationcontext"."id",
+         "posthog_featureflagevaluationcontext"."feature_flag_id",
+         "posthog_featureflagevaluationcontext"."evaluation_context_id",
+         "posthog_featureflagevaluationcontext"."created_at",
+         "posthog_evaluationcontext"."id",
+         "posthog_evaluationcontext"."name",
+         "posthog_evaluationcontext"."team_id",
+         "posthog_evaluationcontext"."created_at"
+  FROM "posthog_featureflagevaluationcontext"
+  INNER JOIN "posthog_evaluationcontext" ON ("posthog_featureflagevaluationcontext"."evaluation_context_id" = "posthog_evaluationcontext"."id")
+  WHERE "posthog_featureflagevaluationcontext"."feature_flag_id" IN (1,
+                                                                     2,
+                                                                     3,
+                                                                     4,
+                                                                     5 /* ... */)
   '''
 # ---

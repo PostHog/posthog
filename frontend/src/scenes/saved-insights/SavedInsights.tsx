@@ -171,6 +171,18 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconTableChart,
         inMenu: true,
     },
+    [NodeKind.FunnelsDataWarehouseNode]: {
+        name: 'Funnels Data Warehouse',
+        description: 'List and explore funnels data warehouse tables.',
+        icon: IconTableChart,
+        inMenu: true,
+    },
+    [NodeKind.LifecycleDataWarehouseNode]: {
+        name: 'Lifecycle Data Warehouse',
+        description: 'List and explore lifecycle data warehouse tables.',
+        icon: IconTableChart,
+        inMenu: true,
+    },
     [NodeKind.GroupNode]: {
         name: 'Groups',
         description: 'List and explore grouped events.',
@@ -604,7 +616,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
         name: 'Hog',
         description: 'Use Hog to query your data.',
         icon: IconHogQL,
-        inMenu: true,
+        inMenu: false,
     },
     [InsightType.WEB_ANALYTICS]: {
         name: 'Web Analytics',
@@ -616,11 +628,13 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
 
 export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [
     { value: 'All types', label: 'All types' },
-    ...Object.entries(INSIGHT_TYPES_METADATA).map(([value, meta]) => ({
-        value,
-        label: meta.name,
-        icon: meta.icon ? <meta.icon /> : undefined,
-    })),
+    ...Object.entries(INSIGHT_TYPES_METADATA)
+        .filter(([, meta]) => meta.inMenu !== false)
+        .map(([value, meta]) => ({
+            value,
+            label: meta.name,
+            icon: meta.icon ? <meta.icon /> : undefined,
+        })),
 ]
 
 export const scene: SceneExport = {

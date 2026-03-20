@@ -318,10 +318,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 )
             },
         ],
-        hasPendingWork: [
-            (s) => [s.hasUnsavedChanges, s.draftContent],
-            (hasUnsavedChanges, draftContent): boolean => hasUnsavedChanges || draftContent !== null,
-        ],
+        hasPendingWork: [(s) => [s.hasUnsavedChanges], (hasUnsavedChanges): boolean => hasUnsavedChanges],
         chatPanelWidth: [
             () => [],
             () =>

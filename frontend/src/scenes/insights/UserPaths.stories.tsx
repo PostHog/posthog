@@ -47,28 +47,71 @@ export const UserPaths: Story = createInsightStory(
 )
 UserPaths.parameters = {
     testOptions: {
-        waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '.Paths__canvas'],
-        // Snapshot only the path visualization canvas, not the surrounding page chrome
-        // (InsightPageHeader, SceneTitleSection, etc.) which changes frequently and causes
-        // recurring snapshot drift on master (~30% failure rate).
-        snapshotTargetSelector: '.Paths',
+        waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '[data-attr=paths-viz][data-stable]'],
     },
 }
-// The Paths component uses useResizeObserver to measure canvasWidth, then destroys
-// and recreates the SVG when it changes. This causes a race condition where the SVG
-// width may not have stabilized before the snapshot is taken. Wait for it to settle.
-UserPaths.play = async ({ canvasElement }) => {
+// The Paths component uses useResizeObserver to measure canvasWidth/canvasHeight, then destroys
+// and recreates the SVG when they change (or when theme/data changes). Dimension updates are
+// debounced to reduce recreations. The canvas div gets data-stable removed during recreation
+// and re-added after, so waiting for [data-attr=paths-viz][data-stable] ensures the SVG has
+// fully settled. We require 3 consecutive stable checks (600ms apart) for extra confidence.
+const waitForPathsCanvasToStabilize: NonNullable<Story['play']> = async ({ canvasElement }) => {
     let lastWidth = 0
+    let lastHeight = 0
+    let lastSvgElement: Element | null = null
+    let stableCount = 0
     await waitFor(
         () => {
-            const svg = canvasElement.querySelector('.Paths__canvas')
-            const currentWidth = svg ? svg.getBoundingClientRect().width : 0
-            if (currentWidth === 0 || currentWidth !== lastWidth) {
+            const canvas = canvasElement.querySelector('[data-attr=paths-viz][data-stable]')
+            const svg = canvas ? canvas.querySelector('.Paths__canvas') : null
+            const rect = svg ? svg.getBoundingClientRect() : null
+            const currentWidth = rect ? rect.width : 0
+            const currentHeight = rect ? rect.height : 0
+            if (
+                !canvas ||
+                !svg ||
+                currentWidth === 0 ||
+                currentHeight === 0 ||
+                currentWidth !== lastWidth ||
+                currentHeight !== lastHeight ||
+                svg !== lastSvgElement
+            ) {
                 lastWidth = currentWidth
-                throw new Error('SVG width not yet stable')
+                lastHeight = currentHeight
+                lastSvgElement = svg
+                stableCount = 0
+                throw new Error('SVG not yet stable')
+            }
+            stableCount++
+            if (stableCount < 3) {
+                throw new Error('SVG not yet confirmed stable')
             }
         },
-        { timeout: 3000, interval: 200 }
+        { timeout: 8000, interval: 200 }
     )
 }
+UserPaths.play = waitForPathsCanvasToStabilize
+
+export const UserPathsEdit: Story = createInsightStory(
+    require('../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'),
+    'edit'
+)
+UserPathsEdit.parameters = {
+    testOptions: {
+        waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '[data-attr=paths-viz][data-stable]'],
+    },
+}
+UserPathsEdit.play = waitForPathsCanvasToStabilize
+
+export const UserPathsEditViewports: Story = createInsightStory(
+    require('../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'),
+    'edit'
+)
+UserPathsEditViewports.parameters = {
+    testOptions: {
+        waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '[data-attr=paths-viz][data-stable]'],
+        viewportWidths: ['medium', 'wide', 'superwide'],
+    },
+}
+UserPathsEditViewports.play = waitForPathsCanvasToStabilize
 /* eslint-enable @typescript-eslint/no-var-requires */

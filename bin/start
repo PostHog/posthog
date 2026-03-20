@@ -5,6 +5,10 @@ set -e
 export REPOSITORY_ROOT=$(realpath "$(dirname "$0")/..")
 export LOCK_FILE="$REPOSITORY_ROOT/bin/start.lock"
 
+cleanup_lock() {
+    rm -f "$LOCK_FILE"
+}
+
 # Acquire exclusive lock using flock (atomic, no race condition)
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
@@ -12,6 +16,8 @@ if ! flock -n 9; then
     echo "   To skip this check, delete the lock file: rm $LOCK_FILE"
     exit 1
 fi
+
+trap cleanup_lock EXIT INT TERM
 
 export SESSION_RECORDING_V2_S3_ENDPOINT=${SESSION_RECORDING_V2_S3_ENDPOINT:-http://localhost:8333}
 
@@ -86,13 +92,34 @@ export DUCKGRES_PORT=${DUCKGRES_PORT:-15432}
 # Geo files
 ./bin/download-mmdb
 
-if ! command -v mprocs &>/dev/null; then
-    if command -v brew &>/dev/null; then
-        echo "🔁 Installing mprocs via Homebrew..."
-        brew install mprocs
-    else
-        echo "👉 To run bin/start, install mprocs: https://github.com/pvolok/mprocs#installation"
-        exit 1
+PROCESS_MANAGER="mprocs"
+
+# Only use phrocs when --phrocs is explicitly passed
+if [[ " $* " == *" --phrocs "* ]]; then
+    PROCESS_MANAGER="$REPOSITORY_ROOT/bin/phrocs"
+
+    # Build phrocs on first run if binary doesn't exist
+    if [[ ! -x "$PROCESS_MANAGER" ]]; then
+        echo "🔨 Building phrocs from source (first run)..."
+        if ! hogli phrocs:build 2>&1; then
+            echo "⚠️ phrocs build failed; falling back to mprocs"
+            PROCESS_MANAGER="mprocs"
+        else
+            echo "✅ phrocs built successfully"
+        fi
+    fi
+fi
+
+if [[ "$PROCESS_MANAGER" == "mprocs" ]]; then
+    # Ensure mprocs is available
+    if ! command -v mprocs &>/dev/null; then
+        if command -v brew &>/dev/null; then
+            echo "🔁 Installing mprocs via Homebrew..."
+            brew install mprocs
+        else
+            echo "👉 To run bin/start, install mprocs: https://github.com/pvolok/mprocs#installation"
+            exit 1
+        fi
     fi
 fi
 
@@ -115,19 +142,20 @@ if [[ "$*" == *"--custom"* ]]; then
         echo "Error: --custom requires a config path"
         exit 1
     fi
-    exec mprocs --config "$config_path"
+    "$PROCESS_MANAGER" --config "$config_path"
 else
     GENERATED_CONFIG="$REPOSITORY_ROOT/.posthog/.generated/mprocs.yaml"
-    
+
     # Generate/regenerate config using hogli (defaults to product_analytics if no config exists)
+    # HOGLI_PROCESS_MANAGER is picked up by dev:generate for telemetry
     if command -v hogli &>/dev/null; then
-        hogli dev:generate 2>/dev/null || true
+        HOGLI_PROCESS_MANAGER="$PROCESS_MANAGER" hogli dev:generate 2>/dev/null || true
     fi
-    
+
     if [[ -f "$GENERATED_CONFIG" ]]; then
-        exec mprocs --config "$GENERATED_CONFIG"
+        "$PROCESS_MANAGER" --config "$GENERATED_CONFIG"
     else
         # Fallback if hogli not available
-        exec mprocs --config bin/mprocs.yaml
+        "$PROCESS_MANAGER" --config "$REPOSITORY_ROOT/bin/mprocs.yaml"
     fi
 fi

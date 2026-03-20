@@ -20,7 +20,7 @@ describe('SavedInsightsFilters Created by dropdown', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/organizations/@current/members/': {
+                '/api/organizations/:organization_id/members/': {
                     results: [
                         {
                             id: '1',

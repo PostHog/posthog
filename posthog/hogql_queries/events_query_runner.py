@@ -3,7 +3,6 @@ from datetime import datetime, timedelta
 from functools import cached_property
 from typing import cast
 
-from django.db.models import Prefetch
 from django.utils.timezone import now
 
 import orjson
@@ -25,7 +24,7 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, get_query_runner
 from posthog.models import Action, Person
 from posthog.models.element import chain_to_elements
-from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId, get_distinct_ids_for_subquery
+from posthog.models.person.person import READ_DB_FOR_PERSONS, get_distinct_ids_for_subquery
 from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.utils import relative_date_parse
 
@@ -66,9 +65,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
 
         return cast(
             InsightActorsQueryRunner,
-            get_query_runner(
-                self.query.source, self.team, self.timings, self.limit_context, self.modifiers, request=self.request
-            ),
+            get_query_runner(self.query.source, self.team, self.timings, self.limit_context, self.modifiers),
         )
 
     def select_cols(self) -> tuple[list[str], list[ast.Expr]]:
@@ -414,18 +411,13 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 batch_size = 1000
                 for i in range(0, len(distinct_ids), batch_size):
                     batch_distinct_ids = distinct_ids[i : i + batch_size]
+                    requested_batch = set(batch_distinct_ids)
                     persons = get_persons_by_distinct_ids(self.team.pk, batch_distinct_ids)
-                    persons = persons.prefetch_related(
-                        Prefetch(
-                            "persondistinctid_set",
-                            queryset=PersonDistinctId.objects.filter(team_id=self.team.pk).order_by("id"),
-                            to_attr="distinct_ids_cache",
-                        )
-                    )
-                    for person in persons.iterator(chunk_size=1000):
+                    for person in persons:
                         if person:
                             for person_distinct_id in person.distinct_ids:
-                                distinct_to_person[person_distinct_id] = person
+                                if person_distinct_id in requested_batch:
+                                    distinct_to_person[person_distinct_id] = person
 
                 # Loop over all columns in case there is more than one "person" column
                 for column_index in person_indices:

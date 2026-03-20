@@ -72,8 +72,6 @@ function AppScene(): JSX.Element | null {
         <ToastContainer
             autoClose={6000}
             transition={Slide}
-            closeOnClick={false}
-            draggable={false}
             closeButton={<ToastCloseButton />}
             position="bottom-right"
             theme={isDarkModeOn ? 'dark' : 'light'}

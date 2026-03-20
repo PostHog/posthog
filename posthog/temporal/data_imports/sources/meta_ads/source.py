@@ -6,10 +6,15 @@ from posthog.schema import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
+    SuggestedTable,
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import (
+    MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+    FieldType,
+    SimpleSource,
+)
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
@@ -32,8 +37,10 @@ class MetaAdsSource(SimpleSource[MetaAdsSourceConfig]):
             "cannot be loaded due to missing permissions": None,
         }
 
-    def get_schemas(self, config: MetaAdsSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
-        return [
+    def get_schemas(
+        self, config: MetaAdsSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
+        schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
@@ -42,6 +49,12 @@ class MetaAdsSource(SimpleSource[MetaAdsSourceConfig]):
             )
             for endpoint in ENDPOINTS
         ]
+
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+
+        return schemas
 
     def source_for_pipeline(self, config: MetaAdsSourceConfig, inputs: SourceInputs) -> SourceResponse:
         return meta_ads_source(
@@ -90,4 +103,14 @@ class MetaAdsSource(SimpleSource[MetaAdsSourceConfig]):
             ),
             betaSource=True,
             featureFlag="meta-ads-dwh",
+            suggestedTables=[
+                SuggestedTable(
+                    table="campaigns",
+                    tooltip=MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+                ),
+                SuggestedTable(
+                    table="campaign_stats",
+                    tooltip=MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+                ),
+            ],
         )

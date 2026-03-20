@@ -1,9 +1,6 @@
 from datetime import datetime, timedelta
 from math import ceil
-from typing import TYPE_CHECKING, Any, Optional
-
-if TYPE_CHECKING:
-    from rest_framework.request import Request
+from typing import Any, Optional
 
 from posthog.schema import (
     CachedFunnelsQueryResponse,
@@ -42,12 +39,9 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
-        request: Optional["Request"] = None,
         just_summarize: bool = False,
     ):
-        super().__init__(
-            query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, request=request
-        )
+        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
 
         self.just_summarize = just_summarize
         self.context = FunnelQueryContext(
@@ -94,7 +88,7 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
             settings=HogQLGlobalSettings(
                 # Make sure funnel queries never OOM
                 max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
-                allow_experimental_analyzer=True,
+                enable_analyzer=True,
             ),
         )
 

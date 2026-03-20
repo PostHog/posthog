@@ -5,9 +5,11 @@ import { SpanEvent } from '@posthog/shared-onboarding/llm-analytics/_snippets/sp
 import { TraceEvent } from '@posthog/shared-onboarding/llm-analytics/_snippets/trace-event'
 import { AnthropicInstallation } from '@posthog/shared-onboarding/llm-analytics/anthropic'
 import { AutoGenInstallation } from '@posthog/shared-onboarding/llm-analytics/autogen'
+import { AWSBedrockInstallation } from '@posthog/shared-onboarding/llm-analytics/aws-bedrock'
 import { AzureOpenAIInstallation } from '@posthog/shared-onboarding/llm-analytics/azure-openai'
 import { CerebrasInstallation } from '@posthog/shared-onboarding/llm-analytics/cerebras'
 import { CohereInstallation } from '@posthog/shared-onboarding/llm-analytics/cohere'
+import { ConvexInstallation } from '@posthog/shared-onboarding/llm-analytics/convex'
 import { CrewAIInstallation } from '@posthog/shared-onboarding/llm-analytics/crewai'
 import { DeepSeekInstallation } from '@posthog/shared-onboarding/llm-analytics/deepseek'
 import { DSPyInstallation } from '@posthog/shared-onboarding/llm-analytics/dspy'
@@ -114,6 +116,10 @@ const LLMDSPyInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: DSPyInstallation,
     snippets: PROVIDER_SNIPPETS,
 })
+const LLMAWSBedrockInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: AWSBedrockInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
 const LLMAutoGenInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: AutoGenInstallation,
     snippets: PROVIDER_SNIPPETS,
@@ -182,6 +188,10 @@ const LLMPortkeyInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: PortkeyInstallation,
     snippets: PROVIDER_SNIPPETS,
 })
+const LLMConvexInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ConvexInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
 const LLMCohereInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: CohereInstallation,
     snippets: PROVIDER_SNIPPETS,
@@ -206,6 +216,7 @@ export const LLMAnalyticsSDKTagOverrides: SDKTagOverrides = {
 export const LLMAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.OPENAI]: LLMOpenAIInstructionsWrapper,
     [SDKKey.ANTHROPIC]: LLMAnthropicInstructionsWrapper,
+    [SDKKey.AWS_BEDROCK]: LLMAWSBedrockInstructionsWrapper,
     [SDKKey.GOOGLE_GEMINI]: LLMGoogleInstructionsWrapper,
     [SDKKey.VERCEL_AI]: LLMVercelAIInstructionsWrapper,
     [SDKKey.VERCEL_AI_GATEWAY]: LLMVercelAIGatewayInstructionsWrapper,
@@ -234,6 +245,7 @@ export const LLMAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.CEREBRAS]: LLMCerebrasInstructionsWrapper,
     [SDKKey.PERPLEXITY]: LLMPerplexityInstructionsWrapper,
     [SDKKey.PORTKEY]: LLMPortkeyInstructionsWrapper,
+    [SDKKey.CONVEX]: LLMConvexInstructionsWrapper,
     [SDKKey.COHERE]: LLMCohereInstructionsWrapper,
     [SDKKey.HUGGING_FACE]: LLMHuggingFaceInstructionsWrapper,
     [SDKKey.XAI]: LLMXAIInstructionsWrapper,

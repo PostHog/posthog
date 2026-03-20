@@ -6,6 +6,7 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use common_kafka::kafka_producer::KafkaContext;
@@ -15,6 +16,7 @@ use rdkafka::ClientConfig;
 use tokio::sync::oneshot;
 use tracing::info;
 
+use crate::checkpoint::config::DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS;
 use crate::checkpoint::import::CheckpointImporter;
 use crate::config::PipelineType;
 use crate::kafka::assigner::AssignerConsumer;
@@ -26,7 +28,7 @@ use crate::pipelines::ingestion_events::{
 };
 use crate::processor_rebalance_handler::ProcessorRebalanceHandler;
 use crate::rebalance_tracker::RebalanceTracker;
-use crate::store_manager::StoreManager;
+use crate::store_manager::{MetadataCommitCallback, StoreManager};
 
 /// Enum wrapper for different consumer types based on pipeline and mode configuration.
 ///
@@ -65,6 +67,7 @@ pub struct PipelineBuilder {
     seek_timeout: std::time::Duration,
     checkpoint_importer: Option<Arc<CheckpointImporter>>,
     rebalance_cleanup_parallelism: usize,
+    local_checkpoint_max_staleness: Duration,
 
     // Fail-open mode: bypass deduplication and forward events directly
     fail_open: bool,
@@ -102,6 +105,9 @@ impl PipelineBuilder {
             seek_timeout,
             checkpoint_importer: None,
             rebalance_cleanup_parallelism,
+            local_checkpoint_max_staleness: Duration::from_secs(
+                DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS,
+            ),
             fail_open,
             dedup_config: None,
             main_producer: None,
@@ -111,6 +117,11 @@ impl PipelineBuilder {
 
     pub fn with_checkpoint_importer(mut self, importer: Option<Arc<CheckpointImporter>>) -> Self {
         self.checkpoint_importer = importer;
+        self
+    }
+
+    pub fn with_local_checkpoint_staleness(mut self, staleness: Duration) -> Self {
+        self.local_checkpoint_max_staleness = staleness;
         self
     }
 
@@ -217,6 +228,12 @@ impl PipelineBuilder {
             offset_tracker.clone(),
             self.checkpoint_importer,
             self.rebalance_cleanup_parallelism,
+            self.local_checkpoint_max_staleness,
+        ));
+
+        let on_commit = Arc::new(MetadataCommitCallback::new(
+            self.store_manager.clone(),
+            offset_tracker.clone(),
         ));
 
         let consumer = BatchConsumer::new(
@@ -224,6 +241,7 @@ impl PipelineBuilder {
             rebalance_handler,
             routing_processor,
             offset_tracker,
+            Some(on_commit),
             shutdown_rx,
             &self.topic,
             self.batch_size,
@@ -272,6 +290,12 @@ impl PipelineBuilder {
             offset_tracker.clone(),
             self.checkpoint_importer,
             self.rebalance_cleanup_parallelism,
+            self.local_checkpoint_max_staleness,
+        ));
+
+        let on_commit = Arc::new(MetadataCommitCallback::new(
+            self.store_manager.clone(),
+            offset_tracker.clone(),
         ));
 
         let consumer = BatchConsumer::new(
@@ -279,6 +303,7 @@ impl PipelineBuilder {
             rebalance_handler,
             routing_processor,
             offset_tracker,
+            Some(on_commit),
             shutdown_rx,
             &self.topic,
             self.batch_size,

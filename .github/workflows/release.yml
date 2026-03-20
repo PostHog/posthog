@@ -42,7 +42,7 @@ on:
     pull_request:
     push:
         tags:
-            - '**[0-9]+.[0-9]+.[0-9]+*'
+            - 'posthog-cli/v[0-9]+.[0-9]+.[0-9]+*'
 
 jobs:
     # Run 'dist plan' (or host) to determine what tasks we need to do
@@ -316,18 +316,3 @@ jobs:
               env:
                   NPM_CONFIG_PROVENANCE: true
                   NODE_AUTH_TOKEN: ''
-
-    announce:
-        needs:
-            - plan
-            - host
-            - publish-npm
-        # use "always() && ..." to allow us to wait for all publish jobs while
-        # still allowing individual publish jobs to skip themselves (for prereleases).
-        # "host" however must run to completion, no skipping allowed!
-        if: ${{ always() && needs.host.result == 'success' && (needs.publish-npm.result == 'skipped' || needs.publish-npm.result == 'success') }}
-        runs-on: 'ubuntu-22.04'
-        steps:
-            - uses: actions/checkout@v6
-              with:
-                  submodules: recursive
