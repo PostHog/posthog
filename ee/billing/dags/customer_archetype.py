@@ -461,7 +461,8 @@ def archetype_llm_classification(
                     failed_batches.append({"batch": i + 1, "account_ids": batch_ids})
                 if completed % 100 == 0 or completed == total_batches:
                     context.log.info(
-                        f"Progress: {completed}/{total_batches} batches ({completed * 100 // total_batches}%)"
+                        f"Progress: {completed}/{total_batches} batches "
+                        f"({completed * 100 // total_batches}%, {len(failed_batches)} failed so far)"
                     )
 
     new_classifications = apply_deterministic_archetype(new_classifications)
