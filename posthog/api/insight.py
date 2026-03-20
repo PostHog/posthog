@@ -1039,7 +1039,7 @@ class InsightViewSet(
 
     def get_throttles(self):
         """Apply LLM-specific throttles to AI analysis endpoints."""
-        if self.action in ["analyze", "suggestions"]:
+        if self.action in ["analyze", "suggestions", "generate_name"]:
             return [
                 LLMAnalyticsSummarizationBurstThrottle(),
                 LLMAnalyticsSummarizationSustainedThrottle(),
@@ -1050,7 +1050,7 @@ class InsightViewSet(
     def _validate_ai_feature_access(self) -> None:
         """Validate that AI data processing is approved by the organization."""
         if not self.organization.is_ai_data_processing_approved:
-            raise PermissionDenied("AI data processing must be approved by your organization before using AI analysis")
+            raise PermissionDenied("AI data processing must be approved by your organization")
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if (self.action == "list" or self.action == "retrieve") and str_to_bool(
@@ -1497,6 +1497,8 @@ When set, the specified dashboard's filters and date range override will be appl
     @action(methods=["POST"], detail=False, required_scopes=["insight:write"])
     def generate_name(self, request: Request, **kwargs) -> Response:
         """Generate an AI-suggested name for an insight based on its query configuration."""
+        self._validate_ai_feature_access()
+
         query_data = request.data.get("query")
         if not query_data:
             return Response(
