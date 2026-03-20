@@ -311,6 +311,13 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 extra=inputs.properties_to_log,
             )
             capture_exception(shadow_err)
+            await self._resolve_duckgres_job(
+                DuckgresShadowResult(
+                    error=str(shadow_err), row_count=0, duration_seconds=0, schema_name="", table_name=""
+                ),
+                duckgres_job_id,
+                inputs,
+            )
         # TODO: populate with real values
         return MaterializeViewWorkflowResult(
             job_id=job_id,
@@ -420,3 +427,10 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 extra=inputs.properties_to_log,
             )
             capture_exception(shadow_err)
+            await self._resolve_duckgres_job(
+                DuckgresShadowResult(
+                    error=str(shadow_err), row_count=0, duration_seconds=0, schema_name="", table_name=""
+                ),
+                duckgres_job_id,
+                inputs,
+            )

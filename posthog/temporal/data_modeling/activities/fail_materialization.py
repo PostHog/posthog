@@ -44,6 +44,11 @@ def _fail_node_and_data_modeling_job(inputs: FailMaterializationInputs):
         node.save()
 
     job = DataModelingJob.objects.get(id=inputs.job_id)
+
+    # if the job is already in a terminal state, don't overwrite it — preserves the first error
+    if job.status in (DataModelingJobStatus.FAILED, DataModelingJobStatus.CANCELLED, DataModelingJobStatus.COMPLETED):
+        return node, job
+
     job.status = DataModelingJobStatus.CANCELLED if inputs.cancelled else DataModelingJobStatus.FAILED
     job.error = sanitized_error
     job.save()
@@ -68,6 +73,6 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> No
     node, job = await _fail_node_and_data_modeling_job(inputs)
 
     await logger.aerror(
-        f"Failed materialization job: node={node.id} dag={inputs.dag_id} job={job.id} "
+        f"Failed materialization job: node={inputs.node_id} dag={inputs.dag_id} job={job.id} "
         f"workflow={job.workflow_id} workflow_run={job.workflow_run_id} error={inputs.error}"
     )
