@@ -19,6 +19,7 @@ on:
 
 jobs:
     build-images:
+        timeout-minutes: 20
         uses: ./.github/workflows/_rust-build-images.yml
         with:
             tag-rules: |
