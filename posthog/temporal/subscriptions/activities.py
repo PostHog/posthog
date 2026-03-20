@@ -7,8 +7,6 @@ from structlog import get_logger
 from posthog.exceptions_capture import capture_exception
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.subscription import Subscription
-from posthog.slo.events import emit_slo_started
-from posthog.slo.types import SloArea, SloOperation, SloStartedProperties
 from posthog.sync import database_sync_to_async
 from posthog.temporal.subscriptions.types import (
     CreateExportAssetsInputs,
@@ -76,19 +74,8 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
         has_insight=bool(subscription.insight_id),
         target_type=subscription.target_type,
     )
-    distinct_id = str(subscription.created_by.distinct_id) if subscription.created_by else str(team.id)
-    emit_slo_started(
-        distinct_id=distinct_id,
-        properties=SloStartedProperties(
-            operation=SloOperation.SUBSCRIPTION_DELIVERY,
-            resource_id=str(inputs.subscription_id),
-            area=SloArea.ANALYTIC_PLATFORM,
-            team_id=team.id,
-        ),
-    )
 
     # Early exit if target value hasn't changed — avoids creating orphaned assets
-    # and emitting unpaired slo_operation_started events
     if inputs.previous_value is not None and subscription.target_value == inputs.previous_value:
         await LOGGER.ainfo(
             "create_export_assets.no_change_skipping",
@@ -151,7 +138,6 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
         exported_asset_ids=[a.id for a in assets],
         total_insight_count=len(insights),
         team_id=team.id,
-        distinct_id=distinct_id,
         target_type=subscription.target_type,
     )
 
@@ -315,18 +301,20 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> None:
             if not is_user_config_error:
                 raise  # Transient Slack errors — let Temporal retry
 
-    # Update next delivery date (unless this is a new-subscription-target delivery)
-    if not inputs.is_new_subscription_target:
-        subscription.set_next_delivery_date(subscription.next_delivery_date)
-        await database_sync_to_async(subscription.save, thread_sensitive=False)(update_fields=["next_delivery_date"])
-        await LOGGER.ainfo(
-            "deliver_subscription.next_delivery_updated",
-            subscription_id=inputs.subscription_id,
-            next_delivery_date=subscription.next_delivery_date,
-        )
-
     await LOGGER.ainfo(
         "deliver_subscription.completed",
         subscription_id=inputs.subscription_id,
         target_type=subscription.target_type,
+    )
+
+
+@temporalio.activity.defn
+async def advance_next_delivery_date(subscription_id: int) -> None:
+    subscription = await database_sync_to_async(Subscription.objects.get, thread_sensitive=False)(pk=subscription_id)
+    subscription.set_next_delivery_date(subscription.next_delivery_date)
+    await database_sync_to_async(subscription.save, thread_sensitive=False)(update_fields=["next_delivery_date"])
+    await LOGGER.ainfo(
+        "advance_next_delivery_date.updated",
+        subscription_id=subscription_id,
+        next_delivery_date=subscription.next_delivery_date,
     )

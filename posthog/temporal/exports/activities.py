@@ -1,4 +1,5 @@
 import time
+import traceback
 
 import structlog
 import temporalio.activity
@@ -6,8 +7,9 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.event_usage import EventSource
 from posthog.models.exported_asset import ExportedAsset
-from posthog.slo.events import emit_slo_completed
-from posthog.slo.types import SloArea, SloCompletedProperties, SloOperation, SloOutcome
+from posthog.models.subscription import Subscription
+from posthog.slo.events import emit_slo_completed, emit_slo_started
+from posthog.slo.types import SloArea, SloCompletedProperties, SloOperation, SloOutcome, SloStartedProperties
 from posthog.sync import database_sync_to_async
 from posthog.tasks import exporter
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -43,24 +45,27 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
         except Exception as e:
             duration_ms = (time.monotonic() - start) * 1000
             await database_sync_to_async(asset.refresh_from_db, thread_sensitive=False)()
+            exception_class = type(e).__name__
+            error_trace = "\n".join(traceback.format_exception(e)[:5])
             logger.warning(
                 "export_asset_activity.failed",
                 exported_asset_id=asset.id,
                 team_id=asset.team_id,
                 insight_id=asset.insight_id,
-                failure_type=asset.failure_type,
+                exception_class=exception_class,
                 error=str(e),
             )
             # Wrap in ApplicationError to propagate failure metadata as details
             # while preserving the exception class name for retry policy matching.
-            # Detail order: [failure_type, duration_ms, export_format, attempt]
+            # Detail order: [exception_class, duration_ms, export_format, attempt, error_trace]
             raise ApplicationError(
                 str(e),
-                asset.failure_type,
+                exception_class,
                 duration_ms,
                 asset.export_format,
                 temporalio.activity.info().attempt,
-                type=type(e).__name__,
+                error_trace,
+                type=exception_class,
             ) from e
 
         duration_ms = (time.monotonic() - start) * 1000
@@ -69,7 +74,6 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
         return ExportAssetResult(
             exported_asset_id=asset.id,
             success=asset.has_content,
-            failure_type=asset.failure_type,
             insight_id=asset.insight_id,
             duration_ms=duration_ms,
             export_format=asset.export_format,
@@ -93,11 +97,30 @@ async def emit_delivery_outcome(inputs: EmitDeliveryOutcomeInput) -> None:
             "subscription_id": inputs.subscription_id,
             "assets_with_content": inputs.assets_with_content,
             "total_assets": inputs.total_assets,
-            "failure_types": inputs.failure_types,
+            "errors": [{"exception_class": e.exception_class, "error_trace": e.error_trace} for e in inputs.errors],
         },
     )
     logger.info(
         "emit_delivery_outcome.emitted",
         subscription_id=inputs.subscription_id,
         outcome=inputs.outcome,
+    )
+
+
+@temporalio.activity.defn
+async def emit_delivery_started(subscription_id: int) -> None:
+    subscription = await database_sync_to_async(
+        Subscription.objects.select_related("created_by", "team").get,
+        thread_sensitive=False,
+    )(pk=subscription_id)
+    team = subscription.team
+    distinct_id = str(subscription.created_by.distinct_id) if subscription.created_by else str(team.id)
+    emit_slo_started(
+        distinct_id=distinct_id,
+        properties=SloStartedProperties(
+            operation=SloOperation.SUBSCRIPTION_DELIVERY,
+            resource_id=str(subscription_id),
+            area=SloArea.ANALYTIC_PLATFORM,
+            team_id=team.id,
+        ),
     )

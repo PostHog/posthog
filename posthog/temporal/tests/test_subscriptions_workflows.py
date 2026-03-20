@@ -21,8 +21,9 @@ from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.models.instance_setting import set_instance_setting
 from posthog.tasks.exports.failure_handler import ExcelColumnLimitExceeded
-from posthog.temporal.exports.activities import emit_delivery_outcome, export_asset_activity
+from posthog.temporal.exports.activities import emit_delivery_outcome, emit_delivery_started, export_asset_activity
 from posthog.temporal.subscriptions.activities import (
+    advance_next_delivery_date,
     create_export_assets,
     deliver_subscription,
     fetch_due_subscriptions_activity,
@@ -61,7 +62,9 @@ async def subscriptions_worker(temporal_client: Client):
             create_export_assets,
             export_asset_activity,
             deliver_subscription,
+            emit_delivery_started,
             emit_delivery_outcome,
+            advance_next_delivery_date,
         ],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
@@ -130,7 +133,9 @@ async def test_subscription_delivery_scheduling(
                 create_export_assets,
                 export_asset_activity,
                 deliver_subscription,
+                emit_delivery_started,
                 emit_delivery_outcome,
+                advance_next_delivery_date,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=50),
@@ -202,7 +207,9 @@ async def test_does_not_schedule_subscription_if_item_is_deleted(
                 create_export_assets,
                 export_asset_activity,
                 deliver_subscription,
+                emit_delivery_started,
                 emit_delivery_outcome,
+                advance_next_delivery_date,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=50),

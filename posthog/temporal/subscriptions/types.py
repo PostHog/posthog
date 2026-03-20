@@ -27,7 +27,6 @@ class CreateExportAssetsResult:
     exported_asset_ids: list[int]
     total_insight_count: int
     team_id: int = 0
-    distinct_id: str = ""
     target_type: str = ""
 
 
