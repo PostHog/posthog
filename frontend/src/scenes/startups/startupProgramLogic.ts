@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import posthog from 'posthog-js'
 
@@ -150,14 +150,6 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
-        // When billing data refreshes (e.g. after upgrading to paid plan),
-        // touch the form to force error recomputation so the billing check
-        // picks up the new has_active_subscription state
-        [billingLogic.actionTypes.loadBillingSuccess]: () => {
-            actions.setStartupProgramValue('organization_id', values.startupProgram.organization_id)
-        },
-    })),
     forms(({ values, actions, props }) => ({
         startupProgram: {
             defaults: {
@@ -171,22 +163,37 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 yc_proof_screenshot_url: undefined,
                 yc_merch_count: values.isYC ? 1 : undefined,
             } as StartupProgramFormValues,
-            errors: ({ organization_id, raised, incorporation_date, yc_batch, yc_proof_screenshot_url }) => {
-                if (!values.billing?.has_active_subscription) {
-                    return {
-                        _form: 'You need to upgrade to a paid plan before submitting your application',
+            // Selector-style errors so that validation recomputes when billing
+            // or isYC change, not only when form values change
+            errors: [
+                (s) => [s.startupProgram, s.billing, s.isYC],
+                (
+                    {
+                        organization_id,
+                        raised,
+                        incorporation_date,
+                        yc_batch,
+                        yc_proof_screenshot_url,
+                    }: StartupProgramFormValues,
+                    billing: BillingType | null,
+                    isYC: boolean
+                ) => {
+                    if (!billing?.has_active_subscription) {
+                        return {
+                            _form: 'You need to upgrade to a paid plan before submitting your application',
+                        }
                     }
-                }
 
-                return {
-                    organization_id: !organization_id ? 'Please select an organization' : undefined,
-                    raised: validateFunding(raised, values.isYC),
-                    incorporation_date: validateIncorporationDate(incorporation_date, values.isYC),
-                    yc_batch: values.isYC && !yc_batch ? 'Please select your YC batch' : undefined,
-                    yc_proof_screenshot_url:
-                        values.isYC && !yc_proof_screenshot_url ? 'Please upload a screenshot' : undefined,
-                }
-            },
+                    return {
+                        organization_id: !organization_id ? 'Please select an organization' : undefined,
+                        raised: validateFunding(raised, isYC),
+                        incorporation_date: validateIncorporationDate(incorporation_date, isYC),
+                        yc_batch: isYC && !yc_batch ? 'Please select your YC batch' : undefined,
+                        yc_proof_screenshot_url:
+                            isYC && !yc_proof_screenshot_url ? 'Please upload a screenshot' : undefined,
+                    }
+                },
+            ],
             submit: async (formValues: StartupProgramFormValues) => {
                 const valuesToSubmit: Record<string, any> = {
                     program: values.isYC ? StartupProgramType.YC : StartupProgramType.Startup,
