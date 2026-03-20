@@ -126,6 +126,19 @@ class WebhookCreationResult:
     extra_inputs: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
+@dataclasses.dataclass
+class ExternalWebhookInfo:
+    """Info about an external webhook on the source (e.g. Stripe webhook endpoint)."""
+
+    exists: bool
+    url: str | None = None
+    enabled_events: list[str] | None = None
+    status: str | None = None
+    description: str | None = None
+    created_at: str | None = None
+    error: str | None = None
+
+
 class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
     """Base class for sources that support webhook based imports."""
 
@@ -153,6 +166,14 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
         In most cases this will likely just be the table name -> table name. But in the case of Stripe, it's the
         table name mapped to the Stripe object type"""
         raise NotImplementedError()
+
+    def get_external_webhook_info(self, config: ConfigType, webhook_url: str) -> ExternalWebhookInfo | None:
+        """Check the external source for webhook status.
+
+        Returns None if the source doesn't support checking webhook info.
+        Sources should override this to query their API (e.g. list Stripe webhook endpoints).
+        """
+        return None
 
 
 AnySource = SimpleSource[ConfigType] | ResumableSource[ConfigType, ResumableData] | WebhookSource[ConfigType]

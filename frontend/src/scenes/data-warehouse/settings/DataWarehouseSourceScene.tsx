@@ -22,8 +22,9 @@ import { dataWarehouseSourceSettingsLogic } from './source/dataWarehouseSourceSe
 import { Schemas } from './source/Schemas'
 import { SourceConfiguration } from './source/SourceConfiguration'
 import { Syncs } from './source/Syncs'
+import { WebhookTab } from './source/WebhookTab'
 
-const DATA_WAREHOUSE_SOURCE_SCENE_TABS = ['schemas', 'syncs', 'configuration'] as const
+const DATA_WAREHOUSE_SOURCE_SCENE_TABS = ['schemas', 'syncs', 'configuration', 'webhook'] as const
 export type DataWarehouseSourceSceneTab = (typeof DATA_WAREHOUSE_SOURCE_SCENE_TABS)[number]
 
 export interface DataWarehouseSourceSceneProps {
@@ -178,12 +179,16 @@ function ManagedSourceTabs({
 
     const isDirectQuerySource =
         !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && source?.access_method === 'direct'
+    const showWebhookTab = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_SOURCE_WEBHOOKS] && !!source?.supports_webhooks
 
     useEffect(() => {
         if (isDirectQuerySource && currentTab === 'syncs') {
             setCurrentTab('schemas')
         }
-    }, [isDirectQuerySource, currentTab, setCurrentTab])
+        if (!showWebhookTab && currentTab === 'webhook') {
+            setCurrentTab('schemas')
+        }
+    }, [isDirectQuerySource, showWebhookTab, currentTab, setCurrentTab])
 
     const tabs: LemonTab<DataWarehouseSourceSceneTab>[] = [
         {
@@ -203,6 +208,14 @@ function ManagedSourceTabs({
             label: 'Syncs',
             key: 'syncs',
             content: <Syncs id={sourceId} />,
+        })
+    }
+
+    if (showWebhookTab) {
+        tabs.push({
+            label: 'Webhook',
+            key: 'webhook',
+            content: <WebhookTab id={sourceId} />,
         })
     }
 
