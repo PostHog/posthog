@@ -816,6 +816,17 @@ class Field(Expr):
 
 
 @dataclass(kw_only=True)
+class ColumnsExpr(Expr):
+    regex: Optional[str] = None
+    columns: Optional[list[Expr]] = None
+
+
+@dataclass(kw_only=True)
+class SpreadExpr(Expr):
+    expr: Expr
+
+
+@dataclass(kw_only=True)
 class Placeholder(Expr):
     expr: Expr
 
@@ -842,6 +853,7 @@ class Call(Expr):
     https://clickhouse.com/docs/en/sql-reference/aggregate-functions/parametric-functions
     """
     distinct: bool = False
+    within_group: Optional[list["OrderExpr"]] = None
 
 
 @dataclass(kw_only=True)
@@ -866,9 +878,10 @@ class JoinExpr(Expr):
     type: Optional[TableOrSelectType] = None
 
     join_type: Optional[str] = None
-    table: Optional[Union["SelectQuery", "SelectSetQuery", "Placeholder", "HogQLXTag", "Field"]] = None
+    table: Optional[Union["SelectQuery", "SelectSetQuery", "ValuesQuery", "Placeholder", "HogQLXTag", "Field"]] = None
     table_args: Optional[list[Expr]] = None
     alias: Optional[str] = None
+    alias_columns: Optional[list[str]] = None
     table_final: Optional[bool] = None
     constraint: Optional[JoinConstraint] = None
     next_join: Optional["JoinExpr"] = None
@@ -917,6 +930,11 @@ class LimitByExpr(Expr):
 
 
 @dataclass(kw_only=True)
+class GroupingSet(Expr):
+    exprs: list[Expr]
+
+
+@dataclass(kw_only=True)
 class SelectQuery(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
     type: Optional[SelectQueryType] = None
@@ -930,7 +948,9 @@ class SelectQuery(Expr):
     where: Optional[Expr] = None
     prewhere: Optional[Expr] = None
     having: Optional[Expr] = None
+    qualify: Optional[Expr] = None
     group_by: Optional[list[Expr]] = None
+    group_by_mode: Optional[str] = None  # None, "grouping_sets", "cube", "rollup"
     order_by: Optional[list[OrderExpr]] = None
     limit: Optional[Expr] = None
     limit_by: Optional[LimitByExpr] = None
@@ -961,6 +981,12 @@ class SelectQuery(Expr):
             ],
             where=Constant(value=False),
         )
+
+
+@dataclass(kw_only=True)
+class ValuesQuery(Expr):
+    type: Optional[SelectQueryType] = None
+    rows: list[list[Expr]]
 
 
 SetOperator = Literal[

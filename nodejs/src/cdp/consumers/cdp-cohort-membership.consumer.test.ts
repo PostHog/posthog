@@ -5,6 +5,7 @@ import { Message } from 'node-rdkafka'
 import { resetKafka } from '~/tests/helpers/kafka'
 import { UUIDT } from '~/utils/utils'
 
+import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import { resetBehavioralCohortsDatabase } from '../../../tests/helpers/sql'
 import { KAFKA_COHORT_MEMBERSHIP_CHANGED, KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER } from '../../config/kafka-topics'
 import { Hub } from '../../types'
@@ -22,7 +23,7 @@ describe('CdpCohortMembershipConsumer', () => {
     beforeEach(async () => {
         await resetKafka()
         hub = await createHub()
-        consumer = new CdpCohortMembershipConsumer(hub, hub)
+        consumer = new CdpCohortMembershipConsumer(hub, createCdpConsumerDeps(hub))
         await consumer.start()
         await resetBehavioralCohortsDatabase(hub.postgres)
     })

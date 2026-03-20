@@ -277,32 +277,24 @@ Analyze this video segment from a session recording of a user using {team_name}.
 This segment starts at {start_timestamp} in the full recording and runs for approximately {segment_duration:.0f} seconds.
 {events_section}
 Your task:
-- Describe what's happening in the video as a list of salient moments
-- Highlight what features were used, and what the user was doing with them
-- Note any problems, errors, confusion, or friction the user experienced
-- If tracked events show exceptions ($exception_types, $exception_values), validate if they happened in the video
-- Red lines indicate mouse movements, and should be ignored
-- If nothing is happening, return "Static" for the timestamp range
+- Describe what the user did and how it went. Group related actions together — not every click is a separate entry.
+- Cover what went smoothly and what didn't — don't only report problems.
+- Mention errors only when they visibly affected the user (error on screen, page failed to load, action didn't complete). Ignore background console errors with no visible impact.
+- Note confusion (backtracking, repeated attempts, rage clicking) only when clearly present.
+- Red lines indicate mouse movements — ignore them.
+- If nothing is happening, return "Static" for the timestamp range.
 
 Output format (use timestamps relative to the FULL recording, starting at {start_timestamp}):
-* MM:SS - MM:SS: <detailed description>
-* MM:SS - MM:SS: <detailed description>
-* etc.
+* MM:SS - MM:SS: <what happened and the outcome>
 
-Be specific and detailed about:
-- What the user clicked on
-- What pages or sections they navigated to
-- What they typed or entered
-- Any errors or loading states (correlate with exception events if available)
-- Signs of confusion or hesitation
-- What outcomes occurred
+Include:
+- Which features, pages, or sections were involved (use names visible on screen)
+- Whether the user finished what they were doing or left
+- Specific error messages only when visible on screen
 
 Example output:
-* 0:16 - 0:18: User clicked on the dashboard navigation item in the sidebar
-* 0:18 - 0:24: User scrolled through the dashboard page viewing multiple analytics widgets
-* 0:24 - 0:25: User clicked "Create new project" button in the top toolbar
-* 0:25 - 0:32: User filled out the project creation form, entering name and description
-* 0:32 - 0:33: User attempted to submit the form but received validation error "Name is required"
+* 0:16 - 0:24: Opened the analytics dashboard, scrolled through pageview and conversion trend widgets
+* 0:24 - 0:33: Went to project creation — filled out the form, clicked submit, but got a "Name is required" error. Tried again with the same result and left the page
 
 IMPORTANT: Use timestamps relative to the full recording (starting at {start_timestamp}), not relative to this segment.
 """
@@ -310,11 +302,11 @@ IMPORTANT: Use timestamps relative to the full recording (starting at {start_tim
 VIDEO_SEGMENT_ANALYSIS_PROMPT_EVENTS_SECTION = """
 <tracked_events>
 The following events were tracked during this segment. Use them to understand what actions the user took
-and correlate them with what you see in the video. Pay special attention to:
-- $exception_types and $exception_values: These indicate errors or exceptions that occurred
+and correlate them with what you see in the video:
 - elements_chain_texts: Text content the user interacted with
 - $event_type: The type of interaction (click, submit, etc.)
 - $current_url: The page URL where the action occurred
+- $exception_types and $exception_values: These indicate errors logged in the console. IMPORTANT: Only mention an exception if it visibly affected what the user was doing (e.g., an error message appeared on screen, a page failed to load, an action didn't complete). Many console errors are background noise — do not attribute them to the user's actions unless there is a clear visual connection.
 
 Events data (in chronological order):
 {events_context}

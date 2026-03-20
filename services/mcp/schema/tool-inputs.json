@@ -4054,6 +4054,17 @@
                                                 "type": "null"
                                             }
                                         ]
+                                    },
+                                    "aggregation_group_type_index": {
+                                        "description": "Group type index for this condition set. None means person-level aggregation.",
+                                        "anyOf": [
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
                                     }
                                 }
                             }
@@ -5318,6 +5329,17 @@
                                         "anyOf": [
                                             {
                                                 "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
+                                    },
+                                    "aggregation_group_type_index": {
+                                        "description": "Group type index for this condition set. None means person-level aggregation.",
+                                        "anyOf": [
+                                            {
+                                                "type": "number"
                                             },
                                             {
                                                 "type": "null"

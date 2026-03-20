@@ -18,10 +18,11 @@ import {
     IconPlus,
     IconShare,
 } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
+import { TZLabel } from 'lib/components/TZLabel'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -149,6 +150,11 @@ const cleanClickhouseType = (type: string | undefined): string | undefined => {
     }
 
     return type.replace(/\(.+\)+/, '')
+}
+
+const isDateTimeType = (type: string | undefined): boolean => {
+    const cleanedType = cleanClickhouseType(type)
+    return cleanedType === 'DateTime' || cleanedType === 'DateTime32' || cleanedType === 'DateTime64'
 }
 
 function RowDetailsModal({ isOpen, onClose, row, columns, columnKeys }: RowDetailsModalProps): JSX.Element {
@@ -286,8 +292,15 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
 
-    const { sourceQuery, exportContext, insightLoading, showLegacyFilters, hasQueryInput, isEmbeddedMode } =
-        useValues(sqlEditorLogic)
+    const {
+        sourceQuery,
+        exportContext,
+        insightLoading,
+        viewLoading,
+        showLegacyFilters,
+        hasQueryInput,
+        isEmbeddedMode,
+    } = useValues(sqlEditorLogic)
     const { setSourceQuery, runQuery, shareTab } = useActions(sqlEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
@@ -336,6 +349,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
             },
             ...(response?.columns?.map((column: string, index: number) => {
                 const type = types?.[index]?.[1]
+                const isDateTimeColumn = isDateTimeType(type)
 
                 const maxContentLength = Math.max(
                     column.length,
@@ -416,6 +430,11 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                 return <span className="text-red">Error parsing value</span>
                             }
                         }
+
+                        if (isDateTimeColumn && typeof value === 'string' && value) {
+                            return <TZLabel time={value} timestampStyle="absolute" />
+                        }
+
                         return value
                     },
                 }
@@ -617,6 +636,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                     tabId={tabId}
                     setProgress={setProgress}
                     progress={queryId ? progressCache[queryId] : undefined}
+                    viewLoading={viewLoading}
                 />
             </div>
             <div className="flex justify-between px-2 border-t">
@@ -763,6 +783,7 @@ const Content = ({
     setProgress,
     progress,
     insightLoading,
+    viewLoading,
 }: any): JSX.Element | null => {
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
 
@@ -793,6 +814,17 @@ const Content = ({
         })
     }, [rows, sortColumns])
     if (activeTab === OutputTab.Materialization) {
+        if (viewLoading) {
+            return (
+                <div className="flex flex-1 items-center justify-center border-t">
+                    <div className="flex flex-col items-center gap-3 text-secondary">
+                        <Spinner className="text-6xl" />
+                        <span className="text-sm font-medium">Loading view...</span>
+                    </div>
+                </div>
+            )
+        }
+
         return (
             <TabScroller>
                 <div className="px-6 py-4 border-t">

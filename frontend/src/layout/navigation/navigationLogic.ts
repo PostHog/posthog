@@ -34,7 +34,7 @@ export const navigationLogic = kea<navigationLogicType>([
             membersLogic,
             ['memberCount'],
             organizationLogic,
-            ['currentOrganization'],
+            ['currentOrganization', 'currentOrganizationId'],
         ],
         actions: [eventUsageLogic, ['reportProjectNoticeDismissed']],
     })),
@@ -42,12 +42,14 @@ export const navigationLogic = kea<navigationLogicType>([
         closeProjectNotice: (projectNoticeVariant: ProjectNoticeVariant) => ({ projectNoticeVariant }),
         showConfigurePinnedTabsModal: true,
         hideConfigurePinnedTabsModal: true,
+        showConfigurePinnedTabsTooltip: true,
+        hideConfigurePinnedTabsTooltip: true,
     }),
     loaders(({ values }) => ({
         proxyRecords: {
             __default: null as null | ProxyRecord[],
             loadRecords: async () => {
-                const response = await api.get(`api/organizations/${values.currentOrganization?.id}/proxy_records`)
+                const response = await api.get(`api/organizations/${values.currentOrganizationId}/proxy_records`)
                 return response.results
             },
         },
@@ -84,6 +86,20 @@ export const navigationLogic = kea<navigationLogicType>([
             {
                 showConfigurePinnedTabsModal: () => true,
                 hideConfigurePinnedTabsModal: () => false,
+            },
+        ],
+        isConfigurePinnedTabsTooltipVisible: [
+            false,
+            {
+                showConfigurePinnedTabsTooltip: () => true,
+                hideConfigurePinnedTabsTooltip: () => false,
+            },
+        ],
+        isConfigurePinnedTabsTooltipDismissed: [
+            false,
+            { persist: true },
+            {
+                hideConfigurePinnedTabsTooltip: () => true,
             },
         ],
     }),

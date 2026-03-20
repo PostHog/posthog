@@ -1337,22 +1337,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     analytics_props=analytics_props,
                 )
 
-            if execution_mode == ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE:
-                from posthog.hogql_queries.query_coalescer import QueryCoalescer
-
-                CachedResponse = self.cached_response_type
-                dry_run = not posthoganalytics.feature_enabled(
-                    "query-coalescing",
-                    str(self.team.pk),
-                )
-                coalescer = QueryCoalescer(cache_key, self.query_id, dry_run=dry_run)
-                return coalescer.run_coalesced(
-                    execute=execute_blocking,
-                    get_cache_data=cache_manager.get_cache_data,
-                    build_response=lambda data: CachedResponse(**{**data, "is_cached": True}),
-                    max_wait=settings.QUERY_COALESCING_MAX_WAIT_SECONDS,
-                )
-
             return execute_blocking()
 
     def _execute_and_cache_blocking(
@@ -1744,7 +1728,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # The default logic below applies to all insights and a lot of other queries
         # Notable exception: `HogQLQuery`, which has `properties` and `dateRange` within `HogQLFilters`
         if dashboard_filter.properties:
-            if self.query.properties:
+            if self.query.properties and _has_any_property_filters(self.query.properties):
                 # Check if query expects only a list (e.g. WebOverviewQuery) vs union with PropertyGroupFilter
                 properties_field = self.query.__class__.model_fields.get("properties")
                 expects_only_list = properties_field and get_origin(properties_field.annotation) is list
@@ -1788,6 +1772,32 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     )
                 )
         self.__post_init__()
+
+
+def _has_any_property_filters(
+    properties: object,
+) -> bool:
+    """Check if properties contain any actual filter values, not just empty group structure."""
+    if isinstance(properties, PropertyGroupFilter):
+        return any(_has_any_property_filters_in_group(v) for v in properties.values)
+    if isinstance(properties, list):
+        return len(properties) > 0
+    return bool(properties)
+
+
+def _has_any_property_filters_in_group(
+    group: PropertyGroupFilterValue,
+) -> bool:
+    if not group.values:
+        return False
+    for v in group.values:
+        if isinstance(v, PropertyGroupFilterValue):
+            if _has_any_property_filters_in_group(v):
+                return True
+        else:
+            # It's an actual property filter
+            return True
+    return False
 
 
 # Type constraint for analytics query responses

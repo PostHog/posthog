@@ -1477,6 +1477,36 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))  # type: ignore
         self.assertFalse(self.user.check_password("a12345678"))
 
+    def test_cant_reset_password_with_non_uuid_user_id(self):
+        token = password_reset_token_generator.make_token(self.user)
+
+        response = self.client.post("/api/reset/confirm/", {"token": token, "password": "a12345678"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_token",
+                "detail": "This reset token is invalid or has expired.",
+                "attr": "token",
+            },
+        )
+
+    def test_cant_validate_token_with_non_uuid_user_id(self):
+        token = password_reset_token_generator.make_token(self.user)
+
+        response = self.client.get(f"/api/reset/confirm/?token={token}")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_token",
+                "detail": "This reset token is invalid or has expired.",
+                "attr": "token",
+            },
+        )
+
     @patch("posthog.tasks.email.send_password_changed_email.delay")
     def test_password_change_invalidates_reset_token(self, mock_send_email):
         token = password_reset_token_generator.make_token(self.user)
@@ -1519,6 +1549,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             user=self.user,
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
+            scopes=["*"],
         )
 
         with freeze_time("2021-08-25T22:10:14.252"):
@@ -1541,6 +1572,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             user=self.user,
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
+            scopes=["*"],
         )
 
         with freeze_time("2022-08-25T22:00:14.252"):
@@ -1563,6 +1595,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             user=self.user,
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
+            scopes=["*"],
         )
 
         with freeze_time("2021-08-26T22:00:14.252"):
@@ -1580,7 +1613,9 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
         self.client.logout()
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="X", user=self.user, secure_value=hash_key_value(personal_api_key), scopes=["*"]
+        )
 
         with freeze_time("2022-08-25T22:00:14.252"):
             response = self.client.get(
@@ -1602,6 +1637,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             user=self.user,
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
+            scopes=["*"],
         )
 
         with freeze_time("2021-08-25T21:14:14.252"):
@@ -1623,6 +1659,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             user=self.user,
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
+            scopes=["*"],
         )
 
         with freeze_time("2021-08-24T21:14:14.252"):

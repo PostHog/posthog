@@ -40,6 +40,9 @@ class PostgresPrinter(HogQLPrinter):
         return self.visit(node.type)
 
     def visit_call(self, node: ast.Call):
+        if node.name.lower() in {"percentile_cont", "percentile_disc"}:
+            return super().visit_call(node)
+
         if node.name in {
             "toStartOfSecond",
             "toStartOfMinute",
@@ -84,9 +87,7 @@ class PostgresPrinter(HogQLPrinter):
         if func_name in POSTGRES_PASSTHROUGH_FUNCTIONS:
             return f"{func_name}({', '.join(args)})"
 
-        raise QueryError(
-            f"Function '{node.name}' is not supported in the Postgres dialect. It may only be available in ClickHouse."
-        )
+        raise QueryError(f"Function '{node.name}' is not supported in the Postgres dialect.")
 
     def _visit_to_start_of_call(self, node: ast.Call) -> str:
         if len(node.args) == 0:

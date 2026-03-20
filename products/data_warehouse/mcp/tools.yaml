@@ -1,0 +1,396 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Data warehouse
+feature: data_warehouse
+url_prefix: /sql
+tools:
+    fix-hogql-retrieve:
+        operation: fix_hogql_retrieve
+        enabled: false
+    fix-hogql-create:
+        operation: fix_hogql_create
+        enabled: false
+    lineage-get-upstream-retrieve:
+        operation: lineage_get_upstream_retrieve
+        enabled: false
+    managed-viewsets-retrieve:
+        operation: managed_viewsets_retrieve
+        enabled: false
+    managed-viewsets-update:
+        operation: managed_viewsets_update
+        enabled: false
+    warehouse-saved-query-drafts-list:
+        operation: warehouse_saved_query_drafts_list
+        enabled: false
+    warehouse-saved-query-drafts-create:
+        operation: warehouse_saved_query_drafts_create
+        enabled: false
+    warehouse-saved-query-drafts-retrieve:
+        operation: warehouse_saved_query_drafts_retrieve
+        enabled: false
+    warehouse-saved-query-drafts-update:
+        operation: warehouse_saved_query_drafts_update
+        enabled: false
+    warehouse-saved-query-drafts-partial-update:
+        operation: warehouse_saved_query_drafts_partial_update
+        enabled: false
+    warehouse-saved-query-drafts-destroy:
+        operation: warehouse_saved_query_drafts_destroy
+        enabled: false
+    data-modeling-jobs-list:
+        operation: data_modeling_jobs_list
+        enabled: false
+    data-modeling-jobs-retrieve:
+        operation: data_modeling_jobs_retrieve
+        enabled: false
+    data-modeling-jobs-recent-retrieve:
+        operation: data_modeling_jobs_recent_retrieve
+        enabled: false
+    data-modeling-jobs-running-retrieve:
+        operation: data_modeling_jobs_running_retrieve
+        enabled: false
+    data-warehouse-completed-activity-retrieve:
+        operation: data_warehouse_completed_activity_retrieve
+        enabled: false
+    data-warehouse-data-health-issues-retrieve:
+        operation: data_warehouse_data_health_issues_retrieve
+        enabled: false
+    data-warehouse-job-stats-retrieve:
+        operation: data_warehouse_job_stats_retrieve
+        enabled: false
+    data-warehouse-property-values-retrieve:
+        operation: data_warehouse_property_values_retrieve
+        enabled: false
+    data-warehouse-running-activity-retrieve:
+        operation: data_warehouse_running_activity_retrieve
+        enabled: false
+    data-warehouse-total-rows-stats-retrieve:
+        operation: data_warehouse_total_rows_stats_retrieve
+        enabled: false
+    external-data-schemas-list:
+        operation: external_data_schemas_list
+        enabled: false
+    external-data-schemas-create:
+        operation: external_data_schemas_create
+        enabled: false
+    external-data-sources-list:
+        operation: external_data_sources_list
+        enabled: false
+    external-data-sources-create:
+        operation: external_data_sources_create
+        enabled: false
+    external-data-sources-retrieve:
+        operation: external_data_sources_retrieve
+        enabled: false
+    external-data-sources-update:
+        operation: external_data_sources_update
+        enabled: false
+    external-data-sources-partial-update:
+        operation: external_data_sources_partial_update
+        enabled: false
+    external-data-sources-destroy:
+        operation: external_data_sources_destroy
+        enabled: false
+    external-data-sources-jobs-retrieve:
+        operation: external_data_sources_jobs_retrieve
+        enabled: false
+    external-data-sources-refresh-schemas-create:
+        operation: external_data_sources_refresh_schemas_create
+        enabled: false
+    external-data-sources-reload-create:
+        operation: external_data_sources_reload_create
+        enabled: false
+    external-data-sources-revenue-analytics-config-partial-update:
+        operation: external_data_sources_revenue_analytics_config_partial_update
+        enabled: false
+    external-data-sources-database-schema-create:
+        operation: external_data_sources_database_schema_create
+        enabled: false
+    external-data-sources-source-prefix-create:
+        operation: external_data_sources_source_prefix_create
+        enabled: false
+    external-data-sources-wizard-retrieve:
+        operation: external_data_sources_wizard_retrieve
+        enabled: false
+    query-tab-state-list:
+        operation: query_tab_state_list
+        enabled: false
+    query-tab-state-create:
+        operation: query_tab_state_create
+        enabled: false
+    query-tab-state-retrieve:
+        operation: query_tab_state_retrieve
+        enabled: false
+    query-tab-state-update:
+        operation: query_tab_state_update
+        enabled: false
+    query-tab-state-partial-update:
+        operation: query_tab_state_partial_update
+        enabled: false
+    query-tab-state-destroy:
+        operation: query_tab_state_destroy
+        enabled: false
+    query-tab-state-user-retrieve:
+        operation: query_tab_state_user_retrieve
+        enabled: false
+    warehouse-dag-retrieve:
+        operation: warehouse_dag_retrieve
+        enabled: false
+    warehouse-model-paths-list:
+        operation: warehouse_model_paths_list
+        enabled: false
+    warehouse-saved-queries-list:
+        operation: warehouse_saved_queries_list
+        enabled: true
+        scopes:
+            - warehouse_view:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: ?open_view={id}
+        list: true
+        title: List saved queries
+        description: >
+            List all data warehouse saved queries (views) in the project. Returns each view's name, materialization
+            status, sync frequency, column schema, latest error, and last run timestamp. Use this to discover available
+            views before querying them in HogQL.
+        mcp_version: 1
+    warehouse-saved-queries-create:
+        operation: warehouse_saved_queries_create
+        enabled: true
+        scopes:
+            - warehouse_view:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: ?open_view={id}
+        title: Create saved query
+        description: >
+            Create a new data warehouse saved query (view). If a view with the same name already exists, it will be
+            updated instead (upsert behavior). The query must be valid HogQL. After creation, the view can be referenced
+            by name in other HogQL queries.
+        exclude_params:
+            - deleted
+            - edited_history_id
+            - soft_update
+            - is_materialized
+            - origin
+            - status
+            - latest_error
+            - created_by
+            - created_at
+            - columns
+            - last_run_at
+            - managed_viewset_kind
+            - latest_history_id
+        param_overrides:
+            name:
+                description:
+                    Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table
+                    names.
+            query:
+                description:
+                    'HogQL query definition as a JSON object. Must contain a "query" key with the SQL string. Example:
+                    {"query": "SELECT * FROM events LIMIT 100"}'
+        mcp_version: 2
+    warehouse-saved-queries-retrieve:
+        operation: warehouse_saved_queries_retrieve
+        enabled: true
+        scopes:
+            - warehouse_view:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: ?open_view={id}
+        title: Get saved query
+        description: >
+            Get a specific data warehouse saved query (view) by ID. Returns the full view definition including the HogQL
+            query, column schema, materialization status, sync frequency, and run history metadata.
+        mcp_version: 1
+    warehouse-saved-queries-update:
+        operation: warehouse_saved_queries_update
+        enabled: false
+    warehouse-saved-queries-partial-update:
+        operation: warehouse_saved_queries_partial_update
+        enabled: true
+        scopes:
+            - warehouse_view:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: ?open_view={id}
+        title: Update saved query
+        description: >
+            Update an existing data warehouse saved query (view). Can change the name, HogQL query, or sync frequency.
+            Changing the query triggers column re-inference and sets the status to 'modified'. Use sync_frequency to
+            control materialization schedule: '24hour', '12hour', '6hour', '1hour', '30min', or 'never'. IMPORTANT: when
+            updating the query field, you must first retrieve the view to get its latest_history_id, then pass that
+            value as edited_history_id for conflict detection.
+        exclude_params:
+            - deleted
+            - soft_update
+            - is_materialized
+            - origin
+            - status
+            - latest_error
+            - created_by
+            - created_at
+            - columns
+            - last_run_at
+            - managed_viewset_kind
+            - latest_history_id
+        param_overrides:
+            name:
+                description:
+                    Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table
+                    names.
+            query:
+                description:
+                    'HogQL query definition as a JSON object. Must contain a "query" key with the SQL string. Example:
+                    {"query": "SELECT * FROM events LIMIT 100"}'
+            edited_history_id:
+                description:
+                    Required when updating the query field. Get this from latest_history_id on the retrieve response. Used for
+                    optimistic concurrency control.
+        mcp_version: 2
+    warehouse-saved-queries-destroy:
+        operation: warehouse_saved_queries_destroy
+        enabled: true
+        scopes:
+            - warehouse_view:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Delete saved query
+        description: >
+            Delete a data warehouse saved query (view) by ID. This is a soft delete — the view is marked as deleted and
+            will no longer appear in lists or be queryable in HogQL. Any materialization schedule is also removed.
+            Cannot delete views that have downstream dependencies or views from managed viewsets.
+        mcp_version: 2
+        soft_delete: true
+    warehouse-saved-queries-activity-retrieve:
+        operation: warehouse_saved_queries_activity_retrieve
+        enabled: false
+    warehouse-saved-queries-ancestors-create:
+        operation: warehouse_saved_queries_ancestors_create
+        enabled: false
+    warehouse-saved-queries-cancel-create:
+        operation: warehouse_saved_queries_cancel_create
+        enabled: false
+    warehouse-saved-queries-dependencies-retrieve:
+        operation: warehouse_saved_queries_dependencies_retrieve
+        enabled: false
+    warehouse-saved-queries-descendants-create:
+        operation: warehouse_saved_queries_descendants_create
+        enabled: false
+    warehouse-saved-queries-materialize-create:
+        operation: warehouse_saved_queries_materialize_create
+        enabled: true
+        scopes:
+            - warehouse_view:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: ?open_view={id}
+        title: Materialize saved query
+        description: >
+            Enable materialization for a saved query. This creates a physical table from the view's query and sets up a
+            24-hour sync schedule to keep it refreshed. Materialized views are faster to query but use storage. Use
+            'warehouse-saved-queries-revert-materialization-create' to undo. Rate limited.
+        mcp_version: 2
+    warehouse-saved-queries-revert-materialization-create:
+        operation: warehouse_saved_queries_revert_materialization_create
+        enabled: true
+        scopes:
+            - warehouse_view:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: ?open_view={id}
+        title: Revert materialization
+        description: >
+            Undo materialization for a saved query. Deletes the materialized table and removes the sync schedule,
+            reverting the view back to a virtual query that runs on each access. The view definition itself is
+            preserved. Rate limited.
+        mcp_version: 2
+    warehouse-saved-queries-run-create:
+        operation: warehouse_saved_queries_run_create
+        enabled: true
+        scopes:
+            - warehouse_view:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: ?open_view={id}
+        title: Run saved query
+        description: >
+            Trigger a manual materialization run for a saved query. This immediately refreshes the materialized table
+            with the latest data. The view must already be materialized. Use
+            'warehouse-saved-queries-run-history-retrieve' to check run status.
+        mcp_version: 2
+    warehouse-saved-queries-run-history-retrieve:
+        operation: warehouse_saved_queries_run_history_retrieve
+        enabled: true
+        scopes:
+            - warehouse_view:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: ?open_view={id}
+        title: Get run history
+        description: >
+            Get the 5 most recent materialization run statuses for a saved query. Each entry includes the run status and
+            timestamp. Use this to monitor whether materialization is running successfully.
+        mcp_version: 1
+    warehouse-saved-queries-resume-schedules-create:
+        operation: warehouse_saved_queries_resume_schedules_create
+        enabled: false
+    warehouse-tables-list:
+        operation: warehouse_tables_list
+        enabled: false
+    warehouse-tables-create:
+        operation: warehouse_tables_create
+        enabled: false
+    warehouse-tables-file-create:
+        operation: warehouse_tables_file_create
+        enabled: false
+    warehouse-view-link-list:
+        operation: warehouse_view_link_list
+        enabled: false
+    warehouse-view-link-create:
+        operation: warehouse_view_link_create
+        enabled: false
+    warehouse-view-link-validate-create:
+        operation: warehouse_view_link_validate_create
+        enabled: false
+    warehouse-view-links-list:
+        operation: warehouse_view_links_list
+        enabled: false
+    warehouse-view-links-create:
+        operation: warehouse_view_links_create
+        enabled: false
+    warehouse-view-links-validate-create:
+        operation: warehouse_view_links_validate_create
+        enabled: false
+    data-warehouse-data-ops-dashboard-retrieve:
+        operation: data_warehouse_data_ops_dashboard_retrieve
+        enabled: false
+    external-data-sources-create-webhook-create:
+        operation: external_data_sources_create_webhook_create
+        enabled: false
+    external-data-sources-update-webhook-inputs-create:
+        operation: external_data_sources_update_webhook_inputs_create
+        enabled: false

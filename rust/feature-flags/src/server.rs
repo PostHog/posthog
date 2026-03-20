@@ -5,9 +5,14 @@ use std::time::Duration;
 
 use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
+use crate::cohorts::membership::{
+    CachedCohortMembershipProvider, CohortMembershipProvider, NoOpCohortMembershipProvider,
+    RealtimeCohortMembershipProvider,
+};
 use crate::config::Config;
 use crate::database_pools::DatabasePools;
 use crate::db_monitor::DatabasePoolMonitor;
+use crate::flags::flag_group_type_mapping::GroupTypeCacheManager;
 use crate::rayon_dispatcher::RayonDispatcher;
 use crate::router;
 use crate::tokio_monitor::TokioRuntimeMonitor;
@@ -114,6 +119,32 @@ pub async fn serve<F>(
         Some(config.cohort_cache_capacity_bytes),
         Some(config.cache_ttl_seconds),
     ));
+
+    let group_type_cache = Arc::new(GroupTypeCacheManager::new(
+        database_pools.persons_reader.clone(),
+        Some(config.group_type_cache_max_entries),
+        Some(config.group_type_cache_ttl_seconds),
+    ));
+
+    // Initialize the cohort membership provider for realtime/behavioral cohorts.
+    // Requires both the behavioral cohorts DB pool AND the explicit feature gate.
+    // When the gate is off (default), NoOp is used regardless of DB availability,
+    // so no realtime cohort queries hit the hot path until you flip the env var.
+    let cohort_membership_provider: Arc<dyn CohortMembershipProvider> =
+        if config.enable_realtime_cohort_evaluation {
+            if let Some(pool) = database_pools.behavioral_cohorts_reader.clone() {
+                let realtime = RealtimeCohortMembershipProvider::new(pool);
+                Arc::new(CachedCohortMembershipProvider::new(
+                    realtime,
+                    Some(config.cohort_membership_cache_ttl_seconds),
+                    Some(config.cohort_membership_cache_max_entries),
+                ))
+            } else {
+                Arc::new(NoOpCohortMembershipProvider)
+            }
+        } else {
+            Arc::new(NoOpCohortMembershipProvider)
+        };
 
     let health = HealthRegistry::new("liveness");
 
@@ -345,11 +376,14 @@ pub async fn serve<F>(
         );
     }
 
+    let service_mode = config.service_mode.clone();
+
     let app = router::router(
         redis_client,
         dedicated_redis_client,
         database_pools,
         cohort_cache,
+        group_type_cache,
         geoip_service,
         health,
         feature_flags_billing_limiter,
@@ -361,10 +395,15 @@ pub async fn serve<F>(
         config_hypercache_reader,
         rayon_dispatcher,
         team_negative_cache,
+        cohort_membership_provider,
         config,
     );
 
-    tracing::info!("listening on {:?}", listener.local_addr().unwrap());
+    tracing::info!(
+        service_mode = ?service_mode,
+        "listening on {:?}",
+        listener.local_addr().unwrap()
+    );
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),

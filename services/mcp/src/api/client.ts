@@ -149,7 +149,7 @@ export class ApiClient {
         method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
         path: string
         body?: Record<string, unknown>
-        query?: Record<string, string | number | boolean | string[] | undefined>
+        query?: Record<string, string | number | boolean | (string | number)[] | undefined>
     }): Promise<T> {
         const searchParams = new URLSearchParams()
         if (opts.query) {
@@ -238,8 +238,14 @@ export class ApiClient {
                     )
                 }
 
-                const rawData = await response.json()
-                return { success: true, data: rawData as T }
+                // Handle responses with no body (e.g. 202 Accepted, 204 No Content)
+
+                const text = await response.text()
+                if (!text) {
+                    return { success: true, data: {} as T }
+                }
+                const rawData = JSON.parse(text) as T
+                return { success: true, data: rawData }
             } catch (error) {
                 // Only retry on rate limit errors, not other errors
                 if (error instanceof Error && error.message.includes('Rate limit')) {

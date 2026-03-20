@@ -123,7 +123,7 @@ async fn test_get_distinct_ids_for_person() {
 
     let result = ctx
         .storage
-        .get_distinct_ids_for_person(ctx.team_id, person.id, ConsistencyLevel::Eventual)
+        .get_distinct_ids_for_person(ctx.team_id, person.id, ConsistencyLevel::Eventual, None)
         .await
         .expect("Failed to get distinct IDs");
 
@@ -302,6 +302,7 @@ async fn test_get_distinct_ids_for_persons() {
             ctx.team_id,
             &[person1.id, person2.id],
             ConsistencyLevel::Eventual,
+            None,
         )
         .await
         .expect("Failed to get distinct ids for persons");

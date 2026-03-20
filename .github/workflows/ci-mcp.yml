@@ -56,6 +56,7 @@ jobs:
               with:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
+                  cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install Python dependencies
@@ -91,6 +92,9 @@ jobs:
                     exit 1
                   fi
 
+            - name: Lint tool names
+              run: cd services/mcp && pnpm lint-tool-names
+
     unit-tests:
         name: Unit Tests
         runs-on: ubuntu-latest
@@ -116,7 +120,43 @@ jobs:
               run: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
 
             - name: Run unit tests
-              run: cd services/mcp && pnpm run test
+              run: |
+                  pnpm --filter=@posthog/mcp run test -u
+
+                  if [ -n "$(git status --porcelain -- services/mcp/tests/unit)" ]; then
+                    echo ""
+                    git status --short -- services/mcp/tests/unit
+                    echo "::error::MCP unit test artifacts are out of date. Run 'pnpm --filter=@posthog/mcp run test -u' and commit the result."
+                    exit 1
+                  fi
+
+            - name: Create snapshot patch
+              id: create-snapshot-patch
+              if: ${{ always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.actor, '[bot]') && github.actor != 'posthog-bot' && !contains(github.actor, 'github-actions') }}
+              run: |
+                  SNAPSHOT_PATH="services/mcp/tests/unit"
+
+                  if [ -z "$(git status --porcelain -- "$SNAPSHOT_PATH")" ]; then
+                    echo "No MCP unit test changes"
+                    echo "has-changes=false" >> $GITHUB_OUTPUT
+                  else
+                    echo "MCP unit test changes detected:"
+                    git status --short -- "$SNAPSHOT_PATH"
+
+                    git add -N "$SNAPSHOT_PATH"
+                    mkdir -p /tmp/patches
+                    git diff --binary --full-index "$SNAPSHOT_PATH" > /tmp/patches/mcp-unit-tests.patch
+                    echo "has-changes=true" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Upload snapshot patch
+              if: ${{ steps.create-snapshot-patch.outputs.has-changes == 'true' && always() }}
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: mcp-snapshot-patch
+                  path: /tmp/patches/mcp-unit-tests.patch
+                  retention-days: 1
+                  if-no-files-found: ignore
 
     integration-tests:
         name: Integration Tests
@@ -200,6 +240,7 @@ jobs:
               with:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
+                  cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install SAML (python3-saml) dependencies
@@ -256,7 +297,7 @@ jobs:
               shell: bash
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-              run: bin/ci-wait-for-docker launch
+              run: bin/ci-wait-for-docker launch --down
 
             - name: Wait for Docker services
               shell: bash
@@ -311,6 +352,7 @@ jobs:
                       user=user,
                       label='mcp_ci_api_key',
                       secure_value=hash_key_value('e2e_demo_api_key'),
+                      scopes=['*'],
                   )
                   # Ensure common event definitions exist for MCP integration tests
                   for event_name in ['\$pageview', '\$pageleave', '\$autocapture', '\$screen']:
@@ -358,9 +400,74 @@ jobs:
               shell: bash
               run: docker compose -f docker-compose.dev.yml logs
 
+    handle-snapshots:
+        name: Commit snapshot changes
+        runs-on: ubuntu-latest
+        needs: [changes, unit-tests]
+        if: ${{ always() && needs.changes.outputs.mcp == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.actor, '[bot]') && github.actor != 'posthog-bot' && !contains(github.actor, 'github-actions') }}
+        permissions:
+            contents: write
+            pull-requests: write
+        steps:
+            - name: Get app token
+              id: app-token
+              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              with:
+                  app_id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+
+            - name: Checkout
+              uses: actions/checkout@v6
+              with:
+                  ref: ${{ github.event.pull_request.head.sha }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name }}
+                  token: ${{ steps.app-token.outputs.token }}
+                  fetch-depth: 1
+
+            - name: Download snapshot patches
+              id: download-patches
+              continue-on-error: true
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  pattern: mcp-snapshot-patch
+                  path: /tmp/snapshot-patches
+                  merge-multiple: true
+
+            - name: Check for patches
+              id: check-patches
+              run: |
+                  if [ "${{ steps.download-patches.outcome }}" == "failure" ] || [ ! -d /tmp/snapshot-patches ]; then
+                    echo "has-patches=false" >> $GITHUB_OUTPUT
+                    echo "No snapshot patches found"
+                    exit 0
+                  fi
+
+                  if [ -n "$(find /tmp/snapshot-patches -name '*.patch' -type f -size +0c 2>/dev/null)" ]; then
+                    echo "has-patches=true" >> $GITHUB_OUTPUT
+                    echo "Found patches:"
+                    ls -la /tmp/snapshot-patches/
+                  else
+                    echo "has-patches=false" >> $GITHUB_OUTPUT
+                    echo "Patch files empty or missing - no snapshot changes"
+                  fi
+
+            - name: Commit snapshots
+              if: steps.check-patches.outputs.has-patches == 'true'
+              uses: ./.github/actions/commit-snapshots
+              with:
+                  workflow-type: backend
+                  patch-path: /tmp/snapshot-patches
+                  snapshot-path: 'services/mcp/tests/unit/'
+                  commit-message: 'test(mcp): update unit test snapshots'
+                  pr-number: ${{ github.event.pull_request.number }}
+                  repository: ${{ github.repository }}
+                  commit-sha: ${{ github.event.pull_request.head.sha }}
+                  branch-name: ${{ github.event.pull_request.head.ref }}
+                  github-token: ${{ steps.app-token.outputs.token }}
+
     # Collation job for required status check
     mcp_tests:
-        needs: [changes, build, unit-tests, integration-tests]
+        needs: [changes, build, unit-tests, integration-tests, handle-snapshots]
         name: MCP Tests Pass
         runs-on: ubuntu-latest
         if: always()
@@ -391,6 +498,11 @@ jobs:
 
                   if [[ "${{ needs.integration-tests.result }}" != "success" && "${{ needs.integration-tests.result }}" != "skipped" ]]; then
                     echo "MCP integration tests failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.handle-snapshots.result }}" == "failure" ]]; then
+                    echo "MCP snapshot commit job failed."
                     exit 1
                   fi
 

@@ -100,7 +100,7 @@ export const getMirascopeSteps = (ctx: OnboardingComponentsContext): StepDefinit
                     <CodeBlock
                         language="python"
                         code={dedent`
-                            @call(model="openai/gpt-4o-mini", client=openai_client)
+                            @call(model="openai/gpt-5-mini", client=openai_client)
                             def recommend_book(genre: str):
                                 return f"Recommend a {genre} book."
 
