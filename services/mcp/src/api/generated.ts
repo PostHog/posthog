@@ -29100,14 +29100,14 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type EnvironmentsInsightsGenerateNameCreateParams = {
-    format?: EnvironmentsInsightsGenerateNameCreateFormat;
+    export type EnvironmentsInsightsGenerateMetadataCreateParams = {
+    format?: EnvironmentsInsightsGenerateMetadataCreateFormat;
     };
 
-    export type EnvironmentsInsightsGenerateNameCreateFormat = typeof EnvironmentsInsightsGenerateNameCreateFormat[keyof typeof EnvironmentsInsightsGenerateNameCreateFormat];
+    export type EnvironmentsInsightsGenerateMetadataCreateFormat = typeof EnvironmentsInsightsGenerateMetadataCreateFormat[keyof typeof EnvironmentsInsightsGenerateMetadataCreateFormat];
 
 
-    export const EnvironmentsInsightsGenerateNameCreateFormat = {
+    export const EnvironmentsInsightsGenerateMetadataCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
@@ -31900,14 +31900,14 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type InsightsGenerateNameCreateParams = {
-    format?: InsightsGenerateNameCreateFormat;
+    export type InsightsGenerateMetadataCreateParams = {
+    format?: InsightsGenerateMetadataCreateFormat;
     };
 
-    export type InsightsGenerateNameCreateFormat = typeof InsightsGenerateNameCreateFormat[keyof typeof InsightsGenerateNameCreateFormat];
+    export type InsightsGenerateMetadataCreateFormat = typeof InsightsGenerateMetadataCreateFormat[keyof typeof InsightsGenerateMetadataCreateFormat];
 
 
-    export const InsightsGenerateNameCreateFormat = {
+    export const InsightsGenerateMetadataCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;

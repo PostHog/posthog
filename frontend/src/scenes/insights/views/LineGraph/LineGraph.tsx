@@ -434,6 +434,7 @@ export function LineGraph_({
                           colorMax: mainColor,
                           lineStyle: 'dotted',
                           width: 2,
+                          trendoffset: incompletenessOffsetFromEnd,
                       },
                   }
                 : {}),

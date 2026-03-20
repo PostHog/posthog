@@ -45,6 +45,12 @@ describe('dashboardsLogic', () => {
         },
         { ...dashboard({ created_by: { uuid: 'USER_UUID' } as UserBasicType }) },
         { ...dashboard({ created_by: { uuid: 'user2' } as UserBasicType, name: 'needle' }) },
+        {
+            ...dashboard({
+                created_by: { uuid: 'USER_UUID' } as UserBasicType,
+                name: 'VMS Feature - History Browser - Nova',
+            }),
+        },
     ]
 
     beforeEach(async () => {
@@ -53,7 +59,7 @@ describe('dashboardsLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/dashboards/': {
-                    count: 6,
+                    count: 7,
                     next: null,
                     previous: null,
                     results: allDashboards,
@@ -93,7 +99,7 @@ describe('dashboardsLogic', () => {
             logic.actions.setCurrentTab(DashboardsTab.Yours)
         }).toMatchValues({
             dashboards: truth((dashboards: DashboardType[]) => {
-                return dashboards.length === 4 && dashboards.every((d) => d.created_by?.uuid === 'USER_UUID')
+                return dashboards.length === 5 && dashboards.every((d) => d.created_by?.uuid === 'USER_UUID')
             }),
         })
     })
@@ -170,6 +176,19 @@ describe('dashboardsLogic', () => {
             }),
         })
     })
+
+    it.each([['Nova'], ['nova'], ['NOVA']])(
+        'search matches a token at the end of a long dashboard name — case "%s"',
+        (search) => {
+            expectLogic(logic, () => {
+                logic.actions.setFilters({ search })
+            }).toMatchValues({
+                dashboards: truth((dashboards: DashboardType[]) => {
+                    return dashboards.length === 1 && dashboards[0].name === 'VMS Feature - History Browser - Nova'
+                }),
+            })
+        }
+    )
 
     it('syncs search to URL when setSearch is called', async () => {
         await expectLogic(logic, () => {

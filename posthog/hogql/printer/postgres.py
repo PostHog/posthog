@@ -6,6 +6,7 @@ from posthog.hogql.ast import AST
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.models import StructDatabaseField
 from posthog.hogql.errors import ImpossibleASTError, QueryError
 from posthog.hogql.escape_sql import escape_postgres_identifier
 from posthog.hogql.printer.base import HogQLPrinter
@@ -258,6 +259,19 @@ class PostgresPrinter(HogQLPrinter):
                 f"{escape_postgres_identifier(table.postgres_table_name)}"
             )
         return table.to_printed_clickhouse(self.context)
+
+    def visit_property_type(self, type: ast.PropertyType):
+        if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
+            return super().visit_property_type(type)
+
+        database_field = type.field_type.resolve_database_field(self.context)
+        if isinstance(database_field, StructDatabaseField):
+            struct_expr = self.visit(type.field_type)
+            for link in type.chain:
+                struct_expr = f"({struct_expr}).{self._print_identifier(str(link))}"
+            return struct_expr
+
+        return super().visit_property_type(type)
 
     def _unsafe_json_extract_trim_quotes(self, unsafe_field, unsafe_args):
         if len(unsafe_args) == 0:

@@ -19,6 +19,7 @@ from posthog.hogql.database.models import (
     LazyTable,
     StringArrayDatabaseField,
     StringJSONDatabaseField,
+    StructDatabaseField,
     Table,
     UnknownDatabaseField,
     VirtualTable,
@@ -611,6 +612,8 @@ class FieldType(Type):
             return PropertyType(chain=[name], field_type=self)
         if isinstance(database_field, StringArrayDatabaseField):
             return PropertyType(chain=[name], field_type=self)
+        if isinstance(database_field, StructDatabaseField):
+            return PropertyType(chain=[name], field_type=self)
 
         raise ResolutionError(
             f'Can not access property "{name}" on field "{self.name}" of type: {type(database_field).__name__}'
@@ -652,6 +655,26 @@ class PropertyType(Type):
     def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
         if self.joined_subquery is not None and self.joined_subquery_field_name is not None:
             return self.joined_subquery.resolve_column_constant_type(self.joined_subquery_field_name, context)
+
+        database_field = self.field_type.resolve_database_field(context)
+        if isinstance(database_field, StructDatabaseField):
+            nested_field: DatabaseField = database_field
+            nullable = self.field_type.resolve_constant_type(context).nullable
+
+            for link in self.chain:
+                if not isinstance(nested_field, StructDatabaseField):
+                    return UnknownType(nullable=True)
+
+                child_field = nested_field.fields.get(str(link))
+                if child_field is None:
+                    return UnknownType(nullable=True)
+
+                nullable = nullable or child_field.is_nullable()
+                nested_field = child_field
+
+            constant_type = nested_field.get_constant_type()
+            constant_type.nullable = nullable
+            return constant_type
 
         # PropertyTypes are always nullable
         return dataclasses.replace(self.field_type.resolve_constant_type(context), nullable=True)
