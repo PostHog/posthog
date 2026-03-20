@@ -563,7 +563,14 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 (_, props) => props.onComplete,
                 s.returnConfig,
             ],
-            (currentStep, isManualLinkingSelected, isDirectQueryMode, hasWebhookSchemas, onComplete, returnConfig): string => {
+            (
+                currentStep,
+                isManualLinkingSelected,
+                isDirectQueryMode,
+                hasWebhookSchemas,
+                onComplete,
+                returnConfig
+            ): string => {
                 if (currentStep === 3 && isManualLinkingSelected) {
                     return 'Link'
                 }
