@@ -15,14 +15,13 @@ class SloOperation(StrEnum):
 
 class SloOutcome(StrEnum):
     SUCCESS = "success"
-    PARTIAL_SUCCESS = "partial_success"
     FAILURE = "failure"
 
 
 @dataclasses.dataclass
 class SloStartedProperties:
-    operation: SloOperation
     area: SloArea
+    operation: SloOperation
     team_id: int
     resource_id: Optional[str] = None
 
@@ -32,8 +31,8 @@ class SloStartedProperties:
 
 @dataclasses.dataclass
 class SloCompletedProperties:
-    operation: SloOperation
     area: SloArea
+    operation: SloOperation
     team_id: int
     outcome: SloOutcome
     resource_id: Optional[str] = None
