@@ -3,6 +3,7 @@ from datetime import date
 import pytest
 
 from posthog.temporal.data_imports.sources.postgres.postgres import SafeDateLoader
+from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
 
 class TestSafeDateLoader:
@@ -35,3 +36,38 @@ class TestSafeDateLoader:
     )
     def test_load_dates(self, loader, input_data, expected):
         assert loader.load(input_data) == expected
+
+
+class TestPostgresSourceNonRetryableErrors:
+    @pytest.fixture
+    def source(self):
+        return PostgresSource()
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            'OperationalError: connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL: MaxClientsInSessionMode: max clients reached',
+            'OperationalError: connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL: remaining connection slots are reserved for roles with the SUPERUSER attribute',
+            'OperationalError: connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL: too many connections for role "user"',
+        ],
+    )
+    def test_transient_connection_errors_are_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Transient error should be retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "Connection refused",
+            "No route to host",
+            "could not translate host name",
+            "password authentication failed for user",
+            "FATAL: no such database",
+            "Name or service not known",
+        ],
+    )
+    def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Permanent error should be non-retryable: {error_msg}"
