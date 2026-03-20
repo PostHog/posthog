@@ -254,6 +254,30 @@ class TestResolver(BaseTest):
             'Column "customer_id" in REPLACE list was not found in customers',
         )
 
+    def test_resolve_unpivot_tuple_shape_guard(self):
+        expr = self._select(
+            "SELECT field_name, field_value FROM events UNPIVOT ((field_value) FOR field_name IN ((event, uuid)))"
+        )
+
+        with self.assertRaises(QueryError) as context:
+            resolve_types(expr, self.context, dialect="postgres")
+        self.assertEqual(
+            str(context.exception),
+            "UNPIVOT value and name columns must both be tuples or both be single columns",
+        )
+
+    def test_resolve_unpivot_tuple_length_guard(self):
+        expr = self._select(
+            "SELECT field_name, field_value FROM events UNPIVOT ((field_value, other_value) FOR (field_name, other_name) IN ((event)))"
+        )
+
+        with self.assertRaises(QueryError) as context:
+            resolve_types(expr, self.context, dialect="postgres")
+        self.assertEqual(
+            str(context.exception),
+            "UNPIVOT IN values must be tuples of length 2",
+        )
+
     def test_resolve_lambda_style_dialect_guard(self):
         expr = self._select("SELECT lambda x: x + 1")
 

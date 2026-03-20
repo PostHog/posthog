@@ -2802,6 +2802,8 @@ public:
     virtual size_t getRuleIndex() const override;
     std::vector<UnpivotColumnContext *> unpivotColumn();
     UnpivotColumnContext* unpivotColumn(size_t i);
+    std::vector<antlr4::tree::TerminalNode *> COMMA();
+    antlr4::tree::TerminalNode* COMMA(size_t i);
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;

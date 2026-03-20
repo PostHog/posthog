@@ -321,7 +321,7 @@ tableExpr
     | hogqlxTagElement                                  # TableExprTag
     | placeholder                                       # TableExprPlaceholder
     ;
-unpivotColumnList: unpivotColumn (unpivotColumn)*;
+unpivotColumnList: unpivotColumn (COMMA unpivotColumn)* COMMA?;
 unpivotColumn: columnExprTupleOrSingle FOR columnExprTupleOrSingle IN LPAREN columnExprList RPAREN;
 columnExprTupleOrSingle: LPAREN columnExprList RPAREN | columnExpr;
 columnAliases: LPAREN identifier (COMMA identifier)* RPAREN;

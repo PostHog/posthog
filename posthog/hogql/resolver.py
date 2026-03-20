@@ -269,6 +269,28 @@ class Resolver(CloningVisitor):
 
             node.columns = resolved_columns
 
+            for col in node.columns:
+                value_is_tuple = isinstance(col.value_columns, ast.Tuple)
+                name_is_tuple = isinstance(col.name_columns, ast.Tuple)
+                value_len = len(col.value_columns.exprs) if value_is_tuple else 1
+                name_len = len(col.name_columns.exprs) if name_is_tuple else 1
+
+                if value_is_tuple != name_is_tuple:
+                    raise QueryError("UNPIVOT value and name columns must both be tuples or both be single columns")
+                if value_len != name_len:
+                    raise QueryError(f"UNPIVOT value/name column tuple lengths must match ({value_len} vs {name_len})")
+
+                for value in col.unpivot_values:
+                    value_is_value_tuple = isinstance(value, ast.Tuple)
+                    if value_is_tuple:
+                        if not value_is_value_tuple:
+                            raise QueryError(f"UNPIVOT IN values must be tuples of length {value_len}")
+                        if len(value.exprs) != value_len:
+                            raise QueryError(f"UNPIVOT IN values must be tuples of length {value_len}")
+                    else:
+                        if value_is_value_tuple:
+                            raise QueryError("UNPIVOT IN values must be single columns")
+
             columns: dict[str, ast.Type] = {}
 
             def add_column(name: str, column_type: ast.Type | None) -> None:
@@ -827,7 +849,7 @@ class Resolver(CloningVisitor):
         try:
             pattern = re2.compile(regex)
         except re2.error as e:
-            raise ResolutionError(f"COLUMNS() has an invalid regex pattern: {e}")
+            raise QueryError(f"COLUMNS() has an invalid regex pattern: {e}")
         scope = self.scopes[-1]
         all_table_types: list[ast.TableOrSelectType] = list(scope.tables.values()) + list(scope.anonymous_tables)
         matched_fields: list[ast.Expr] = []
@@ -1618,6 +1640,7 @@ class Resolver(CloningVisitor):
         node = super().visit_is_distinct_from(node)
         if node is None:
             return None
+        node.type = ast.BooleanType(nullable=False)
         return node
 
     def visit_constant(self, node: ast.Constant):

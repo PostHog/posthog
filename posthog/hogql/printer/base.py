@@ -142,14 +142,17 @@ class HogQLPrinter(Visitor[str]):
             ret += query
         self._indent += 1
         if node.limit is not None:
-            if node.limit_percent and self.dialect == "clickhouse":
-                if not isinstance(node.limit, ast.Constant) or not isinstance(node.limit.value, (int, float)):
-                    raise QueryError("LIMIT percent with expressions is not supported in clickhouse dialect")
-                limit_str = str(node.limit.value / 100)
-            else:
-                limit_str = self.visit(node.limit)
-                if node.limit_percent:
-                    limit_str += " PERCENT"
+            limit_str = self.visit(node.limit)
+            if node.limit_percent:
+                if self.dialect == "clickhouse":
+                    if not isinstance(node.limit, ast.Constant) or not isinstance(node.limit.value, (int, float)):
+                        raise QueryError("LIMIT percent with expressions is not supported in clickhouse dialect")
+                    limit_str = str(node.limit.value / 100)
+                elif self.dialect == "postgres":
+                    limit_str += " %"
+                else:
+                    raise QueryError(f"LIMIT percent is not allowed in {self.dialect} dialect")
+
             if node.limit_with_ties:
                 limit_str += " WITH TIES"
             if self.pretty:
