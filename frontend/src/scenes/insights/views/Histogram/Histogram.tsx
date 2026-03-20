@@ -32,6 +32,7 @@ interface HistogramProps {
     height?: number
     formatXTickLabel?: (value: number) => number | string
     formatYTickLabel?: (value: number) => number
+    yAxisLabel?: string
 }
 
 export function Histogram({
@@ -43,6 +44,7 @@ export function Histogram({
     isDashboardItem = false,
     formatXTickLabel = (value: number) => value,
     formatYTickLabel = (value: number) => value,
+    yAxisLabel,
 }: HistogramProps): JSX.Element {
     const { config } = useValues(histogramLogic)
     const { setConfig } = useActions(histogramLogic)
@@ -168,6 +170,19 @@ export function Histogram({
                                     g.selectAll('.tick text').attr('dx', isVertical ? `-${config.spacing.yLabel}` : 0)
                                 )
                     )
+
+                    // y-axis label
+                    if (yAxisLabel) {
+                        const _yAxisLabel = getOrCreateEl(_svg, 'text#y-axis-label', () =>
+                            _svg.append('svg:text').attr('id', 'y-axis-label').classed('y-axis-label', true)
+                        )
+                        _yAxisLabel
+                            .text(yAxisLabel)
+                            .attr('text-anchor', 'middle')
+                            .attr('transform', `translate(12, ${config.height / 2}) rotate(-90)`)
+                            .attr('font-size', '12px')
+                            .attr('fill', 'var(--text-secondary, #666)')
+                    }
 
                     // y-gridlines
                     const _yGridlines = getOrCreateEl(_svg, 'g#y-gridlines', () =>

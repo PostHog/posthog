@@ -13,7 +13,7 @@ import { funnelDataLogic } from './funnelDataLogic'
 
 export function FunnelHistogram(): JSX.Element | null {
     const { insightProps, isInDashboardContext } = useValues(insightLogic)
-    const { histogramGraphData } = useValues(funnelDataLogic(insightProps))
+    const { histogramGraphData, aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
 
     const ref = useRef(null)
     const [width, height] = useSize(ref)
@@ -43,6 +43,7 @@ export function FunnelHistogram(): JSX.Element | null {
                 isDashboardItem={isInDashboardContext}
                 height={height}
                 formatXTickLabel={(v) => humanFriendlyDuration(v, { maxUnits: 2 })}
+                yAxisLabel={aggregationTargetLabel.plural ? `Number of ${aggregationTargetLabel.plural}` : undefined}
             />
         </div>
     )
