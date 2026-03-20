@@ -527,9 +527,11 @@ class HogQLPrinter(Visitor[str]):
         return f"not({self.visit(node.expr)})"
 
     def visit_named_argument(self, node: ast.NamedArgument):
-        return f"{node.name} := {self.visit(node.value)}"
+        return f"{self._print_identifier(node.name)} := {self.visit(node.value)}"
 
     def visit_positional_ref(self, node: ast.PositionalRef):
+        if not isinstance(node.index, int) or node.index < 1:
+            raise QueryError(f"Positional reference must be a positive integer, got {node.index}")
         return f"#{node.index}"
 
     def visit_unpivot_expr(self, node: ast.UnpivotExpr):

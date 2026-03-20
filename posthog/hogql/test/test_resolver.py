@@ -259,11 +259,9 @@ class TestResolver(BaseTest):
 
         resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
         assert isinstance(resolved.select[0], ast.Lambda)
-        assert resolved.select[0].style == "colon"
 
         resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
         assert isinstance(resolved.select[0], ast.Lambda)
-        assert resolved.select[0].style == "colon"
 
     def test_resolve_array_slice_dialect_guard(self):
         expr = self._select("SELECT [1, 2, 3][1:2]")

@@ -308,7 +308,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                         left=ast.Field(chain=["x"]),
                         right=ast.Constant(value=2),
                     ),
-                    style="colon",
                 ),
             )
             self.assertEqual(
@@ -320,7 +319,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                         left=ast.Field(chain=["x"]),
                         right=ast.Field(chain=["y"]),
                     ),
-                    style="colon",
                 ),
             )
             self.assertEqual(

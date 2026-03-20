@@ -826,7 +826,6 @@ class Tuple(Expr):
 class Lambda(Expr):
     args: list[str]
     expr: Expr | Block
-    style: Literal["arrow", "lambda"] = "arrow"
 
 
 @dataclass(kw_only=True)

@@ -622,7 +622,6 @@ class CloningVisitor(Visitor[Any]):
             type=None if self.clear_types else node.type,
             args=list(node.args),
             expr=self.visit(node.expr),
-            style=node.style,
         )
 
     def visit_array_access(self, node: ast.ArrayAccess):

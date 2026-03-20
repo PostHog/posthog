@@ -1270,14 +1270,12 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.Lambda(
             args=[self.visit(identifier) for identifier in ctx.identifier()],
             expr=self.visit(ctx.columnExpr()),
-            style="colon",
         )
 
     def visitColumnExprColonLambda(self, ctx: HogQLParser.ColumnExprColonLambdaContext):
         return ast.Lambda(
             args=[self.visit(identifier) for identifier in ctx.identifier()],
             expr=self.visit(ctx.columnExpr()),
-            style="colon",
         )
 
     def visitColumnLambdaExpr(self, ctx: HogQLParser.ColumnLambdaExprContext):
