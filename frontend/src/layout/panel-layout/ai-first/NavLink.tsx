@@ -21,7 +21,8 @@ interface NavLinkProps {
 
 export function NavLink({ to, label, icon, isCollapsed, 'data-attr': dataAttr, onClick }: NavLinkProps): JSX.Element {
     const { showConfigurePinnedTabsModal, hideConfigurePinnedTabsTooltip } = useActions(navigationLogic)
-    const { isConfigurePinnedTabsTooltipVisible } = useValues(navigationLogic)
+    const { isConfigurePinnedTabsTooltipVisible, mobileLayout } = useValues(navigationLogic)
+    const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { pathname } = useValues(panelLayoutLogic)
 
     const isHomePage = to === urls.projectRoot()
@@ -90,6 +91,9 @@ export function NavLink({ to, label, icon, isCollapsed, 'data-attr': dataAttr, o
                                     onClick={(e) => {
                                         e.stopPropagation()
                                         hideConfigurePinnedTabsTooltip()
+                                        if (mobileLayout) {
+                                            showLayoutNavBar(false)
+                                        }
                                     }}
                                 >
                                     Got it

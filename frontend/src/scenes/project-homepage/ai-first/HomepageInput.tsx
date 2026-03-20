@@ -29,6 +29,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import { aiFirstHomepageLogic } from './aiFirstHomepageLogic'
 import { HOMEPAGE_TAB_ID } from './constants'
@@ -284,6 +285,8 @@ function SuggestionMenubar(): JSX.Element {
 
 function HomePageOfframp(): JSX.Element {
     const { showConfigurePinnedTabsModal, showConfigurePinnedTabsTooltip } = useActions(navigationLogic)
+    const { mobileLayout } = useValues(navigationLogic)
+    const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { revertToPreviousHomepage } = useActions(aiFirstHomepageLogic)
     const { previousHomepage } = useValues(aiFirstHomepageLogic)
 
@@ -310,6 +313,9 @@ function HomePageOfframp(): JSX.Element {
                         })
                         revertToPreviousHomepage()
                         showConfigurePinnedTabsTooltip()
+                        if (mobileLayout) {
+                            showLayoutNavBar(true)
+                        }
                     }}
                     tooltip={`Revert to ${previousHomepage.title || 'previous homepage'}, this causes a full page refresh`}
                     className="text-tertiary hover:text-primary"
