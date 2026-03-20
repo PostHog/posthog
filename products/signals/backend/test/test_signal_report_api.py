@@ -1,11 +1,16 @@
+import json
+from datetime import timedelta
+
 from posthog.test.base import APIBaseTest
+
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.team.team import Team
 
-from products.signals.backend.models import SignalReport
+from products.signals.backend.models import SignalReport, SignalReportArtefact
 
 
 class TestSignalReportDeleteAPI(APIBaseTest):
@@ -69,3 +74,112 @@ class TestSignalReportDeleteAPI(APIBaseTest):
         report = self._create_report(report_status=SignalReport.Status.DELETED)
         response = self.client.delete(self._url(str(report.id)))
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestSignalReportPriorityInListAPI(APIBaseTest):
+    """GET list exposes `priority` from the latest ACTIONABILITY_JUDGMENT artefact (see SignalReportSerializer)."""
+
+    def _list_url(self) -> str:
+        return f"/api/projects/{self.team.id}/signal_reports/"
+
+    def _create_report(self, **kwargs) -> SignalReport:
+        defaults = {
+            "team": self.team,
+            "status": SignalReport.Status.READY,
+            "title": "Test report",
+            "summary": "Test summary",
+            "signal_count": 3,
+            "total_weight": 1.5,
+        }
+        defaults.update(kwargs)
+        return SignalReport.objects.create(**defaults)
+
+    def _actionability_artefact(
+        self,
+        report: SignalReport,
+        *,
+        priority: str | None,
+        created_at=None,
+    ) -> SignalReportArtefact:
+        payload = {"choice": "immediately_actionable", "explanation": "x"}
+        if priority is not None:
+            payload["priority"] = priority
+        art = SignalReportArtefact(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+            content=json.dumps(payload),
+        )
+        if created_at is not None:
+            art.save()
+            SignalReportArtefact.objects.filter(pk=art.pk).update(created_at=created_at)
+            art.refresh_from_db()
+        else:
+            art.save()
+        return art
+
+    def test_list_includes_priority_from_actionability_artefact(self):
+        report = self._create_report()
+        self._actionability_artefact(report, priority="P2")
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        rows = response.json()["results"]
+        row = next(r for r in rows if r["id"] == str(report.id))
+        assert row["priority"] == "P2"
+
+    def test_list_uses_latest_actionability_artefact_by_created_at(self):
+        report = self._create_report()
+        now = timezone.now()
+        self._actionability_artefact(report, priority="P3", created_at=now - timedelta(hours=1))
+        self._actionability_artefact(report, priority="P1", created_at=now)
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["priority"] == "P1"
+
+    def test_list_priority_null_without_actionability_artefact(self):
+        report = self._create_report()
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["priority"] is None
+
+    def test_list_priority_null_when_artefact_json_invalid(self):
+        report = self._create_report()
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+            content="not-json{",
+        )
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["priority"] is None
+
+    def test_list_priority_null_when_priority_not_a_string(self):
+        report = self._create_report()
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+            content=json.dumps({"priority": 2}),
+        )
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["priority"] is None
+
+    def test_retrieve_includes_priority(self):
+        report = self._create_report()
+        self._actionability_artefact(report, priority="P0")
+
+        url = f"/api/projects/{self.team.id}/signal_reports/{report.id}/"
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["priority"] == "P0"
