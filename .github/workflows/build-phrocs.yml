@@ -68,7 +68,8 @@ jobs:
                       tools/phrocs/dist/phrocs-darwin-arm64 \
                       tools/phrocs/dist/checksums.txt \
                       --title "phrocs-latest" \
-                      --notes "Built from commit ${GIT_SHA}"
+                      --notes "Built from commit ${GIT_SHA}" \
+                      --latest=false
 
             - name: Create semver release
               if: github.event_name == 'workflow_dispatch'
