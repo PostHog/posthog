@@ -581,8 +581,8 @@ importers:
         specifier: ^0.0.48
         version: 0.0.48(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/hogql-parser':
-        specifier: 1.3.30
-        version: 1.3.30
+        specifier: 1.3.31
+        version: 1.3.31
       '@posthog/hogvm':
         specifier: workspace:*
         version: link:../common/hogvm/typescript
@@ -8088,8 +8088,8 @@ packages:
       react: 18.3.1
       react-dom: 18.3.1
 
-  '@posthog/hogql-parser@1.3.30':
-    resolution: {integrity: sha512-wzHwx8X7YLH8So2t6YJRikqMpGqFSfUQvQcHQFlWxQimf6RnuHdNOH7mivUKBpuK+ORVv6q3imoOcaE8c5/tBA==}
+  '@posthog/hogql-parser@1.3.31':
+    resolution: {integrity: sha512-ht1gjGEAs09N2knjXdgOEla5kqKtBjaYS/JNcB0P5JxB9828U7nhoVEvOtm92gDX4IHatVNJXM+KpABIbTwCgQ==}
 
   '@posthog/icons@0.36.4':
     resolution: {integrity: sha512-xnusbGNz/5vSMUWdEViWuai7D/gxiMZSDDnP6s/acndMqzN+W4asPUgUNnTUps7OyAS1IKaO9zxhdikFrtooJA==}
@@ -21251,8 +21251,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.386.0:
-    resolution: {integrity: sha512-uO2zj3IfEqIKVJCA3kGm2bmOFZT7hD1Ga4PbFegspae25BP+ClWzhe0oK23/PGhFOIxI0Qbp1cpq/pcraoPeWQ==}
+  unlayer-types@1.387.0:
+    resolution: {integrity: sha512-9Mn87PZb/ySX4GdZrdIW7P03WE2uNcybyZsSpx4hg28m5VRjpY+HQxBQB0QlM5CooCsOmEIuy1wAWRkwrpD6pQ==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -29204,7 +29204,7 @@ snapshots:
     transitivePeerDependencies:
       - prop-types
 
-  '@posthog/hogql-parser@1.3.30': {}
+  '@posthog/hogql-parser@1.3.31': {}
 
   '@posthog/icons@0.36.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
@@ -43682,7 +43682,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.386.0
+      unlayer-types: 1.387.0
 
   react-error-overlay@6.0.9: {}
 
@@ -46004,7 +46004,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.386.0: {}
+  unlayer-types@1.387.0: {}
 
   unpipe@1.0.0: {}
 
