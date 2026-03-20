@@ -1,6 +1,3 @@
 {
-    "name": "@posthog/products-growth",
-    "scripts": {
-        "backend:test": "echo 'No backend tests'"
-    }
+    "name": "@posthog/products-growth"
 }
