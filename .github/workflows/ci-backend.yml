@@ -613,7 +613,8 @@ jobs:
                   fi
 
                   if [ -z "$BASE_SHA" ]; then
-                    echo "::warning::BASE_SHA is empty — cannot filter existing migrations, showing all"
+                    echo "::error::BASE_SHA is empty — this should not happen in a pull_request event"
+                    exit 1
                   fi
 
                   # Ensure the base commit is available for comparison
