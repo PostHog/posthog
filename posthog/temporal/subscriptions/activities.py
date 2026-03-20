@@ -138,6 +138,7 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
         exported_asset_ids=[a.id for a in assets],
         total_insight_count=len(insights),
         team_id=team.id,
+        distinct_id=str(subscription.created_by.distinct_id) if subscription.created_by else str(team.id),
         target_type=subscription.target_type,
     )
 

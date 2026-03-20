@@ -6,6 +6,7 @@ import traceback
 
 import temporalio.common
 import temporalio.workflow
+from temporalio.exceptions import ApplicationError
 
 from posthog.event_usage import EventSource
 from posthog.slo.types import SloOutcome
@@ -152,12 +153,20 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
             # return_exceptions=True: individual subscription failures are isolated —
             # one failing subscription should not prevent others from being delivered.
             results = await asyncio.gather(*tasks, return_exceptions=True)
+            failed_ids = []
             for sub_id, result in zip(subscription_ids, results):
                 if isinstance(result, BaseException):
+                    failed_ids.append(sub_id)
                     temporalio.workflow.logger.warning(
                         "process_subscription.child_workflow_error",
                         extra={"subscription_id": sub_id, "error": str(result)},
                     )
+
+            if failed_ids:
+                raise ApplicationError(
+                    f"Subscription deliveries failed for IDs: {failed_ids}",
+                    non_retryable=True,
+                )
 
 
 @temporalio.workflow.defn(name="process-subscription")
@@ -177,6 +186,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
         total_assets = 0
         errors: list[ExportError] = []
         prepare_result = None
+        caught_error: BaseException | None = None
 
         try:
             # SLO started — workflow owns the lifecycle, fires before any work
@@ -184,6 +194,11 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                 emit_delivery_started,
                 inputs.subscription_id,
                 start_to_close_timeout=dt.timedelta(minutes=2),
+                retry_policy=temporalio.common.RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=5),
+                    maximum_interval=dt.timedelta(minutes=1),
+                    maximum_attempts=3,
+                ),
             )
 
             # Phase 1: Prepare — create ExportedAssets
@@ -254,41 +269,41 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             # is_new is true when previous_value is set (target change), false for scheduled delivery
             is_new = inputs.previous_value is not None
 
-            try:
-                await temporalio.workflow.execute_activity(
-                    deliver_subscription,
-                    DeliverSubscriptionInputs(
-                        subscription_id=inputs.subscription_id,
-                        exported_asset_ids=delivery_asset_ids,
-                        total_insight_count=prepare_result.total_insight_count,
-                        is_new_subscription_target=is_new,
-                        previous_value=inputs.previous_value,
-                        invite_message=inputs.invite_message,
-                    ),
-                    start_to_close_timeout=dt.timedelta(minutes=5),
-                    retry_policy=temporalio.common.RetryPolicy(
-                        initial_interval=dt.timedelta(seconds=10),
-                        maximum_interval=dt.timedelta(minutes=2),
-                        maximum_attempts=3,
-                    ),
-                )
-            except Exception as e:
-                delivery_outcome = SloOutcome.FAILURE
-                errors.append(
-                    ExportError(
-                        exception_class=type(e).__name__,
-                        error_trace="\n".join(traceback.format_exception(e)[:5]),
-                    )
-                )
-                raise
+            await temporalio.workflow.execute_activity(
+                deliver_subscription,
+                DeliverSubscriptionInputs(
+                    subscription_id=inputs.subscription_id,
+                    exported_asset_ids=delivery_asset_ids,
+                    total_insight_count=prepare_result.total_insight_count,
+                    is_new_subscription_target=is_new,
+                    previous_value=inputs.previous_value,
+                    invite_message=inputs.invite_message,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=temporalio.common.RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(minutes=2),
+                    maximum_attempts=3,
+                ),
+            )
 
-        except Exception:
+        except Exception as e:
             delivery_outcome = SloOutcome.FAILURE
-            raise
+            errors.append(
+                ExportError(
+                    exception_class=type(e).__name__,
+                    error_trace="\n".join(traceback.format_exception(e)[:5]),
+                )
+            )
+            caught_error = e
+            # Don't re-raise — let finally run cleanup activities first
 
         finally:
-            # Advance schedule — always for scheduled deliveries, even on failure
-            if inputs.previous_value is None and prepare_result and prepare_result.exported_asset_ids:
+            # Advance schedule — always for scheduled deliveries, even on failure.
+            # This must not be gated on prepare_result or asset count, otherwise a
+            # persistently broken subscription (e.g. deleted insight) stays "due"
+            # forever and gets re-processed every schedule tick.
+            if inputs.previous_value is None:
                 await temporalio.workflow.execute_activity(
                     advance_next_delivery_date,
                     inputs.subscription_id,
@@ -301,8 +316,8 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                 )
 
             # SLO completed — fires last, after all side effects
-            duration_ms = (temporalio.workflow.time() - start_time) * 1000
             if prepare_result and prepare_result.team_id:
+                duration_ms = (temporalio.workflow.time() - start_time) * 1000
                 await temporalio.workflow.execute_activity(
                     emit_delivery_outcome,
                     EmitDeliveryOutcomeInput(
@@ -316,7 +331,16 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                         errors=errors,
                     ),
                     start_to_close_timeout=dt.timedelta(minutes=2),
+                    retry_policy=temporalio.common.RetryPolicy(
+                        initial_interval=dt.timedelta(seconds=5),
+                        maximum_interval=dt.timedelta(minutes=1),
+                        maximum_attempts=3,
+                    ),
                 )
+
+        # Re-raise after cleanup completes
+        if caught_error:
+            raise caught_error
 
 
 @temporalio.workflow.defn(name="handle-subscription-value-change")

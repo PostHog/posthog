@@ -20,6 +20,7 @@ from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.models.instance_setting import set_instance_setting
+from posthog.slo.types import SloOutcome
 from posthog.tasks.exports.failure_handler import ExcelColumnLimitExceeded
 from posthog.temporal.exports.activities import emit_delivery_outcome, emit_delivery_started, export_asset_activity
 from posthog.temporal.subscriptions.activities import (
@@ -264,7 +265,9 @@ async def test_handle_subscription_value_change_email(
                 create_export_assets,
                 export_asset_activity,
                 deliver_subscription,
+                emit_delivery_started,
                 emit_delivery_outcome,
+                advance_next_delivery_date,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=50),
@@ -326,7 +329,9 @@ async def test_deliver_subscription_report_slack(
                 create_export_assets,
                 export_asset_activity,
                 deliver_subscription,
+                emit_delivery_started,
                 emit_delivery_outcome,
+                advance_next_delivery_date,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=50),
@@ -368,9 +373,8 @@ async def test_create_export_assets_creates_exported_assets(
     assert asset.insight_id == insight.id
     assert asset.export_format == "image/png"
 
-    mock_analytics.capture.assert_called_once()
-    call_kwargs = mock_analytics.capture.call_args
-    assert call_kwargs.kwargs["event"] == "slo_operation_started"
+    # SLO started is emitted by the workflow (emit_delivery_started), not this activity
+    mock_analytics.capture.assert_not_called()
 
 
 @patch("posthog.slo.events.posthoganalytics")
@@ -396,8 +400,8 @@ async def test_create_export_assets_dashboard_with_multiple_insights(
     )
 
     assert len(result.exported_asset_ids) == 3
-    # One subscription-level slo_operation_started event (not per-asset)
-    assert mock_analytics.capture.call_count == 1
+    # SLO started is emitted by the workflow, not this activity
+    mock_analytics.capture.assert_not_called()
 
 
 @patch("ee.tasks.subscriptions.get_metric_meter")
@@ -467,7 +471,9 @@ async def test_deliver_subscription_workflow_end_to_end(
                 create_export_assets,
                 export_asset_activity,
                 deliver_subscription,
+                emit_delivery_started,
                 emit_delivery_outcome,
+                advance_next_delivery_date,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=10),
@@ -493,7 +499,7 @@ async def test_deliver_subscription_workflow_end_to_end(
         c for c in mock_slo_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
     ]
     assert len(completed_calls) == 1
-    assert completed_calls[0].kwargs["properties"]["outcome"] == "success"
+    assert completed_calls[0].kwargs["properties"]["outcome"] == SloOutcome.SUCCESS
 
 
 @patch("posthog.temporal.exports.activities.exporter")
@@ -535,7 +541,9 @@ async def test_new_subscription_sends_invite_email(
                 create_export_assets,
                 export_asset_activity,
                 deliver_subscription,
+                emit_delivery_started,
                 emit_delivery_outcome,
+                advance_next_delivery_date,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=50),
@@ -596,7 +604,9 @@ async def test_scheduled_delivery_updates_next_delivery_date(
                 create_export_assets,
                 export_asset_activity,
                 deliver_subscription,
+                emit_delivery_started,
                 emit_delivery_outcome,
+                advance_next_delivery_date,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=10),
@@ -654,7 +664,9 @@ async def test_export_user_error_classified_correctly_in_slo_events(
                 create_export_assets,
                 export_asset_activity,
                 deliver_subscription,
+                emit_delivery_started,
                 emit_delivery_outcome,
+                advance_next_delivery_date,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=10),
@@ -671,7 +683,7 @@ async def test_export_user_error_classified_correctly_in_slo_events(
         c for c in mock_slo_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
     ]
     assert len(completed_calls) == 1
-    assert completed_calls[0].kwargs["properties"]["outcome"] == "failure"
+    assert completed_calls[0].kwargs["properties"]["outcome"] == SloOutcome.FAILURE
 
 
 @patch("posthog.temporal.exports.activities.exporter")
@@ -721,7 +733,9 @@ async def test_partial_export_failure_delivers_successful_assets(
                 create_export_assets,
                 export_asset_activity,
                 deliver_subscription,
+                emit_delivery_started,
                 emit_delivery_outcome,
+                advance_next_delivery_date,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=10),
@@ -734,20 +748,18 @@ async def test_partial_export_failure_delivers_successful_assets(
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             )
 
-    # Delivery should happen with only the 2 successful assets
+    # Delivery includes all assets (failed ones show placeholder in email)
     assert mock_send_email.call_count == 2  # 2 recipients from factory default
     for call in mock_send_email.call_args_list:
         delivered_assets = call[0][2]  # third positional arg is assets list
-        assert len(delivered_assets) == 2
-        for asset in delivered_assets:
-            assert asset.insight_id != fail_insight_id
+        assert len(delivered_assets) == 3
 
-    # One subscription-level SLO event: partial_success (2/3 assets succeeded)
+    # One subscription-level SLO event: failure (not all assets succeeded)
     completed_calls = [
         c for c in mock_slo_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
     ]
     assert len(completed_calls) == 1
     props = completed_calls[0].kwargs["properties"]
-    assert props["outcome"] == "partial_success"
+    assert props["outcome"] == SloOutcome.FAILURE
     assert props["assets_with_content"] == 2
     assert props["total_assets"] == 3
