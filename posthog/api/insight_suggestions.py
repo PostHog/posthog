@@ -526,8 +526,8 @@ def generate_insight_metadata(query: InsightVizNode, team: Team) -> InsightMetad
         )
 
         parsed = json.loads(content.strip())
-        name = parsed.get("name", "").strip().strip('"').strip("'")
-        description = parsed.get("description", "").strip()
+        name = parsed["name"].strip().strip('"').strip("'")
+        description = parsed["description"].strip()
 
         if len(name) > 100:
             name = name[:97] + "..."
