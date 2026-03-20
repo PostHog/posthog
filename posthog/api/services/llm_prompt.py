@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from django.conf import settings
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 
 from posthog.exceptions_capture import capture_exception
@@ -145,25 +145,32 @@ def duplicate_prompt(
     source_name: str,
     new_name: str,
 ) -> LLMPrompt:
-    source_latest = (
-        LLMPrompt.objects.filter(team=team, name=source_name, deleted=False, is_latest=True)
-        .order_by("-version", "-created_at", "-id")
-        .first()
-    )
-    if source_latest is None:
-        raise LLMPromptNotFoundError()
+    with transaction.atomic():
+        source_latest = (
+            LLMPrompt.objects.select_for_update()
+            .filter(team=team, name=source_name, deleted=False, is_latest=True)
+            .order_by("-version", "-created_at", "-id")
+            .first()
+        )
+        if source_latest is None:
+            raise LLMPromptNotFoundError()
 
-    if LLMPrompt.objects.filter(team=team, name=new_name, deleted=False).exists():
-        raise LLMPromptDuplicateNameConflictError()
+        if LLMPrompt.objects.filter(team=team, name=new_name, deleted=False).exists():
+            raise LLMPromptDuplicateNameConflictError()
 
-    new_prompt = LLMPrompt.objects.create(
-        team=team,
-        name=new_name,
-        prompt=source_latest.prompt,
-        version=1,
-        is_latest=True,
-        created_by=user,
-    )
+        try:
+            new_prompt = LLMPrompt.objects.create(
+                team=team,
+                name=new_name,
+                prompt=source_latest.prompt,
+                version=1,
+                is_latest=True,
+                created_by=user,
+            )
+        except IntegrityError as err:
+            if "unique_llm_prompt_latest_per_team" in str(err) or "unique_llm_prompt_version_per_team" in str(err):
+                raise LLMPromptDuplicateNameConflictError() from err
+            raise
 
     refreshed = get_active_prompt_queryset(team).filter(pk=new_prompt.pk).first()
     return refreshed if refreshed is not None else new_prompt

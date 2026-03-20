@@ -667,23 +667,21 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "already exists" in response.json()["detail"]
 
-    def test_duplicate_prompt_validates_new_name_format(self, mock_feature_enabled):
+    @parameterized.expand(
+        [
+            ("spaces", "invalid name with spaces"),
+            ("slash", "has/slash"),
+            ("dot", "has.dot"),
+            ("reserved_new", "new"),
+            ("reserved_new_upper", "NEW"),
+        ]
+    )
+    def test_duplicate_prompt_rejects_invalid_new_name(self, mock_feature_enabled, _label, bad_name):
         self.create_prompt_version(name="original", version=1, is_latest=True, prompt="content")
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_prompts/name/original/duplicate/",
-            data={"new_name": "invalid name with spaces"},
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-    def test_duplicate_prompt_rejects_reserved_name(self, mock_feature_enabled):
-        self.create_prompt_version(name="original", version=1, is_latest=True, prompt="content")
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/llm_prompts/name/original/duplicate/",
-            data={"new_name": "new"},
+            data={"new_name": bad_name},
             format="json",
         )
 
