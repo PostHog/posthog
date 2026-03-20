@@ -10,7 +10,6 @@ import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSour
 import { HogQLQueryModifiers, NodeKind } from '~/queries/schema/schema-general'
 
 const POSTHOG_WAREHOUSE = '__posthog_warehouse__'
-const LOADING_CONNECTIONS = '__loading_connections__'
 
 interface QueryWithModifiers {
     connectionId?: string
@@ -66,15 +65,15 @@ function ConnectionIdModifier<Q extends QueryWithModifiers>({
         <LemonLabel className={labelClassName}>
             <div>Connection ID:</div>
             <LemonSelect
+                disabled={dataWarehouseSourcesLoading}
+                disabledReason={dataWarehouseSourcesLoading ? 'Loading connections...' : undefined}
                 fullWidth
                 options={[
                     { value: POSTHOG_WAREHOUSE, label: 'PostHog (ClickHouse)' },
-                    ...(dataWarehouseSourcesLoading
-                        ? [{ value: LOADING_CONNECTIONS, label: 'Loading...', disabled: true }]
-                        : directPostgresSources.map((source) => ({
-                              value: source.id,
-                              label: `${source.prefix ?? source.id} (Postgres)`,
-                          }))),
+                    ...directPostgresSources.map((source) => ({
+                        value: source.id,
+                        label: `${source.prefix ?? source.id} (Postgres)`,
+                    })),
                     ...(!hasSelectedConnection && query.connectionId
                         ? [{ value: query.connectionId, label: `${query.connectionId} (Unavailable)` }]
                         : []),
@@ -82,7 +81,7 @@ function ConnectionIdModifier<Q extends QueryWithModifiers>({
                 onChange={(value) =>
                     setQuery({
                         ...query,
-                        connectionId: value === POSTHOG_WAREHOUSE || value === LOADING_CONNECTIONS ? undefined : value,
+                        connectionId: value === POSTHOG_WAREHOUSE ? undefined : value,
                     })
                 }
                 value={selectedValue}
