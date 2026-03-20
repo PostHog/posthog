@@ -61,7 +61,7 @@ main() {
     fi
 
     # Verify checksum
-    EXPECTED=$(grep "$BINARY" "${TMPDIR}/checksums.txt" | awk '{print $1}')
+    EXPECTED=$(grep -F " ${BINARY}" "${TMPDIR}/checksums.txt" | awk '{print $1}' || true)
     if [ -z "$EXPECTED" ]; then
         echo "Error: no checksum found for ${BINARY}" >&2
         exit 1

@@ -12,7 +12,7 @@ GOMOD=$(GOCMD) mod
 VERSION ?= dev
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
-LDFLAGS  = -ldflags "-s -w -X main.Version=$(VERSION) -X main.Commit=$(COMMIT) -X main.BuildDate=$(DATE)"
+LDFLAGS  = -ldflags '-s -w -X main.Version=$(VERSION) -X main.Commit=$(COMMIT) -X main.BuildDate=$(DATE)'
 
 build: deps
 	$(GOBUILD) $(LDFLAGS) -o $(DIST_DIR)/$(BINARY_NAME) .
