@@ -105,7 +105,11 @@ class EnsembleDetector(BaseDetector):
             metadata={
                 "operator": self.operator,
                 "sub_results": [
-                    {"type": cfg.get("type"), "triggered_count": len(r.triggered_indices)}
+                    {
+                        "type": cfg.get("type"),
+                        "triggered_count": len(r.triggered_indices),
+                        "all_scores": r.all_scores,
+                    }
                     for cfg, r in zip(self.config.get("detectors", []), results)
                 ],
             },

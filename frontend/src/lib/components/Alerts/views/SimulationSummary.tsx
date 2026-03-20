@@ -50,8 +50,41 @@ function SimulationChart({
     const triggeredSet = new Set(result.triggered_indices)
     const threshold = getThreshold(detectorConfig)
 
-    // Scores normalised to 0-1 range, with null as 0 for chart
-    const scoreData = result.scores.map((s) => (s != null ? s : 0))
+    const subScores = result.sub_detector_scores
+    const hasSubScores = subScores && subScores.length > 0
+
+    // Colors for sub-detector score lines
+    const scoreColors = [
+        'rgba(245, 158, 11, 0.7)', // amber
+        'rgba(16, 185, 129, 0.7)', // green
+        'rgba(139, 92, 246, 0.7)', // purple
+        'rgba(236, 72, 153, 0.7)', // pink
+        'rgba(6, 182, 212, 0.7)', // cyan
+    ]
+
+    const scoreDatasets = hasSubScores
+        ? subScores.map((sub, i) => ({
+              label: sub.type,
+              data: sub.scores.map((s) => (s != null ? s : 0)),
+              borderColor: scoreColors[i % scoreColors.length],
+              borderWidth: 1,
+              backgroundColor: 'transparent',
+              fill: false,
+              pointRadius: 0,
+              yAxisID: 'yScore' as const,
+          }))
+        : [
+              {
+                  label: 'Score',
+                  data: result.scores.map((s) => (s != null ? s : 0)),
+                  borderColor: 'rgba(245, 158, 11, 0.6)',
+                  borderWidth: 1,
+                  backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                  fill: true,
+                  pointRadius: 0,
+                  yAxisID: 'yScore' as const,
+              },
+          ]
 
     const { canvasRef } = useChart({
         getConfig: () => ({
@@ -76,24 +109,26 @@ function SimulationChart({
                         fill: false,
                         yAxisID: 'y',
                     },
-                    // Score series (right y-axis) — subtle filled area
-                    {
-                        label: 'Score',
-                        data: scoreData,
-                        borderColor: 'rgba(245, 158, 11, 0.6)',
-                        borderWidth: 1,
-                        backgroundColor: 'rgba(245, 158, 11, 0.1)',
-                        fill: true,
-                        pointRadius: 0,
-                        yAxisID: 'yScore',
-                    },
+                    ...scoreDatasets,
                 ],
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    legend: { display: false },
+                    legend: hasSubScores
+                        ? {
+                              display: true,
+                              position: 'bottom' as const,
+                              labels: {
+                                  filter: (item: any) => item.text !== 'Value',
+                                  boxWidth: 8,
+                                  boxHeight: 2,
+                                  font: { size: 9 },
+                                  padding: 6,
+                              },
+                          }
+                        : { display: false },
                     tooltip: {
                         enabled: true,
                         callbacks: {
@@ -107,7 +142,8 @@ function SimulationChart({
                                     }
                                     return base
                                 }
-                                return `Score: ${((ctx.parsed.y ?? 0) * 100).toFixed(0)}%`
+                                const label = ctx.dataset.label || 'Score'
+                                return `${label}: ${((ctx.parsed.y ?? 0) * 100).toFixed(0)}%`
                             },
                         },
                     },
@@ -148,6 +184,12 @@ function SimulationChart({
                         position: 'right' as const,
                         min: 0,
                         max: 1,
+                        title: {
+                            display: true,
+                            text: 'Anomaly score',
+                            font: { size: 9 },
+                            padding: 0,
+                        },
                         ticks: {
                             maxTicksLimit: 3,
                             font: { size: 9 },
@@ -190,7 +232,7 @@ export function SimulationSummary({
                     <strong className="text-danger">{result.anomaly_count}</strong> anomalies
                 </span>
                 <span>
-                    <strong>{rate}%</strong> rate
+                    <strong>{rate}%</strong> anomaly rate
                 </span>
             </div>
             {result.triggered_dates.length > 0 && (

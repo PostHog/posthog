@@ -51,6 +51,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
         expected_alert_json = {
             "calculation_interval": "daily",
+            "checks": [],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "created_at": mock.ANY,
             "created_by": mock.ANY,

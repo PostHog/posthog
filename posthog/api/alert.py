@@ -505,6 +505,11 @@ class AlertSimulateResponseSerializer(serializers.Serializer):
     )
     total_points = serializers.IntegerField(help_text="Total number of data points analyzed.")
     anomaly_count = serializers.IntegerField(help_text="Number of anomalies detected.")
+    sub_detector_scores = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        help_text="Per-sub-detector scores for ensemble detectors. Each entry has 'type' and 'scores' fields.",
+    )
 
 
 class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):

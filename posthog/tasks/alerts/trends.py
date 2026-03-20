@@ -710,7 +710,17 @@ def simulate_detector_on_insight(
 
     scores = result.all_scores if result.all_scores else [None] * len(data)
 
-    return {
+    # For ensemble detectors, include per-sub-detector scores for visualization
+    sub_detector_scores: list[dict[str, Any]] | None = None
+    if detector_type_str == "ensemble" and result.metadata:
+        sub_results = result.metadata.get("sub_results", [])
+        sub_detector_scores = [
+            {"type": sr.get("type", "unknown"), "scores": sr.get("all_scores", [])}
+            for sr in sub_results
+            if sr.get("all_scores")
+        ]
+
+    response: dict[str, Any] = {
         "data": data_list,
         "dates": dates,
         "scores": scores,
@@ -720,3 +730,7 @@ def simulate_detector_on_insight(
         "total_points": len(data),
         "anomaly_count": len(result.triggered_indices) if result.triggered_indices else 0,
     }
+    if sub_detector_scores:
+        response["sub_detector_scores"] = sub_detector_scores
+
+    return response

@@ -10,6 +10,11 @@ import { QueryBasedInsightModel, UserBasicType } from '~/types'
 
 export type AlertConfig = TrendsAlertConfig
 
+export interface SubDetectorScores {
+    type: string
+    scores: (number | null)[]
+}
+
 export interface AlertSimulationResult {
     data: number[]
     dates: string[]
@@ -19,6 +24,7 @@ export interface AlertSimulationResult {
     interval: string | null
     total_points: number
     anomaly_count: number
+    sub_detector_scores?: SubDetectorScores[]
 }
 
 export interface AnomalyPoint {

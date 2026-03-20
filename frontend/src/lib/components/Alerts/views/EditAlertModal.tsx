@@ -496,6 +496,38 @@ export function EditAlertModal({
                                         />
                                     )}
 
+                                    {alertMode === 'detector' && alertForm.detector_config && (
+                                        <div className="deprecated-space-y-2">
+                                            <div className="flex gap-2 items-center">
+                                                <h4 className="m-0">Simulation</h4>
+                                                <LemonSelect
+                                                    size="small"
+                                                    value={
+                                                        simulationDateFrom ??
+                                                        getDefaultSimulationRange(alertForm.calculation_interval)
+                                                    }
+                                                    onChange={(value) => setSimulationDateFrom(value)}
+                                                    options={getSimulationRangeOptions(alertForm.calculation_interval)}
+                                                />
+                                                <LemonButton
+                                                    type="secondary"
+                                                    size="small"
+                                                    onClick={simulateAlert}
+                                                    loading={simulationResultLoading}
+                                                    tooltip="Run the detector on historical data to preview which points would be flagged as anomalies"
+                                                >
+                                                    Simulate
+                                                </LemonButton>
+                                            </div>
+                                            {simulationResult && (
+                                                <SimulationSummary
+                                                    result={simulationResult}
+                                                    detectorConfig={alertForm.detector_config}
+                                                />
+                                            )}
+                                        </div>
+                                    )}
+
                                     <div className="flex gap-4 items-center">
                                         <div>Run alert every</div>
                                         <LemonField name="calculation_interval">
@@ -630,10 +662,6 @@ export function EditAlertModal({
                         </div>
 
                         {alert && <AlertStateTable alert={alert} />}
-
-                        {simulationResult && (
-                            <SimulationSummary result={simulationResult} detectorConfig={alertForm.detector_config} />
-                        )}
                     </LemonModal.Content>
 
                     <LemonModal.Footer>
@@ -662,26 +690,6 @@ export function EditAlertModal({
                                 ) : null}
                             </div>
                         </div>
-                        {alertMode === 'detector' && alertForm.detector_config && (
-                            <div className="flex gap-1 items-center border rounded p-1">
-                                <LemonSelect
-                                    size="small"
-                                    value={
-                                        simulationDateFrom ?? getDefaultSimulationRange(alertForm.calculation_interval)
-                                    }
-                                    onChange={(value) => setSimulationDateFrom(value)}
-                                    options={getSimulationRangeOptions(alertForm.calculation_interval)}
-                                />
-                                <LemonButton
-                                    type="secondary"
-                                    onClick={simulateAlert}
-                                    loading={simulationResultLoading}
-                                    tooltip="Run the detector on historical data to preview which points would be flagged as anomalies"
-                                >
-                                    Simulate
-                                </LemonButton>
-                            </div>
-                        )}
                         <LemonButton
                             type="primary"
                             htmlType="submit"
