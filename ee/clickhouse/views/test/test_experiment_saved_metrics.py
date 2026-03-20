@@ -25,8 +25,8 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
                     "name": "Test Experiment saved metric",
                     "query": {
                         "kind": "ExperimentMetric",
-                        "metric_type": "count",
-                        "event": "$pageview",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "\1"},
                     },
                 },
                 format="json",
@@ -44,8 +44,8 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
                 data={
                     "query": {
                         "kind": "ExperimentMetric",
-                        "metric_type": "count",
-                        "event": "$pageleave",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "\1"},
                     }
                 },
                 format="json",
@@ -164,8 +164,8 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
                 "description": "Test description",
                 "query": {
                     "kind": "ExperimentMetric",
-                    "metric_type": "count",
-                    "event": "$pageview",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "\1"},
                 },
                 "tags": ["tag1"],
             },
@@ -182,8 +182,8 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
             response.json()["query"],
             {
                 "kind": "ExperimentMetric",
-                "metric_type": "count",
-                "event": "$pageview",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "\1"},
                 "uuid": saved_metric_uuid,
             },
         )
@@ -227,8 +227,8 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
             saved_metric.query,
             {
                 "kind": "ExperimentMetric",
-                "metric_type": "count",
-                "event": "$pageview",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "\1"},
                 "uuid": saved_metric_uuid,
             },
         )
@@ -241,8 +241,8 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
                 "description": "Test description 2",
                 "query": {
                     "kind": "ExperimentMetric",
-                    "metric_type": "count",
-                    "event": "$pageleave",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "\1"},
                 },
             },
         )
@@ -253,8 +253,8 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
             response.json()["query"],
             {
                 "kind": "ExperimentMetric",
-                "metric_type": "count",
-                "event": "$pageleave",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "\1"},
                 "uuid": saved_metric_uuid,
             },
         )
@@ -267,8 +267,8 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
             saved_metric.query,
             {
                 "kind": "ExperimentMetric",
-                "metric_type": "count",
-                "event": "$pageleave",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "\1"},
                 "uuid": saved_metric_uuid,
             },
         )
@@ -362,7 +362,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
                     "metric_type": "mean",
                     "source": {
                         "kind": "EventsNode",
-                        "event": "$pageview",
+                        "source": {"kind": "EventsNode", "event": "\1"},
                     },
                 },
             },
@@ -386,7 +386,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
                     "metric_type": "invalid",
                     "source": {
                         "kind": "EventsNode",
-                        "event": "$pageview",
+                        "source": {"kind": "EventsNode", "event": "\1"},
                     },
                 },
             },
@@ -409,11 +409,11 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
                     "metric_type": "ratio",
                     "numerator": {
                         "kind": "EventsNode",
-                        "event": "$purchase",
+                        "source": {"kind": "EventsNode", "event": "\1"},
                     },
                     "denominator": {
                         "kind": "EventsNode",
-                        "event": "$pageview",
+                        "source": {"kind": "EventsNode", "event": "\1"},
                     },
                 },
             },
@@ -440,7 +440,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
                     "metric_type": "ratio",
                     "denominator": {
                         "kind": "EventsNode",
-                        "event": "$pageview",
+                        "source": {"kind": "EventsNode", "event": "\1"},
                     },
                 },
             },
@@ -461,7 +461,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
                     "metric_type": "ratio",
                     "numerator": {
                         "kind": "EventsNode",
-                        "event": "$purchase",
+                        "source": {"kind": "EventsNode", "event": "\1"},
                     },
                 },
             },

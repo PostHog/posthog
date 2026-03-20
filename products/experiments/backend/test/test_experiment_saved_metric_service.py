@@ -18,8 +18,8 @@ class TestExperimentSavedMetricService(APIBaseTest):
     def _valid_metric_query(self) -> dict:
         return {
             "kind": "ExperimentMetric",
-            "metric_type": "count",
-            "event": "$pageview",
+            "metric_type": "mean",
+            "source": {"kind": "EventsNode", "event": "$pageview"},
         }
 
     def test_create_saved_metric_with_minimum_fields(self) -> None:
@@ -142,14 +142,14 @@ class TestExperimentSavedMetricService(APIBaseTest):
             {
                 "query": {
                     "kind": "ExperimentMetric",
-                    "metric_type": "count",
-                    "event": "$pageleave",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageleave"},
                 }
             },
         )
 
         assert updated.query["uuid"] == original_uuid
-        assert updated.query["event"] == "$pageleave"
+        assert updated.query["source"]["event"] == "$pageleave"
 
     def test_update_saved_metric_rejects_uuid_changes(self) -> None:
         saved_metric = self._service().create_saved_metric(

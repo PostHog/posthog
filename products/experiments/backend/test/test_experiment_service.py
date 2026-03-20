@@ -219,8 +219,18 @@ class TestExperimentService(APIBaseTest):
         service = self._service()
 
         metrics = [
-            {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "aaa", "event": "$pageview"},
-            {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "bbb", "event": "$pageleave"},
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": "aaa",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            },
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": "bbb",
+                "source": {"kind": "EventsNode", "event": "$pageleave"},
+            },
         ]
 
         experiment = service.create_experiment(
@@ -236,7 +246,12 @@ class TestExperimentService(APIBaseTest):
         service = self._service()
 
         metrics_secondary = [
-            {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "sec-1", "event": "$pageview"},
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": "sec-1",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            },
         ]
 
         experiment = service.create_experiment(
@@ -358,7 +373,12 @@ class TestExperimentService(APIBaseTest):
         saved_metric = ExperimentSavedMetric.objects.create(
             team=self.team,
             name="My Saved Metric",
-            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "sm-uuid", "event": "$pageview"},
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": "sm-uuid",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            },
         )
 
         service = self._service()
@@ -403,7 +423,12 @@ class TestExperimentService(APIBaseTest):
         saved_metric = ExperimentSavedMetric.objects.create(
             team=other_team,
             name="Other Team Metric",
-            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "other-uuid", "event": "$pageview"},
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": "other-uuid",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            },
         )
         service = self._service()
 
@@ -467,12 +492,22 @@ class TestExperimentService(APIBaseTest):
         saved_metric_primary = ExperimentSavedMetric.objects.create(
             team=self.team,
             name="Primary Saved Metric",
-            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "saved-primary", "event": "$pageview"},
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": "saved-primary",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            },
         )
         saved_metric_secondary = ExperimentSavedMetric.objects.create(
             team=self.team,
             name="Secondary Saved Metric",
-            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "saved-secondary", "event": "$pageview"},
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": "saved-secondary",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            },
         )
 
         primary_metric_uuid = "inline-primary"
@@ -654,7 +689,14 @@ class TestExperimentService(APIBaseTest):
         return service.create_experiment(
             name=name,
             feature_flag_key=flag_key,
-            metrics=[{"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m1", "event": "$pageview"}],
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": "m1",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                }
+            ],
             primary_metrics_ordered_uuids=["m1"],
         )
 
@@ -717,7 +759,14 @@ class TestExperimentService(APIBaseTest):
         experiment = service.create_experiment(
             name="Launch Test",
             feature_flag_key="launch-test-flag",
-            metrics=[{"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m1", "event": "$pageview"}],
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": "m1",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                }
+            ],
             primary_metrics_ordered_uuids=["m1"],
         )
         assert experiment.is_draft
@@ -817,8 +866,18 @@ class TestExperimentService(APIBaseTest):
             experiment,
             {
                 "metrics": [
-                    {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m1", "event": "$pageview"},
-                    {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m2", "event": "$pageleave"},
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "m1",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "m2",
+                        "source": {"kind": "EventsNode", "event": "$pageleave"},
+                    },
                 ],
             },
         )
@@ -834,8 +893,18 @@ class TestExperimentService(APIBaseTest):
             name="Remove Test",
             feature_flag_key="remove-test",
             metrics=[
-                {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m1", "event": "$pageview"},
-                {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m2", "event": "$pageleave"},
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": "m1",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": "m2",
+                    "source": {"kind": "EventsNode", "event": "$pageleave"},
+                },
             ],
             primary_metrics_ordered_uuids=["m1", "m2"],
         )
@@ -844,7 +913,12 @@ class TestExperimentService(APIBaseTest):
             experiment,
             {
                 "metrics": [
-                    {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m1", "event": "$pageview"},
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "m1",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
                 ],
             },
         )
@@ -856,12 +930,22 @@ class TestExperimentService(APIBaseTest):
         sm1 = ExperimentSavedMetric.objects.create(
             team=self.team,
             name="SM1",
-            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "sm-1", "event": "$pageview"},
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": "sm-1",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            },
         )
         sm2 = ExperimentSavedMetric.objects.create(
             team=self.team,
             name="SM2",
-            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "sm-2", "event": "$pageleave"},
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": "sm-2",
+                "source": {"kind": "EventsNode", "event": "$pageleave"},
+            },
         )
 
         service = self._service()
@@ -894,12 +978,22 @@ class TestExperimentService(APIBaseTest):
         sm1 = ExperimentSavedMetric.objects.create(
             team=self.team,
             name="SM1",
-            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "sm-1", "event": "$pageview"},
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": "sm-1",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            },
         )
         sm2 = ExperimentSavedMetric.objects.create(
             team=self.team,
             name="SM2",
-            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "sm-2", "event": "$pageleave"},
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": "sm-2",
+                "source": {"kind": "EventsNode", "event": "$pageleave"},
+            },
         )
         service = self._service()
         experiment = service.create_experiment(
@@ -935,7 +1029,12 @@ class TestExperimentService(APIBaseTest):
         sm1 = ExperimentSavedMetric.objects.create(
             team=self.team,
             name="SM1",
-            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "sm-1", "event": "$pageview"},
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": "sm-1",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            },
         )
         service = self._service()
         experiment = service.create_experiment(
@@ -963,12 +1062,22 @@ class TestExperimentService(APIBaseTest):
         sm1 = ExperimentSavedMetric.objects.create(
             team=self.team,
             name="SM1",
-            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "sm-1", "event": "$pageview"},
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": "sm-1",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            },
         )
         sm2 = ExperimentSavedMetric.objects.create(
             team=self.team,
             name="SM2",
-            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "sm-2", "event": "$pageleave"},
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": "sm-2",
+                "source": {"kind": "EventsNode", "event": "$pageleave"},
+            },
         )
         service = self._service()
         experiment = service.create_experiment(
@@ -1107,7 +1216,12 @@ class TestExperimentService(APIBaseTest):
         sm = ExperimentSavedMetric.objects.create(
             team=self.team,
             name="SM",
-            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "sm-uuid", "event": "$pageview"},
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": "sm-uuid",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            },
         )
         service = self._service()
         source = service.create_experiment(
@@ -1126,7 +1240,12 @@ class TestExperimentService(APIBaseTest):
     # Launch experiment
     # ------------------------------------------------------------------
 
-    _DEFAULT_METRIC = {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m1", "event": "$pageview"}
+    _DEFAULT_METRIC = {
+        "kind": "ExperimentMetric",
+        "metric_type": "mean",
+        "uuid": "m1",
+        "source": {"kind": "EventsNode", "event": "$pageview"},
+    }
 
     def _create_launchable_experiment(
         self,
