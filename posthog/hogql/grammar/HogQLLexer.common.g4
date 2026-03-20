@@ -108,12 +108,14 @@ TRY: T R Y;
 UNBOUNDED: U N B O U N D E D;
 UNION: U N I O N;
 USING: U S I N G;
+VALUES: V A L U E S;
 WEEK: W E E K;
 WHEN: W H E N;
 WHERE: W H E R E;
 WHILE: W H I L E;
 WINDOW: W I N D O W;
 WITH: W I T H;
+WITHIN: W I T H I N;
 YEAR: Y E A R | Y Y Y Y;
 
 // Tokens
@@ -290,4 +292,3 @@ HOGQLX_TEXT_LT
 
 HOGQLX_TEXT_WS
     : [ \t\r\n]+ -> channel(HIDDEN);
-

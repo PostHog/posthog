@@ -102,6 +102,7 @@ const createMockContext = (scopes: string[]): Context => ({
     cache: {} as any,
     env: {
         INKEEP_API_KEY: undefined,
+        MCP_APPS_BASE_URL: undefined,
         POSTHOG_ANALYTICS_API_KEY: undefined,
         POSTHOG_ANALYTICS_HOST: undefined,
         POSTHOG_API_BASE_URL: undefined,
@@ -315,6 +316,7 @@ describe('Tool Filtering - AI Consent', () => {
             cache: {} as any,
             env: {
                 INKEEP_API_KEY: undefined,
+                MCP_APPS_BASE_URL: undefined,
                 POSTHOG_ANALYTICS_API_KEY: undefined,
                 POSTHOG_ANALYTICS_HOST: undefined,
                 POSTHOG_API_BASE_URL: undefined,
@@ -339,6 +341,7 @@ describe('Tool Filtering - AI Consent', () => {
             cache: {} as any,
             env: {
                 INKEEP_API_KEY: undefined,
+                MCP_APPS_BASE_URL: undefined,
                 POSTHOG_ANALYTICS_API_KEY: undefined,
                 POSTHOG_ANALYTICS_HOST: undefined,
                 POSTHOG_API_BASE_URL: undefined,

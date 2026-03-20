@@ -81,6 +81,7 @@ export enum NodeKind {
     GroupNode = 'GroupNode',
     ActionsNode = 'ActionsNode',
     DataWarehouseNode = 'DataWarehouseNode',
+    FunnelsDataWarehouseNode = 'FunnelsDataWarehouseNode',
     LifecycleDataWarehouseNode = 'LifecycleDataWarehouseNode',
     EventsQuery = 'EventsQuery',
     SessionsQuery = 'SessionsQuery',
@@ -247,6 +248,7 @@ export type QuerySchema =
     | ActionsNode // old actions API endpoint
     | PersonsNode // old persons API endpoint
     | DataWarehouseNode
+    | FunnelsDataWarehouseNode
     | LifecycleDataWarehouseNode
     | EventsQuery
     | SessionsQuery
@@ -765,6 +767,16 @@ export interface DataWarehouseNode extends EntityNode {
     dw_source_type?: string
 }
 
+export interface FunnelsDataWarehouseNode extends EntityNode {
+    id: string
+    kind: NodeKind.FunnelsDataWarehouseNode
+    id_field: string
+    table_name: string
+    timestamp_field: string
+    aggregation_target_field: string
+    dw_source_type?: string
+}
+
 export interface LifecycleDataWarehouseNode extends EntityNode {
     id: string
     kind: NodeKind.LifecycleDataWarehouseNode
@@ -781,7 +793,7 @@ export interface ActionsNode extends EntityNode {
 
 export type AnyEntityNode<WarehouseNode = DataWarehouseNode> = EventsNode | ActionsNode | WarehouseNode
 
-export type AnyDataWarehouseNode = DataWarehouseNode | LifecycleDataWarehouseNode
+export type AnyDataWarehouseNode = DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode
 
 export interface GroupNode<WarehouseNode = DataWarehouseNode> extends EntityNode {
     kind: NodeKind.GroupNode
@@ -1110,6 +1122,7 @@ export interface TableSettings {
 
 export interface SharingConfigurationSettings {
     whitelabel?: boolean
+    theme?: 'light' | 'dark' | 'system'
     // Insights
     noHeader?: boolean
     legend?: boolean
@@ -1496,6 +1509,8 @@ export type FunnelsFilter = {
     breakdownAttributionType?: FunnelsFilterLegacy['breakdown_attribution_type']
     breakdownAttributionValue?: integer
     funnelAggregateByHogQL?: FunnelsFilterLegacy['funnel_aggregate_by_hogql']
+    /** For data warehouse based funnel insights when the aggregation target can't be mapped to persons or groups. */
+    customAggregationTarget?: boolean
     /** To select the range of steps for trends & time to convert funnels, 0-indexed */
     funnelToStep?: integer
     funnelFromStep?: integer
@@ -1528,7 +1543,7 @@ export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (AnyEntityNode | GroupNode)[]
+    series: (AnyEntityNode<FunnelsDataWarehouseNode> | GroupNode)[]
     /** Properties specific to the funnels insight */
     funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */
@@ -3320,6 +3335,9 @@ export interface ExperimentQueryResponse {
 
     clickhouse_sql?: string
     hogql?: string
+
+    /** Whether exposures were served from the precomputation system */
+    is_precomputed?: boolean
 }
 
 // Strongly typed variants of ExperimentQueryResponse for better type safety
@@ -3404,6 +3422,8 @@ export interface NewExperimentQueryResponse {
     baseline: ExperimentStatsBaseValidated
     variant_results: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
     breakdown_results?: ExperimentBreakdownResult[]
+    /** Whether exposures were served from the precomputation system */
+    is_precomputed?: boolean
 }
 
 export interface ExperimentExposureTimeSeries {
@@ -3840,7 +3860,9 @@ export interface TileFilters {
 }
 
 export interface InsightsThresholdBounds {
+    /** Alert fires when the value drops below this number. */
     lower?: number
+    /** Alert fires when the value exceeds this number. */
     upper?: number
 }
 
@@ -3850,6 +3872,7 @@ export enum InsightThresholdType {
 }
 
 export interface InsightThreshold {
+    /** Whether bounds are compared as absolute values or as percentage change from the previous interval. */
     type: InsightThresholdType
     bounds?: InsightsThresholdBounds
 }
@@ -3882,9 +3905,186 @@ export enum AlertCalculationInterval {
 
 export interface TrendsAlertConfig {
     type: 'TrendsAlertConfig'
+    /** Zero-based index of the series in the insight's query to monitor. */
     series_index: integer
+    /** When true, evaluate the current (still incomplete) time interval in addition to completed ones. */
     check_ongoing_interval?: boolean
 }
+
+// Detector types for anomaly detection alerts
+export enum DetectorType {
+    ZSCORE = 'zscore',
+    MAD = 'mad',
+    THRESHOLD = 'threshold',
+    IQR = 'iqr',
+    COPOD = 'copod',
+    ECOD = 'ecod',
+    ISOLATION_FOREST = 'isolation_forest',
+    KNN = 'knn',
+    HBOS = 'hbos',
+    LOF = 'lof',
+    OCSVM = 'ocsvm',
+    PCA = 'pca',
+}
+
+/** Preprocessing transforms applied to the time series before detection */
+export interface PreprocessingConfig {
+    /** Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0) */
+    diffs_n?: integer
+    /** Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0) */
+    smooth_n?: integer
+    /** Number of lag features. 0 = none, >0 = include n lagged values (default: 0) */
+    lags_n?: integer
+}
+
+export interface ZScoreDetectorConfig {
+    type: 'zscore'
+    /** Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9) */
+    threshold?: number
+    /** Rolling window size for calculating mean/std (default: 30) */
+    window?: integer
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
+}
+
+export interface MADDetectorConfig {
+    type: 'mad'
+    /** Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9) */
+    threshold?: number
+    /** Rolling window size for calculating median/MAD (default: 30) */
+    window?: integer
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
+}
+
+export interface IQRDetectorConfig {
+    type: 'iqr'
+    /** IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers) */
+    multiplier?: number
+    /** Rolling window size for calculating quartiles (default: 30) */
+    window?: integer
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
+}
+
+export interface ThresholdDetectorConfig {
+    type: 'threshold'
+    /** Upper bound - values above this are anomalies */
+    upper_bound?: number
+    /** Lower bound - values below this are anomalies */
+    lower_bound?: number
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
+}
+
+export interface ECODDetectorConfig {
+    type: 'ecod'
+    /** Anomaly probability threshold (default: 0.9) */
+    threshold?: number
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
+}
+
+export interface COPODDetectorConfig {
+    type: 'copod'
+    /** Anomaly probability threshold (default: 0.9) */
+    threshold?: number
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
+}
+
+export interface IsolationForestDetectorConfig {
+    type: 'isolation_forest'
+    /** Anomaly probability threshold (default: 0.9) */
+    threshold?: number
+    /** Number of trees in the forest (default: 100) */
+    n_estimators?: integer
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
+}
+
+export interface KNNDetectorConfig {
+    type: 'knn'
+    /** Anomaly probability threshold (default: 0.9) */
+    threshold?: number
+    /** Number of neighbors to consider (default: 5) */
+    n_neighbors?: integer
+    /** Distance method: 'largest', 'mean', 'median' (default: 'largest') */
+    method?: 'largest' | 'mean' | 'median'
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
+}
+
+export interface HBOSDetectorConfig {
+    type: 'hbos'
+    /** Anomaly probability threshold (default: 0.9) */
+    threshold?: number
+    /** Number of histogram bins (default: 10) */
+    n_bins?: integer
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
+}
+
+export interface LOFDetectorConfig {
+    type: 'lof'
+    /** Anomaly probability threshold (default: 0.9) */
+    threshold?: number
+    /** Number of neighbors for LOF (default: 20) */
+    n_neighbors?: integer
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
+}
+
+export interface OCSVMDetectorConfig {
+    type: 'ocsvm'
+    /** Anomaly probability threshold (default: 0.9) */
+    threshold?: number
+    /** SVM kernel type (default: "rbf") */
+    kernel?: string
+    /** Upper bound on training errors fraction (default: 0.1) */
+    nu?: number
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
+}
+
+export interface PCADetectorConfig {
+    type: 'pca'
+    /** Anomaly probability threshold (default: 0.9) */
+    threshold?: number
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
+}
+
+export enum EnsembleOperator {
+    AND = 'and',
+    OR = 'or',
+}
+
+/** A single (leaf) detector config */
+export type SingleDetectorConfig =
+    | ZScoreDetectorConfig
+    | MADDetectorConfig
+    | IQRDetectorConfig
+    | ThresholdDetectorConfig
+    | ECODDetectorConfig
+    | COPODDetectorConfig
+    | IsolationForestDetectorConfig
+    | KNNDetectorConfig
+    | HBOSDetectorConfig
+    | LOFDetectorConfig
+    | OCSVMDetectorConfig
+    | PCADetectorConfig
+
+export interface EnsembleDetectorConfig {
+    type: 'ensemble'
+    /** How to combine sub-detector results */
+    operator: EnsembleOperator
+    /** Sub-detector configurations (minimum 2) */
+    detectors: SingleDetectorConfig[]
+}
+
+/** Detector configuration types */
+export type DetectorConfig = SingleDetectorConfig | EnsembleDetectorConfig
 
 export interface HogCompileResponse {
     bytecode: any[]
@@ -4757,10 +4957,10 @@ export enum MarketingAnalyticsBaseColumns {
     Impressions = 'Impressions',
     CPC = 'CPC',
     CTR = 'CTR',
-    ReportedConversion = 'Reported Conversion',
+    ReportedConversions = 'Reported Conversions',
     ReportedConversionValue = 'Reported Conversion Value',
     ReportedROAS = 'Reported ROAS',
-    CostPerReportedConversion = 'Cost per Reported Conversion',
+    CostPerReportedConversions = 'Cost per Reported Conversions',
 }
 
 export type MarketingAnalyticsDrillDownConfig = {

@@ -24,6 +24,8 @@ from posthog.temporal.data_imports.sources.generated_configs import get_config_f
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
+MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP = "Required for Marketing analytics to work with this source."
+
 ConfigType = TypeVar("ConfigType", bound=Config)
 ConfigType_contra = TypeVar("ConfigType_contra", bound=Config, contravariant=True)
 

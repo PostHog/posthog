@@ -2,7 +2,6 @@ import json
 
 from django.contrib import admin
 from django.utils.html import format_html
-from django.utils.safestring import mark_safe
 
 from posthog.models import PluginAttachment
 
@@ -23,7 +22,7 @@ class PluginAttachmentInline(admin.StackedInline):
                 )
             return attachment.contents
         except Exception as err:
-            return format_html(f"cannot preview: {err}")
+            return format_html("cannot preview: {}", err)
 
     def parsed_json(self, attachment: PluginAttachment):
         try:
@@ -33,10 +32,9 @@ class PluginAttachmentInline(admin.StackedInline):
                 )
 
             response = json.dumps(json.loads(attachment.contents), sort_keys=True, indent=4)
-            # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, JSON is re-serialized)
-            return mark_safe(f"<pre>{response}</pre>")
+            return format_html("<pre>{}</pre>", response)
         except Exception as err:
-            return format_html(f"cannot preview: {err}")
+            return format_html("cannot preview: {}", err)
 
     def has_add_permission(self, request, obj):
         return False

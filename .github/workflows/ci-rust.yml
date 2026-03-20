@@ -83,15 +83,12 @@ jobs:
                       "feature-flags": 241,
                       "health": 8,
                       "hogvm": 5,
-                      "hook-api": 88,
-                      "hook-common": 73,
-                      "hook-janitor": 94,
-                      "hook-worker": 100,
                       "kafka-assigner": 30,
                       "kafka-deduplicator": 239,
                       "limiters": 23,
                       "lifecycle": 10,
                       "personhog-coordination": 30,
+                      "personhog-leader": 30,
                       "personhog-replica": 49,
                       "personhog-router": 10,
                       "posthog-symbol-data": 4,
@@ -346,40 +343,19 @@ jobs:
                   OPENSSL_NO_VENDOR: '1'
               run: cargo check --all-features
 
-    shear:
-        name: Shear Rust services
-        needs: changes
-        if: needs.changes.outputs.rust == 'true'
-        runs-on: depot-ubuntu-22.04-4
-
-        defaults:
-            run:
-                working-directory: rust
-
-        steps:
-            # Checkout project code
-            # Use sparse checkout to only select files in rust directory
-            # Turning off cone mode ensures that files in the project root are not included during checkout
-            - uses: actions/checkout@v6
-              with:
-                  sparse-checkout: |
-                      rust/
-                      proto/
-                  sparse-checkout-cone-mode: false
-                  clean: false
-
             - name: Install cargo-binstall
               uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
 
             - name: Install cargo-shear
               run: cargo binstall --no-confirm cargo-shear@1.1.12
 
-            - run: cargo shear
+            - name: Run cargo shear
+              run: cargo shear
 
     # Collate job - single required status check for branch protection.
     # Individual jobs skip entirely when no Rust changes, saving runner time.
     rust_tests:
-        needs: [changes, build, test, linting, shear]
+        needs: [changes, build, test, linting]
         name: Rust Tests Pass
         runs-on: ubuntu-latest
         if: always()
@@ -410,11 +386,6 @@ jobs:
 
                   if [[ "${{ needs.linting.result }}" != "success" && "${{ needs.linting.result }}" != "skipped" ]]; then
                     echo "Rust linting failed."
-                    exit 1
-                  fi
-
-                  if [[ "${{ needs.shear.result }}" != "success" && "${{ needs.shear.result }}" != "skipped" ]]; then
-                    echo "Rust shear failed."
                     exit 1
                   fi
 

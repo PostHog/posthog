@@ -1148,6 +1148,24 @@ class TestPrinter(BaseTest):
             'The HogQL identifier "as%d" is not permitted as it contains the "%" character',
         )
 
+    @parameterized.expand([["percentile_cont"], ["percentile_disc"]])
+    def test_percentile_within_group_printer(self, function_name: str):
+        self.assertEqual(
+            self._expr(f"{function_name}(0.5) within group (order by event desc)", dialect="hogql"),
+            f"{function_name}(0.5) WITHIN GROUP (ORDER BY event DESC)",
+        )
+
+    @parameterized.expand([["percentile_cont"], ["percentile_disc"]])
+    def test_percentile_within_group_parse_errors(self, function_name: str):
+        self._assert_expr_error(
+            f"{function_name}(0.5)",
+            f"Aggregation '{function_name}' requires WITHIN GROUP",
+        )
+        self._assert_expr_error(
+            f"{function_name}(0.5) within group (order by event desc)",
+            f"Aggregation '{function_name}' with WITHIN GROUP is not supported in ClickHouse dialect",
+        )
+
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
     def test_expr_parse_errors_poe_on(self):
         # VirtualTable
@@ -4442,6 +4460,13 @@ class TestPostgresPrinter(BaseTest):
         self.assertNotIn("lagInFrame", printed)
         self.assertNotIn("ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING", printed)
 
+    @parameterized.expand([["percentile_cont"], ["percentile_disc"]])
+    def test_percentile_within_group_renders_in_postgres(self, function_name: str):
+        self.assertEqual(
+            self._expr(f"{function_name}(0.5) within group (order by timestamp desc)"),
+            f"{function_name}(0.5) WITHIN GROUP (ORDER BY events.timestamp DESC)",
+        )
+
     def test_in_operations_render_value_lists(self):
         self.assertEqual(self._expr("1 in (1, 2, 3)"), "(1 IN (1, 2, 3))")
         self.assertEqual(self._expr("1 in (1)"), "(1 IN (1))")
@@ -4639,6 +4664,30 @@ class TestPostgresPrinter(BaseTest):
         result = self._select(query)
         self.assertIn("USING KEY (a) AS", result)
 
+    def test_values_query(self):
+        self.assertEqual(
+            self._select("SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS v (id, name)"),
+            "SELECT v.id, v.name FROM (VALUES (1, 'a'), (2, 'b')) AS v (id, name) LIMIT 50000",
+        )
+
+    def test_values_query_no_alias_columns(self):
+        self.assertEqual(
+            self._select("SELECT * FROM (VALUES (1, 'hello')) AS v"),
+            "SELECT v.col0, v.col1 FROM (VALUES (1, 'hello')) AS v (col0, col1) LIMIT 50000",
+        )
+
+    def test_values_query_no_alias(self):
+        self.assertEqual(
+            self._select("SELECT * FROM (VALUES (1, 'george', 'created'), (2, 'jack', 'deleted'))"),
+            "SELECT values.col0, values.col1, values.col2 FROM (VALUES (1, 'george', 'created'), (2, 'jack', 'deleted')) AS values (col0, col1, col2) LIMIT 50000",
+        )
+
+    def test_values_query_clickhouse_raises_error(self):
+        from posthog.hogql.errors import QueryError
+
+        with self.assertRaises(QueryError):
+            self._select("SELECT * FROM (VALUES (1, 'a')) AS v(id, name)", dialect="clickhouse")
+
     def test_intersect_all(self):
         result = self._select("select 1 as id intersect all select 2 as id")
         self.assertIn("INTERSECT ALL", result)
@@ -4800,6 +4849,7 @@ class TestPostgresPrinter(BaseTest):
         with self.assertRaises(QueryError) as ctx:
             self._expr(expr)
         self.assertIn("not supported in the Postgres dialect", str(ctx.exception))
+        self.assertNotIn("ClickHouse", str(ctx.exception))
 
     @parameterized.expand(
         [

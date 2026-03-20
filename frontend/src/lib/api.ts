@@ -2121,6 +2121,32 @@ const api = {
             }
             return await request.get()
         },
+        async getMaterializationPreview(
+            name: string,
+            version?: number,
+            bucketOverrides?: Record<string, string>
+        ): Promise<{
+            can_materialize: boolean
+            reason: string | null
+            transformed_query: string | null
+            range_pairs: { column: string; variables: string[]; bucket_fn: string }[]
+            aggregates: { expression: string; reaggregate_fn: string | null }[]
+        }> {
+            const params: Record<string, any> = {}
+            if (version !== undefined) {
+                params.version = version
+            }
+            if (bucketOverrides) {
+                for (const [col, fn] of Object.entries(bucketOverrides)) {
+                    params[`bucket_overrides[${col}]`] = fn
+                }
+            }
+            let request = new ApiRequest().endpointDetail(name).withAction('materialization_preview')
+            if (Object.keys(params).length > 0) {
+                request = request.withQueryString(params)
+            }
+            return await request.get()
+        },
         async listVersions(name: string): Promise<EndpointVersionType[]> {
             return await new ApiRequest().endpointDetail(name).withAction('versions').get()
         },
@@ -5585,8 +5611,16 @@ const api = {
         async list(
             params: {
                 status?: string
+                priority?: string
+                channel_source?: string
+                sla?: string
+                assignee?: string
+                tags?: string
                 distinct_ids?: string
                 search?: string
+                date_from?: string
+                date_to?: string
+                order_by?: string
                 limit?: number
                 offset?: number
             } = {}

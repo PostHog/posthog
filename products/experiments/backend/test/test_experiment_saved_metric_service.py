@@ -5,10 +5,10 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.models import Team
-from posthog.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
 
 from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
 
 
 class TestExperimentSavedMetricService(APIBaseTest):
@@ -100,7 +100,7 @@ class TestExperimentSavedMetricService(APIBaseTest):
             query=self._valid_trends_query(),
         )
 
-        with patch("posthog.models.experiment.ExperimentSavedMetric.save") as save_mock:
+        with patch("products.experiments.backend.models.experiment.ExperimentSavedMetric.save") as save_mock:
             updated = self._service().update_saved_metric(saved_metric, {})
 
         assert updated == saved_metric
@@ -230,7 +230,7 @@ class TestExperimentSavedMetricService(APIBaseTest):
         )
 
         with (
-            patch("posthog.models.experiment.ExperimentSavedMetric.save") as save_mock,
+            patch("products.experiments.backend.models.experiment.ExperimentSavedMetric.save") as save_mock,
             self.assertRaises(ValidationError),
         ):
             self._service().update_saved_metric(saved_metric, {"query": {}})

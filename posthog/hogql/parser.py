@@ -658,6 +658,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitWinOrderByClause(self, ctx: HogQLParser.WinOrderByClauseContext):
         return self.visit(ctx.orderExprList())
 
+    def visitWithinGroupClause(self, ctx: HogQLParser.WithinGroupClauseContext):
+        return self.visit(ctx.orderByClause())
+
     def visitWinFrameClause(self, ctx: HogQLParser.WinFrameClauseContext):
         return self.visit(ctx.winFrameExtend())
 
@@ -1053,6 +1056,12 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         distinct = True if ctx.DISTINCT() else False
         return ast.Call(name=name, params=parameters, args=args, distinct=distinct)
 
+    def visitColumnExprFunctionWithinGroup(self, ctx: HogQLParser.ColumnExprFunctionWithinGroupContext):
+        name = self.visit(ctx.identifier())
+        parameters: list[ast.Expr] = self.visit(ctx.columnExprs) if ctx.columnExprs is not None else []
+        within_group = self.visit(ctx.withinGroupClause())
+        return ast.Call(name=name, params=parameters, args=[], within_group=within_group)
+
     def visitColumnExprAsterisk(self, ctx: HogQLParser.ColumnExprAsteriskContext):
         if ctx.tableIdentifier():
             table = self.visit(ctx.tableIdentifier())
@@ -1131,6 +1140,16 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitTableExprSubquery(self, ctx: HogQLParser.TableExprSubqueryContext):
         return self.visit(ctx.selectSetStmt())
 
+    def visitTableExprValues(self, ctx: HogQLParser.TableExprValuesContext):
+        return self.visit(ctx.valuesClause())
+
+    def visitValuesClause(self, ctx: HogQLParser.ValuesClauseContext):
+        rows = [self.visit(row) for row in ctx.valuesRow()]
+        return ast.ValuesQuery(rows=rows)
+
+    def visitValuesRow(self, ctx: HogQLParser.ValuesRowContext):
+        return [self.visit(expr) for expr in ctx.columnExpr()]
+
     def visitTableExprPlaceholder(self, ctx: HogQLParser.TableExprPlaceholderContext):
         return self.visit(ctx.placeholder())
 
@@ -1139,10 +1158,16 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         if alias.lower() in RESERVED_KEYWORDS:
             raise SyntaxError(f'"{alias}" cannot be an alias or identifier, as it\'s a reserved keyword')
         table = self.visit(ctx.tableExpr())
+
+        alias_columns = None
+        if column_name_list := ctx.tableAliasColumnNameList():
+            alias_columns = [self.visit(ident) for ident in column_name_list.identifier()]
+
         if isinstance(table, ast.JoinExpr):
             table.alias = alias
+            table.alias_columns = alias_columns
             return table
-        return ast.JoinExpr(table=table, alias=alias)
+        return ast.JoinExpr(table=table, alias=alias, alias_columns=alias_columns)
 
     def visitTableExprFunction(self, ctx: HogQLParser.TableExprFunctionContext):
         return self.visit(ctx.tableFunctionExpr())

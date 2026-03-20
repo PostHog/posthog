@@ -648,6 +648,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -656,6 +657,7 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."filters_overrides",
          "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
   WHERE "posthog_dashboardtile"."id" = 99999
@@ -960,6 +962,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -968,6 +971,7 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."filters_overrides",
          "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
@@ -1572,6 +1576,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -1580,6 +1585,7 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."filters_overrides",
          "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
          "posthog_dashboardtile"."deleted",
          "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -1773,7 +1779,16 @@
          "posthog_text"."created_by_id",
          "posthog_text"."last_modified_at",
          "posthog_text"."last_modified_by_id",
-         "posthog_text"."team_id"
+         "posthog_text"."team_id",
+         "posthog_buttontile"."id",
+         "posthog_buttontile"."url",
+         "posthog_buttontile"."text",
+         "posthog_buttontile"."placement",
+         "posthog_buttontile"."style",
+         "posthog_buttontile"."created_by_id",
+         "posthog_buttontile"."last_modified_at",
+         "posthog_buttontile"."last_modified_by_id",
+         "posthog_buttontile"."team_id"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
@@ -1781,6 +1796,7 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboarditem"."last_modified_by_id" = T6."id")
   LEFT OUTER JOIN "posthog_text" ON ("posthog_dashboardtile"."text_id" = "posthog_text"."id")
+  LEFT OUTER JOIN "posthog_buttontile" ON ("posthog_dashboardtile"."button_tile_id" = "posthog_buttontile"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
               AND "posthog_dashboardtile"."deleted" IS NOT NULL)
          AND NOT ("posthog_dashboard"."deleted")
@@ -1912,6 +1928,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -1920,6 +1937,7 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."filters_overrides",
          "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
@@ -2154,6 +2172,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -2162,6 +2181,7 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."filters_overrides",
          "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
          "posthog_dashboardtile"."deleted",
          "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -2355,7 +2375,16 @@
          "posthog_text"."created_by_id",
          "posthog_text"."last_modified_at",
          "posthog_text"."last_modified_by_id",
-         "posthog_text"."team_id"
+         "posthog_text"."team_id",
+         "posthog_buttontile"."id",
+         "posthog_buttontile"."url",
+         "posthog_buttontile"."text",
+         "posthog_buttontile"."placement",
+         "posthog_buttontile"."style",
+         "posthog_buttontile"."created_by_id",
+         "posthog_buttontile"."last_modified_at",
+         "posthog_buttontile"."last_modified_by_id",
+         "posthog_buttontile"."team_id"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
@@ -2363,6 +2392,7 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboarditem"."last_modified_by_id" = T6."id")
   LEFT OUTER JOIN "posthog_text" ON ("posthog_dashboardtile"."text_id" = "posthog_text"."id")
+  LEFT OUTER JOIN "posthog_buttontile" ON ("posthog_dashboardtile"."button_tile_id" = "posthog_buttontile"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
               AND "posthog_dashboardtile"."deleted" IS NOT NULL)
          AND NOT ("posthog_dashboard"."deleted")
@@ -2475,6 +2505,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -2483,6 +2514,7 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."filters_overrides",
          "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
@@ -2563,6 +2595,7 @@
          "posthog_alertconfiguration"."calculation_interval",
          "posthog_alertconfiguration"."threshold_id",
          "posthog_alertconfiguration"."condition",
+         "posthog_alertconfiguration"."detector_config",
          "posthog_alertconfiguration"."state",
          "posthog_alertconfiguration"."enabled",
          "posthog_alertconfiguration"."is_calculating",
@@ -3195,6 +3228,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -3203,6 +3237,7 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."filters_overrides",
          "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
   WHERE "posthog_dashboardtile"."id" = 99999
@@ -3640,6 +3675,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -3648,6 +3684,7 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."filters_overrides",
          "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
@@ -5878,6 +5915,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -5886,6 +5924,7 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."filters_overrides",
          "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
   WHERE "posthog_dashboardtile"."id" = 99999
@@ -6227,6 +6266,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -6235,6 +6275,7 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."filters_overrides",
          "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
@@ -7352,6 +7393,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -7360,6 +7402,7 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."filters_overrides",
          "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
   WHERE "posthog_dashboardtile"."id" = 99999
@@ -7701,6 +7744,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -7709,6 +7753,7 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."filters_overrides",
          "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
@@ -8105,6 +8150,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -8113,6 +8159,7 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."filters_overrides",
          "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
          "posthog_dashboardtile"."deleted",
          "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -8306,7 +8353,16 @@
          "posthog_text"."created_by_id",
          "posthog_text"."last_modified_at",
          "posthog_text"."last_modified_by_id",
-         "posthog_text"."team_id"
+         "posthog_text"."team_id",
+         "posthog_buttontile"."id",
+         "posthog_buttontile"."url",
+         "posthog_buttontile"."text",
+         "posthog_buttontile"."placement",
+         "posthog_buttontile"."style",
+         "posthog_buttontile"."created_by_id",
+         "posthog_buttontile"."last_modified_at",
+         "posthog_buttontile"."last_modified_by_id",
+         "posthog_buttontile"."team_id"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
@@ -8314,6 +8370,7 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboarditem"."last_modified_by_id" = T6."id")
   LEFT OUTER JOIN "posthog_text" ON ("posthog_dashboardtile"."text_id" = "posthog_text"."id")
+  LEFT OUTER JOIN "posthog_buttontile" ON ("posthog_dashboardtile"."button_tile_id" = "posthog_buttontile"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
               AND "posthog_dashboardtile"."deleted" IS NOT NULL)
          AND NOT ("posthog_dashboard"."deleted")
@@ -8511,6 +8568,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -8519,6 +8577,7 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."filters_overrides",
          "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
          "posthog_dashboardtile"."deleted",
          "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -8712,7 +8771,16 @@
          "posthog_text"."created_by_id",
          "posthog_text"."last_modified_at",
          "posthog_text"."last_modified_by_id",
-         "posthog_text"."team_id"
+         "posthog_text"."team_id",
+         "posthog_buttontile"."id",
+         "posthog_buttontile"."url",
+         "posthog_buttontile"."text",
+         "posthog_buttontile"."placement",
+         "posthog_buttontile"."style",
+         "posthog_buttontile"."created_by_id",
+         "posthog_buttontile"."last_modified_at",
+         "posthog_buttontile"."last_modified_by_id",
+         "posthog_buttontile"."team_id"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
@@ -8720,6 +8788,7 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboarditem"."last_modified_by_id" = T6."id")
   LEFT OUTER JOIN "posthog_text" ON ("posthog_dashboardtile"."text_id" = "posthog_text"."id")
+  LEFT OUTER JOIN "posthog_buttontile" ON ("posthog_dashboardtile"."button_tile_id" = "posthog_buttontile"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
               AND "posthog_dashboardtile"."deleted" IS NOT NULL)
          AND NOT ("posthog_dashboard"."deleted")
@@ -8805,6 +8874,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -8813,6 +8883,7 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."filters_overrides",
          "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
@@ -9055,6 +9126,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -9063,6 +9135,7 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."filters_overrides",
          "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
          "posthog_dashboardtile"."deleted",
          "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -9256,7 +9329,16 @@
          "posthog_text"."created_by_id",
          "posthog_text"."last_modified_at",
          "posthog_text"."last_modified_by_id",
-         "posthog_text"."team_id"
+         "posthog_text"."team_id",
+         "posthog_buttontile"."id",
+         "posthog_buttontile"."url",
+         "posthog_buttontile"."text",
+         "posthog_buttontile"."placement",
+         "posthog_buttontile"."style",
+         "posthog_buttontile"."created_by_id",
+         "posthog_buttontile"."last_modified_at",
+         "posthog_buttontile"."last_modified_by_id",
+         "posthog_buttontile"."team_id"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
@@ -9264,6 +9346,7 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboarditem"."last_modified_by_id" = T6."id")
   LEFT OUTER JOIN "posthog_text" ON ("posthog_dashboardtile"."text_id" = "posthog_text"."id")
+  LEFT OUTER JOIN "posthog_buttontile" ON ("posthog_dashboardtile"."button_tile_id" = "posthog_buttontile"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
               AND "posthog_dashboardtile"."deleted" IS NOT NULL)
          AND NOT ("posthog_dashboard"."deleted")
@@ -9350,6 +9433,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -9358,6 +9442,7 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."filters_overrides",
          "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
@@ -9475,6 +9560,7 @@
          "posthog_alertconfiguration"."calculation_interval",
          "posthog_alertconfiguration"."threshold_id",
          "posthog_alertconfiguration"."condition",
+         "posthog_alertconfiguration"."detector_config",
          "posthog_alertconfiguration"."state",
          "posthog_alertconfiguration"."enabled",
          "posthog_alertconfiguration"."is_calculating",
@@ -10258,6 +10344,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -10266,6 +10353,7 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."filters_overrides",
          "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
          "posthog_dashboardtile"."deleted",
          "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -10459,7 +10547,16 @@
          "posthog_text"."created_by_id",
          "posthog_text"."last_modified_at",
          "posthog_text"."last_modified_by_id",
-         "posthog_text"."team_id"
+         "posthog_text"."team_id",
+         "posthog_buttontile"."id",
+         "posthog_buttontile"."url",
+         "posthog_buttontile"."text",
+         "posthog_buttontile"."placement",
+         "posthog_buttontile"."style",
+         "posthog_buttontile"."created_by_id",
+         "posthog_buttontile"."last_modified_at",
+         "posthog_buttontile"."last_modified_by_id",
+         "posthog_buttontile"."team_id"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
@@ -10467,6 +10564,7 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboarditem"."last_modified_by_id" = T6."id")
   LEFT OUTER JOIN "posthog_text" ON ("posthog_dashboardtile"."text_id" = "posthog_text"."id")
+  LEFT OUTER JOIN "posthog_buttontile" ON ("posthog_dashboardtile"."button_tile_id" = "posthog_buttontile"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
               AND "posthog_dashboardtile"."deleted" IS NOT NULL)
          AND NOT ("posthog_dashboard"."deleted")
@@ -11559,6 +11657,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -11567,6 +11666,7 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."filters_overrides",
          "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
   WHERE "posthog_dashboardtile"."id" = 99999
@@ -11988,6 +12088,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -11996,6 +12097,7 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."filters_overrides",
          "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
   WHERE "posthog_dashboardtile"."id" = 99999
@@ -12337,6 +12439,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -12345,6 +12448,7 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."filters_overrides",
          "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
@@ -13545,6 +13649,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -13553,6 +13658,7 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."filters_overrides",
          "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
   WHERE "posthog_dashboardtile"."id" = 99999
@@ -13894,6 +14000,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -13902,6 +14009,7 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."filters_overrides",
          "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
@@ -14047,6 +14155,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -14055,6 +14164,7 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."filters_overrides",
          "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
          "posthog_dashboardtile"."deleted",
          "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -14248,7 +14358,16 @@
          "posthog_text"."created_by_id",
          "posthog_text"."last_modified_at",
          "posthog_text"."last_modified_by_id",
-         "posthog_text"."team_id"
+         "posthog_text"."team_id",
+         "posthog_buttontile"."id",
+         "posthog_buttontile"."url",
+         "posthog_buttontile"."text",
+         "posthog_buttontile"."placement",
+         "posthog_buttontile"."style",
+         "posthog_buttontile"."created_by_id",
+         "posthog_buttontile"."last_modified_at",
+         "posthog_buttontile"."last_modified_by_id",
+         "posthog_buttontile"."team_id"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
@@ -14256,6 +14375,7 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboarditem"."last_modified_by_id" = T6."id")
   LEFT OUTER JOIN "posthog_text" ON ("posthog_dashboardtile"."text_id" = "posthog_text"."id")
+  LEFT OUTER JOIN "posthog_buttontile" ON ("posthog_dashboardtile"."button_tile_id" = "posthog_buttontile"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
               AND "posthog_dashboardtile"."deleted" IS NOT NULL)
          AND NOT ("posthog_dashboard"."deleted")
@@ -14463,6 +14583,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -14471,6 +14592,7 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."filters_overrides",
          "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
          "posthog_dashboardtile"."deleted",
          "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -14664,7 +14786,16 @@
          "posthog_text"."created_by_id",
          "posthog_text"."last_modified_at",
          "posthog_text"."last_modified_by_id",
-         "posthog_text"."team_id"
+         "posthog_text"."team_id",
+         "posthog_buttontile"."id",
+         "posthog_buttontile"."url",
+         "posthog_buttontile"."text",
+         "posthog_buttontile"."placement",
+         "posthog_buttontile"."style",
+         "posthog_buttontile"."created_by_id",
+         "posthog_buttontile"."last_modified_at",
+         "posthog_buttontile"."last_modified_by_id",
+         "posthog_buttontile"."team_id"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
@@ -14672,6 +14803,7 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboarditem"."last_modified_by_id" = T6."id")
   LEFT OUTER JOIN "posthog_text" ON ("posthog_dashboardtile"."text_id" = "posthog_text"."id")
+  LEFT OUTER JOIN "posthog_buttontile" ON ("posthog_dashboardtile"."button_tile_id" = "posthog_buttontile"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
               AND "posthog_dashboardtile"."deleted" IS NOT NULL)
          AND NOT ("posthog_dashboard"."deleted")
@@ -15215,6 +15347,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -15223,6 +15356,7 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."filters_overrides",
          "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
          "posthog_dashboardtile"."deleted",
          "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -15416,7 +15550,16 @@
          "posthog_text"."created_by_id",
          "posthog_text"."last_modified_at",
          "posthog_text"."last_modified_by_id",
-         "posthog_text"."team_id"
+         "posthog_text"."team_id",
+         "posthog_buttontile"."id",
+         "posthog_buttontile"."url",
+         "posthog_buttontile"."text",
+         "posthog_buttontile"."placement",
+         "posthog_buttontile"."style",
+         "posthog_buttontile"."created_by_id",
+         "posthog_buttontile"."last_modified_at",
+         "posthog_buttontile"."last_modified_by_id",
+         "posthog_buttontile"."team_id"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
@@ -15424,6 +15567,7 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboarditem"."last_modified_by_id" = T6."id")
   LEFT OUTER JOIN "posthog_text" ON ("posthog_dashboardtile"."text_id" = "posthog_text"."id")
+  LEFT OUTER JOIN "posthog_buttontile" ON ("posthog_dashboardtile"."button_tile_id" = "posthog_buttontile"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
               AND "posthog_dashboardtile"."deleted" IS NOT NULL)
          AND NOT ("posthog_dashboard"."deleted")
@@ -16147,6 +16291,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -16155,6 +16300,7 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."filters_overrides",
          "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
          "posthog_dashboardtile"."deleted",
          "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -16348,7 +16494,16 @@
          "posthog_text"."created_by_id",
          "posthog_text"."last_modified_at",
          "posthog_text"."last_modified_by_id",
-         "posthog_text"."team_id"
+         "posthog_text"."team_id",
+         "posthog_buttontile"."id",
+         "posthog_buttontile"."url",
+         "posthog_buttontile"."text",
+         "posthog_buttontile"."placement",
+         "posthog_buttontile"."style",
+         "posthog_buttontile"."created_by_id",
+         "posthog_buttontile"."last_modified_at",
+         "posthog_buttontile"."last_modified_by_id",
+         "posthog_buttontile"."team_id"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
@@ -16356,6 +16511,7 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboarditem"."last_modified_by_id" = T6."id")
   LEFT OUTER JOIN "posthog_text" ON ("posthog_dashboardtile"."text_id" = "posthog_text"."id")
+  LEFT OUTER JOIN "posthog_buttontile" ON ("posthog_dashboardtile"."button_tile_id" = "posthog_buttontile"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
               AND "posthog_dashboardtile"."deleted" IS NOT NULL)
          AND NOT ("posthog_dashboard"."deleted")
