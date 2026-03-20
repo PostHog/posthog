@@ -612,8 +612,12 @@ jobs:
                     exit 0
                   fi
 
+                  if [ -z "$BASE_SHA" ]; then
+                    echo "::warning::BASE_SHA is empty — cannot filter existing migrations, showing all"
+                  fi
+
                   # Ensure the base commit is available for comparison
-                  git fetch origin "$BASE_SHA" --depth=1 2>/dev/null || echo "Warning: could not fetch base SHA $BASE_SHA, will treat all migrations as new"
+                  git fetch --no-tags --prune --depth=1 origin "$BASE_SHA" || echo "::warning::Could not fetch base SHA $BASE_SHA — all changed migrations will be shown as new"
 
                   # Initialize comment body for SQL changes
                   COMMENT_BODY="## Migration SQL Changes\n\nHey 👋, we've detected some migrations on this PR. Here's the SQL output for each migration, make sure they make sense:\n\n"
