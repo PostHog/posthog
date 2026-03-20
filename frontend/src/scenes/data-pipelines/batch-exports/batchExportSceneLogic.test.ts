@@ -53,29 +53,17 @@ describe('batchExportSceneLogic', () => {
         expect(logic.values.currentTab).toBe('configuration')
     })
 
-    it('switches tabs via setCurrentTab', async () => {
+    it.each(['runs', 'backfills', 'logs', 'metrics'] as const)('switches to %s tab via setCurrentTab', async (tab) => {
         await initLogic()
 
-        logic.actions.setCurrentTab('runs')
-        expect(logic.values.currentTab).toBe('runs')
-
-        logic.actions.setCurrentTab('backfills')
-        expect(logic.values.currentTab).toBe('backfills')
-
-        logic.actions.setCurrentTab('logs')
-        expect(logic.values.currentTab).toBe('logs')
-
-        logic.actions.setCurrentTab('metrics')
-        expect(logic.values.currentTab).toBe('metrics')
+        logic.actions.setCurrentTab(tab)
+        expect(logic.values.currentTab).toBe(tab)
     })
 
-    it('syncs tab to URL search params', async () => {
+    it.each(['runs', 'backfills', 'logs', 'metrics'] as const)('syncs %s tab to URL search params', async (tab) => {
         await initLogic()
 
-        logic.actions.setCurrentTab('runs')
-        expect(router.values.searchParams).toEqual(expect.objectContaining({ tab: 'runs' }))
-
-        logic.actions.setCurrentTab('backfills')
-        expect(router.values.searchParams).toEqual(expect.objectContaining({ tab: 'backfills' }))
+        logic.actions.setCurrentTab(tab)
+        expect(router.values.searchParams).toEqual(expect.objectContaining({ tab }))
     })
 })
