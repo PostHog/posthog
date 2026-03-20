@@ -40,6 +40,7 @@ import {
 
 import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLogic'
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
+import { restoreSourceFormState, saveSourceFormState } from './sourceWizardFormStorage'
 import type { sourceWizardLogicType } from './sourceWizardLogicType'
 
 export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
@@ -274,6 +275,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         openSyncMethodModal: (schema: ExternalDataSourceSyncSchema) => ({ schema }),
         cancelSyncMethodModal: true,
         toggleAllTables: (selectAll: boolean) => ({ selectAll }),
+        saveFormStateBeforeRedirect: true,
         createWebhook: true,
         setWebhookResult: (result: { success: boolean; webhook_url: string; error?: string } | null) => ({
             result,
@@ -676,6 +678,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         isWrapped: [() => [(_, props) => props.onComplete], (onComplete) => !!onComplete],
     }),
     listeners(({ actions, values, props }) => ({
+        saveFormStateBeforeRedirect: () => {
+            const sourceKind = values.selectedConnector?.name?.toLowerCase()
+            if (sourceKind) {
+                saveSourceFormState(sourceKind, values.sourceConnectionDetails as Record<string, unknown>)
+            }
+        },
         onBack: () => {
             if (values.currentStep <= 1) {
                 actions.onClear()
@@ -1093,6 +1101,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.selectConnector(source)
                 actions.handleRedirect(source.name)
                 actions.setStep(2)
+                // Restore form values saved before an OAuth redirect
+                const savedValues = restoreSourceFormState(source.name.toLowerCase())
+                if (savedValues) {
+                    actions.setSourceConnectionDetailsValues(savedValues)
+                }
                 return
             }
 
