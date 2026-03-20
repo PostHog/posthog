@@ -53,6 +53,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/CustomerAnalyticsConfigurationScene'),
     CustomerJourneyBuilder: () =>
         import('../../products/customer_analytics/frontend/scenes/CustomerJourneyBuilderScene/CustomerJourneyBuilderScene'),
+    CustomerJourneyTemplates: () =>
+        import('../../products/customer_analytics/frontend/scenes/CustomerJourneyTemplatesScene/CustomerJourneyTemplatesScene'),
     DataOps: () => import('../../products/data_warehouse/DataWarehouseScene'),
     Models: () => import('../../frontend/src/scenes/models/ModelsScene'),
     NodeDetail: () => import('../../frontend/src/scenes/models/NodeDetailScene'),
@@ -122,6 +124,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/support/settings': ['SupportSettings', 'supportSettings'],
     '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
     '/customer_analytics/journeys/new': ['CustomerJourneyBuilder', 'customerJourneyBuilder'],
+    '/customer_analytics/journeys/templates': ['CustomerJourneyTemplates', 'customerJourneyTemplates'],
     '/customer_analytics/journeys': ['CustomerAnalytics', 'customerAnalyticsJourneys'],
     '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     '/data-ops': ['DataOps', 'dataOps'],
@@ -152,6 +155,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/llm-analytics/users': ['LLMAnalytics', 'llmAnalyticsUsers'],
     '/llm-analytics/errors': ['LLMAnalytics', 'llmAnalyticsErrors'],
     '/llm-analytics/tools': ['LLMAnalytics', 'llmAnalyticsTools'],
+    '/llm-analytics/sentiment': ['LLMAnalytics', 'llmAnalyticsSentiment'],
     '/llm-analytics/sessions': ['LLMAnalytics', 'llmAnalyticsSessions'],
     '/llm-analytics/sessions/:id': ['LLMAnalyticsSession', 'llmAnalytics'],
     '/llm-analytics/playground': ['LLMAnalyticsPlayground', 'llmAnalyticsPlayground'],
@@ -278,6 +282,7 @@ export const productConfiguration: Record<string, any> = {
         name: 'Customer analytics configuration',
     },
     CustomerJourneyBuilder: { projectBased: true, name: 'New journey' },
+    CustomerJourneyTemplates: { projectBased: true, name: 'New journey' },
     DataOps: {
         name: 'Data ops',
         projectBased: true,
@@ -564,11 +569,14 @@ export const productUrls = {
     customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',
     customerAnalyticsConfiguration: (): string => '/customer_analytics/configuration',
     customerJourneyBuilder: (): string => '/customer_analytics/journeys/new',
+    customerJourneyTemplates: (): string => '/customer_analytics/journeys/templates',
     dashboards: (): string => '/dashboard',
     dashboard: (id: string | number, highlightInsightId?: string): string =>
         combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
     dashboardTextTile: (id: string | number, textTileId: string | number): string =>
         `${urls.dashboard(id)}/text-tiles/${textTileId}`,
+    dashboardButtonTile: (id: string | number, buttonTileId: string | number): string =>
+        `${urls.dashboard(id)}/button-tiles/${buttonTileId}`,
     dashboardSharing: (id: string | number): string => `/dashboard/${id}/sharing`,
     dashboardSubscriptions: (id: string | number): string => `/dashboard/${id}/subscriptions`,
     dashboardSubscription: (id: string | number, subscriptionId: string): string =>
@@ -699,6 +707,7 @@ export const productUrls = {
             exception_ts?: string
             search?: string
             tab?: string
+            msg?: string
         }
     ): string => {
         const queryParams = new URLSearchParams(params)
@@ -708,6 +717,7 @@ export const productUrls = {
     llmAnalyticsUsers: (): string => '/llm-analytics/users',
     llmAnalyticsErrors: (): string => '/llm-analytics/errors',
     llmAnalyticsTools: (): string => '/llm-analytics/tools',
+    llmAnalyticsSentiment: (): string => '/llm-analytics/sentiment',
     llmAnalyticsSessions: (): string => '/llm-analytics/sessions',
     llmAnalyticsSession: (
         id: string,
@@ -1207,7 +1217,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         tags: ['beta'],
         flag: FEATURE_FLAGS.CUSTOMER_ANALYTICS,
         sceneKey: 'CustomerAnalytics',
-        sceneKeys: ['CustomerAnalytics', 'CustomerJourneyBuilder'],
+        sceneKeys: ['CustomerAnalytics', 'CustomerJourneyTemplates', 'CustomerJourneyBuilder'],
     },
     {
         path: 'Dashboards',

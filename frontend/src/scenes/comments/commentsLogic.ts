@@ -8,6 +8,7 @@ import { isEmptyObject } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelDiscussionLogic } from '~/layout/navigation-3000/sidepanel/panels/discussion/sidePanelDiscussionLogic'
@@ -41,7 +42,16 @@ export const commentsLogic = kea<commentsLogicType>([
 
     connect(() => ({
         actions: [sidePanelDiscussionLogic, ['incrementCommentCount', 'scrollToLastComment']],
-        values: [userLogic, ['user'], sceneLogic, ['activeTab'], membersLogic, ['meFirstMembers']],
+        values: [
+            userLogic,
+            ['user'],
+            sceneLogic,
+            ['activeTab'],
+            membersLogic,
+            ['meFirstMembers'],
+            teamLogic,
+            ['currentProjectId'],
+        ],
     })),
 
     actions({
@@ -202,7 +212,7 @@ export const commentsLogic = kea<commentsLogicType>([
 
                 deleteComment: async ({ comment }) => {
                     await deleteWithUndo({
-                        endpoint: `projects/@current/comments`,
+                        endpoint: `projects/${values.currentProjectId}/comments`,
                         object: { name: comment.item_context?.is_emoji ? 'Reaction' : 'Comment', id: comment.id },
                         callback: (isUndo) => {
                             if (isUndo) {

@@ -62,6 +62,21 @@ const MOCK_INSIGHT: QueryBasedInsightModel = {
     user_access_level: 'none',
 } as QueryBasedInsightModel
 
+const MOCK_VIEW = {
+    id: 'test-view',
+    name: 'Test view',
+    query: {
+        kind: NodeKind.HogQLQuery,
+        query: 'SELECT 1',
+    },
+    is_materialized: false,
+    latest_history_id: null,
+    sync_frequency: null,
+    status: null,
+    last_run_at: null,
+    latest_error: null,
+} as any
+
 function createMockMonaco(): any {
     const mockModel = {
         getValue: () => '',
@@ -106,8 +121,14 @@ describe('sqlEditorLogic', () => {
                     }
                     return [200, { results: [] }]
                 },
-                '/api/environments/:team_id/warehouse_saved_queries/': { results: [] },
-                '/api/environments/:team_id/warehouse_saved_queries/:id/': [404],
+                '/api/environments/:team_id/warehouse_saved_queries/': { results: [MOCK_VIEW] },
+                '/api/environments/:team_id/warehouse_saved_queries/:id/': (req) => {
+                    if (req.params.id === MOCK_VIEW.id) {
+                        return [200, MOCK_VIEW]
+                    }
+                    return [404]
+                },
+                '/api/environments/:team_id/lineage/get_upstream/': { nodes: [], edges: [] },
                 '/api/user_home_settings/@me/': {},
             },
             post: {
@@ -252,6 +273,48 @@ describe('sqlEditorLogic', () => {
             await expectLogic(logic)
                 .toDispatchActions(['editInsight', 'createTab', 'updateTab'])
                 .toNotHaveDispatchedActions(['syncUrlWithQuery'])
+        })
+    })
+
+    describe('open_view behavior', () => {
+        it('switches to the materialization tab when opening a view from the URL', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), { open_view: MOCK_VIEW.id, output_tab: OutputTab.Results })
+
+            await expectLogic(logic)
+                .toDispatchActions(['setActiveTab', 'setViewLoading', 'editView', 'createTab', 'updateTab'])
+                .toMatchValues({
+                    editingView: partial({
+                        id: MOCK_VIEW.id,
+                    }),
+                    outputActiveTab: OutputTab.Materialization,
+                })
+        })
+
+        it('switches to the materialization tab when opening a view directly', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            logic.actions.editView(MOCK_VIEW.query.query, MOCK_VIEW)
+
+            await expectLogic(logic)
+                .toDispatchActions(['setActiveTab', 'createTab', 'updateTab'])
+                .toMatchValues({
+                    editingView: partial({
+                        id: MOCK_VIEW.id,
+                    }),
+                    outputActiveTab: OutputTab.Materialization,
+                })
         })
     })
 

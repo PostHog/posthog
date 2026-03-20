@@ -8,9 +8,10 @@ from posthog.schema import (
 )
 
 from posthog.event_usage import EventSource
-from posthog.models import Experiment, FeatureFlag
+from posthog.models import FeatureFlag
 
 from products.experiments.backend.max_tools import CreateExperimentTool, ExperimentSummaryTool
+from products.experiments.backend.models.experiment import Experiment
 
 from ee.hogai.utils.types import AssistantState
 

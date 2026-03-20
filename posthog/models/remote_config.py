@@ -4,7 +4,7 @@ from typing import Any, Optional
 
 from django.conf import settings
 from django.db import models, transaction
-from django.db.models.signals import post_delete, post_save, pre_save
+from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
 from django.http import HttpRequest
 from django.utils import timezone
@@ -18,12 +18,9 @@ from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions_capture import capture_exception
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.hog_functions.hog_function import HogFunction
-from posthog.models.organization import OrganizationMembership
-from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.plugin import PluginConfig
 from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
-from posthog.models.user import User
 from posthog.models.utils import UUIDTModel, execute_with_timeout
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 
@@ -498,29 +495,9 @@ def _update_team_remote_config(team_id: int):
     update_team_remote_config.delay(team_id)
 
 
-@receiver(pre_save, sender=Team)
-def team_pre_save(sender, instance: "Team", **kwargs):
-    """Capture old api_token value before save for cache cleanup."""
-    from posthog.storage.team_access_cache_signal_handlers import capture_old_api_token
-
-    capture_old_api_token(instance, **kwargs)
-
-
 @receiver(post_save, sender=Team)
 def team_saved(sender, instance: "Team", created, **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.id))
-
-    from posthog.storage.team_access_cache_signal_handlers import update_team_authentication_cache
-
-    transaction.on_commit(lambda: update_team_authentication_cache(instance, created, **kwargs))
-
-
-@receiver(post_delete, sender=Team)
-def team_deleted(sender, instance: "Team", **kwargs):
-    """Handle team deletion for access cache."""
-    from posthog.storage.team_access_cache_signal_handlers import update_team_authentication_cache_on_delete
-
-    transaction.on_commit(lambda: update_team_authentication_cache_on_delete(instance, **kwargs))
 
 
 @receiver(post_save, sender=FeatureFlag)
@@ -589,127 +566,3 @@ def product_tour_deleted(sender, instance, **kwargs):
 @receiver(post_save, sender=ErrorTrackingSuppressionRule)
 def error_tracking_suppression_rule_saved(sender, instance: "ErrorTrackingSuppressionRule", created, **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
-
-
-@receiver(post_save, sender=PersonalAPIKey)
-def personal_api_key_saved(sender, instance: "PersonalAPIKey", created, **kwargs):
-    """
-    Handle PersonalAPIKey save for team access cache invalidation.
-
-    Skip cache updates for last_used_at field updates to avoid unnecessary cache warming
-    during authentication requests.
-    """
-    # Skip cache updates if only last_used_at is being updated
-    update_fields = kwargs.get("update_fields")
-    if update_fields is not None and set(update_fields) == {"last_used_at"}:
-        return
-
-    # Capture user_id now (not the instance) for clean serialization to Celery
-    user_id = instance.user_id
-
-    from posthog.tasks.team_access_cache_tasks import warm_personal_api_key_teams_cache_task
-
-    transaction.on_commit(lambda: warm_personal_api_key_teams_cache_task.delay(user_id))
-
-
-@receiver(post_delete, sender=PersonalAPIKey)
-def personal_api_key_deleted(sender, instance: "PersonalAPIKey", **kwargs):
-    """
-    Handle PersonalAPIKey delete for team access cache invalidation.
-    """
-    # Capture data now (not the instance) for clean serialization to Celery
-    user_id = instance.user_id
-    scoped_team_ids = list(instance.scoped_teams) if instance.scoped_teams else None
-
-    from posthog.tasks.team_access_cache_tasks import warm_personal_api_key_deleted_cache_task
-
-    transaction.on_commit(lambda: warm_personal_api_key_deleted_cache_task.delay(user_id, scoped_team_ids))
-
-
-@receiver(post_save, sender=User)
-def user_saved(sender, instance: "User", created, **kwargs):
-    """
-    Handle User save for team access cache updates when is_active changes.
-
-    When a user's is_active status changes, their Personal API Keys need to be
-    added or removed from team authentication caches.
-
-    We track the original is_active value via User.from_db() to detect actual changes,
-    avoiding unnecessary cache warming on unrelated user saves.
-
-    Security consideration:
-    - Deactivation (is_active: True → False): Cache invalidation runs SYNCHRONOUSLY
-      to immediately revoke access. This prevents a race condition where a deactivated
-      user could continue using their API keys during Celery queue delays.
-    - Activation (is_active: False → True): Cache warming runs ASYNCHRONOUSLY via Celery
-      since there's no security concern with a slight delay in granting access.
-    """
-    original_is_active = getattr(instance, "_original_is_active", instance.is_active)
-    is_active_changed = created or instance.is_active != original_is_active
-
-    if not is_active_changed:
-        logger.debug(f"User {instance.id} saved but is_active unchanged, skipping cache update")
-        return
-
-    # Update the snapshot to prevent double-fires if the same instance is saved again
-    instance._original_is_active = instance.is_active
-
-    # Capture user_id now (not the instance) for clean serialization to Celery
-    user_id = instance.id
-
-    if instance.is_active:
-        # User activated - async is fine, no security concern with delay
-        from posthog.tasks.team_access_cache_tasks import warm_user_teams_cache_task
-
-        transaction.on_commit(lambda: warm_user_teams_cache_task.delay(user_id))
-    else:
-        # User deactivated - sync to immediately revoke access (security-critical)
-        from posthog.tasks.team_access_cache_tasks import warm_user_teams_cache_sync
-
-        transaction.on_commit(lambda: warm_user_teams_cache_sync(user_id))
-
-
-@receiver(post_save, sender=OrganizationMembership)
-def organization_membership_saved(sender, instance: "OrganizationMembership", created, **kwargs):
-    """
-    Handle OrganizationMembership creation for team access cache updates.
-
-    When a user is added to an organization, their unscoped personal API keys
-    should gain access to teams within that organization. This ensures
-    that the authentication cache is updated to reflect the new access rights.
-
-    Note: We intentionally only handle creation (created=True), not updates.
-    Changes to membership level (e.g., MEMBER → ADMIN) don't affect API key
-    access - Personal API keys grant access based on organization membership
-    existence, not role level.
-    """
-    if created:
-        # Capture data now (not the instance) for clean serialization to Celery
-        organization_id = str(instance.organization_id)
-        user_id = instance.user_id
-
-        from posthog.tasks.team_access_cache_tasks import warm_organization_teams_cache_task
-
-        transaction.on_commit(
-            lambda: warm_organization_teams_cache_task.delay(organization_id, user_id, "added to organization")
-        )
-
-
-@receiver(post_delete, sender=OrganizationMembership)
-def organization_membership_deleted(sender, instance: "OrganizationMembership", **kwargs):
-    """
-    Handle OrganizationMembership deletion for team access cache invalidation.
-
-    When a user is removed from an organization, their unscoped personal API keys
-    should no longer have access to teams within that organization. This ensures
-    that the authentication cache is updated to reflect the change in access rights.
-    """
-    # Capture data now (not the instance) for clean serialization to Celery
-    organization_id = str(instance.organization_id)
-    user_id = instance.user_id
-
-    from posthog.tasks.team_access_cache_tasks import warm_organization_teams_cache_task
-
-    transaction.on_commit(
-        lambda: warm_organization_teams_cache_task.delay(organization_id, user_id, "removed from organization")
-    )

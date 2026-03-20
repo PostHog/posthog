@@ -24,6 +24,46 @@ window.matchMedia = jest.fn(
         }) as any
 )
 
+type StorageLike = {
+    getItem: (key: string) => string | null
+    setItem: (key: string, value: string) => void
+    removeItem: (key: string) => void
+    clear: () => void
+}
+
+const createInMemoryStorage = (): StorageLike => {
+    const store = new Map<string, string>()
+    return {
+        getItem: (key) => (store.has(key) ? store.get(key)! : null),
+        setItem: (key, value) => {
+            store.set(key, String(value))
+        },
+        removeItem: (key) => {
+            store.delete(key)
+        },
+        clear: () => {
+            store.clear()
+        },
+    }
+}
+
+// Some Jest/JSDom environments might not provide an unqualified `sessionStorage`
+// binding. `sceneLogic` and other Kea logic reference `sessionStorage` as a
+// free variable, so we need to ensure the identifier exists.
+if (typeof sessionStorage === 'undefined') {
+    const sessionStorageStub = createInMemoryStorage()
+    ;(globalThis as any).sessionStorage = sessionStorageStub
+    ;(window as any).sessionStorage = sessionStorageStub
+    ;(global as any).sessionStorage = sessionStorageStub
+}
+
+if (typeof localStorage === 'undefined') {
+    const localStorageStub = createInMemoryStorage()
+    ;(globalThis as any).localStorage = localStorageStub
+    ;(window as any).localStorage = localStorageStub
+    ;(global as any).localStorage = localStorageStub
+}
+
 // jsdom does not implement AbortSignal.timeout — polyfill for tests
 if (typeof AbortSignal.timeout !== 'function') {
     AbortSignal.timeout = (ms: number): AbortSignal => {

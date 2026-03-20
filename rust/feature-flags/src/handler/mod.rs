@@ -143,9 +143,10 @@ async fn process_request_inner(
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string())
         });
+        let device_id = request.extract_device_id();
         with_canonical_log(|log| {
             log.distinct_id = Some(distinct_id_for_logging.clone());
-            log.device_id = request.device_id.clone();
+            log.device_id = device_id.clone();
             log.anon_distinct_id = anon_distinct_id_for_logging;
         });
 
@@ -203,7 +204,7 @@ async fn process_request_inner(
                 &context.state,
                 team.id,
                 distinct_id.clone(),
-                request.device_id.clone(),
+                device_id.clone(),
                 filtered_flags.clone(),
                 property_overrides.person_properties,
                 property_overrides.group_properties,

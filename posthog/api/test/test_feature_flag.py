@@ -24,7 +24,7 @@ from rest_framework import status
 from posthog import redis
 from posthog.api.cohort import get_cohort_actors_for_feature_flag
 from posthog.api.feature_flag import FeatureFlagSerializer, extract_etag_from_header
-from posthog.models import Experiment, FeatureFlag, GroupTypeMapping, TaggedItem, User
+from posthog.models import FeatureFlag, GroupTypeMapping, TaggedItem, User
 from posthog.models.cohort import Cohort
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlagDashboards, get_feature_flags_for_team_in_cache
@@ -42,6 +42,7 @@ from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.experiments.backend.models.experiment import Experiment
 from products.product_tours.backend.models import ProductTour
 
 
@@ -425,6 +426,48 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["key"], f"cohort-feature-{operator}")
+
+    def test_saving_flag_strips_legacy_holdout_groups(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="holdout-cleanup-test",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "holdout_groups": [{"properties": [], "rollout_percentage": 10, "variant": "holdout-1"}],
+                "holdout": {"id": 1, "exclusion_percentage": 10},
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.pk}",
+            {"name": "Updated"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        flag.refresh_from_db()
+        self.assertNotIn("holdout_groups", flag.filters)
+        self.assertEqual(flag.filters["holdout"], {"id": 1, "exclusion_percentage": 10})
+
+    def test_saving_flag_strips_legacy_holdout_groups_without_holdout_key(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="holdout-cleanup-test-legacy",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "holdout_groups": [{"properties": [], "rollout_percentage": 10, "variant": "holdout-1"}],
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.pk}",
+            {"name": "Updated"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        flag.refresh_from_db()
+        self.assertNotIn("holdout_groups", flag.filters)
 
     def test_cant_update_flag_with_duplicate_key(self):
         existing_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
@@ -9798,46 +9841,32 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             FeatureFlagStatus.ACTIVE,
         )
 
-        # Request status for flag that has holdout group rolled out to <100%
-        fifty_percent_holdout_group_flag = FeatureFlag.objects.create(
+        # Request status for flag with holdout at <100% exclusion
+        holdout_flag = FeatureFlag.objects.create(
             created_at=datetime.now(UTC) - timedelta(days=31),
-            name="50 percent holdout group flag",
-            key="50-percent-holdout-group-flag",
+            name="50 percent holdout flag",
+            key="50-percent-holdout-flag",
             team=self.team,
             active=True,
-            filters={"holdout_groups": [{"rollout_percentage": 50, "properties": []}]},
+            filters={"holdout": {"id": 1, "exclusion_percentage": 50}},
             last_called_at=datetime.now(UTC) - timedelta(days=1),
         )
 
-        self.assert_expected_response(fifty_percent_holdout_group_flag.id, FeatureFlagStatus.ACTIVE)
+        self.assert_expected_response(holdout_flag.id, FeatureFlagStatus.ACTIVE)
 
-        # Request status for flag that has holdout group rolled out to 100% and specific properties
-        fully_rolled_out_holdout_group_flag_with_properties = FeatureFlag.objects.create(
+        # Request status for flag with holdout at 100% exclusion
+        fully_excluded_holdout_flag = FeatureFlag.objects.create(
             created_at=datetime.now(UTC) - timedelta(days=31),
-            name="100 percent holdout group with properties flag",
-            key="100-percent-holdout-group-with-properties-flag",
+            name="100 percent holdout flag",
+            key="100-percent-holdout-flag",
             team=self.team,
             active=True,
-            filters={
-                "holdout_groups": [
-                    {
-                        "properties": [
-                            {
-                                "key": "name",
-                                "type": "person",
-                                "value": ["Smith"],
-                                "operator": "contains",
-                            }
-                        ],
-                        "rollout_percentage": 100,
-                    }
-                ]
-            },
+            filters={"holdout": {"id": 2, "exclusion_percentage": 100}},
             last_called_at=datetime.now(UTC) - timedelta(days=1),
         )
 
         self.assert_expected_response(
-            fully_rolled_out_holdout_group_flag_with_properties.id,
+            fully_excluded_holdout_flag.id,
             FeatureFlagStatus.ACTIVE,
         )
 
