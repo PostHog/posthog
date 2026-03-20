@@ -14,73 +14,71 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.CreateModel(
-            name="ButtonTile",
-            fields=[
-                (
-                    "id",
-                    models.UUIDField(
-                        default=posthog.models.utils.uuid7,
-                        editable=False,
-                        primary_key=True,
-                        serialize=False,
-                    ),
-                ),
-                ("url", models.CharField(max_length=2000)),
-                ("text", models.CharField(max_length=200)),
-                (
-                    "placement",
-                    models.CharField(
-                        choices=[("left", "Left"), ("right", "Right")],
-                        default="left",
-                        max_length=10,
-                    ),
-                ),
-                (
-                    "style",
-                    models.CharField(
-                        choices=[("primary", "Primary"), ("secondary", "Secondary")],
-                        default="primary",
-                        max_length=10,
-                    ),
-                ),
-                (
-                    "last_modified_at",
-                    models.DateTimeField(default=django.utils.timezone.now),
-                ),
-                (
-                    "created_by",
-                    models.ForeignKey(
-                        blank=True,
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        to=settings.AUTH_USER_MODEL,
-                    ),
-                ),
-                (
-                    "last_modified_by",
-                    models.ForeignKey(
-                        blank=True,
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        related_name="modified_button_tiles",
-                        to=settings.AUTH_USER_MODEL,
-                    ),
-                ),
-                (
-                    "team",
-                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
-                ),
-            ],
-        ),
-        migrations.RemoveConstraint(
-            model_name="dashboardtile",
-            name="dash_tile_exactly_one_related_object",
-        ),
-        # Use SeparateDatabaseAndState so the auto-generated FK index is not created here.
-        # The index is added concurrently in a follow-up migration.
         migrations.SeparateDatabaseAndState(
             state_operations=[
+                migrations.CreateModel(
+                    name="ButtonTile",
+                    fields=[
+                        (
+                            "id",
+                            models.UUIDField(
+                                default=posthog.models.utils.uuid7,
+                                editable=False,
+                                primary_key=True,
+                                serialize=False,
+                            ),
+                        ),
+                        ("url", models.CharField(max_length=2000)),
+                        ("text", models.CharField(max_length=200)),
+                        (
+                            "placement",
+                            models.CharField(
+                                choices=[("left", "Left"), ("right", "Right")],
+                                default="left",
+                                max_length=10,
+                            ),
+                        ),
+                        (
+                            "style",
+                            models.CharField(
+                                choices=[("primary", "Primary"), ("secondary", "Secondary")],
+                                default="primary",
+                                max_length=10,
+                            ),
+                        ),
+                        (
+                            "last_modified_at",
+                            models.DateTimeField(default=django.utils.timezone.now),
+                        ),
+                        (
+                            "created_by",
+                            models.ForeignKey(
+                                blank=True,
+                                null=True,
+                                on_delete=django.db.models.deletion.SET_NULL,
+                                to=settings.AUTH_USER_MODEL,
+                            ),
+                        ),
+                        (
+                            "last_modified_by",
+                            models.ForeignKey(
+                                blank=True,
+                                null=True,
+                                on_delete=django.db.models.deletion.SET_NULL,
+                                related_name="modified_button_tiles",
+                                to=settings.AUTH_USER_MODEL,
+                            ),
+                        ),
+                        (
+                            "team",
+                            models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+                        ),
+                    ],
+                ),
+                migrations.RemoveConstraint(
+                    model_name="dashboardtile",
+                    name="dash_tile_exactly_one_related_object",
+                ),
                 migrations.AddField(
                     model_name="dashboardtile",
                     name="button_tile",
@@ -91,29 +89,14 @@ class Migration(migrations.Migration):
                         to="posthog.buttontile",
                     ),
                 ),
-            ],
-            database_operations=[
-                migrations.RunSQL(
-                    sql="""
-                        ALTER TABLE "posthog_dashboardtile" ADD COLUMN "button_tile_id" uuid NULL CONSTRAINT "posthog_dashboardtil_button_tile_id_acf9543d_fk_posthog_b" REFERENCES "posthog_buttontile"("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
-                        SET CONSTRAINTS "posthog_dashboardtil_button_tile_id_acf9543d_fk_posthog_b" IMMEDIATE; -- existing-table-constraint-ignore
-                    """,
-                    reverse_sql='ALTER TABLE "posthog_dashboardtile" DROP COLUMN IF EXISTS "button_tile_id";',
+                migrations.AddConstraint(
+                    model_name="dashboardtile",
+                    constraint=models.UniqueConstraint(
+                        condition=models.Q(("button_tile__isnull", False)),
+                        fields=("dashboard", "button_tile"),
+                        name="unique_dashboard_button_tile",
+                    ),
                 ),
-            ],
-        ),
-        migrations.AddConstraint(
-            model_name="dashboardtile",
-            constraint=models.UniqueConstraint(
-                condition=models.Q(("button_tile__isnull", False)),
-                fields=("dashboard", "button_tile"),
-                name="unique_dashboard_button_tile",
-            ),
-        ),
-        # Use SeparateDatabaseAndState + NOT VALID to avoid locking the table during constraint validation.
-        # A follow-up migration (1057) validates the constraint separately.
-        migrations.SeparateDatabaseAndState(
-            state_operations=[
                 migrations.AddConstraint(
                     model_name="dashboardtile",
                     constraint=models.CheckConstraint(
@@ -138,22 +121,34 @@ class Migration(migrations.Migration):
                         name="dash_tile_exactly_one_related_object",
                     ),
                 ),
+                migrations.AddField(
+                    model_name="dashboardtile",
+                    name="transparent_background",
+                    field=models.BooleanField(blank=True, null=True),
+                ),
             ],
             database_operations=[
                 migrations.RunSQL(
                     sql="""
-                        ALTER TABLE "posthog_dashboardtile"
-                        ADD CONSTRAINT "dash_tile_exactly_one_related_object" -- existing-table-constraint-ignore
+                        CREATE TABLE "posthog_buttontile" ("id" uuid NOT NULL PRIMARY KEY, "url" varchar(2000) NOT NULL, "text" varchar(200) NOT NULL, "placement" varchar(10) NOT NULL, "style" varchar(10) NOT NULL, "last_modified_at" timestamp with time zone NOT NULL, "created_by_id" integer NULL REFERENCES "posthog_user" ("id") DEFERRABLE INITIALLY DEFERRED, "last_modified_by_id" integer NULL REFERENCES "posthog_user" ("id") DEFERRABLE INITIALLY DEFERRED, "team_id" integer NOT NULL REFERENCES "posthog_team" ("id") DEFERRABLE INITIALLY DEFERRED);
+                        CREATE INDEX IF NOT EXISTS "posthog_buttontile_created_by_id_bf09d147" ON "posthog_buttontile" ("created_by_id");
+                        CREATE INDEX IF NOT EXISTS "posthog_buttontile_last_modified_by_id_a5860b7a" ON "posthog_buttontile" ("last_modified_by_id");
+                        CREATE INDEX IF NOT EXISTS "posthog_buttontile_team_id_a76a940c" ON "posthog_buttontile" ("team_id");
+                        ALTER TABLE "posthog_dashboardtile" DROP CONSTRAINT "dash_tile_exactly_one_related_object";
+                        ALTER TABLE "posthog_dashboardtile" ADD COLUMN "button_tile_id" uuid NULL CONSTRAINT "posthog_dashboardtil_button_tile_id_acf9543d_fk_posthog_b" REFERENCES "posthog_buttontile"("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
+                        SET CONSTRAINTS "posthog_dashboardtil_button_tile_id_acf9543d_fk_posthog_b" IMMEDIATE; -- existing-table-constraint-ignore
+                        ALTER TABLE "posthog_dashboardtile" ADD CONSTRAINT "dash_tile_exactly_one_related_object" -- existing-table-constraint-ignore
                         CHECK ((("insight_id" IS NOT NULL AND "text_id" IS NULL AND "button_tile_id" IS NULL) OR ("insight_id" IS NULL AND "text_id" IS NOT NULL AND "button_tile_id" IS NULL) OR ("insight_id" IS NULL AND "text_id" IS NULL AND "button_tile_id" IS NOT NULL)))
                         NOT VALID;
+                        ALTER TABLE "posthog_dashboardtile" ADD COLUMN "transparent_background" boolean NULL;
                     """,
-                    reverse_sql='ALTER TABLE "posthog_dashboardtile" DROP CONSTRAINT "dash_tile_exactly_one_related_object"',
+                    reverse_sql="""
+                        ALTER TABLE "posthog_dashboardtile" DROP COLUMN IF EXISTS "transparent_background";
+                        ALTER TABLE "posthog_dashboardtile" DROP CONSTRAINT IF EXISTS "dash_tile_exactly_one_related_object";
+                        ALTER TABLE "posthog_dashboardtile" DROP COLUMN IF EXISTS "button_tile_id";
+                        DROP TABLE IF EXISTS "posthog_buttontile";
+                    """,
                 ),
             ],
-        ),
-        migrations.AddField(
-            model_name="dashboardtile",
-            name="transparent_background",
-            field=models.BooleanField(blank=True, null=True),
         ),
     ]
