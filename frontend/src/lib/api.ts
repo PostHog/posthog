@@ -237,6 +237,7 @@ import {
     ErrorTrackingFingerprint,
     ErrorTrackingRelease,
     ErrorTrackingSpikeDetectionConfig,
+    ErrorTrackingSpikeEvent,
     ErrorTrackingStackFrame,
     ErrorTrackingStackFrameRecord,
     ErrorTrackingSymbolSet,
@@ -1299,6 +1300,10 @@ export class ApiRequest {
         return this.errorTracking(teamId).addPathComponent('spike_detection_config')
     }
 
+    public errorTrackingSpikeEvents(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('spike_events')
+    }
+
     public quickFilters(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('quick_filters')
     }
@@ -2052,8 +2057,8 @@ const api = {
         async analyze(id: number): Promise<{ result: string }> {
             return await new ApiRequest().insight(id).withAction('analyze').get()
         },
-        async generateName(query: Record<string, any>): Promise<{ name: string }> {
-            return await new ApiRequest().insights().withAction('generate_name').create({ data: { query } })
+        async generateMetadata(query: Record<string, any>): Promise<{ name: string; description: string }> {
+            return await new ApiRequest().insights().withAction('generate_metadata').create({ data: { query } })
         },
         async trending(params?: { days?: number; limit?: number }): Promise<InsightModel[]> {
             return await new ApiRequest()
@@ -2979,6 +2984,12 @@ const api = {
         ): Promise<CustomerJourneyApi> {
             return await new ApiRequest().customerJourneys().create({ data })
         },
+        async update(
+            id: CustomerJourneyApi['id'],
+            data: Partial<Pick<CustomerJourneyApi, 'name' | 'description'>>
+        ): Promise<CustomerJourneyApi> {
+            return await new ApiRequest().customerJourneysDetail(id).update({ data })
+        },
         async delete(id: CustomerJourneyApi['id']): Promise<void> {
             return await new ApiRequest().customerJourneysDetail(id).delete()
         },
@@ -3758,6 +3769,43 @@ const api = {
                 .errorTrackingSpikeDetectionConfig()
                 .withAction('update_config')
                 .update({ data })
+        },
+
+        async getSpikeEvents(params?: {
+            issueIds?: string[]
+            limit?: number
+            offset?: number
+            orderBy?: string
+            dateFrom?: string
+            dateTo?: string
+        }): Promise<CountedPaginatedResponse<ErrorTrackingSpikeEvent>> {
+            const query: Record<string, string | number> = {}
+            if (params?.issueIds !== undefined && params.issueIds.length > 0) {
+                const ids = params.issueIds.filter(Boolean)
+                if (ids.length > 0) {
+                    query.issue_ids = ids.join(',')
+                }
+            }
+            if (params?.limit !== undefined) {
+                query.limit = params.limit
+            }
+            if (params?.offset !== undefined) {
+                query.offset = params.offset
+            }
+            if (params?.orderBy) {
+                query.order_by = params.orderBy
+            }
+            if (params?.dateFrom) {
+                query.date_from = params.dateFrom
+            }
+            if (params?.dateTo) {
+                query.date_to = params.dateTo
+            }
+            let request = new ApiRequest().errorTrackingSpikeEvents()
+            if (Object.keys(query).length > 0) {
+                request = request.withQueryString(query)
+            }
+            return await request.get()
         },
     },
 
@@ -4766,6 +4814,20 @@ const api = {
         },
         async reload(sourceId: ExternalDataSource['id']): Promise<void> {
             await new ApiRequest().externalDataSource(sourceId).withAction('reload').create()
+        },
+        async createWebhook(
+            sourceId: ExternalDataSource['id']
+        ): Promise<{ success: boolean; webhook_url: string; error?: string }> {
+            return await new ApiRequest().externalDataSource(sourceId).withAction('create_webhook').create()
+        },
+        async updateWebhookInputs(
+            sourceId: ExternalDataSource['id'],
+            inputs: Record<string, any>
+        ): Promise<{ success: boolean }> {
+            return await new ApiRequest()
+                .externalDataSource(sourceId)
+                .withAction('update_webhook_inputs')
+                .create({ data: { inputs } })
         },
         async refreshSchemas(sourceId: ExternalDataSource['id']): Promise<{ added: number; deleted: number }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('refresh_schemas').create()

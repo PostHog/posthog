@@ -3,7 +3,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field as PydanticField,
+)
 
 from posthog.hogql.base import Expr
 from posthog.hogql.constants import HogQLQuerySettings
@@ -91,6 +95,18 @@ class StringJSONDatabaseField(DatabaseField):
 
     def default_value(self) -> Any:
         return ""
+
+
+class StructDatabaseField(DatabaseField):
+    fields: dict[str, "DatabaseField"] = PydanticField(default_factory=dict)
+
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import TupleType
+
+        return TupleType(
+            nullable=self.is_nullable(),
+            item_types=[field.get_constant_type() for field in self.fields.values()],
+        )
 
 
 class StringArrayDatabaseField(DatabaseField):

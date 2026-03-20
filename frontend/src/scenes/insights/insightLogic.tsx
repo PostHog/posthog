@@ -7,6 +7,11 @@ import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api'
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
+import {
+    canToggleDisplayLabelsInInsightQuery,
+    getDisplayLabelsToggleText,
+    isDisplayLabelsEnabledInInsightQuery,
+} from 'lib/components/Cards/InsightCard/displayLabelsToggle'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -440,6 +445,18 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                           AccessControlLevel.Editor
                       )
                     : true,
+        ],
+        canToggleDisplayLabelsForInsight: [
+            (s) => [s.insight],
+            (insight) => !!insight.query && canToggleDisplayLabelsInInsightQuery(insight.query),
+        ],
+        displayLabelsShownForInsight: [
+            (s) => [s.insight],
+            (insight) => !!insight.query && isDisplayLabelsEnabledInInsightQuery(insight.query),
+        ],
+        displayLabelsToggleTextForInsight: [
+            (s) => [s.insight],
+            (insight) => (insight.query ? getDisplayLabelsToggleText(insight.query) : 'Show values on series'),
         ],
         insightChanged: [
             (s) => [s.insight, s.savedInsight],

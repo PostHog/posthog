@@ -20531,6 +20531,18 @@ class SourceConfig(BaseModel):
         description="Tables to suggest enabling, with optional tooltip explaining why",
     )
     unreleasedSource: bool | None = None
+    webhookFields: (
+        list[
+            SourceFieldInputConfig
+            | SourceFieldSwitchGroupConfig
+            | SourceFieldSelectConfig
+            | SourceFieldOauthConfig
+            | SourceFieldFileUploadConfig
+            | SourceFieldSSHTunnelConfig
+        ]
+        | None
+    ) = None
+    webhookSetupCaption: str | None = None
 
 
 class Option(BaseModel):

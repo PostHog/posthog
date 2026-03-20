@@ -114,6 +114,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &config.replica_url,
         config.backend_timeout(),
         config.retry_config(),
+        config.backend_keepalive_interval(),
+        config.backend_keepalive_timeout(),
     )
     .expect("Failed to create replica backend");
 
@@ -121,6 +123,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let router = PersonHogRouter::new(Arc::new(replica_backend));
     let service = PersonHogRouterService::new(Arc::new(router));
     let grpc_addr = config.grpc_address;
+    let keepalive_interval = config.grpc_keepalive_interval();
+    let keepalive_timeout = config.grpc_keepalive_timeout();
 
     tracing::info!("Starting gRPC server on {}", grpc_addr);
 
@@ -135,6 +139,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
         let incoming = tracked_tcp_incoming(listener);
         if let Err(e) = Server::builder()
+            .http2_keepalive_interval(keepalive_interval)
+            .http2_keepalive_timeout(keepalive_timeout)
             .layer(GrpcMetricsLayer)
             .add_service(PersonHogServiceServer::new(service))
             .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())

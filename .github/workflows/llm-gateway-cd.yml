@@ -12,6 +12,7 @@ on:
 jobs:
     build:
         runs-on: depot-ubuntu-latest
+        timeout-minutes: 10
 
         permissions:
             contents: read
@@ -60,6 +61,7 @@ jobs:
 
     deploy:
         runs-on: ubuntu-24.04
+        timeout-minutes: 5
         needs: build
         permissions: {}
         steps:

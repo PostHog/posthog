@@ -12829,6 +12829,22 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface ErrorTrackingSpikeEventIssue {
+      readonly id: string;
+      /** @nullable */
+      readonly name: string | null;
+      /** @nullable */
+      readonly description: string | null;
+    }
+
+    export interface ErrorTrackingSpikeEvent {
+      readonly id: string;
+      readonly issue: ErrorTrackingSpikeEventIssue;
+      readonly detected_at: string;
+      readonly computed_baseline: number;
+      readonly current_bucket_value: number;
+    }
+
     export interface ErrorTrackingStackFrame {
       readonly id: string;
       /** Raw frame ID in 'hash/part' format */
@@ -18532,6 +18548,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ErrorTrackingRelease[];
+    }
+
+    export interface PaginatedErrorTrackingSpikeEventList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ErrorTrackingSpikeEvent[];
     }
 
     export interface PaginatedErrorTrackingStackFrameList {
@@ -29075,14 +29100,14 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type EnvironmentsInsightsGenerateNameCreateParams = {
-    format?: EnvironmentsInsightsGenerateNameCreateFormat;
+    export type EnvironmentsInsightsGenerateMetadataCreateParams = {
+    format?: EnvironmentsInsightsGenerateMetadataCreateFormat;
     };
 
-    export type EnvironmentsInsightsGenerateNameCreateFormat = typeof EnvironmentsInsightsGenerateNameCreateFormat[keyof typeof EnvironmentsInsightsGenerateNameCreateFormat];
+    export type EnvironmentsInsightsGenerateMetadataCreateFormat = typeof EnvironmentsInsightsGenerateMetadataCreateFormat[keyof typeof EnvironmentsInsightsGenerateMetadataCreateFormat];
 
 
-    export const EnvironmentsInsightsGenerateNameCreateFormat = {
+    export const EnvironmentsInsightsGenerateMetadataCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
@@ -29810,6 +29835,17 @@ export namespace Schemas {
     };
 
     export type ErrorTrackingReleasesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type ErrorTrackingSpikeEventsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -31864,14 +31900,14 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type InsightsGenerateNameCreateParams = {
-    format?: InsightsGenerateNameCreateFormat;
+    export type InsightsGenerateMetadataCreateParams = {
+    format?: InsightsGenerateMetadataCreateFormat;
     };
 
-    export type InsightsGenerateNameCreateFormat = typeof InsightsGenerateNameCreateFormat[keyof typeof InsightsGenerateNameCreateFormat];
+    export type InsightsGenerateMetadataCreateFormat = typeof InsightsGenerateMetadataCreateFormat[keyof typeof InsightsGenerateMetadataCreateFormat];
 
 
-    export const InsightsGenerateNameCreateFormat = {
+    export const InsightsGenerateMetadataCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;

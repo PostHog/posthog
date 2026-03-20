@@ -32286,6 +32286,15 @@
                 },
                 "unreleasedSource": {
                     "type": "boolean"
+                },
+                "webhookFields": {
+                    "items": {
+                        "$ref": "#/definitions/SourceFieldConfig"
+                    },
+                    "type": "array"
+                },
+                "webhookSetupCaption": {
+                    "type": "string"
                 }
             },
             "required": ["name", "fields", "iconPath"],
