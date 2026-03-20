@@ -8,7 +8,7 @@ import polars as pl
 from ee.billing.dags.customer_archetype import (
     AccountClassification,
     _hash_sf_record,
-    apply_confidence_threshold,
+    apply_deterministic_archetype,
     build_salesforce_records,
     compute_use_case_adoption,
     parse_llm_response,
@@ -228,7 +228,6 @@ class TestParseLLMResponse:
                         "ai_native_score": 2,
                         "cloud_native_score": 6,
                         "stage": "Scaled",
-                        "confidence": 0.85,
                         "key_signals": "SaaS company founded 2018 with analytics tools in tech stack.",
                     }
                 ]
@@ -240,36 +239,52 @@ class TestParseLLMResponse:
         assert results[0].ai_native_score == 2
         assert results[0].cloud_native_score == 6
         assert results[0].stage == "Scaled"
-        assert results[0].confidence == 0.85
+        assert results[0].key_signals == "SaaS company founded 2018 with analytics tools in tech stack."
 
     def test_returns_empty_on_invalid_json(self):
         results = parse_llm_response("not valid json")
         assert results == []
 
-    def test_applies_confidence_threshold(self):
+    def test_deterministic_archetype_from_scores(self):
         classifications = [
             AccountClassification(
                 sf_account_id="001",
-                archetype="AI Native",
+                archetype="Unknown",  # LLM label ignored
                 ai_native_score=5,
                 cloud_native_score=1,
                 stage="Early / Growth",
-                confidence=0.9,
                 key_signals="AI startup.",
             ),
             AccountClassification(
                 sf_account_id="002",
-                archetype="Cloud Native",
+                archetype="Unknown",  # LLM label ignored
                 ai_native_score=1,
                 cloud_native_score=3,
                 stage="Scaled",
-                confidence=0.5,
-                key_signals="Unclear signals.",
+                key_signals="SaaS company.",
+            ),
+            AccountClassification(
+                sf_account_id="003",
+                archetype="AI Native",  # LLM label ignored
+                ai_native_score=1,
+                cloud_native_score=1,
+                stage="Unknown",
+                key_signals="Sparse data.",
+            ),
+            AccountClassification(
+                sf_account_id="004",
+                archetype="Cloud Native",  # LLM label ignored — tie-break to AI Native
+                ai_native_score=4,
+                cloud_native_score=4,
+                stage="Early / Growth",
+                key_signals="Ambiguous signals.",
             ),
         ]
-        result = apply_confidence_threshold(classifications, threshold=0.7)
+        result = apply_deterministic_archetype(classifications)
         assert result[0].archetype == "AI Native"
-        assert result[1].archetype == "Unknown"
+        assert result[1].archetype == "Cloud Native"
+        assert result[2].archetype == "Unknown"
+        assert result[3].archetype == "AI Native"  # tie-break
 
 
 # --------------------------------------------------------------------------- #
@@ -286,7 +301,6 @@ class TestBuildSalesforceRecords:
                 ai_native_score=2,
                 cloud_native_score=6,
                 stage="Scaled",
-                confidence=0.85,
                 key_signals="SaaS founded 2018.",
             )
         ]
@@ -316,7 +330,6 @@ class TestBuildSalesforceRecords:
                 ai_native_score=0,
                 cloud_native_score=0,
                 stage="Unknown",
-                confidence=0.3,
                 key_signals="No data.",
             )
         ]

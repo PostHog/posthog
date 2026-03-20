@@ -23,6 +23,7 @@ from posthog.dags.common.utils import compute_dataframe_hashes
 from posthog.llm.gateway_client import get_llm_client
 from posthog.models import Team
 
+from ee.billing.dags.customer_archetype_prompt import SYSTEM_PROMPT
 from ee.billing.salesforce_enrichment.enrichment import bulk_update_salesforce_accounts
 from ee.billing.salesforce_enrichment.salesforce_client import get_salesforce_client
 
@@ -35,7 +36,7 @@ MRR_THRESHOLD_ADOPTED = 100
 
 class ArchetypeClassificationConfig(dagster.Config):
     llm_max_workers: int = 20
-    llm_batch_size: int = 20
+    llm_batch_size: int = 10
 
 
 # All columns from the PostHog_Customer_Archetype saved query
@@ -137,63 +138,6 @@ USE_CASE_SF_FIELDS: dict[str, str] = {
     "uc_data_infra": "customer_use_case_data_infra__c",
 }
 
-SYSTEM_PROMPT = """#CONTEXT#
-
-You are a company archetype classifier. You will receive structured metadata about
-companies (from Salesforce and product usage data) and must classify each as
-"AI Native", "Cloud Native", or "Unknown".
-
-#CLASSIFICATION RULES#
-
-AI Native: The company's core product IS AI. Indicators:
-- Founded 2022+ OR core product is built on LLMs/generative AI/AI agents
-- Industry classified as "AI / Ml"
-- Uses LLM analytics (has_llm_analytics = true)
-- Small team (<50), high engineer density (30%+), YC-backed — common in AI startups
-
-Cloud Native: The company builds SaaS/fintech/dev tools where AI is NOT the core product. Indicators:
-- Founded 2010-2021
-- Industry is SaaS, Financial Technology, Business Software Services, Cloud Infrastructure, or OSS
-- Tech stack includes analytics competitors (Mixpanel, Amplitude, Segment, Heap, Piwik)
-- Larger team (50+), uses multiple PostHog products (3+)
-
-Unknown: Insufficient evidence to classify — use when metadata is sparse and no clear
-signals exist for either archetype.
-
-When evidence is ambiguous, lean toward AI Native if the company name, industry,
-or any signal suggests AI/LLM focus.
-
-#SCALE TIER#
-
-Classify the company's scale based on best available headcount (Harmonic first, Salesforce fallback):
-- Enterprise: 1000+ employees
-- Scaled: 100-999 employees
-- Early / Growth: 1-99 employees
-- Unknown: no headcount data available
-
-If headcount fields are provided, use them directly. If headcount is missing or zero,
-infer from other signals (company name recognition, industry, founding year) with
-appropriate confidence.
-
-#SCORING#
-
-For each company, produce two scores:
-- ai_native_score (0-9): How strongly the evidence points to AI Native
-- cloud_native_score (0-8): How strongly the evidence points to Cloud Native
-
-The archetype should be the higher-scoring category if score >= 2, otherwise "Unknown".
-
-#OUTPUT FORMAT#
-
-Return a JSON object with a "classifications" key containing an array of objects, one per company, with these exact keys:
-- sf_account_id: echo back the input ID
-- archetype: "AI Native" | "Cloud Native" | "Unknown"
-- ai_native_score: integer 0-9
-- cloud_native_score: integer 0-8
-- stage: "Enterprise" | "Scaled" | "Early / Growth" | "Unknown"
-- confidence: float between 0.0 and 1.0 (how confident you are in the classification)
-- key_signals: one concise sentence citing the key evidence"""
-
 
 # --------------------------------------------------------------------------- #
 # Pydantic models
@@ -202,11 +146,10 @@ Return a JSON object with a "classifications" key containing an array of objects
 
 class AccountClassification(BaseModel):
     sf_account_id: str
-    archetype: Literal["AI Native", "Cloud Native", "Unknown"]
+    archetype: str  # LLM may return unexpected values; apply_deterministic_archetype normalizes this
     ai_native_score: int = Field(ge=0, le=9)
     cloud_native_score: int = Field(ge=0, le=8)
     stage: Literal["Enterprise", "Scaled", "Early / Growth", "Unknown"]
-    confidence: float = Field(ge=0.0, le=1.0)
     key_signals: str
 
 
@@ -289,15 +232,22 @@ def parse_llm_response(raw: str) -> list[AccountClassification]:
         return []
 
 
-def apply_confidence_threshold(
+def apply_deterministic_archetype(
     classifications: list[AccountClassification],
-    threshold: float = 0.7,
 ) -> list[AccountClassification]:
-    """Set archetype to 'Unknown' for classifications below the confidence threshold."""
+    """Derive archetype deterministically from scores, ignoring the LLM's label."""
     result = []
     for c in classifications:
-        if c.confidence < threshold:
-            c = c.model_copy(update={"archetype": "Unknown"})
+        if c.ai_native_score >= 2 and c.ai_native_score > c.cloud_native_score:
+            archetype = "AI Native"
+        elif c.cloud_native_score >= 2 and c.cloud_native_score > c.ai_native_score:
+            archetype = "Cloud Native"
+        elif c.ai_native_score >= 2 and c.ai_native_score == c.cloud_native_score:
+            archetype = "AI Native"  # tie-break toward AI Native per prompt rules
+        else:
+            archetype = "Unknown"
+        if archetype != c.archetype:
+            c = c.model_copy(update={"archetype": archetype})
         result.append(c)
     return result
 
@@ -366,7 +316,7 @@ def _classify_batch(client: Any, batch: list[dict[str, Any]]) -> list[AccountCla
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ],
-        temperature=0.3,
+        temperature=1,  # gpt-5 models only support temperature=1
         response_format={"type": "json_object"},
         timeout=180,
     )
@@ -484,6 +434,7 @@ def archetype_llm_classification(
 
     # LLM classification for changed accounts
     new_classifications: list[AccountClassification] = []
+    failed_batches: list[dict] = []
     if accounts_to_classify:
         classify_df = pl.DataFrame(accounts_to_classify, infer_schema_length=None)
         batches = prepare_llm_batches(classify_df, batch_size=config.llm_batch_size)
@@ -501,8 +452,9 @@ def archetype_llm_classification(
                     context.log.exception(
                         f"LLM batch {i + 1} failed after retries, skipping {len(batches[i])} accounts: {batch_ids}"
                     )
+                    failed_batches.append({"batch": i + 1, "account_ids": batch_ids})
 
-    new_classifications = apply_confidence_threshold(new_classifications)
+    new_classifications = apply_deterministic_archetype(new_classifications)
 
     # Merge new + carried forward
     all_classifications = new_classifications + [AccountClassification.model_validate(c) for c in carried_forward]
@@ -516,6 +468,7 @@ def archetype_llm_classification(
             "total_classified": dagster.MetadataValue.int(len(all_classifications)),
             "newly_classified": dagster.MetadataValue.int(len(new_classifications)),
             "carried_forward": dagster.MetadataValue.int(len(carried_forward)),
+            "failed_batches": dagster.MetadataValue.json(failed_batches),
             "account_hashes": dagster.MetadataValue.json(current_hashes),
             "classifications": dagster.MetadataValue.json(current_classifications),
         }
