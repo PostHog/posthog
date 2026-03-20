@@ -426,7 +426,7 @@ export function LineGraph_({
         const hasAnomalyPoints = seriesAnomalyIndices.size > 0
 
         const anomalyPointRadius = hasAnomalyPoints
-            ? (ctx: any) => (seriesAnomalyIndices.has(ctx.dataIndex) ? 3.5 : 0)
+            ? (ctx: any) => (seriesAnomalyIndices.has(ctx.dataIndex) ? 3 : 0)
             : undefined
         const anomalyPointBackgroundColor = hasAnomalyPoints
             ? (ctx: any) => (seriesAnomalyIndices.has(ctx.dataIndex) ? mainColor : 'transparent')
