@@ -6,6 +6,8 @@ import { beforeUnload, router } from 'kea-router'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -86,7 +88,7 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
         ...batchExportConfig.destination.config,
     }
 
-    if (destinationType === 'Databricks' || destinationType === 'AzureBlob') {
+    if (destinationType === 'Databricks' || destinationType === 'AzureBlob' || destinationType === 'BigQuery') {
         config.integration_id = batchExportConfig.destination.integration
     }
 
@@ -633,7 +635,12 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
     }),
     path((key) => ['scenes', 'data-pipelines', 'batch-exports', 'batchExportConfigurationLogic', key]),
     connect(() => ({
-        values: [teamLogic, ['timezone as teamTimezone', 'weekStartDay as teamWeekStartDay']],
+        values: [
+            teamLogic,
+            ['timezone as teamTimezone', 'weekStartDay as teamWeekStartDay'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
     })),
     actions({
         setSavedConfiguration: (configuration: Record<string, any>) => ({ configuration }),
@@ -978,8 +985,8 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                 !!service && ['Postgres', 'Redshift', 'Snowflake', 'Databricks', 'BigQuery'].includes(service),
         ],
         requiredFields: [
-            (s) => [s.service, s.isNew, s.configuration],
-            (service, isNew, config): string[] => {
+            (s) => [s.service, s.isNew, s.configuration, s.featureFlags],
+            (service, isNew, config, featureFlags): string[] => {
                 const generalRequiredFields = ['interval', 'name', 'model']
                 if (service === 'Postgres') {
                     return [
@@ -1014,7 +1021,17 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         ...(isNew ? ['file_format'] : []),
                     ]
                 } else if (service === 'BigQuery') {
-                    return [...generalRequiredFields, ...(isNew ? ['json_config_file'] : []), 'dataset_id', 'table_id']
+                    return [
+                        ...generalRequiredFields,
+                        ...(isNew && !featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_BIGQUERY_INTEGRATION]
+                            ? ['json_config_file']
+                            : []),
+                        ...(isNew && featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_BIGQUERY_INTEGRATION]
+                            ? ['integration_id']
+                            : []),
+                        'dataset_id',
+                        'table_id',
+                    ]
                 } else if (service === 'HTTP') {
                     return [...generalRequiredFields, 'url', 'token']
                 } else if (service === 'Snowflake') {

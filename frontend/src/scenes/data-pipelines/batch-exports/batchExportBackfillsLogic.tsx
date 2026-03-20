@@ -6,37 +6,40 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { BatchExportBackfill, BatchExportConfiguration, RawBatchExportBackfill } from '~/types'
+import { BatchExportBackfill, RawBatchExportBackfill } from '~/types'
 
+import { batchExportBackfillModalLogic } from './batchExportBackfillModalLogic'
 import type { batchExportBackfillsLogicType } from './batchExportBackfillsLogicType'
+import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
 
 export interface BatchExportBackfillsLogicProps {
     id: string
-    batchExportConfig?: BatchExportConfiguration | null
 }
 
 export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
     props({} as BatchExportBackfillsLogicProps),
     key(({ id }) => id),
     path((key) => ['scenes', 'pipeline', 'batchExportBackfillsLogic', key]),
-    connect(() => ({
-        values: [teamLogic(), ['currentTeamId']],
+    connect((props: BatchExportBackfillsLogicProps) => ({
+        values: [
+            teamLogic(),
+            ['currentTeamId'],
+            batchExportConfigurationLogic({
+                id: props.id,
+                service: null,
+            }),
+            ['batchExportConfig'],
+        ],
+        actions: [
+            batchExportBackfillModalLogic(props),
+            ['submitBackfillFormSuccess', 'openBackfillModal', 'backfillCreated'],
+        ],
     })),
     actions({
         loadBackfills: true,
         cancelBackfill: (backfill: BatchExportBackfill) => ({ backfill }),
-        openBackfillModal: true,
-        backfillCreated: (backfillId: string) => ({ backfillId }),
     }),
     loaders(({ props, values }) => ({
-        batchExportConfig: [
-            (props.batchExportConfig ?? null) as BatchExportConfiguration | null,
-            {
-                loadBatchExportConfig: async () => {
-                    return await api.batchExports.get(props.id)
-                },
-            },
-        ],
         backfillsPaginatedResponse: [
             null as PaginatedResponse<RawBatchExportBackfill> | null,
             {
@@ -112,6 +115,11 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
                 lemonToast.error('Failed to cancel backfill. Please try again.')
             }
         },
+        submitBackfillFormSuccess: () => {
+            setTimeout(() => {
+                actions.loadBackfills()
+            }, 1000)
+        },
         backfillCreated: async ({ backfillId }, breakpoint) => {
             const MAX_POLL_ATTEMPTS = 10
             const POLL_INTERVAL_MS = 1000
@@ -157,10 +165,7 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
             }
         },
     })),
-    afterMount(({ actions, props }) => {
-        if (!props.batchExportConfig) {
-            actions.loadBatchExportConfig()
-        }
+    afterMount(({ actions }) => {
         actions.loadBackfills()
     }),
 ])

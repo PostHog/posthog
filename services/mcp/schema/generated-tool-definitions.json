@@ -689,6 +689,81 @@
             "readOnlyHint": true
         }
     },
+    "early-access-feature-list": {
+        "description": "List early access features in the current project. Returns name, stage, description, linked feature flag, and creation date for each feature.",
+        "category": "Early access features",
+        "feature": "early_access_features",
+        "summary": "List early access features",
+        "title": "List early access features",
+        "required_scopes": ["early_access_feature:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "early-access-feature-create": {
+        "description": "Create a new early access feature. A feature flag is automatically created unless feature_flag_id is provided. Stage determines whether opted-in users get the feature enabled.",
+        "category": "Early access features",
+        "feature": "early_access_features",
+        "summary": "Create early access feature",
+        "title": "Create early access feature",
+        "required_scopes": ["early_access_feature:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "early-access-feature-retrieve": {
+        "description": "Get a single early access feature by ID. Returns full details including the linked feature flag configuration.",
+        "category": "Early access features",
+        "feature": "early_access_features",
+        "summary": "Get early access feature",
+        "title": "Get early access feature",
+        "required_scopes": ["early_access_feature:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "early-access-feature-partial-update": {
+        "description": "Update an early access feature by ID. Changing the stage automatically updates the linked feature flag's enrollment conditions.",
+        "category": "Early access features",
+        "feature": "early_access_features",
+        "summary": "Update early access feature",
+        "title": "Update early access feature",
+        "required_scopes": ["early_access_feature:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "early-access-feature-destroy": {
+        "description": "Delete an early access feature by ID. Clears enrollment conditions from the linked feature flag but does not delete the flag itself.",
+        "category": "Early access features",
+        "feature": "early_access_features",
+        "summary": "Delete early access feature",
+        "title": "Delete early access feature",
+        "required_scopes": ["early_access_feature:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "error-tracking-issues-list": {
         "description": "List all error tracking issues in the project. Returns issues with status, volume, first/last seen timestamps, and assignee info.",
         "category": "Error tracking",

@@ -54,10 +54,7 @@ describe('dashboardsLogic', () => {
     ]
 
     beforeEach(async () => {
-        window.POSTHOG_APP_CONTEXT = {
-            ...(window.POSTHOG_APP_CONTEXT as AppContext | undefined),
-            current_user: MOCK_DEFAULT_USER,
-        } as AppContext
+        window.POSTHOG_APP_CONTEXT = { current_user: MOCK_DEFAULT_USER } as unknown as AppContext
 
         useMocks({
             get: {

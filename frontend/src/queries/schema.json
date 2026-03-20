@@ -11192,7 +11192,7 @@
             "type": "string"
         },
         "DataWarehouseSyncInterval": {
-            "enum": ["5min", "30min", "1hour", "6hour", "12hour", "24hour", "7day", "30day"],
+            "enum": ["5min", "15min", "30min", "1hour", "6hour", "12hour", "24hour", "7day", "30day"],
             "type": "string"
         },
         "DataWarehouseViewLink": {
@@ -19168,6 +19168,7 @@
                 "salesforce",
                 "hubspot",
                 "google-pubsub",
+                "google-cloud-service-account",
                 "google-cloud-storage",
                 "google-ads",
                 "google-sheets",
@@ -31654,6 +31655,9 @@
                     },
                     "type": "array"
                 },
+                "has_summary": {
+                    "type": "boolean"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -32282,6 +32286,15 @@
                 },
                 "unreleasedSource": {
                     "type": "boolean"
+                },
+                "webhookFields": {
+                    "items": {
+                        "$ref": "#/definitions/SourceFieldConfig"
+                    },
+                    "type": "array"
+                },
+                "webhookSetupCaption": {
+                    "type": "string"
                 }
             },
             "required": ["name", "fields", "iconPath"],
@@ -33400,6 +33413,7 @@
                 "max_ai_context",
                 "workflow_variables",
                 "suggested_filters",
+                "recent_filters",
                 "empty"
             ],
             "type": "string"

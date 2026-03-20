@@ -42,6 +42,7 @@ parse_expr("{x}", placeholders={"x": ast.Constant(value=self.query.field)})  # S
 
 - `ast.Constant(value=...)` - wraps values safely
 - `ast.Tuple(exprs=...)` - for lists of values
+- `ast.Field(chain=[...])` - wraps identifiers (table names, column names) safely
 
 ## Semgrep Rules
 
@@ -49,12 +50,12 @@ Run `semgrep --config .semgrep/rules/hogql-no-fstring.yaml .` to check for HogQL
 
 Two rules:
 
-1. `hogql-injection-taint` - Flags user data (`self.query.*`, etc.) interpolated into f-strings passed to parse functions (HIGH confidence)
+1. `hogql-injection-taint` - Flags user data (`self.query.*`, `self.$obj.$field`, etc.) interpolated into f-strings passed to parse functions (HIGH confidence)
 2. `hogql-fstring-audit` - Flags all f-strings in parse functions for manual review (LOW confidence)
 
 **When semgrep flags your code:**
 
-- If user data is interpolated into f-string → wrap with `ast.Constant()` in placeholders
+- If user data is interpolated into f-string → wrap with `ast.Constant()` or `ast.Field(chain=[...])` in placeholders
 - If f-string uses safe values (loop index, enum, dict lookup) → add `# nosemgrep: <rule-id>` with explanation
 
 **Running tests:**

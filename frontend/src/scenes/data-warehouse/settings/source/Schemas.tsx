@@ -301,7 +301,7 @@ export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaT
                                             })
                                         }
                                         options={[
-                                            { value: '5min' as DataWarehouseSyncInterval, label: '5 mins' },
+                                            { value: '15min' as DataWarehouseSyncInterval, label: '15 mins' },
                                             { value: '30min' as DataWarehouseSyncInterval, label: '30 mins' },
                                             { value: '1hour' as DataWarehouseSyncInterval, label: '1 hour' },
                                             { value: '6hour' as DataWarehouseSyncInterval, label: '6 hours' },
@@ -637,12 +637,12 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
             isOpen={syncMethodModalIsOpen}
             onClose={closeSyncMethodModal}
             footer={
-                schemaLoading && (
+                schemaLoading ? (
                     <>
                         <LemonSkeleton.Button />
                         <LemonSkeleton.Button />
                     </>
-                )
+                ) : null
             }
         >
             {schemaLoading && (
@@ -664,31 +664,21 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
                         incremental_available: schemaIncrementalFields.incremental_available,
                         append_available: schemaIncrementalFields.append_available,
                         incremental_fields: schemaIncrementalFields.incremental_fields,
+                        supports_webhooks: schemaIncrementalFields?.supports_webhooks ?? false,
                     }}
                     onClose={() => {
                         resetSchemaIncrementalFields()
                         closeSyncMethodModal()
                     }}
                     onSave={(syncType, incrementalField, incrementalFieldType) => {
-                        if (syncType === 'full_refresh') {
-                            updateSchema({
-                                ...currentSyncMethodModalSchema,
-                                should_sync: true,
-                                sync_type: syncType,
-                                incremental_field: null,
-                                incremental_field_type: null,
-                                sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? '00:00:00',
-                            })
-                        } else {
-                            updateSchema({
-                                ...currentSyncMethodModalSchema,
-                                should_sync: true,
-                                sync_type: syncType,
-                                incremental_field: incrementalField,
-                                incremental_field_type: incrementalFieldType,
-                                sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? '00:00:00',
-                            })
-                        }
+                        updateSchema({
+                            ...currentSyncMethodModalSchema,
+                            should_sync: true,
+                            sync_type: syncType,
+                            incremental_field: syncType === 'full_refresh' ? null : incrementalField,
+                            incremental_field_type: syncType === 'full_refresh' ? null : incrementalFieldType,
+                            sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? '00:00:00',
+                        })
                     }}
                 />
             )}

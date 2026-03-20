@@ -2,7 +2,12 @@ use crate::{
     api::types::FlagValue,
     cohorts::cohort_models::{Cohort, CohortId},
     config::{Config, DEFAULT_TEST_CONFIG},
-    flags::flag_models::{FeatureFlag, FeatureFlagRow, FlagFilters, FlagPropertyGroup},
+    flags::{
+        flag_group_type_mapping::{
+            GroupTypeCacheManager, GroupTypeFetchError, GroupTypeMapping, GroupTypeMappingFetcher,
+        },
+        flag_models::{FeatureFlag, FeatureFlagRow, FlagFilters, FlagPropertyGroup},
+    },
     properties::property_models::{OperatorType, PropertyFilter, PropertyType},
     team::team_models::Team,
 };
@@ -1551,4 +1556,27 @@ impl TestContext {
         .await?;
         Ok(())
     }
+}
+
+pub struct MockGroupTypeFetcher {
+    pub mapping: GroupTypeMapping,
+}
+
+#[async_trait]
+impl GroupTypeMappingFetcher for MockGroupTypeFetcher {
+    async fn fetch(
+        &self,
+        _team_id: common_types::TeamId,
+    ) -> Result<GroupTypeMapping, GroupTypeFetchError> {
+        Ok(self.mapping.clone())
+    }
+}
+
+pub fn mock_group_type_cache(
+    types_to_indexes: std::collections::HashMap<String, i32>,
+) -> Arc<GroupTypeCacheManager> {
+    let fetcher = MockGroupTypeFetcher {
+        mapping: GroupTypeMapping::new(types_to_indexes),
+    };
+    Arc::new(GroupTypeCacheManager::new_with_fetcher(fetcher, None, None))
 }

@@ -41,13 +41,17 @@ path = "ee"
 depends_on = [
     "<root>",
     "posthog",
+    "products.alerts",
     "products.data_warehouse",
     "products.error_tracking",
     "products.event_definitions",
     "products.experiments",
     "products.feature_flags",
     "products.llm_analytics",
+    "products.mcp_store",
     "products.notebooks",
+    "products.posthog_ai",
+    "products.product_tours",
     "products.replay",
     "products.revenue_analytics",
     "products.surveys",
@@ -59,7 +63,9 @@ path = "posthog"
 depends_on = [
     "<root>",
     "ee",
+    "products.analytics_platform",
     "products.batch_exports",
+    "products.conversations",
     "products.customer_analytics",
     "products.data_modeling",
     "products.data_warehouse",
@@ -70,13 +76,17 @@ depends_on = [
     "products.event_definitions",
     "products.experiments",
     "products.feature_flags",
+    "products.growth",
     "products.links",
     "products.live_debugger",
     "products.llm_analytics",
     "products.logs",
     "products.marketing_analytics",
+    "products.mcp_store",
     "products.notebooks",
     "products.notifications",
+    "products.posthog_ai",
+    "products.product_tours",
     "products.revenue_analytics",
     "products.signals",
     "products.slack_app",
@@ -90,6 +100,21 @@ depends_on = [
 ]
 
 [[modules]]
+path = "products.alerts"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "non_isolated"
+
+[[modules]]
+path = "products.analytics_platform"
+depends_on = [
+    "posthog",
+]
+layer = "non_isolated"
+
+[[modules]]
 path = "products.batch_exports"
 depends_on = [
     "ee",
@@ -99,6 +124,14 @@ layer = "non_isolated"
 
 [[modules]]
 path = "products.cdp"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "non_isolated"
+
+[[modules]]
+path = "products.conversations"
 depends_on = [
     "ee",
     "posthog",
@@ -190,6 +223,14 @@ depends_on = [
 layer = "non_isolated"
 
 [[modules]]
+path = "products.growth"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "non_isolated"
+
+[[modules]]
 path = "products.links"
 depends_on = [
     "posthog",
@@ -225,6 +266,14 @@ depends_on = []
 layer = "non_isolated"
 
 [[modules]]
+path = "products.mcp_store"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "non_isolated"
+
+[[modules]]
 path = "products.marketing_analytics"
 depends_on = [
     "posthog",
@@ -256,6 +305,26 @@ interfaces = [
 [[modules]]
 path = "products.product_analytics"
 depends_on = []
+layer = "non_isolated"
+
+[[modules]]
+path = "products.posthog_ai"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.error_tracking",
+    "products.event_definitions",
+    "products.llm_analytics",
+    "products.logs",
+]
+layer = "non_isolated"
+
+[[modules]]
+path = "products.product_tours"
+depends_on = [
+    "ee",
+    "posthog",
+]
 layer = "non_isolated"
 
 [[modules]]

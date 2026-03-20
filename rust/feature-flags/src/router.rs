@@ -39,6 +39,7 @@ use crate::{
     },
     cohorts::{cohort_cache_manager::CohortCacheManager, membership::CohortMembershipProvider},
     config::{Config, ServiceMode, TeamIdCollection},
+    flags::flag_group_type_mapping::GroupTypeCacheManager,
     metrics::{
         consts::{
             FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_REQUESTS_COUNTER,
@@ -60,6 +61,7 @@ pub struct State {
     pub dedicated_redis_client: Option<Arc<dyn RedisClient + Send + Sync>>,
     pub database_pools: Arc<DatabasePools>,
     pub cohort_cache_manager: Arc<CohortCacheManager>,
+    pub group_type_cache_manager: Arc<GroupTypeCacheManager>,
     pub geoip: Arc<GeoIpClient>,
     pub team_ids_to_track: TeamIdCollection,
     pub feature_flags_billing_limiter: FeatureFlagsLimiter,
@@ -97,6 +99,7 @@ pub fn router(
     dedicated_redis_client: Option<Arc<dyn RedisClient + Send + Sync>>,
     database_pools: Arc<DatabasePools>,
     cohort_cache: Arc<CohortCacheManager>,
+    group_type_cache: Arc<GroupTypeCacheManager>,
     geoip: Arc<GeoIpClient>,
     liveness: HealthRegistry,
     feature_flags_billing_limiter: FeatureFlagsLimiter,
@@ -175,6 +178,7 @@ pub fn router(
         dedicated_redis_client,
         database_pools,
         cohort_cache_manager: cohort_cache,
+        group_type_cache_manager: group_type_cache,
         geoip,
         team_ids_to_track: config.team_ids_to_track.clone(),
         feature_flags_billing_limiter,

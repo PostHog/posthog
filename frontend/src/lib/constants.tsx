@@ -241,6 +241,7 @@ export const FEATURE_FLAGS = {
     BATCH_EXPORT_NEW_LOGS: 'batch-export-new-logs', // owner: #team-batch-exports
     BATCH_EXPORTS_AZURE_BLOB: 'azure-blob-batch-exports', // owner: #team-batch-exports
     BATCH_EXPORTS_DATABRICKS: 'databricks-batch-exports', // owner: @rossgray #team-batch-exports
+    BATCH_EXPORTS_BIGQUERY_INTEGRATION: 'batch-exports-bigquery-integration', // owner: @tomasfarias #team-batch-exports
     BACKFILL_WORKFLOWS_DESTINATION: 'backfill-workflows-destination', // owner: #team-batch-exports
     BING_ADS_SOURCE: 'bing-ads-source', // owner: @jabahamondes #team-web-analytics
     CDP_ACTIVITY_LOG_NOTIFICATIONS: 'cdp-activity-log-notifications', // owner: #team-workflows-cdp
@@ -451,6 +452,7 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_SAMPLE_RATIO_MISMATCH: 'experiments-sample-ratio-mismatch', // owner: @jurajmajerik #team-experiments
     NEW_TAB_PROJECT_EXPLORER: 'new-tab-project-explorer', // owner: #team-platform-ux
     REAL_TIME_NOTIFICATIONS: 'real-time-notifications', // owner: #team-platform-features
+    TAXONOMIC_FILTER_RECENTS: 'taxonomic-filter-recents', // owner: @pauldambra #team-paul
     // PLEASE KEEP THIS ALPHABETICALLY ORDERED
 } as const
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS

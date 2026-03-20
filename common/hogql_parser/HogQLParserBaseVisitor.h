@@ -151,7 +151,19 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitGroupingSetList(HogQLParser::GroupingSetListContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitGroupingSet(HogQLParser::GroupingSetContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitHavingClause(HogQLParser::HavingClauseContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitQualifyClause(HogQLParser::QualifyClauseContext *ctx) override {
     return visitChildren(ctx);
   }
 
@@ -263,6 +275,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitWithinGroupClause(HogQLParser::WithinGroupClauseContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitWinFrameClause(HogQLParser::WinFrameClauseContext *ctx) override {
     return visitChildren(ctx);
   }
@@ -363,7 +379,19 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitColumnExprFunctionWithinGroup(HogQLParser::ColumnExprFunctionWithinGroupContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitColumnExprColumnsRegex(HogQLParser::ColumnExprColumnsRegexContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitColumnExprTypeCast(HogQLParser::ColumnExprTypeCastContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitColumnExprSpreadColumnsList(HogQLParser::ColumnExprSpreadColumnsListContext *ctx) override {
     return visitChildren(ctx);
   }
 
@@ -428,6 +456,14 @@ public:
   }
 
   virtual std::any visitColumnExprBetween(HogQLParser::ColumnExprBetweenContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitColumnExprColumnsList(HogQLParser::ColumnExprColumnsListContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitColumnExprSpreadColumnsRegex(HogQLParser::ColumnExprSpreadColumnsRegexContext *ctx) override {
     return visitChildren(ctx);
   }
 

@@ -197,14 +197,30 @@ class FileFolderConflictsCheck(ProductCheck):
         return CheckResult(lines=["✓ ok"])
 
 
-class TachInterfacesCheck(ProductCheck):
-    label = "tach interfaces"
-    for_lenient = False
+class TachCheck(ProductCheck):
+    label = "tach boundaries"
+
+    def _has_python_files(self, product_dir: Path) -> bool:
+        return any(p for p in product_dir.rglob("*.py") if p.name != "__init__.py")
 
     def run(self, ctx: CheckContext) -> CheckResult:
+        if not self._has_python_files(ctx.product_dir):
+            return CheckResult(skip=True)
+
         module_path = f"products.{ctx.name}"
         tach_content = TACH_TOML.read_text() if TACH_TOML.exists() else ""
-        if "interfaces" not in get_tach_block(tach_content, module_path):
+        tach_block = get_tach_block(tach_content, module_path)
+
+        if not tach_block:
+            return CheckResult(
+                lines=["✗ missing from tach.toml"],
+                issues=[
+                    f"Product has Python files but no [[modules]] entry in tach.toml — "
+                    f'add a block with path = "{module_path}"'
+                ],
+            )
+
+        if ctx.is_isolated and "interfaces" not in tach_block:
             return CheckResult(
                 lines=["✗ missing interfaces declaration"],
                 issues=[
@@ -213,6 +229,7 @@ class TachInterfacesCheck(ProductCheck):
                     f'"{module_path}.backend.presentation.views"]'
                 ],
             )
+
         return CheckResult(lines=["✓ ok"])
 
 
@@ -406,6 +423,6 @@ CHECKS: list[ProductCheck] = [
     PackageJsonScriptsCheck(),
     MisplacedFilesCheck(),
     FileFolderConflictsCheck(),
-    TachInterfacesCheck(),
+    TachCheck(),
     IsolationProgressCheck(),
 ]
