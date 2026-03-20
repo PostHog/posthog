@@ -12805,14 +12805,14 @@ export namespace Schemas {
     export interface ErrorTrackingSpikeEventIssue {
       readonly id: string;
       /** @nullable */
-      name?: string | null;
+      readonly name: string | null;
       /** @nullable */
-      description?: string | null;
+      readonly description: string | null;
     }
 
     export interface ErrorTrackingSpikeEvent {
       readonly id: string;
-      issue: ErrorTrackingSpikeEventIssue;
+      readonly issue: ErrorTrackingSpikeEventIssue;
       readonly detected_at: string;
       readonly computed_baseline: number;
       readonly current_bucket_value: number;

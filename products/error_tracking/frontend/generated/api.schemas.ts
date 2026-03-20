@@ -324,14 +324,14 @@ export interface PatchedErrorTrackingReleaseApi {
 export interface ErrorTrackingSpikeEventIssueApi {
     readonly id: string
     /** @nullable */
-    name?: string | null
+    readonly name: string | null
     /** @nullable */
-    description?: string | null
+    readonly description: string | null
 }
 
 export interface ErrorTrackingSpikeEventApi {
     readonly id: string
-    issue: ErrorTrackingSpikeEventIssueApi
+    readonly issue: ErrorTrackingSpikeEventIssueApi
     readonly detected_at: string
     readonly computed_baseline: number
     readonly current_bucket_value: number
