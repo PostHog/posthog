@@ -488,7 +488,7 @@ class AlertSimulateSerializer(serializers.Serializer):
 
 
 class AlertSimulateResponseSerializer(serializers.Serializer):
-    data = serializers.ListField(child=serializers.FloatField(), help_text="Data values for each point.")
+    data = serializers.ListField(child=serializers.FloatField(), help_text="Data values for each point.")  # type: ignore[assignment]
     dates = serializers.ListField(child=serializers.CharField(), help_text="Date labels for each point.")
     scores = serializers.ListField(
         child=serializers.FloatField(allow_null=True),
