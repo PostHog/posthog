@@ -111,7 +111,7 @@ describe('LineGraph', () => {
             const dataset = chart.config.data?.datasets?.[0] as any
 
             // The trendline config should exclude the incomplete last point
-            expect(dataset.trendlineLinear).toBeDefined()
+            expect(dataset.trendlineLinear).toBeTruthy()
             expect(dataset.trendlineLinear.trendoffset).toBe(-1)
         })
 
@@ -127,9 +127,9 @@ describe('LineGraph', () => {
             const chart = await waitForChart()
             const dataset = chart.config.data?.datasets?.[0] as any
 
-            // No incomplete points — trendoffset should not be set
-            expect(dataset.trendlineLinear).toBeDefined()
-            expect(dataset.trendlineLinear.trendoffset).toBeUndefined()
+            // No incomplete points — trendoffset should be 0
+            expect(dataset.trendlineLinear).toBeTruthy()
+            expect(dataset.trendlineLinear.trendoffset).toBe(0)
         })
     })
 
