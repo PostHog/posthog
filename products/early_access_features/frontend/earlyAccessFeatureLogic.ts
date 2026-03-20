@@ -276,7 +276,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateEarlyAccessFeature)
             }
         },
-        showGAPromotionConfirmation: async ({ onConfirm }) => {
+        showGAPromotionConfirmation: ({ onConfirm }) => {
             let rolloutToAll = false
             LemonDialog.open({
                 title: 'Promote to General Availability?',
