@@ -41,16 +41,28 @@ class RelatedActorsQuery:
         self.group_type_index = validate_group_type_index("group_type_index", group_type_index)
         self.id = id
 
-    def run(self) -> list[SerializedActor]:
-        results: list[SerializedActor] = []
-        results.extend(self._query_related_people())
-        for group_type_mapping in GroupTypeMapping.objects.filter(project_id=self.team.project_id):
-            results.extend(self._query_related_groups(group_type_mapping.group_type_index))
-        return results
-
     @property
     def is_aggregating_by_groups(self) -> bool:
         return self.group_type_index is not None
+
+    def run(self, variant: str = "control") -> list[SerializedActor]:
+        results: list[SerializedActor] = []
+        results.extend(self._query_related_people())
+
+        group_type_indexes = list(
+            GroupTypeMapping.objects.filter(project_id=self.team.project_id)
+            .exclude(group_type_index=self.group_type_index)
+            .values_list("group_type_index", flat=True)
+        )
+
+        if variant == "test":
+            tag_queries(name="optimized-related-groups-test")
+            results.extend(self._query_related_groups_optimized(group_type_indexes=group_type_indexes))
+        else:
+            tag_queries(name="optimized-related-groups-control")
+            for index in group_type_indexes:
+                results.extend(self._query_related_groups_control(index))
+        return results
 
     def _is_test_variant(self) -> bool:
         flag_result = posthoganalytics.get_feature_flag(
@@ -114,10 +126,7 @@ class RelatedActorsQuery:
             )
         )
 
-    def _query_related_groups(self, group_type_index: GroupTypeIndex) -> list[SerializedGroup]:
-        if group_type_index == self.group_type_index:
-            return []
-
+    def _query_related_groups_control(self, group_type_index: GroupTypeIndex) -> list:
         group_ids = self._take_first(
             # nosemgrep: clickhouse-injection-taint, clickhouse-fstring-param-audit - internal SQL fragments, values parameterized
             sync_execute(
@@ -141,9 +150,42 @@ class RelatedActorsQuery:
                 {**self._params, "group_type_index": group_type_index},
             )
         )
+        _, serialized_groups = get_groups(self.team.pk, group_type_index, group_ids)
+        return serialized_groups
 
-        _, serialize_groups = get_groups(self.team.pk, group_type_index, group_ids)
-        return serialize_groups
+    def _query_related_groups_optimized(self, group_type_indexes: list[int]) -> list:
+        if not list(group_type_indexes):
+            return []
+
+        array_join_tuples = ", ".join(f"(toUInt8({index}), e.$group_{index})" for index in group_type_indexes)
+        query = f"""
+                SELECT DISTINCT group_type_index, group_key
+                FROM groups
+                WHERE team_id = %(team_id)s
+                  AND group_type_index IN {list(group_type_indexes)}
+                  AND (group_type_index, group_key) IN (
+                      SELECT tuples.1 AS group_type_index, tuples.2 AS group_key
+                      FROM events e
+                      ARRAY JOIN arrayFilter(x -> x.2 != '', [{array_join_tuples}]) AS tuples
+                      WHERE team_id = %(team_id)s
+                        AND e.timestamp > %(after)s
+                        AND e.timestamp < %(before)s
+                        AND {f"e.$group_{self.group_type_index} = %(id)s" if self.is_aggregating_by_groups else f"e.person_id = %(id)s"}
+                  )
+                ORDER BY group_type_index, group_key
+                """
+        # nosemgrep: clickhouse-injection-taint - group_type_indexes are ints from DB, values parameterized
+        results = sync_execute(query, self._params)
+        if not results:
+            return []
+
+        serialized_results: list[SerializedGroup] = []
+        for index in group_type_indexes:
+            group_keys = [result[1] for result in results if result[0] == index]
+            _, serialized_groups = get_groups(self.team.pk, index, group_keys)
+            serialized_results.extend(serialized_groups)
+
+        return serialized_results
 
     def _take_first(self, rows: list) -> list:
         return [row[0] for row in rows]
