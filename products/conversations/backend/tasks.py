@@ -127,7 +127,7 @@ def post_reply_to_slack(
         "text": slack_text,
         "username": author_name or bot_display_name or "Support",
     }
-    if bot_icon_url:
+    if not author_name and bot_icon_url:
         message_kwargs["icon_url"] = bot_icon_url
     if slack_blocks:
         message_kwargs["blocks"] = slack_blocks
@@ -201,7 +201,7 @@ def post_reply_to_slack(
                     "text": fallback_text,
                     "username": author_name or bot_display_name or "Support",
                 }
-                if bot_icon_url:
+                if not author_name and bot_icon_url:
                     fallback_kwargs["icon_url"] = bot_icon_url
                 client.chat_postMessage(**fallback_kwargs)
                 logger.warning(
