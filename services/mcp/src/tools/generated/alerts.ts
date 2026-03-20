@@ -9,6 +9,7 @@ import {
     AlertsPartialUpdateBody,
     AlertsPartialUpdateParams,
     AlertsRetrieveParams,
+    AlertsSimulateCreateBody,
 } from '@/generated/alerts/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -164,10 +165,40 @@ const alertDelete = (): ToolBase<typeof AlertDeleteSchema, unknown> => ({
     },
 })
 
+const AlertSimulateSchema = AlertsSimulateCreateBody
+
+const alertSimulate = (): ToolBase<typeof AlertSimulateSchema, Schemas.AlertSimulateResponse> => ({
+    name: 'alert-simulate',
+    schema: AlertSimulateSchema,
+    handler: async (context: Context, params: z.infer<typeof AlertSimulateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.insight !== undefined) {
+            body['insight'] = params.insight
+        }
+        if (params.detector_config !== undefined) {
+            body['detector_config'] = params.detector_config
+        }
+        if (params.series_index !== undefined) {
+            body['series_index'] = params.series_index
+        }
+        if (params.date_from !== undefined) {
+            body['date_from'] = params.date_from
+        }
+        const result = await context.api.request<Schemas.AlertSimulateResponse>({
+            method: 'POST',
+            path: `/api/projects/${projectId}/alerts/simulate/`,
+            body,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'alerts-list': alertsList,
     'alert-get': alertGet,
     'alert-create': alertCreate,
     'alert-update': alertUpdate,
     'alert-delete': alertDelete,
+    'alert-simulate': alertSimulate,
 }
