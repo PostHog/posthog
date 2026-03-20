@@ -134,7 +134,6 @@ class PersonHogClient:
             ("grpc.max_send_message_length", max_send_message_length),
             ("grpc.max_receive_message_length", max_recv_message_length),
             # Prevent the channel from transitioning to IDLE between requests.
-            # Without this, low-traffic workers pay ~60-80ms reconnection overhead per request.
             ("grpc.client_idle_timeout_ms", client_idle_timeout_ms),
         ]
         channel = grpc.insecure_channel(addr, options=options)
