@@ -23,6 +23,7 @@ jobs:
     collect-and-merge:
         name: Collect timing data from CI artifacts
         runs-on: ubuntu-latest
+        timeout-minutes: 10
         steps:
             - name: Get app token
               id: app-token

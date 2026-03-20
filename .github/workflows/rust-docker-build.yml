@@ -58,6 +58,7 @@ jobs:
                       dockerfile: ./rust/Dockerfile
                       project: 6kjc85bwm7
         runs-on: depot-ubuntu-22.04
+        timeout-minutes: 15
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow reading the repo contents
@@ -178,6 +179,7 @@ jobs:
     deploy:
         name: deploy ${{ matrix.release }}
         runs-on: ubuntu-24.04
+        timeout-minutes: 5
         needs: build
         if: github.ref == 'refs/heads/master'
         strategy:
