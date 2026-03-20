@@ -447,6 +447,8 @@ def sync_frequency_to_sync_frequency_interval(frequency: str) -> timedelta | Non
         return None
     if frequency == "5min":
         return timedelta(minutes=5)
+    if frequency == "15min":
+        return timedelta(minutes=15)
     if frequency == "30min":
         return timedelta(minutes=30)
     if frequency == "1hour":
@@ -470,6 +472,8 @@ def sync_frequency_interval_to_sync_frequency(sync_frequency_interval: timedelta
         return None
     if sync_frequency_interval == timedelta(minutes=5):
         return "5min"
+    if sync_frequency_interval == timedelta(minutes=15):
+        return "15min"
     if sync_frequency_interval == timedelta(minutes=30):
         return "30min"
     if sync_frequency_interval == timedelta(hours=1):
