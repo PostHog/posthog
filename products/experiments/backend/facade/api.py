@@ -49,7 +49,9 @@ def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInpu
             parameters = input_dto.parameters
         elif has_new_format:
             # Convert CreateFeatureFlagInput to parameters dict format
-            flag_data = input_dto.feature_flag_filters
+            flag_filters = input_dto.feature_flag_filters
+            assert flag_filters is not None  # Type guard: has_new_format guarantees this
+
             parameters = {
                 "feature_flag_variants": [
                     {
@@ -57,17 +59,17 @@ def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInpu
                         "name": variant.name,
                         "rollout_percentage": variant.rollout_percentage,
                     }
-                    for variant in flag_data.variants
+                    for variant in flag_filters.variants
                 ],
             }
 
             # Add optional fields
-            if flag_data.rollout_percentage is not None:
-                parameters["rollout_percentage"] = flag_data.rollout_percentage
-            if flag_data.aggregation_group_type_index is not None:
-                parameters["aggregation_group_type_index"] = flag_data.aggregation_group_type_index
-            if flag_data.ensure_experience_continuity is not None:
-                parameters["ensure_experience_continuity"] = flag_data.ensure_experience_continuity
+            if flag_filters.rollout_percentage is not None:
+                parameters["rollout_percentage"] = flag_filters.rollout_percentage
+            if flag_filters.aggregation_group_type_index is not None:
+                parameters["aggregation_group_type_index"] = flag_filters.aggregation_group_type_index
+            if flag_filters.ensure_experience_continuity is not None:
+                parameters["ensure_experience_continuity"] = flag_filters.ensure_experience_continuity
 
         # Call existing service
         service = ExperimentService(team=team, user=user)
