@@ -208,6 +208,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             true,
             {
                 toggleMarkdownRendering: (state) => !state,
+                setMode: (_, { mode }) => mode !== PromptMode.Edit,
             },
         ],
         compareVersion: [
