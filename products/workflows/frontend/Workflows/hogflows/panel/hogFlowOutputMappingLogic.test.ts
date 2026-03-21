@@ -77,20 +77,19 @@ describe('hogFlowOutputMappingLogic', () => {
         let wfLogic: ReturnType<typeof workflowLogic.build>
         const WORKFLOW_ID = 'test-workflow'
 
-        useMocks({
-            get: {
-                '/api/environments/:team_id/hog_flows/:id/': {
-                    id: WORKFLOW_ID,
-                    name: 'Test workflow',
-                    actions: [],
-                    variables: [],
-                    team_id: 1,
-                },
-                '/api/environments/:team_id/messaging_categories/': { results: [], count: 0 },
-            },
-        })
-
         beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': {
+                        id: WORKFLOW_ID,
+                        name: 'Test workflow',
+                        actions: [],
+                        variables: [],
+                        team_id: 1,
+                    },
+                    '/api/environments/:team_id/messaging_categories/': { results: [], count: 0 },
+                },
+            })
             initKeaTests()
 
             wfLogic = workflowLogic({ id: WORKFLOW_ID })
