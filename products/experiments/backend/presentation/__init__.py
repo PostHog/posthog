@@ -6,7 +6,9 @@ converting between HTTP and facade DTOs.
 """
 
 from .serializers import ExperimentCreateSerializer
+from .views import ExperimentViewSet
 
 __all__ = [
     "ExperimentCreateSerializer",
+    "ExperimentViewSet",
 ]
