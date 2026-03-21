@@ -4,8 +4,8 @@ from collections.abc import Mapping
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 from enum import Enum
-from typing import Any, Literal
 from uuid import uuid4
+from typing import TYPE_CHECKING, Any, Literal
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
@@ -44,6 +44,11 @@ from products.experiments.backend.models.experiment import (
     holdout_filters_for_flag,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+
+# TYPE_CHECKING imports are only evaluated by type checkers, not at runtime.
+# This prevents circular import: experiment_service -> facade.contracts -> facade.api -> experiment_service
+if TYPE_CHECKING:
+    from products.experiments.backend.facade.contracts import CreateExperimentInput
 
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
@@ -534,6 +539,49 @@ class ExperimentService:
         )
 
         return experiment
+
+    def create_experiment_from_dto(
+        self,
+        input_dto: "CreateExperimentInput",
+        *,
+        serializer_context: dict | None = None,
+        event_source: EventSource | None = None,
+    ) -> Experiment:
+        """
+        Create experiment from facade DTO.
+
+        This method accepts a CreateExperimentInput DTO from the products
+        architecture facade layer and converts it to call the existing
+        create_experiment() method. This enables product isolation while
+        maintaining backward compatibility with existing callers that use
+        the legacy parameter format.
+        """
+        # Convert feature_flag_filters DTO to parameters dict
+        parameters = None
+        if input_dto.feature_flag_filters:
+            parameters = {
+                "feature_flag_variants": [
+                    {
+                        "key": variant.key,
+                        "name": variant.name,
+                        "rollout_percentage": variant.rollout_percentage,
+                    }
+                    for variant in input_dto.feature_flag_filters.variants
+                ],
+            }
+        elif input_dto.parameters:
+            # Use old format parameters if provided
+            parameters = input_dto.parameters
+
+        # Call existing create_experiment with converted parameters
+        return self.create_experiment(
+            name=input_dto.name,
+            feature_flag_key=input_dto.feature_flag_key,
+            description=input_dto.description,
+            parameters=parameters,
+            serializer_context=serializer_context,
+            event_source=event_source,
+        )
 
     # ------------------------------------------------------------------
     # Private helpers
