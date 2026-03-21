@@ -30,12 +30,12 @@ class TestCreateExperiment(BaseTest):
         self.user: User = self.user
 
     def test_create_experiment_with_new_format(self):
-        """Test creating experiment using new feature_flag_data format."""
+        """Test creating experiment using new feature_flag_filters format."""
         input_dto = CreateExperimentInput(
             name="Test Experiment",
             feature_flag_key="test-flag",
             description="Test description",
-            feature_flag_data=CreateFeatureFlagInput(
+            feature_flag_filters=CreateFeatureFlagInput(
                 key="test-flag",
                 name="Test Flag",
                 variants=[
@@ -60,7 +60,7 @@ class TestCreateExperiment(BaseTest):
 
         flag = FeatureFlagModel.objects.get(id=result.feature_flag_id)
         # Note: Currently the service generates its own flag name
-        # Full feature_flag_data support (including name) will come in a later phase
+        # Full feature_flag_filters support (including name) will come in a later phase
         assert flag.name == "Feature Flag for Experiment Test Experiment"
         assert len(flag.filters["multivariate"]["variants"]) == 2
 
@@ -121,7 +121,7 @@ class TestCreateExperiment(BaseTest):
             name="Both Formats",
             feature_flag_key="both-flag",
             parameters={"feature_flag_variants": [{"key": "control", "rollout_percentage": 100}]},
-            feature_flag_data=CreateFeatureFlagInput(
+            feature_flag_filters=CreateFeatureFlagInput(
                 key="both-flag",
                 variants=[FeatureFlagVariant(key="control", rollout_percentage=100)],
             ),
@@ -139,7 +139,7 @@ class TestCreateExperiment(BaseTest):
             input_dto = CreateExperimentInput(
                 name="Transactional Test",
                 feature_flag_key="transaction-flag",
-                feature_flag_data=CreateFeatureFlagInput(
+                feature_flag_filters=CreateFeatureFlagInput(
                     key="transaction-flag",
                     variants=[FeatureFlagVariant(key="control", rollout_percentage=100)],
                 ),

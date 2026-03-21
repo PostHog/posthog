@@ -21,7 +21,7 @@ def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInpu
     Create a new experiment with transactional safety.
 
     Supports both old format (parameters.feature_flag_variants)
-    and new format (feature_flag_data).
+    and new format (feature_flag_filters).
 
     Args:
         team: Team creating the experiment
@@ -36,10 +36,10 @@ def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInpu
     """
     # Validate that both formats are not provided
     has_old_format = input_dto.parameters is not None and "feature_flag_variants" in input_dto.parameters
-    has_new_format = input_dto.feature_flag_data is not None
+    has_new_format = input_dto.feature_flag_filters is not None
 
     if has_old_format and has_new_format:
-        raise ValueError("Cannot provide both 'parameters.feature_flag_variants' and 'feature_flag_data'")
+        raise ValueError("Cannot provide both 'parameters.feature_flag_variants' and 'feature_flag_filters'")
 
     # Use transaction to ensure rollback on failure
     with transaction.atomic():
@@ -49,7 +49,7 @@ def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInpu
             parameters = input_dto.parameters
         elif has_new_format:
             # Convert CreateFeatureFlagInput to parameters dict format
-            flag_data = input_dto.feature_flag_data
+            flag_data = input_dto.feature_flag_filters
             parameters = {
                 "feature_flag_variants": [
                     {
