@@ -573,7 +573,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={200: AlertSimulateResponseSerializer},
         description="Simulate a detector on an insight's historical data. Read-only — no AlertCheck records are created.",
     )
-    @action(detail=False, methods=["POST"], url_path="simulate")
+    @action(detail=False, methods=["POST"], url_path="simulate", required_scopes=["alert:read"])
     def simulate(self, request, *args, **kwargs):
         from posthog.tasks.alerts.trends import simulate_detector_on_insight
 
