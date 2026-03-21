@@ -467,8 +467,7 @@ describe('taxonomicFilterLogic', () => {
     describe('promoted groups are reordered', () => {
         it.each([
             {
-                description:
-                    'promotes PageviewUrls, Screens, EmailAddresses after SuggestedFilters and RecentFilters',
+                description: 'promotes PageviewUrls, Screens, EmailAddresses after SuggestedFilters and RecentFilters',
                 groupTypes: [
                     TaxonomicFilterGroupType.SuggestedFilters,
                     TaxonomicFilterGroupType.Events,
