@@ -7,6 +7,8 @@ converting between JSON/HTTP and facade DTOs.
 
 from rest_framework import serializers
 
+from posthog.models.feature_flag.feature_flag import FeatureFlag
+
 from products.experiments.backend.facade.contracts import (
     CreateExperimentInput,
     CreateFeatureFlagInput,
@@ -64,6 +66,19 @@ class CreateFeatureFlagInputSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 "Feature flag must have at least 2 variants (control and at least one test variant)"
             )
+
+        if len(value) >= 21:
+            raise serializers.ValidationError("Feature flag variants must be less than 21")
+
+        # Check for control variant
+        variant_keys = [variant["key"] for variant in value]
+        if "control" not in variant_keys:
+            raise serializers.ValidationError("Feature flag variants must contain a control variant")
+
+        # Check for duplicate variant keys
+        if len(variant_keys) != len(set(variant_keys)):
+            raise serializers.ValidationError("Feature flag variant keys must be unique")
+
         return value
 
     def to_dto(self) -> CreateFeatureFlagInput:
@@ -111,6 +126,52 @@ class ExperimentCreateSerializer(serializers.Serializer):
     feature_flag_filters = CreateFeatureFlagInputSerializer(
         required=False, allow_null=True, help_text="New format for feature flag configuration"
     )
+
+    def validate_feature_flag_key(self, value):
+        """Validate feature flag key."""
+        if not value:
+            raise serializers.ValidationError("Feature flag key is required")
+
+        # Check if feature flag already exists for this team
+        get_team = self.context.get("get_team")
+        if get_team is None:
+            # If no team context, skip this validation (will fail elsewhere)
+            return value
+
+        team = get_team()
+        if FeatureFlag.objects.filter(key=value, team=team).exists():
+            raise serializers.ValidationError(
+                f"Feature flag with key '{value}' already exists for this team. "
+                "Please use a different key or update the existing flag."
+            )
+
+        return value
+
+    def validate_parameters(self, value):
+        """Validate old format parameters."""
+        if not value:
+            return value
+
+        variants = value.get("feature_flag_variants", [])
+
+        if len(variants) >= 21:
+            raise serializers.ValidationError("Feature flag variants must be less than 21")
+
+        if len(variants) > 0:
+            if len(variants) < 2:
+                raise serializers.ValidationError(
+                    "Feature flag must have at least 2 variants (control and at least one test variant)"
+                )
+
+            variant_keys = [variant["key"] for variant in variants]
+            if "control" not in variant_keys:
+                raise serializers.ValidationError("Feature flag variants must contain a control variant")
+
+            # Check for duplicate variant keys
+            if len(variant_keys) != len(set(variant_keys)):
+                raise serializers.ValidationError("Feature flag variant keys must be unique")
+
+        return value
 
     def validate(self, attrs):
         """Cross-field validation."""
