@@ -22,7 +22,7 @@ fi
 # Step 2: Extract key env vars from flox and write them to CLAUDE_ENV_FILE.
 # We capture PATH and all FLOX_* vars, plus project-specific vars from [vars].
 echo "$FLOX_ENV_SNAPSHOT" | grep -E "^(PATH|FLOX_|UV_PROJECT_ENVIRONMENT|OPENSSL_|LDFLAGS|CPPFLAGS|RUST_|LIBRARY_PATH|MANPATH|DOTENV_FILE|DEBUG|POSTHOG_SKIP_MIGRATION_CHECKS|FLAGS_REDIS_URL|RUSTC_WRAPPER|SCCACHE_)=" | while IFS='=' read -r key value; do
-  echo "export ${key}=\"${value}\""
+  printf 'export %s=%q\n' "$key" "$value"
 done >> "$CLAUDE_ENV_FILE"
 
 # Step 3: The flox [profile] scripts also activate the uv venv, which adds
