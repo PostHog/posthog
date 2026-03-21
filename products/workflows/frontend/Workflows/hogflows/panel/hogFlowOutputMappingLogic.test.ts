@@ -84,6 +84,7 @@ describe('hogFlowOutputMappingLogic', () => {
                         id: WORKFLOW_ID,
                         name: 'Test workflow',
                         actions: [],
+                        edges: [],
                         variables: [],
                         team_id: 1,
                     },
