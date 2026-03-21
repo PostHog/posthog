@@ -880,6 +880,103 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     __repr__ = sane_repr("id", "name", "last_calculation")
 
 
+INTERNAL_TEST_USERS_COHORT_NAME = "Internal / Test users"
+
+# Common email providers where the domain shouldn't be used for filtering
+GENERIC_EMAIL_DOMAINS = [
+    "gmail.com",
+    "googlemail.com",
+    "yahoo.com",
+    "yahoo.co.uk",
+    "hotmail.com",
+    "hotmail.co.uk",
+    "outlook.com",
+    "live.com",
+    "msn.com",
+    "aol.com",
+    "icloud.com",
+    "me.com",
+    "mac.com",
+    "protonmail.com",
+    "proton.me",
+    "mail.com",
+    "zoho.com",
+    "yandex.com",
+    "gmx.com",
+    "gmx.de",
+    "fastmail.com",
+    "tutanota.com",
+    "qq.com",
+    "163.com",
+    "126.com",
+]
+
+
+def get_or_create_internal_test_users_cohort(
+    team: "Team",
+    initiating_user_email: str | None = None,
+) -> "Cohort":
+    """
+    Get or create an 'Internal / Test users' cohort for the team.
+
+    Contains users with $internal_or_test_user set to true, and optionally
+    users whose email matches the creating user's domain (if not a generic provider).
+    """
+    existing = Cohort.objects.filter(team=team, name=INTERNAL_TEST_USERS_COHORT_NAME).first()
+    if existing is not None:
+        return existing
+
+    # Always include the $internal_or_test_user property filter
+    filter_groups: list[dict] = [
+        {
+            "type": "AND",
+            "values": [
+                {
+                    "key": "$internal_or_test_user",
+                    "type": "person",
+                    "value": [True],
+                    "operator": "exact",
+                }
+            ],
+        }
+    ]
+
+    # Add email domain filter if the creating user has a non-generic domain
+    if initiating_user_email:
+        import re
+
+        match = re.search(r"@([\w.]+)", initiating_user_email)
+        if match:
+            domain = match.group(1).lower()
+            if domain not in GENERIC_EMAIL_DOMAINS:
+                filter_groups.append(
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": f"@{domain}",
+                                "operator": "icontains",
+                            }
+                        ],
+                    }
+                )
+
+    return Cohort.objects.create(
+        team=team,
+        name=INTERNAL_TEST_USERS_COHORT_NAME,
+        description="People who are internal team members or test users. Used for filtering out internal traffic from analytics.",
+        is_static=False,
+        filters={
+            "properties": {
+                "type": "OR",
+                "values": filter_groups,
+            }
+        },
+    )
+
+
 class CohortPeople(models.Model):
     id = models.BigAutoField(primary_key=True)
     cohort = models.ForeignKey("Cohort", on_delete=models.DO_NOTHING, db_constraint=False)

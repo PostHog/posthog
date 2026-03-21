@@ -119,18 +119,32 @@ class TeamManager(models.Manager):
     def create_with_data(self, *, initiating_user: Optional["User"], **kwargs) -> "Team":
         team = cast("Team", self.create(**kwargs))
 
+        # Create internal/test users cohort and set test_account_filters to exclude it
+        from posthog.models.cohort.cohort import get_or_create_internal_test_users_cohort
+
+        initiating_user_email = initiating_user.email if initiating_user else None
+        test_users_cohort = get_or_create_internal_test_users_cohort(team, initiating_user_email=initiating_user_email)
+        team.test_account_filters = [
+            {"key": "id", "type": "cohort", "value": test_users_cohort.pk, "operator": "not_in"}
+        ]
+
         if kwargs.get("is_demo"):
             if initiating_user is None:
                 raise ValueError("initiating_user must be provided when creating a demo team")
-            team.kick_off_demo_data_generation(initiating_user)
+            team.save()
+            # Defer Celery task if we're inside an atomic block (e.g., ensure_account_and_save)
+            # to avoid sending task before transaction commits. In tests, Celery tasks run
+            # synchronously so we can call directly (and on_commit doesn't run in TestCase).
+            if connection.in_atomic_block and not settings.TEST:
+                transaction.on_commit(lambda: team.kick_off_demo_data_generation(initiating_user))
+            else:
+                team.kick_off_demo_data_generation(initiating_user)
             return team  # Return quickly, as the demo data and setup will be created asynchronously
 
         # Get organization to apply defaults
         organization = kwargs.get("organization") or Organization.objects.get(id=kwargs.get("organization_id"))
 
         team.anonymize_ips = kwargs.get("anonymize_ips", organization.default_anonymize_ips)
-
-        team.test_account_filters = self.set_test_account_filters(organization.id)
 
         # Self-hosted deployments get 5-year session recording retention by default
         if not is_cloud():
