@@ -436,7 +436,7 @@ export const PromotedGroupsAreReordered: StoryFn<typeof TaxonomicFilter> = (args
 
     // Type a search query so all groups (including those with minSearchQueryLength) load
     // and their Spinners resolve, making the snapshot stable.
-    useOnMountEffect(() => setSearchQuery('hello'))
+    useOnMountEffect(() => setSearchQuery('check the order of the groups as presented'))
 
     return (
         <div className="w-fit border rounded p-2 bg-surface-primary">
