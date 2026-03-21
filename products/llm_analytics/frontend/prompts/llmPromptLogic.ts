@@ -205,7 +205,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             },
         ],
         isRenderingMarkdown: [
-            false,
+            true,
             {
                 toggleMarkdownRendering: (state) => !state,
             },
