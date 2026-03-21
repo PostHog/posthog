@@ -431,6 +431,7 @@ SuggestedFiltersFourRecents.parameters = SUGGESTED_FILTERS_PARAMETERS
  * where they appear in the original taxonomicGroupTypes array.
  */
 export const PromotedGroupsAreReordered: StoryFn<typeof TaxonomicFilter> = (args) => {
+    useMountedLogic(actionsModel)
     const logicKey = args.taxonomicFilterLogicKey as string
     const { setSearchQuery } = useActions(taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: logicKey }))
 
