@@ -7,11 +7,11 @@ using framework-free DTOs, wrapping the existing ExperimentService.
 
 from django.db import transaction
 
-from posthog.models.experiment import Experiment as ExperimentModel
 from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.models.experiment import Experiment as ExperimentModel
 
 from .contracts import CreateExperimentInput, Experiment
 

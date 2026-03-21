@@ -9,7 +9,6 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from posthog.models.experiment import Experiment as ExperimentModel
 from posthog.models.feature_flag.feature_flag import FeatureFlag as FeatureFlagModel
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -21,6 +20,7 @@ from products.experiments.backend.facade.contracts import (
     Experiment,
     FeatureFlagVariant,
 )
+from products.experiments.backend.models.experiment import Experiment as ExperimentModel
 
 
 class TestCreateExperiment(BaseTest):
