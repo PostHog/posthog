@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { workflowLogic } from '../../workflowLogic'
@@ -75,6 +76,19 @@ describe('hogFlowOutputMappingLogic', () => {
         let editorLogic: ReturnType<typeof hogFlowEditorLogic.build>
         let wfLogic: ReturnType<typeof workflowLogic.build>
         const WORKFLOW_ID = 'test-workflow'
+
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': {
+                    id: WORKFLOW_ID,
+                    name: 'Test workflow',
+                    actions: [],
+                    variables: [],
+                    team_id: 1,
+                },
+                '/api/environments/:team_id/messaging_categories/': { results: [], count: 0 },
+            },
+        })
 
         beforeEach(() => {
             initKeaTests()
