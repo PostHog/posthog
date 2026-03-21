@@ -27,7 +27,7 @@ class TestExperimentViewSet(BaseTest):
         """Helper to create a view with proper routing context."""
         view = ExperimentViewSet.as_view({"post": "create"})
         # Manually set parents_query_dict as the router would
-        view.cls.parents_query_dict = {"team_id": team_id}
+        view.cls.parents_query_dict = {"team_id": team_id}  # type: ignore[attr-defined]
         return view(request)
 
     def test_create_experiment_with_new_format_feature_flag_filters(self):

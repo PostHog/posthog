@@ -55,9 +55,13 @@ class ExperimentViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, views
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         # Convert to facade DTO
+        # Type assertion: get_serializer returns ExperimentCreateSerializer when action == "create"
+        assert isinstance(serializer, ExperimentCreateSerializer)
         input_dto = serializer.to_facade_dto()
 
         # Call facade API
+        # Type assertion: request.user is authenticated (enforced by DRF authentication)
+        assert not request.user.is_anonymous
         try:
             experiment_dto = create_experiment(team=self.team, user=request.user, input_dto=input_dto)
         except Exception:
