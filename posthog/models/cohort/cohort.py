@@ -1,3 +1,4 @@
+import re
 import time
 from datetime import datetime
 from enum import StrEnum
@@ -882,35 +883,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
 INTERNAL_TEST_USERS_COHORT_NAME = "Internal / Test users"
 
-# Common email providers where the domain shouldn't be used for filtering
-GENERIC_EMAIL_DOMAINS = [
-    "gmail.com",
-    "googlemail.com",
-    "yahoo.com",
-    "yahoo.co.uk",
-    "hotmail.com",
-    "hotmail.co.uk",
-    "outlook.com",
-    "live.com",
-    "msn.com",
-    "aol.com",
-    "icloud.com",
-    "me.com",
-    "mac.com",
-    "protonmail.com",
-    "proton.me",
-    "mail.com",
-    "zoho.com",
-    "yandex.com",
-    "gmx.com",
-    "gmx.de",
-    "fastmail.com",
-    "tutanota.com",
-    "qq.com",
-    "163.com",
-    "126.com",
-]
-
 
 def get_or_create_internal_test_users_cohort(
     team: "Team",
@@ -922,6 +894,8 @@ def get_or_create_internal_test_users_cohort(
     Contains users with $internal_or_test_user set to true, and optionally
     users whose email matches the creating user's domain (if not a generic provider).
     """
+    from posthog.utils import GenericEmails
+
     existing = Cohort.objects.filter(team=team, name=INTERNAL_TEST_USERS_COHORT_NAME).first()
     if existing is not None:
         return existing
@@ -943,12 +917,11 @@ def get_or_create_internal_test_users_cohort(
 
     # Add email domain filter if the creating user has a non-generic domain
     if initiating_user_email:
-        import re
-
-        match = re.search(r"@([\w.]+)", initiating_user_email)
-        if match:
-            domain = match.group(1).lower()
-            if domain not in GENERIC_EMAIL_DOMAINS:
+        generic_emails = GenericEmails()
+        if not generic_emails.is_generic(initiating_user_email):
+            match = re.search(r"@([\w.]+)", initiating_user_email)
+            if match:
+                domain = match.group(1).lower()
                 filter_groups.append(
                     {
                         "type": "AND",
