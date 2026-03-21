@@ -16,6 +16,7 @@ import { type AnyPropertyFilter, AvailableFeature, PropertyFilterType, PropertyO
 import { infiniteListLogic } from './infiniteListLogic'
 import { recentTaxonomicFiltersLogic } from './recentTaxonomicFiltersLogic'
 import { TaxonomicFilter } from './TaxonomicFilter'
+import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 
 const meta: Meta<typeof TaxonomicFilter> = {
     title: 'Filters/Taxonomic Filter',
@@ -430,6 +431,13 @@ SuggestedFiltersFourRecents.parameters = SUGGESTED_FILTERS_PARAMETERS
  * where they appear in the original taxonomicGroupTypes array.
  */
 export const PromotedGroupsAreReordered: StoryFn<typeof TaxonomicFilter> = (args) => {
+    const logicKey = args.taxonomicFilterLogicKey as string
+    const { setSearchQuery } = useActions(taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: logicKey }))
+
+    // Type a search query so all groups (including those with minSearchQueryLength) load
+    // and their Spinners resolve, making the snapshot stable.
+    useOnMountEffect(() => setSearchQuery('hello'))
+
     return (
         <div className="w-fit border rounded p-2 bg-surface-primary">
             <SeedRecents count={3} />
