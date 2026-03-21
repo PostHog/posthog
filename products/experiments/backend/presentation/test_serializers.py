@@ -12,13 +12,13 @@ from products.experiments.backend.presentation.serializers import ExperimentCrea
 
 
 class TestExperimentCreateSerializer(BaseTest):
-    def test_validate_new_format_with_feature_flag_data(self):
-        """Test validation of new feature_flag_data format."""
+    def test_validate_new_format_with_feature_flag_filters(self):
+        """Test validation of new feature_flag_filters format."""
         data = {
             "name": "Test Experiment",
             "feature_flag_key": "test-flag",
             "description": "Test description",
-            "feature_flag_data": {
+            "feature_flag_filters": {
                 "key": "test-flag",
                 "name": "Test Flag",
                 "variants": [
@@ -36,9 +36,9 @@ class TestExperimentCreateSerializer(BaseTest):
         assert isinstance(dto, CreateExperimentInput)
         assert dto.name == "Test Experiment"
         assert dto.feature_flag_key == "test-flag"
-        assert dto.feature_flag_data is not None
-        assert isinstance(dto.feature_flag_data, CreateFeatureFlagInput)
-        assert len(dto.feature_flag_data.variants) == 2
+        assert dto.feature_flag_filters is not None
+        assert isinstance(dto.feature_flag_filters, CreateFeatureFlagInput)
+        assert len(dto.feature_flag_filters.variants) == 2
 
     def test_validate_old_format_with_parameters(self):
         """Test validation of old parameters format."""
@@ -60,7 +60,7 @@ class TestExperimentCreateSerializer(BaseTest):
         assert isinstance(dto, CreateExperimentInput)
         assert dto.parameters is not None
         assert "feature_flag_variants" in dto.parameters
-        assert dto.feature_flag_data is None
+        assert dto.feature_flag_filters is None
 
     def test_validate_rejects_both_formats(self):
         """Test that providing both formats raises validation error."""
@@ -73,7 +73,7 @@ class TestExperimentCreateSerializer(BaseTest):
                     {"key": "test", "rollout_percentage": 50},
                 ]
             },
-            "feature_flag_data": {
+            "feature_flag_filters": {
                 "key": "both-flag",
                 "variants": [
                     {"key": "control", "rollout_percentage": 50},
@@ -101,14 +101,14 @@ class TestExperimentCreateSerializer(BaseTest):
         assert dto.name == "Minimal Experiment"
         assert dto.description == ""
         assert dto.parameters is None
-        assert dto.feature_flag_data is None
+        assert dto.feature_flag_filters is None
 
-    def test_validate_feature_flag_data_nested_structure(self):
-        """Test nested validation of feature_flag_data."""
+    def test_validate_feature_flag_filters_nested_structure(self):
+        """Test nested validation of feature_flag_filters."""
         data = {
             "name": "Nested Test",
             "feature_flag_key": "nested-flag",
-            "feature_flag_data": {
+            "feature_flag_filters": {
                 "key": "nested-flag",
                 "name": "Nested Flag",
                 "variants": [
@@ -125,16 +125,17 @@ class TestExperimentCreateSerializer(BaseTest):
         assert serializer.is_valid(), serializer.errors
 
         dto = serializer.to_facade_dto()
-        assert dto.feature_flag_data.rollout_percentage == 100
-        assert dto.feature_flag_data.aggregation_group_type_index == 0
-        assert dto.feature_flag_data.ensure_experience_continuity is True
+        assert dto.feature_flag_filters is not None
+        assert dto.feature_flag_filters.rollout_percentage == 100
+        assert dto.feature_flag_filters.aggregation_group_type_index == 0
+        assert dto.feature_flag_filters.ensure_experience_continuity is True
 
-    def test_validate_feature_flag_data_requires_variants(self):
-        """Test that feature_flag_data requires variants."""
+    def test_validate_feature_flag_filters_requires_variants(self):
+        """Test that feature_flag_filters requires variants."""
         data = {
             "name": "No Variants",
             "feature_flag_key": "no-variants-flag",
-            "feature_flag_data": {
+            "feature_flag_filters": {
                 "key": "no-variants-flag",
                 "name": "No Variants Flag",
                 # Missing variants
@@ -143,14 +144,14 @@ class TestExperimentCreateSerializer(BaseTest):
 
         serializer = ExperimentCreateSerializer(data=data, context={"get_team": lambda: self.team})
         assert not serializer.is_valid()
-        assert "feature_flag_data" in serializer.errors
+        assert "feature_flag_filters" in serializer.errors
 
     def test_validate_variant_rollout_percentages(self):
         """Test validation of variant rollout percentages."""
         data = {
             "name": "Invalid Percentages",
             "feature_flag_key": "invalid-flag",
-            "feature_flag_data": {
+            "feature_flag_filters": {
                 "key": "invalid-flag",
                 "variants": [
                     {"key": "control", "rollout_percentage": -10},  # Invalid
@@ -167,7 +168,7 @@ class TestExperimentCreateSerializer(BaseTest):
             "name": "Complete Test",
             "feature_flag_key": "complete-flag",
             "description": "Complete description",
-            "feature_flag_data": {
+            "feature_flag_filters": {
                 "key": "complete-flag",
                 "name": "Complete Flag",
                 "variants": [
@@ -185,7 +186,8 @@ class TestExperimentCreateSerializer(BaseTest):
         dto = serializer.to_facade_dto()
         assert dto.name == "Complete Test"
         assert dto.description == "Complete description"
-        assert len(dto.feature_flag_data.variants) == 3
-        assert dto.feature_flag_data.variants[0].name == "Control"
-        assert dto.feature_flag_data.variants[1].key == "test_a"
-        assert dto.feature_flag_data.rollout_percentage == 80
+        assert dto.feature_flag_filters is not None
+        assert len(dto.feature_flag_filters.variants) == 3
+        assert dto.feature_flag_filters.variants[0].name == "Control"
+        assert dto.feature_flag_filters.variants[1].key == "test_a"
+        assert dto.feature_flag_filters.rollout_percentage == 80

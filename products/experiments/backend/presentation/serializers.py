@@ -91,7 +91,7 @@ class ExperimentCreateSerializer(serializers.Serializer):
     Serializer for experiment creation.
 
     Supports both old format (parameters.feature_flag_variants)
-    and new format (feature_flag_data).
+    and new format (feature_flag_filters).
     """
 
     name = serializers.CharField(required=True, help_text="Name of the experiment")
@@ -106,18 +106,18 @@ class ExperimentCreateSerializer(serializers.Serializer):
         allow_null=True,
         help_text="[Deprecated] Old format for experiment parameters including feature_flag_variants",
     )
-    feature_flag_data = CreateFeatureFlagInputSerializer(
+    feature_flag_filters = CreateFeatureFlagInputSerializer(
         required=False, allow_null=True, help_text="New format for feature flag configuration"
     )
 
     def validate(self, attrs):
         """Cross-field validation."""
         has_parameters = attrs.get("parameters") is not None and "feature_flag_variants" in attrs.get("parameters", {})
-        has_feature_flag_data = attrs.get("feature_flag_data") is not None
+        has_feature_flag_filters = attrs.get("feature_flag_filters") is not None
 
-        if has_parameters and has_feature_flag_data:
+        if has_parameters and has_feature_flag_filters:
             raise serializers.ValidationError(
-                "Cannot provide both 'parameters.feature_flag_variants' and 'feature_flag_data'. "
+                "Cannot provide both 'parameters.feature_flag_variants' and 'feature_flag_filters'. "
                 "Please use only one format."
             )
 
@@ -125,16 +125,16 @@ class ExperimentCreateSerializer(serializers.Serializer):
 
     def to_facade_dto(self) -> CreateExperimentInput:
         """Convert validated data to facade DTO."""
-        feature_flag_data_dto = None
-        if self.validated_data.get("feature_flag_data"):
-            flag_serializer = CreateFeatureFlagInputSerializer(data=self.initial_data.get("feature_flag_data"))
+        feature_flag_filters_dto = None
+        if self.validated_data.get("feature_flag_filters"):
+            flag_serializer = CreateFeatureFlagInputSerializer(data=self.initial_data.get("feature_flag_filters"))
             flag_serializer.is_valid(raise_exception=True)
-            feature_flag_data_dto = flag_serializer.to_dto()
+            feature_flag_filters_dto = flag_serializer.to_dto()
 
         return CreateExperimentInput(
             name=self.validated_data["name"],
             feature_flag_key=self.validated_data["feature_flag_key"],
             description=self.validated_data.get("description", ""),
             parameters=self.validated_data.get("parameters"),
-            feature_flag_data=feature_flag_data_dto,
+            feature_flag_filters=feature_flag_filters_dto,
         )
