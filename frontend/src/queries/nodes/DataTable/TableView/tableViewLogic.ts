@@ -73,11 +73,15 @@ export function getQueryFromView(
     }
 
     const rawFilters = (view.filters || []) as AnyPropertyFilter[]
-    const properties = rawFilters.filter(
-        (filter) =>
-            !('operator' in filter && filter.key === 'event' && filter.operator === PropertyOperator.Exact) &&
-            !('operator' in filter && filter.key === 'events' && filter.operator === PropertyOperator.In)
-    )
+    const properties = rawFilters.filter((filter) => {
+        if (!('operator' in filter)) {
+            return true
+        }
+        const isPromotedEvent = filter.key === 'event' && filter.operator === PropertyOperator.Exact
+        const isPromotedEvents = filter.key === 'events' && filter.operator === PropertyOperator.In
+        return !isPromotedEvent && !isPromotedEvents
+    })
+
     const event = rawFilters.findLast(
         (filter) => 'operator' in filter && filter.key === 'event' && filter.operator === PropertyOperator.Exact
     )?.value
