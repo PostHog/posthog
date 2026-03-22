@@ -55,7 +55,7 @@ class ProductDBRouter:
     def allow_migrate(self, db, app_label, model_name=None, **hints):
         for route in self.routes:
             if app_label == route.app_label:
-                return db == f"{route.database}_db_writer"
+                return db in (f"{route.database}_db_writer", f"{route.database}_db_direct")
 
         if db in self._product_db_aliases:
             return False

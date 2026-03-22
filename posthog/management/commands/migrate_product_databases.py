@@ -60,8 +60,13 @@ class Command(BaseCommand):
             return
 
         for writer_alias, app_labels in sorted(db_to_apps.items()):
+            # Use direct connection (bypasses PgBouncer) for migrations
+            db_name = writer_alias.removesuffix("_db_writer")
+            direct_alias = f"{db_name}_db_direct"
+            migrate_alias = direct_alias if direct_alias in settings.DATABASES else writer_alias
+
             if DEBUG:
-                _ensure_database_exists(writer_alias)
-            self.stdout.write(f"Running product migrations on database '{writer_alias}'")
+                _ensure_database_exists(migrate_alias)
+            self.stdout.write(f"Running product migrations on database '{migrate_alias}'")
             for app_label in sorted(app_labels):
-                call_command("migrate", app_label, database=writer_alias, interactive=False, verbosity=1)
+                call_command("migrate", app_label, database=migrate_alias, interactive=False, verbosity=1)
