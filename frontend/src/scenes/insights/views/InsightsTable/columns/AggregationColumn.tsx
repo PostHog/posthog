@@ -71,6 +71,25 @@ type AggregationColumnItemProps = {
     trendsFilter: TrendsFilter | null | undefined
 }
 
+export function getAggregatedValue(
+    item: IndexedTrendResult,
+    aggregation: CalcColumnState,
+    isNonTimeSeriesDisplay: boolean
+): number | undefined {
+    if (aggregation === 'total' || isNonTimeSeriesDisplay) {
+        let value = item.count ?? item.aggregated_value
+        if (item.aggregated_value > item.count || (item.aggregated_value < 0 && item.aggregated_value < item.count)) {
+            value = item.aggregated_value
+        }
+        return value
+    } else if (aggregation === 'average') {
+        return average(item.data)
+    } else if (aggregation === 'median') {
+        return median(item.data)
+    }
+    return undefined
+}
+
 export function AggregationColumnItem({
     item,
     isNonTimeSeriesDisplay,
@@ -80,29 +99,20 @@ export function AggregationColumnItem({
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     const { baseCurrency } = useValues(teamLogic)
 
-    let value: number | undefined = undefined
-    if (aggregation === 'total' || isNonTimeSeriesDisplay) {
-        value = item.count ?? item.aggregated_value
-        if (item.aggregated_value > item.count || (item.aggregated_value < 0 && item.aggregated_value < item.count)) {
-            value = item.aggregated_value
-        }
-    } else if (aggregation === 'average') {
-        value = average(item.data)
-    } else if (aggregation === 'median') {
-        value = median(item.data)
-    }
+    const value = getAggregatedValue(item, aggregation, isNonTimeSeriesDisplay)
 
-    return (
-        <span>
-            {value !== undefined
-                ? formatAggregationValue(
+    const formattedValue =
+        value !== undefined
+            ? String(
+                  formatAggregationValue(
                       item.action?.math_property,
                       value,
                       (value) =>
                           formatAggregationAxisValue(trendsFilter as Partial<TrendsFilterType>, value, baseCurrency),
                       formatPropertyValueForDisplay
                   )
-                : 'Unknown'}
-        </span>
-    )
+              )
+            : 'Unknown'
+
+    return <span>{formattedValue}</span>
 }
