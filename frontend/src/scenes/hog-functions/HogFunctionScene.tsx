@@ -436,13 +436,15 @@ export function HogFunctionScene(): JSX.Element {
                 <HogFunctionHeader />
                 {teamHasCohortFilters && (
                     <LemonBanner type="warning" className="mb-4">
-                        <strong>Warning:</strong> This function has "Filter out internal and test users" enabled, but
-                        your team's test account filters include cohorts. Cohorts cannot be used in real-time filters
-                        and may cause this function to fail. Please update your{' '}
+                        <strong>Warning:</strong> This destination has "Filter out internal and test users" enabled, but
+                        your team's test account filters include cohorts. Cohort-based filters are not supported in
+                        real-time CDP destinations and will be skipped, which means internal/test events may still be
+                        sent to this destination. To filter out internal users in destinations, add inline person
+                        property filters (e.g., "email does not contain your-domain.com") to your{' '}
                         <Link to={`/project/${currentProjectId}/settings/project#internal-user-filtering`}>
                             test account filters
-                        </Link>{' '}
-                        to use inline expressions instead of cohorts.
+                        </Link>
+                        .
                     </LemonBanner>
                 )}
                 {templateId ? (
