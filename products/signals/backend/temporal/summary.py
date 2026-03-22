@@ -10,8 +10,6 @@ import temporalio
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
-from posthog.schema import EmbeddingModelName
-
 from posthog.hogql import ast
 
 from posthog.models import Team
@@ -24,17 +22,16 @@ from products.signals.backend.temporal.actionability_judge import (
     actionability_judge_activity,
 )
 from products.signals.backend.temporal.clickhouse import execute_hogql_query_with_retry
-from products.signals.backend.temporal.safety_judge import SafetyJudgeInput, safety_judge_activity
+from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, report_safety_judge_activity
 from products.signals.backend.temporal.summarize_signals import (
     SummarizeSignalsInput,
     SummarizeSignalsOutput,
     summarize_signals_activity,
 )
 from products.signals.backend.temporal.types import SignalData, SignalReportSummaryWorkflowInputs
+from products.signals.backend.utils import EMBEDDING_MODEL
 
 logger = structlog.get_logger(__name__)
-
-EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536
 
 
 @temporalio.workflow.defn(name="signal-report-summary")
@@ -100,7 +97,7 @@ class SignalReportSummaryWorkflow:
 
             safety_result, actionability_result = await asyncio.gather(
                 workflow.execute_activity(
-                    safety_judge_activity,
+                    report_safety_judge_activity,
                     SafetyJudgeInput(
                         team_id=inputs.team_id,
                         report_id=inputs.report_id,

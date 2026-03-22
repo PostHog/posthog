@@ -71,7 +71,6 @@ from posthog.tasks.tasks import (
     update_survey_iteration,
     verify_persons_data_in_sync,
 )
-from posthog.tasks.team_access_cache_tasks import warm_all_team_access_caches_task
 from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refresh_expiring_team_metadata_cache_entries
 from posthog.utils import get_crontab, get_instance_region
 
@@ -174,14 +173,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="0"),
         schedule_warming_for_teams_task.s(),
         name="schedule warming for largest teams",
-    )
-
-    # Team access cache warming - every 10 minutes
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(minute="*/10"),
-        warm_all_team_access_caches_task.s(),
-        name="warm team access caches",
     )
 
     # Team metadata cache sync - hourly

@@ -1,0 +1,60 @@
+import '../styles/tailwind.css'
+
+import type { App } from '@modelcontextprotocol/ext-apps'
+import { useCallback } from 'react'
+import { createRoot } from 'react-dom/client'
+
+import { type WorkflowData, type WorkflowListData, WorkflowListView } from 'products/workflows/frontend/mcp-apps'
+
+import { AppWrapper } from '../components/AppWrapper'
+
+function WorkflowListApp(): JSX.Element {
+    return (
+        <AppWrapper<WorkflowListData> appName="PostHog Workflows">
+            {({ data, app }) => <WorkflowListContent data={data!} app={app} />}
+        </AppWrapper>
+    )
+}
+
+function WorkflowListContent({ data, app }: { data: WorkflowListData; app: App | null }): JSX.Element {
+    const fallbackToChat = useCallback(
+        (name: string) => {
+            app?.sendMessage({
+                role: 'user',
+                content: [{ type: 'text', text: `Show me the details for workflow "${name}"` }],
+            })
+        },
+        [app]
+    )
+
+    const handleClick = useCallback(
+        async (workflow: WorkflowData): Promise<WorkflowData | null> => {
+            if (!app) {
+                fallbackToChat(workflow.name)
+                return null
+            }
+            try {
+                const result = await app.callServerTool({
+                    name: 'workflows-get',
+                    arguments: { id: workflow.id },
+                })
+                if (result.isError || !result.structuredContent) {
+                    fallbackToChat(workflow.name)
+                    return null
+                }
+                return result.structuredContent as unknown as WorkflowData
+            } catch {
+                fallbackToChat(workflow.name)
+                return null
+            }
+        },
+        [app, fallbackToChat]
+    )
+
+    return <WorkflowListView data={data} onWorkflowClick={handleClick} />
+}
+
+const container = document.getElementById('root')
+if (container) {
+    createRoot(container).render(<WorkflowListApp />)
+}

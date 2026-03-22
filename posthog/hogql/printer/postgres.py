@@ -6,6 +6,7 @@ from posthog.hogql.ast import AST
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.models import StructDatabaseField
 from posthog.hogql.errors import ImpossibleASTError, QueryError
 from posthog.hogql.escape_sql import escape_postgres_identifier
 from posthog.hogql.printer.base import HogQLPrinter
@@ -40,6 +41,9 @@ class PostgresPrinter(HogQLPrinter):
         return self.visit(node.type)
 
     def visit_call(self, node: ast.Call):
+        if node.name.lower() in {"percentile_cont", "percentile_disc"}:
+            return super().visit_call(node)
+
         if node.name in {
             "toStartOfSecond",
             "toStartOfMinute",
@@ -84,9 +88,26 @@ class PostgresPrinter(HogQLPrinter):
         if func_name in POSTGRES_PASSTHROUGH_FUNCTIONS:
             return f"{func_name}({', '.join(args)})"
 
-        raise QueryError(
-            f"Function '{node.name}' is not supported in the Postgres dialect. It may only be available in ClickHouse."
-        )
+        raise QueryError(f"Function '{node.name}' is not supported in the Postgres dialect.")
+
+    def visit_array_slice(self, node: ast.ArraySlice):
+        start = self.visit(node.start_expr) if node.start_expr is not None else ""
+        end = self.visit(node.end_expr) if node.end_expr is not None else ""
+        return f"{self.visit(node.array)}[{start}:{end}]"
+
+    def visit_try_cast(self, node: ast.TryCast):
+        return f"TRY_CAST({self.visit(node.expr)} AS {node.type_name})"
+
+    def visit_lambda(self, node: ast.Lambda):
+        identifiers = [self._print_identifier(arg) for arg in node.args]
+        if len(identifiers) == 0:
+            raise ValueError("Lambdas require at least one argument")
+        return f"lambda {', '.join(identifiers)}: {self.visit(node.expr)}"
+
+    def _print_table_sql(self, table) -> str:
+        if isinstance(table, DirectPostgresTable):
+            return table.to_printed_postgres(self.context)
+        return table.to_printed_clickhouse(self.context)
 
     def _visit_to_start_of_call(self, node: ast.Call) -> str:
         if len(node.args) == 0:
@@ -257,6 +278,19 @@ class PostgresPrinter(HogQLPrinter):
                 f"{escape_postgres_identifier(table.postgres_table_name)}"
             )
         return table.to_printed_clickhouse(self.context)
+
+    def visit_property_type(self, type: ast.PropertyType):
+        if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
+            return super().visit_property_type(type)
+
+        database_field = type.field_type.resolve_database_field(self.context)
+        if isinstance(database_field, StructDatabaseField):
+            struct_expr = self.visit(type.field_type)
+            for link in type.chain:
+                struct_expr = f"({struct_expr}).{self._print_identifier(str(link))}"
+            return struct_expr
+
+        return super().visit_property_type(type)
 
     def _unsafe_json_extract_trim_quotes(self, unsafe_field, unsafe_args):
         if len(unsafe_args) == 0:

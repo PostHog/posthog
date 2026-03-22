@@ -252,19 +252,19 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         truncate && 'LemonButton--truncate',
                         className
                     )}
-                    onClick={
-                        !disabled
-                            ? (event) => {
-                                  if (stopPropagation) {
-                                      event.stopPropagation()
-                                  }
-                                  onClick?.(event)
-                              }
-                            : undefined
-                    }
+                    onClick={(event) => {
+                        if (stopPropagation) {
+                            event.stopPropagation()
+                        }
+                        if (disabled) {
+                            event.preventDefault()
+                            return
+                        }
+                        onClick?.(event)
+                    }}
                     // We are using the ARIA disabled instead of native HTML because of this:
                     // https://css-tricks.com/making-disabled-buttons-more-inclusive/
-                    aria-disabled={disabled}
+                    aria-disabled={!!disabled}
                     {...linkDependentProps}
                     {...buttonProps}
                 >

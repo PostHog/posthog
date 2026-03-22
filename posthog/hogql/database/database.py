@@ -48,6 +48,7 @@ from posthog.hogql.database.models import (
     StringArrayDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
+    StructDatabaseField,
     Table,
     TableNode,
     UnknownDatabaseField,
@@ -247,10 +248,11 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
         children = {
             **root_tables,
             "posthog": TableNode(
+                name="posthog",
                 children={
                     **clone_root_tables()
                     # Add new tables here
-                }
+                },
             ),
             "system": SystemTables(),
             **children,
@@ -1691,6 +1693,16 @@ def serialize_fields(
                         hogql_value=hogql_value,
                         type=DatabaseSerializedFieldType.JSON,
                         schema_valid=schema_valid,
+                    )
+                )
+            elif isinstance(field, StructDatabaseField):
+                field_output.append(
+                    DatabaseSchemaField(
+                        name=field_key,
+                        hogql_value=hogql_value,
+                        type=DatabaseSerializedFieldType.JSON,
+                        schema_valid=schema_valid,
+                        fields=list(field.fields.keys()),
                     )
                 )
             elif isinstance(field, StringArrayDatabaseField):

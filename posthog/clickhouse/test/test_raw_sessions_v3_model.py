@@ -11,7 +11,7 @@ from posthog.test.base import (
 from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.models.raw_sessions.sessions_v3 import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_V3,
-    GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS,
+    GET_NUM_RAW_SESSIONS_ACTIVE_PARTS,
     RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3,
     RAW_SESSION_TABLE_BACKFILL_SQL_V3,
 )
@@ -794,7 +794,7 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
     def test_get_number_of_umerged_parts(self):
         # Just test that the query succeeds without errors and returns an int.
         # We can't really guarantee anything about the number of parts on the test DB.
-        query = GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS(["202511"])
+        query = GET_NUM_RAW_SESSIONS_ACTIVE_PARTS(["202511"])
         result = sync_execute(query)
         self.assertEqual(len(result), 1)
         self.assertIsInstance(result[0][0], int)

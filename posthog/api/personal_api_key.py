@@ -91,7 +91,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             # Check feature flag for llm_gateway scope - block if newly adding this scope
             if scope_parts[0] == "llm_gateway":
                 existing_has_llm_gateway = self.instance is not None and any(
-                    s.startswith("llm_gateway:") for s in (self.instance.scopes or [])
+                    s.startswith("llm_gateway:") for s in self.instance.scopes
                 )
                 if not existing_has_llm_gateway:
                     organization_id = requesting_user.current_organization_id
@@ -143,13 +143,6 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Invalid organization UUID")
 
         return scoped_organizations
-
-    def to_representation(self, instance):
-        ret = super().to_representation(instance)
-        # TRICKY: Legacy Personal API keys have scopes=None and are shown as ["*"].
-        # An empty list [] is NOT legacy and must be preserved as-is.
-        ret["scopes"] = ["*"] if ret["scopes"] is None else ret["scopes"]
-        return ret
 
     def create(self, validated_data: dict, **kwargs) -> PersonalAPIKey:
         user = self.context["request"].user

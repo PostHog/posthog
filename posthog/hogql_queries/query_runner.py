@@ -1728,7 +1728,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # The default logic below applies to all insights and a lot of other queries
         # Notable exception: `HogQLQuery`, which has `properties` and `dateRange` within `HogQLFilters`
         if dashboard_filter.properties:
-            if self.query.properties:
+            if self.query.properties and _has_any_property_filters(self.query.properties):
                 # Check if query expects only a list (e.g. WebOverviewQuery) vs union with PropertyGroupFilter
                 properties_field = self.query.__class__.model_fields.get("properties")
                 expects_only_list = properties_field and get_origin(properties_field.annotation) is list
@@ -1772,6 +1772,32 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     )
                 )
         self.__post_init__()
+
+
+def _has_any_property_filters(
+    properties: object,
+) -> bool:
+    """Check if properties contain any actual filter values, not just empty group structure."""
+    if isinstance(properties, PropertyGroupFilter):
+        return any(_has_any_property_filters_in_group(v) for v in properties.values)
+    if isinstance(properties, list):
+        return len(properties) > 0
+    return bool(properties)
+
+
+def _has_any_property_filters_in_group(
+    group: PropertyGroupFilterValue,
+) -> bool:
+    if not group.values:
+        return False
+    for v in group.values:
+        if isinstance(v, PropertyGroupFilterValue):
+            if _has_any_property_filters_in_group(v):
+                return True
+        else:
+            # It's an actual property filter
+            return True
+    return False
 
 
 # Type constraint for analytics query responses

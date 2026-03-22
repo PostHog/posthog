@@ -4,7 +4,6 @@ from typing import Any, Optional, TypedDict
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
-from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from django_deprecate_fields import deprecate_field
@@ -19,7 +18,6 @@ from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
 
 from .organization import Organization, OrganizationMembership
-from .personal_api_key import PersonalAPIKey, hash_key_value
 from .team import Team
 from .utils import UUIDTClassicModel, generate_random_token, sane_repr
 
@@ -138,20 +136,6 @@ class UserManager(BaseUserManager):
             user.join(organization=organization, level=level)
             return user
 
-    def get_from_personal_api_key(self, key_value: str) -> Optional["User"]:
-        try:
-            personal_api_key: PersonalAPIKey = (
-                PersonalAPIKey.objects.select_related("user")
-                .filter(user__is_active=True)
-                .get(secure_value=hash_key_value(key_value))
-            )
-        except PersonalAPIKey.DoesNotExist:
-            return None
-        else:
-            personal_api_key.last_used_at = timezone.now()
-            personal_api_key.save()
-            return personal_api_key.user
-
 
 def events_column_config_default() -> dict[str, Any]:
     return {"active": "DEFAULT"}
@@ -230,32 +214,6 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
     username = None
 
     objects: UserManager = UserManager()
-
-    @classmethod
-    def from_db(cls, db, field_names, values):
-        """
-        Track the original is_active value when loading from the database.
-
-        This allows signal handlers to detect when is_active actually changes,
-        avoiding unnecessary cache warming on unrelated user saves. The
-        _original_is_active attribute is compared against the current is_active
-        value in the user_saved signal handler.
-        """
-        instance = super().from_db(db, field_names, values)
-        instance._original_is_active = instance.is_active
-        return instance
-
-    def refresh_from_db(self, using=None, fields=None, from_queryset=None):
-        """
-        Update _original_is_active when refreshing from the database.
-
-        This ensures the tracking stays accurate after explicit refresh calls.
-        The from_queryset parameter is accepted for django-stubs compatibility
-        but not passed to super() since Django 4.2 doesn't support it yet.
-        """
-        super().refresh_from_db(using=using, fields=fields)
-        if fields is None or "is_active" in fields:
-            self._original_is_active = self.is_active
 
     @property
     def is_superuser(self) -> bool:

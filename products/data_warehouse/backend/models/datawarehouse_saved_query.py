@@ -319,13 +319,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             # Support for 'old' style columns
             if isinstance(type, str):
                 hogql_type_str = clickhouse_type.partition("(")[0]
-                hogql_type = CLICKHOUSE_HOGQL_MAPPING[hogql_type_str]
+                fields[column] = CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column)
             elif isinstance(type, dict):
-                hogql_type = STR_TO_HOGQL_MAPPING[type["hogql"]]
+                fields[column] = STR_TO_HOGQL_MAPPING[type["hogql"]](name=column)
             else:
                 raise Exception(f"Unknown column type: {type}")  # Never reached
-
-            fields[column] = hogql_type(name=column)
 
         return SavedQuery(
             id=str(self.id),

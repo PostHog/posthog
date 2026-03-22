@@ -38,6 +38,7 @@ jobs:
         needs: changes
         if: needs.changes.outputs.proto == 'true'
         runs-on: depot-ubuntu-22.04-4
+        timeout-minutes: 5
 
         steps:
             - uses: actions/checkout@v6
@@ -58,6 +59,7 @@ jobs:
         needs: changes
         if: needs.changes.outputs.proto == 'true'
         runs-on: depot-ubuntu-22.04-4
+        timeout-minutes: 5
 
         steps:
             - uses: actions/checkout@v6
@@ -78,6 +80,7 @@ jobs:
         needs: changes
         if: needs.changes.outputs.proto == 'true'
         runs-on: depot-ubuntu-22.04-4
+        timeout-minutes: 10
 
         steps:
             - uses: actions/checkout@v6
@@ -108,6 +111,7 @@ jobs:
         needs: [changes, lint, breaking, python-codegen]
         name: Proto Checks Pass
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - name: Check all proto jobs
