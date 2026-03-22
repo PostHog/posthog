@@ -1,12 +1,13 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { BaseMathType, ChartDisplayType, InsightShortId, PropertyMathType } from '~/types'
 
-import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
+import { AggregationType, compareResultKey, insightsTableDataLogic } from './insightsTableDataLogic'
 
 const Insight123 = '123' as InsightShortId
 
@@ -116,6 +117,49 @@ describe('insightsTableDataLogic', () => {
             await expectLogic(logic).toMatchValues({
                 aggregation: AggregationType.Median,
             })
+        })
+    })
+
+    describe('compareResultKey', () => {
+        const makeResult = (overrides: Partial<IndexedTrendResult>): IndexedTrendResult =>
+            ({
+                action: { order: 0 },
+                label: '$pageview',
+                breakdown_value: '',
+                ...overrides,
+            }) as IndexedTrendResult
+
+        it.each([
+            [
+                'distinguishes by action order',
+                makeResult({ action: { order: 0 } as any }),
+                makeResult({ action: { order: 1 } as any }),
+                false,
+            ],
+            [
+                'distinguishes by breakdown value',
+                makeResult({ breakdown_value: 'Chrome' }),
+                makeResult({ breakdown_value: 'Firefox' }),
+                false,
+            ],
+            [
+                'distinguishes by label when order and breakdown match',
+                makeResult({ label: '$pageview' }),
+                makeResult({ label: '$autocapture' }),
+                false,
+            ],
+            [
+                'matches when all fields are the same',
+                makeResult({ action: { order: 0 } as any, label: '$pageview', breakdown_value: 'Chrome' }),
+                makeResult({ action: { order: 0 } as any, label: '$pageview', breakdown_value: 'Chrome' }),
+                true,
+            ],
+        ])('%s', (_name, a, b, shouldMatch) => {
+            if (shouldMatch) {
+                expect(compareResultKey(a)).toEqual(compareResultKey(b))
+            } else {
+                expect(compareResultKey(a)).not.toEqual(compareResultKey(b))
+            }
         })
     })
 })

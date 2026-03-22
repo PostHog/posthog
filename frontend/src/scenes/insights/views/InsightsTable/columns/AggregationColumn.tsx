@@ -18,7 +18,7 @@ import { TrendsFilterType } from '~/types'
 
 import { CalcColumnState } from '../InsightsTable'
 
-const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
+export const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
     total: 'Total Sum',
     average: 'Average',
     median: 'Median',

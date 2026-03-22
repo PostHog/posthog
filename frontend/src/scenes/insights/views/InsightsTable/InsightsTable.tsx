@@ -2,7 +2,7 @@ import './InsightsTable.scss'
 
 import { useActions, useValues } from 'kea'
 import { compare as compareFn } from 'natural-orderby'
-import { useCallback, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
@@ -21,7 +21,12 @@ import { isValidBreakdown } from '~/queries/utils'
 import { ChartDisplayType, TrendsFilterType } from '~/types'
 
 import { entityFilterLogic } from '../../filters/ActionFilter/entityFilterLogic'
-import { AggregationColumnItem, AggregationColumnTitle, getAggregatedValue } from './columns/AggregationColumn'
+import {
+    AggregationColumnItem,
+    AggregationColumnTitle,
+    CALC_COLUMN_LABELS,
+    getAggregatedValue,
+} from './columns/AggregationColumn'
 import { BreakdownColumnItem, BreakdownColumnTitle, MultipleBreakdownColumnTitle } from './columns/BreakdownColumn'
 import { ColorCustomizationColumnItem, ColorCustomizationColumnTitle } from './columns/ColorCustomizationColumn'
 import { SeriesCheckColumnItem, SeriesCheckColumnTitle } from './columns/SeriesCheckColumn'
@@ -92,48 +97,13 @@ export function InsightsTable({
         insightData,
     } = useValues(trendsDataLogic(insightProps))
     const { toggleResultHidden, toggleAllResultsHidden } = useActions(trendsDataLogic(insightProps))
-    const { aggregation, allowAggregation, pinnedColumns, isColumnPinned } = useValues(
-        insightsTableDataLogic(insightProps)
-    )
+    const { aggregation, allowAggregation, pinnedColumns, isColumnPinned, getPreviousResult, displayResults } =
+        useValues(insightsTableDataLogic(insightProps))
     const { setDetailedResultsAggregationType, toggleColumnPin } = useActions(insightsTableDataLogic(insightProps))
     const { weekStartDay, timezone, baseCurrency } = useValues(teamLogic)
     const [maxVisibleColumns, setMaxVisibleColumns] = useState(MAX_VALUE_COLUMNS)
 
-    // When in table view with comparison enabled, merge current/previous rows
-    // so each series shows one row with both values side by side
     const isCompareTable = isMainInsightView && !!compareFilter?.compare
-
-    const previousResultMap = useMemo(() => {
-        if (!isCompareTable) {
-            return new Map<string, IndexedTrendResult>()
-        }
-        const map = new Map<string, IndexedTrendResult>()
-        for (const result of indexedResults) {
-            if (result.compare_label === 'previous') {
-                const key = `${result.action?.order ?? 0}_${result.breakdown_value ?? ''}`
-                map.set(key, result)
-            }
-        }
-        return map
-    }, [isCompareTable, indexedResults])
-
-    const getPreviousResult = useCallback(
-        (item: IndexedTrendResult): IndexedTrendResult | undefined => {
-            if (!isCompareTable) {
-                return undefined
-            }
-            const key = `${item.action?.order ?? 0}_${item.breakdown_value ?? ''}`
-            return previousResultMap.get(key)
-        },
-        [isCompareTable, previousResultMap]
-    )
-
-    const displayResults = useMemo(() => {
-        if (isCompareTable) {
-            return indexedResults.filter((r) => r.compare_label === 'current')
-        }
-        return indexedResults
-    }, [isCompareTable, indexedResults])
 
     const handleSeriesEditClick = (item: IndexedTrendResult): void => {
         const entityFilter = entityFilterLogic.findMounted({
@@ -371,14 +341,16 @@ export function InsightsTable({
                 />
             ),
 
-            sorter: (a, b) => (a.count || a.aggregated_value) - (b.count || b.aggregated_value),
+            sorter: (a, b) =>
+                (getAggregatedValue(a, aggregation, isNonTimeSeriesDisplay) ?? 0) -
+                (getAggregatedValue(b, aggregation, isNonTimeSeriesDisplay) ?? 0),
             dataIndex: 'count',
             align: 'right',
         })
 
         if (isCompareTable) {
             columns.push({
-                title: <span>Previous</span>,
+                title: <span>Previous {CALC_COLUMN_LABELS[aggregation]}</span>,
                 render: (_: any, item: IndexedTrendResult) => {
                     const previousItem = getPreviousResult(item)
                     if (!previousItem) {
