@@ -133,7 +133,6 @@ export function SceneTabs(): JSX.Element {
                                 <IconPlus className="!ml-0 size-3" />
                             </Link>
                         </AppShortcut>
-
                     </div>
                 </SortableContext>
             </DndContext>
