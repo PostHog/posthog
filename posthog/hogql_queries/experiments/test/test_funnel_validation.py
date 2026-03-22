@@ -511,3 +511,61 @@ class TestFunnelDWValidator(BaseTest):
 
         # Should not raise
         FunnelDWValidator.validate_funnel_metric(metric)
+
+
+class TestFunnelDWValidationIntegration(BaseTest):
+    """Integration tests for FunnelDWValidator in query execution context."""
+
+    def test_query_runner_raises_not_implemented_for_dw_funnels(self):
+        """Query runner should raise NotImplementedError for DW funnels."""
+        from posthog.schema import ExperimentFunnelMetric, ExperimentQuery, StepOrderValue
+
+        from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
+
+        # Create experiment
+        feature_flag = self.team.featureflag_set.create(
+            name="Test Feature",
+            key="test-feature",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+
+        experiment = self.team.experiment_set.create(
+            name="Test Experiment",
+            feature_flag=feature_flag,
+        )
+
+        # Create metric with DW step
+        metric = ExperimentFunnelMetric(
+            series=[
+                EventsNode(event="pageview"),
+                ExperimentDataWarehouseNode(
+                    table_name="revenue",
+                    timestamp_field="purchase_date",
+                    data_warehouse_join_key="user_id",
+                    events_join_key="properties.$user_id",
+                ),
+            ],
+            funnel_order_type=StepOrderValue.ORDERED,
+        )
+
+        query = ExperimentQuery(
+            experiment_id=experiment.id,
+            metric=metric,
+        )
+
+        runner = ExperimentQueryRunner(query=query, team=self.team)
+
+        # Should raise NotImplementedError when trying to calculate
+        with self.assertRaises(NotImplementedError) as context:
+            runner.calculate()
+
+        assert "UNION ALL pattern" in str(context.exception)
+        assert "not yet fully implemented" in str(context.exception)

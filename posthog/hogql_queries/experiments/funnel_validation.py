@@ -6,6 +6,8 @@ ensuring required fields are present, join keys are consistent, and
 complexity limits are enforced before query execution.
 """
 
+from typing import Any
+
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import ExperimentDataWarehouseNode, ExperimentFunnelMetric
@@ -187,7 +189,7 @@ class FunnelDWValidator:
             ...     # Show error to user
             ...     return Response(e.detail, status=400)
         """
-        errors = {}
+        errors: dict[str, Any] = {}
 
         # 1. Validate required fields for each DW step
         field_errors: list[str] = []
