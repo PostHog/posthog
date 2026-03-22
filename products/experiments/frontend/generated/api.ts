@@ -9,9 +9,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
-    CopyExperimentToProjectApi,
     EndExperimentApi,
     ExperimentApi,
+    ExperimentCreateApi,
     ExperimentHoldoutApi,
     ExperimentHoldoutsListParams,
     ExperimentSavedMetricApi,
@@ -23,7 +23,6 @@ import type {
     PatchedExperimentApi,
     PatchedExperimentHoldoutApi,
     PatchedExperimentSavedMetricApi,
-    ShipVariantApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -42,6 +41,34 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+/**
+ * Create a new experiment using the facade API.
+
+Supports both:
+- Old format: parameters.feature_flag_variants
+- New format: feature_flag_filters
+
+Returns:
+    201 Created with experiment data
+    400 Bad Request if validation fails
+ */
+export const getExperimentsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/experiments/`
+}
+
+export const experimentsCreate = async (
+    projectId: string,
+    experimentCreateApi: ExperimentCreateApi,
+    options?: RequestInit
+): Promise<ExperimentCreateApi> => {
+    return apiMutator<ExperimentCreateApi>(getExperimentsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(experimentCreateApi),
+    })
+}
 
 export const getExperimentHoldoutsListUrl = (projectId: string, params?: ExperimentHoldoutsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -263,9 +290,6 @@ export const experimentSavedMetricsDestroy = async (
     })
 }
 
-/**
- * List experiments for the current project. Supports filtering by status and archival state.
- */
 export const getExperimentsListUrl = (projectId: string, params?: ExperimentsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -293,19 +317,16 @@ export const experimentsList = async (
     })
 }
 
-/**
- * Create a new experiment in draft status with optional metrics.
- */
-export const getExperimentsCreateUrl = (projectId: string) => {
+export const getExperimentsCreate2Url = (projectId: string) => {
     return `/api/projects/${projectId}/experiments/`
 }
 
-export const experimentsCreate = async (
+export const experimentsCreate2 = async (
     projectId: string,
     experimentApi: NonReadonly<ExperimentApi>,
     options?: RequestInit
 ): Promise<ExperimentApi> => {
-    return apiMutator<ExperimentApi>(getExperimentsCreateUrl(projectId), {
+    return apiMutator<ExperimentApi>(getExperimentsCreate2Url(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -313,9 +334,6 @@ export const experimentsCreate = async (
     })
 }
 
-/**
- * Retrieve a single experiment by ID, including its current status, metrics, feature flag, and results metadata.
- */
 export const getExperimentsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/`
 }
@@ -331,13 +349,6 @@ export const experimentsRetrieve = async (
     })
 }
 
-/**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
-
-This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
-on serializer methods and converts them into proper HTTP 409 Conflict responses with
-change request details.
- */
 export const getExperimentsUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/`
 }
@@ -356,9 +367,6 @@ export const experimentsUpdate = async (
     })
 }
 
-/**
- * Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time.
- */
 export const getExperimentsPartialUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/`
 }
@@ -413,38 +421,6 @@ export const experimentsArchiveCreate = async (
     })
 }
 
-/**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
-
-This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
-on serializer methods and converts them into proper HTTP 409 Conflict responses with
-change request details.
- */
-export const getExperimentsCopyToProjectCreateUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/experiments/${id}/copy_to_project/`
-}
-
-export const experimentsCopyToProjectCreate = async (
-    projectId: string,
-    id: number,
-    copyExperimentToProjectApi: CopyExperimentToProjectApi,
-    options?: RequestInit
-): Promise<ExperimentApi> => {
-    return apiMutator<ExperimentApi>(getExperimentsCopyToProjectCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(copyExperimentToProjectApi),
-    })
-}
-
-/**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
-
-This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
-on serializer methods and converts them into proper HTTP 409 Conflict responses with
-change request details.
- */
 export const getExperimentsCreateExposureCohortForExperimentCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/create_exposure_cohort_for_experiment/`
 }
@@ -463,13 +439,6 @@ export const experimentsCreateExposureCohortForExperimentCreate = async (
     })
 }
 
-/**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
-
-This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
-on serializer methods and converts them into proper HTTP 409 Conflict responses with
-change request details.
- */
 export const getExperimentsDuplicateCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/duplicate/`
 }
@@ -577,13 +546,6 @@ export const experimentsPauseCreate = async (
     })
 }
 
-/**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
-
-This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
-on serializer methods and converts them into proper HTTP 409 Conflict responses with
-change request details.
- */
 export const getExperimentsRecalculateTimeseriesCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/recalculate_timeseries/`
 }
@@ -651,50 +613,6 @@ export const experimentsResumeCreate = async (
     })
 }
 
-/**
- * Ship a variant to 100% of users and (optionally) end the experiment.
-
-Rewrites the feature flag so that the selected variant is served to everyone.
-Existing release conditions (flag groups) are preserved so the change can be
-rolled back by deleting the auto-added release condition in the feature flag UI.
-
-Can be called on both running and stopped experiments. If the experiment is
-still running, it will also be ended (end_date set and status marked as stopped).
-If the experiment has already ended, only the flag is rewritten - this supports
-the "end first, ship later" workflow.
-
-If an approval policy requires review before changes on the flag take effect,
-the API returns 409 with a change_request_id. The experiment is NOT ended until
-the change request is approved and the user retries.
-
-Returns 400 if the experiment is in draft state, the variant_key is not found
-on the flag, or the experiment has no linked feature flag.
- */
-export const getExperimentsShipVariantCreateUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/experiments/${id}/ship_variant/`
-}
-
-export const experimentsShipVariantCreate = async (
-    projectId: string,
-    id: number,
-    shipVariantApi: ShipVariantApi,
-    options?: RequestInit
-): Promise<ExperimentApi> => {
-    return apiMutator<ExperimentApi>(getExperimentsShipVariantCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(shipVariantApi),
-    })
-}
-
-/**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
-
-This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
-on serializer methods and converts them into proper HTTP 409 Conflict responses with
-change request details.
- */
 export const getExperimentsTimeseriesResultsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/timeseries_results/`
 }
@@ -741,13 +659,6 @@ export const experimentsEligibleFeatureFlagsRetrieve = async (
     })
 }
 
-/**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
-
-This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
-on serializer methods and converts them into proper HTTP 409 Conflict responses with
-change request details.
- */
 export const getExperimentsRequiresFlagImplementationRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/experiments/requires_flag_implementation/`
 }
@@ -762,13 +673,6 @@ export const experimentsRequiresFlagImplementationRetrieve = async (
     })
 }
 
-/**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
-
-This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
-on serializer methods and converts them into proper HTTP 409 Conflict responses with
-change request details.
- */
 export const getExperimentsStatsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/experiments/stats/`
 }

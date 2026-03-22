@@ -8,6 +8,76 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * Serializer for feature flag variant.
+ */
+export interface FeatureFlagVariantApi {
+    /** Unique key for the variant */
+    key: string
+    /**
+     * Display name for the variant
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * Percentage of users to assign to this variant
+     * @minimum 0
+     * @maximum 100
+     */
+    rollout_percentage: number
+}
+
+/**
+ * Serializer for new feature flag creation data.
+ */
+export interface CreateFeatureFlagInputApi {
+    /** Unique key for the feature flag */
+    key: string
+    /**
+     * Display name for the feature flag
+     * @nullable
+     */
+    name?: string | null
+    /** List of variants for the multivariate flag */
+    variants: FeatureFlagVariantApi[]
+    /**
+     * Percentage of users to include in the experiment
+     * @minimum 0
+     * @maximum 100
+     * @nullable
+     */
+    rollout_percentage?: number | null
+    /**
+     * Group type index for group-based experiments
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    /**
+     * Whether to ensure users see consistent variants
+     * @nullable
+     */
+    ensure_experience_continuity?: boolean | null
+}
+
+/**
+ * Serializer for experiment creation.
+
+Supports both old format (parameters.feature_flag_variants)
+and new format (feature_flag_filters).
+ */
+export interface ExperimentCreateApi {
+    /** Name of the experiment */
+    name: string
+    /** Key of the feature flag (existing or to be created) */
+    feature_flag_key: string
+    /** Description of the experiment */
+    description?: string
+    /** [Deprecated] Old format for experiment parameters including feature_flag_variants */
+    parameters?: unknown | null
+    /** New format for feature flag configuration */
+    feature_flag_filters?: CreateFeatureFlagInputApi | null
+}
+
+/**
  * * `engineering` - Engineering
  * `data` - Data
  * `product` - Product Management
