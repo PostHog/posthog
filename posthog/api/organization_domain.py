@@ -17,8 +17,10 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.event_usage import groups
 from posthog.models import OrganizationDomain, User
+from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
+from posthog.utils import is_impersonated_session
 
 from ee.api.scim.utils import (
     disable_scim_for_domain,
@@ -48,6 +50,21 @@ def _capture_domain_event(request, domain: OrganizationDomain, event_type: str, 
         distinct_id=str(request.user.distinct_id),
         properties=properties,
         groups=groups(domain.organization),
+    )
+
+
+def log_scim_admin_activity(
+    domain: OrganizationDomain, activity: str, request: Request | request.Request | None
+) -> None:
+    log_activity(
+        organization_id=domain.organization_id,
+        team_id=None,
+        user=request.user if request else None,
+        was_impersonated=is_impersonated_session(request) if request else False,
+        item_id=str(domain.id),
+        scope="OrganizationDomain",
+        activity=activity,
+        detail=Detail(name=domain.domain),
     )
 
 
@@ -155,9 +172,11 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
             if scim_enabled:
                 if not instance.scim_enabled:
                     scim_plain_token = enable_scim_for_domain(instance)
+                    log_scim_admin_activity(instance, "scim_enabled", self.context.get("request"))
             else:
                 if instance.scim_enabled:
                     disable_scim_for_domain(instance)
+                    log_scim_admin_activity(instance, "scim_disabled", self.context.get("request"))
 
         instance = super().update(instance, validated_data)
 
@@ -300,6 +319,8 @@ class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
             )
 
         plain_token = regenerate_scim_token(domain)
+
+        log_scim_admin_activity(domain, "scim_token_rotated", request)
 
         return response.Response(
             {
