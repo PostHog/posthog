@@ -5,7 +5,9 @@ use crate::cohorts::cohort_models::{Cohort, CohortId};
 use crate::cohorts::cohort_operations::{apply_cohort_membership_logic, evaluate_dynamic_cohorts};
 use crate::cohorts::membership::{CohortMembershipProvider, NoOpCohortMembershipProvider};
 use crate::database::PostgresRouter;
-use crate::flags::flag_group_type_mapping::{GroupTypeIndex, GroupTypeMappingCache};
+use crate::flags::flag_group_type_mapping::{
+    GroupTypeCacheManager, GroupTypeIndex, GroupTypeMapping,
+};
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching_utils::{
     all_flag_condition_properties_match, all_properties_match, calculate_hash,
@@ -31,10 +33,7 @@ use crate::metrics::consts::{
 };
 use crate::properties::property_models::PropertyFilter;
 use crate::rayon_dispatcher::RayonDispatcher;
-use crate::utils::graph_utils::{
-    build_dependency_graph, filter_graph_by_keys, log_dependency_graph_operation_error,
-    DependencyGraph, DependencyGraphResult, FilteredGraphResult,
-};
+use crate::utils::graph_utils::PrecomputedDependencyGraph;
 use anyhow::Result;
 use common_metrics::{histogram, inc, timing_guard};
 use common_types::collections::HashMapExt;
@@ -239,8 +238,10 @@ pub struct FeatureFlagMatcher {
     pub router: PostgresRouter,
     /// Cache manager for cohort definitions and memberships
     pub cohort_cache: Arc<CohortCacheManager>,
-    /// Cache for mapping between group types and their indices
-    group_type_mapping_cache: GroupTypeMappingCache,
+    /// Shared in-process cache for group type mappings
+    group_type_cache: Arc<GroupTypeCacheManager>,
+    /// Lazily populated mapping for the current team (fetched via group_type_cache)
+    group_type_mapping: Option<GroupTypeMapping>,
     /// State maintained during flag evaluation, including cached DB lookups
     pub(crate) flag_evaluation_state: FlagEvaluationState,
     /// Group key mappings for group-based flag evaluation
@@ -297,7 +298,7 @@ impl FeatureFlagMatcher {
         team_id: TeamId,
         router: PostgresRouter,
         cohort_cache: Arc<CohortCacheManager>,
-        group_type_mapping_cache: Option<GroupTypeMappingCache>,
+        group_type_cache: Arc<GroupTypeCacheManager>,
         groups: Option<HashMap<String, Value>>,
     ) -> Self {
         FeatureFlagMatcher {
@@ -306,8 +307,8 @@ impl FeatureFlagMatcher {
             team_id,
             router,
             cohort_cache,
-            group_type_mapping_cache: group_type_mapping_cache
-                .unwrap_or_else(|| GroupTypeMappingCache::new(team_id)),
+            group_type_cache,
+            group_type_mapping: None,
             groups: groups.unwrap_or_default(),
             flag_evaluation_state: FlagEvaluationState::default(),
             cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
@@ -374,39 +375,39 @@ impl FeatureFlagMatcher {
     ) -> Result<FlagsResponse, FlagError> {
         let eval_timer = common_metrics::timing_guard(FLAG_EVALUATION_TIME, &[]);
 
-        // Build dependency graph once - reused for both optimization check and evaluation
-        let DependencyGraphResult {
-            graph: global_dependency_graph,
-            errors: graph_errors,
-            flags_with_missing_deps: global_flags_with_missing_deps,
-        } = match build_dependency_graph(&feature_flags, self.team_id) {
+        // Build precomputed dependency graph with evaluation stages and transitive dependency map.
+        // On the precomputed path, flag_keys filtering happens during build (only needed flags
+        // are cloned). On the fallback path, we filter after build via filter_stages_by_keys.
+        let precomputed = match PrecomputedDependencyGraph::build(
+            &feature_flags,
+            self.team_id,
+            flag_keys.as_deref(),
+        ) {
             Some(result) => result,
             None => return Ok(FlagsResponse::new(true, HashMap::new(), None, request_id)),
         };
 
-        // Move the filter set onto the matcher now that the borrow from graph construction has ended.
-        // This is the single source of truth for "should this flag be skipped" during evaluation.
         self.filtered_out_flag_ids = feature_flags.filtered_out_flag_ids;
 
-        // Filter graph by flag_keys if specified (includes transitive dependencies)
-        let (dependency_graph, flags_with_missing_deps) = if let Some(ref keys) = flag_keys {
-            match filter_graph_by_keys(
-                &global_dependency_graph,
-                keys,
-                &global_flags_with_missing_deps,
-            ) {
-                Some(FilteredGraphResult {
-                    graph,
-                    flags_with_missing_deps,
-                }) => (graph, flags_with_missing_deps),
-                None => return Ok(FlagsResponse::new(true, HashMap::new(), None, request_id)),
-            }
-        } else {
-            (global_dependency_graph, global_flags_with_missing_deps)
-        };
+        // Extract global stats before potential consuming filter call
+        let error_count = precomputed.error_count;
+        let has_cycle_errors = precomputed.has_cycle_errors;
 
-        if !graph_errors.is_empty() {
-            with_canonical_log(|log| log.dependency_graph_errors = graph_errors.len());
+        // Only the fallback (graph) path needs post-build filtering — the precomputed
+        // path already filtered during build when flag_keys was provided.
+        let (evaluation_stages, flags_with_missing_deps) =
+            if precomputed.is_graph_fallback && flag_keys.is_some() {
+                let filtered = precomputed.filter_stages_by_keys(flag_keys.as_ref().unwrap());
+                (filtered.evaluation_stages, filtered.flags_with_missing_deps)
+            } else {
+                (
+                    precomputed.evaluation_stages,
+                    precomputed.flags_with_missing_deps,
+                )
+            };
+
+        if error_count > 0 {
+            with_canonical_log(|log| log.dependency_graph_errors = error_count);
         }
 
         // Compute experience continuity stats from the filtered graph.
@@ -415,7 +416,7 @@ impl FeatureFlagMatcher {
             let mut continuity_count = 0;
             let mut needs_override = false;
 
-            for flag in dependency_graph.iter_nodes() {
+            for flag in evaluation_stages.iter().flatten() {
                 if !self.filtered_out_flag_ids.contains(&flag.id)
                     && flag.has_experience_continuity()
                 {
@@ -486,17 +487,15 @@ impl FeatureFlagMatcher {
             request_hash_key_override,
         };
 
-        // Pass the pre-built graph to avoid redundant graph construction
         let flags_response = self
             .evaluate_flags_with_overrides(
                 overrides,
                 request_id,
-                dependency_graph,
+                evaluation_stages,
                 flags_with_missing_deps,
             )
             .await?;
 
-        let has_cycle_errors = graph_errors.iter().any(|e| e.is_cycle());
         let has_errors = flag_hash_key_override_error
             || flags_response.errors_while_computing_flags
             || has_cycle_errors;
@@ -669,20 +668,20 @@ impl FeatureFlagMatcher {
 
     /// Evaluates feature flags with property and hash key overrides.
     ///
-    /// Takes a pre-built dependency graph which should already be filtered by flag_keys if needed.
-    /// The graph determines which flags are evaluated and in what order.
+    /// Takes pre-computed evaluation stages which should already be filtered by flag_keys if needed.
+    /// The stages determine which flags are evaluated and in what order.
     pub async fn evaluate_flags_with_overrides(
         &mut self,
         overrides: FlagEvaluationOverrides,
         request_id: Uuid,
-        dependency_graph: DependencyGraph<FeatureFlag>,
+        evaluation_stages: Vec<Vec<FeatureFlag>>,
         flags_with_missing_deps: HashSet<i32>,
     ) -> Result<FlagsResponse, FlagError> {
         let mut errors_while_computing_flags = overrides.hash_key_override_error;
         let mut evaluated_flags_map = HashMap::new();
 
-        // Collect flags from the graph for preparation steps
-        let flags: Vec<&FeatureFlag> = dependency_graph.iter_nodes().collect();
+        // Collect flags from evaluation stages for preparation steps
+        let flags: Vec<&FeatureFlag> = evaluation_stages.iter().flatten().collect();
 
         // Handle hash key override errors by creating error responses for flags that need experience continuity
         if overrides.hash_key_override_error && overrides.hash_key_overrides.is_none() {
@@ -718,19 +717,22 @@ impl FeatureFlagMatcher {
                 .add_flag_evaluation_result(flag_id, FlagValue::Boolean(false));
         }
 
-        // Step 3: Evaluate flags using the dependency graph
-        let graph_evaluation_errors = self
-            .evaluate_flags_with_dependency_graph(
-                dependency_graph,
-                &overrides.person_property_overrides,
-                &overrides.group_property_overrides,
-                &overrides.hash_key_overrides,
-                &overrides.request_hash_key_override,
-                &mut evaluated_flags_map,
-                &flags_with_missing_deps,
-            )
-            .await?;
-        errors_while_computing_flags |= graph_evaluation_errors;
+        // Step 3: Evaluate flags stage by stage in dependency order
+        for stage in evaluation_stages {
+            let (level_evaluated_flags_map, level_errors) = self
+                .evaluate_flags_in_level(
+                    stage,
+                    &mut evaluated_flags_map,
+                    &overrides.person_property_overrides,
+                    &overrides.group_property_overrides,
+                    &overrides.hash_key_overrides,
+                    &overrides.request_hash_key_override,
+                    &flags_with_missing_deps,
+                )
+                .await?;
+            errors_while_computing_flags |= level_errors;
+            evaluated_flags_map.extend(level_evaluated_flags_map);
+        }
 
         Ok(FlagsResponse::new(
             errors_while_computing_flags,
@@ -738,49 +740,6 @@ impl FeatureFlagMatcher {
             None,
             request_id,
         ))
-    }
-
-    /// Evaluates flags using the provided dependency graph.
-    /// Returns true if there were errors during evaluation.
-    #[allow(clippy::too_many_arguments)]
-    async fn evaluate_flags_with_dependency_graph(
-        &mut self,
-        flag_dependency_graph: DependencyGraph<FeatureFlag>,
-        person_property_overrides: &Option<HashMap<String, Value>>,
-        group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
-        hash_key_overrides: &Option<HashMap<String, String>>,
-        request_hash_key_override: &Option<String>,
-        evaluated_flags_map: &mut HashMap<String, FlagDetails>,
-        flags_with_missing_deps: &HashSet<i32>,
-    ) -> Result<bool, FlagError> {
-        // Consume the graph to get owned flags in evaluation order
-        let evaluation_stages = match flag_dependency_graph.into_evaluation_stages() {
-            Ok(stages) => stages,
-            Err(e) => {
-                log_dependency_graph_operation_error("get evaluation stages", &e, self.team_id);
-                return Ok(true);
-            }
-        };
-
-        // Evaluate flags in dependency order
-        let mut errors_while_computing_flags = false;
-        for stage in evaluation_stages {
-            let (level_evaluated_flags_map, level_errors) = self
-                .evaluate_flags_in_level(
-                    stage,
-                    evaluated_flags_map,
-                    person_property_overrides,
-                    group_property_overrides,
-                    hash_key_overrides,
-                    request_hash_key_override,
-                    flags_with_missing_deps,
-                )
-                .await?;
-            errors_while_computing_flags |= level_errors;
-            evaluated_flags_map.extend(level_evaluated_flags_map);
-        }
-
-        Ok(errors_while_computing_flags)
     }
 
     /// Prepares evaluation state for flags that require database properties.
@@ -1045,15 +1004,11 @@ impl FeatureFlagMatcher {
         group_type_index: GroupTypeIndex,
         group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
     ) -> Result<Option<HashMap<String, Value>>, FlagError> {
-        // If we can't get the mapping, just return None
-        let index_to_type_map = match self
-            .group_type_mapping_cache
-            .get_group_type_index_to_type_map()
-        {
-            Ok(map) => map,
-            Err(FlagError::NoGroupTypeMappings) => return Ok(None),
-            Err(e) => return Err(e),
+        let mapping = match &self.group_type_mapping {
+            Some(m) => m,
+            None => return Ok(None),
         };
+        let index_to_type_map = mapping.group_indexes_to_types();
 
         if let Some(group_type) = index_to_type_map.get(&group_type_index) {
             if let Some(group_overrides) = group_property_overrides {
@@ -1315,7 +1270,7 @@ impl FeatureFlagMatcher {
         }
 
         // Match for holdout super condition
-        // TODO: Flags shouldn't have both super_groups and holdout_groups
+        // TODO: Flags shouldn't have both super_groups and holdout
         // TODO: Validate only multivariant flags to have holdout groups. I could make this implicit by reusing super_groups but
         // this will shoot ourselves in the foot when we extend early access to support variants as well.
         // TODO: Validate holdout variant should have 0% default rollout %?
@@ -1324,7 +1279,7 @@ impl FeatureFlagMatcher {
         // experiment level concept that applies across experiments, and we are creating a feature flag level primitive to handle it.
         // Validating things like the variant name is the same across all flags, rolled out to 0%, has the same correct conditions is a bit of
         // a pain here. But I'm not sure if feature flags should indeed know all this info. It's fine for them to just work with what they're given.
-        if flag.filters.holdout.is_some() || flag.filters.holdout_groups.is_some() {
+        if flag.filters.holdout.is_some() {
             let (is_match, holdout_value, evaluation_reason) =
                 self.is_holdout_condition_match(flag, request_hash_key_override)?;
             if is_match {
@@ -1594,8 +1549,6 @@ impl FeatureFlagMatcher {
         flag: &FeatureFlag,
         request_hash_key_override: &Option<String>,
     ) -> Result<(bool, Option<String>, FeatureFlagMatchReason), FlagError> {
-        // New format takes precedence: `holdout` has explicit id and exclusion_percentage.
-        // During the migration, Django writes both formats, so both may be present.
         if let Some(holdout) = &flag.filters.holdout {
             let percentage = holdout.exclusion_percentage.clamp(0.0, 100.0);
 
@@ -1613,44 +1566,6 @@ impl FeatureFlagMatcher {
                 Some(format!("holdout-{}", holdout.id)),
                 FeatureFlagMatchReason::HoldoutConditionValue,
             ));
-        }
-        // Legacy format fallback: original holdout_groups logic, unchanged.
-        else if let Some(holdout_groups) = &flag.filters.holdout_groups {
-            if !holdout_groups.is_empty() {
-                let condition = &holdout_groups[0];
-                // TODO: Check properties and match based on them
-
-                if condition.properties.as_ref().is_some_and(|p| !p.is_empty()) {
-                    return Ok((false, None, FeatureFlagMatchReason::NoConditionMatch));
-                }
-
-                let rollout_percentage = condition.rollout_percentage;
-
-                if let Some(percentage) = rollout_percentage {
-                    if percentage < 100.0
-                        && self.get_holdout_hash(flag, None, request_hash_key_override)?
-                            > (percentage / 100.0)
-                    {
-                        // If hash is greater than percentage, we're OUT of holdout
-                        return Ok((false, None, FeatureFlagMatchReason::OutOfRolloutBound));
-                    }
-                }
-
-                // rollout_percentage is None (=100%), or we are inside holdout rollout bound.
-                // Thus, we match. Now get the variant override for the holdout condition.
-                let variant = if let Some(variant_override) = condition.variant.as_ref() {
-                    variant_override.clone()
-                } else {
-                    self.get_matching_variant(flag, None, request_hash_key_override)?
-                        .unwrap_or_else(|| "holdout".to_string())
-                };
-
-                return Ok((
-                    true,
-                    Some(variant),
-                    FeatureFlagMatchReason::HoldoutConditionValue,
-                ));
-            }
         }
         Ok((false, None, FeatureFlagMatchReason::NoConditionMatch))
     }
@@ -1725,12 +1640,11 @@ impl FeatureFlagMatcher {
     ) -> Result<String, FlagError> {
         if let Some(group_type_index) = feature_flag.get_group_type_index() {
             // Group-based flag
-            let group_key = match self
-                .group_type_mapping_cache
-                .get_group_type_index_to_type_map()?
-                .get(&group_type_index)
-                .and_then(|group_type_name| self.groups.get(group_type_name))
-            {
+            let group_key = match self.group_type_mapping.as_ref().and_then(|m| {
+                m.group_indexes_to_types()
+                    .get(&group_type_index)
+                    .and_then(|group_type_name| self.groups.get(group_type_name))
+            }) {
                 Some(Value::String(s)) => s.clone(),
                 Some(Value::Number(n)) => n.to_string(),
                 Some(_) => {
@@ -1908,6 +1822,15 @@ impl FeatureFlagMatcher {
             .map(|c| c.id)
             .collect();
 
+        // Load group type mappings if needed. Errors are intentionally not propagated here:
+        // in the batch path (evaluate_flags_with_overrides), a group type mapping failure
+        // should not poison person-based flags in the same batch. prepare_group_data
+        // gracefully returns an empty map when self.group_type_mapping is None, so
+        // group-based flags will fail individually rather than taking down the whole batch.
+        if self.initialize_group_type_mappings_if_needed(flags).await {
+            tracing::warn!("Failed to init group type mappings");
+        }
+
         // Then prepare group mappings and properties
         // This should be _wicked_ fast since it's async and is just pulling from a cache that's already in memory
         let group_timer = common_metrics::timing_guard(FLAG_GROUP_CACHE_FETCH_TIME, &[]);
@@ -2023,11 +1946,11 @@ impl FeatureFlagMatcher {
             return Ok(HashMap::new());
         }
 
-        let types_to_indexes = match self.group_type_mapping_cache.get_group_types_to_indexes() {
-            Ok(map) => map,
-            Err(FlagError::NoGroupTypeMappings) => return Ok(HashMap::new()),
-            Err(e) => return Err(e),
+        let mapping = match &self.group_type_mapping {
+            Some(m) => m,
+            None => return Ok(HashMap::new()),
         };
+        let types_to_indexes = mapping.group_types_to_indexes();
 
         let group_type_to_key: HashMap<GroupTypeIndex, String> = self
             .groups
@@ -2215,13 +2138,19 @@ impl FeatureFlagMatcher {
         let group_type_mapping_timer = common_metrics::timing_guard(FLAG_GROUP_DB_FETCH_TIME, &[]);
         let mut errors_while_computing_flags = false;
 
-        if self
-            .group_type_mapping_cache
-            .init(self.router.get_persons_reader().clone())
-            .await
-            .is_err()
-        {
-            errors_while_computing_flags = true;
+        match self.group_type_cache.get_mappings(self.team_id).await {
+            Ok(mapping) if mapping.is_empty() => {
+                tracing::warn!("No group type mappings found for team {}", self.team_id);
+                // Empty mappings are not an error — the team simply has no group types configured.
+                // Group-based flags won't match, but person flags in the same batch should succeed
+                // without surfacing errorsWhileComputingFlags to the client.
+            }
+            Ok(mapping) => {
+                self.group_type_mapping = Some(mapping);
+            }
+            Err(_) => {
+                errors_while_computing_flags = true;
+            }
         }
 
         group_type_mapping_timer

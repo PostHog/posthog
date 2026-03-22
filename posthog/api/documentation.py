@@ -409,6 +409,11 @@ class FeatureFlagConditionGroupSchemaSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Variant key override for multivariate flags.",
     )
+    aggregation_group_type_index = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Group type index for this condition set. None means person-level aggregation.",
+    )
 
 
 class FeatureFlagMultivariateVariantSchemaSerializer(serializers.Serializer):

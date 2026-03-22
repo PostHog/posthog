@@ -653,6 +653,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             actions._setSuggestionPayload(null)
         },
         editView: ({ query, view }) => {
+            actions.setActiveTab(OutputTab.Materialization)
             actions.createTab(query, view)
         },
         editInsight: ({ query, insight }) => {
@@ -1218,7 +1219,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 if (!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]) {
                     return undefined
                 }
-                return sourceQuery.source.connectionId
+                return sourceQuery.source && 'connectionId' in sourceQuery.source
+                    ? sourceQuery.source.connectionId
+                    : undefined
             },
         ],
         selectedDirectSource: [
@@ -1531,11 +1534,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     // Open view
                     const viewId = searchParams.open_view || hashParams.view
 
+                    actions.setActiveTab(OutputTab.Materialization)
+                    actions.setViewLoading(true)
+
                     if (values.dataWarehouseSavedQueries.length === 0) {
                         await dataWarehouseViewsLogic.asyncActions.loadDataWarehouseSavedQueries()
                     }
 
-                    actions.setViewLoading(true)
                     let view = values.dataWarehouseSavedQueries.find((n) => n.id === viewId)
                     if (!view) {
                         lemonToast.error('View not found')
@@ -1599,10 +1604,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                     const queryToOpen = searchParams.open_query ? searchParams.open_query : query
 
-                    actions.editInsight(queryToOpen, insight)
                     if (insight.query) {
                         actions.setSourceQuery(insight.query as DataVisualizationNode)
                     }
+                    actions.editInsight(queryToOpen, insight)
                     actions.setActiveTab(OutputTab.Visualization)
 
                     // Only run the query if the results aren't already cached locally and we're not using the open_query search param

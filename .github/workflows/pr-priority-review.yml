@@ -17,6 +17,7 @@ jobs:
     # When a non-draft PR is labeled "priority-review", or a labeled PR is undrafted
     notify-priority-review:
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: >-
             github.event.pull_request.head.repo.full_name == github.repository
             && (
@@ -89,6 +90,7 @@ jobs:
     # When a priority-review PR is closed or merged, update the Slack message
     cleanup-closed:
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: >-
             github.event.action == 'closed'
             && contains(github.event.pull_request.labels.*.name, 'priority-review')
@@ -152,6 +154,7 @@ jobs:
     # When a priority-review PR is approved, update the Slack message
     notify-reviewed:
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: >-
             github.event.action == 'submitted'
             && github.event.review.state == 'approved'

@@ -6,12 +6,17 @@ from posthog.schema import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
+    SuggestedTable,
 )
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import (
+    MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+    FieldType,
+    SimpleSource,
+)
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
@@ -64,6 +69,16 @@ class LinkedInAdsSource(SimpleSource[LinkedinAdsSourceConfig]):
                     ),
                 ],
             ),
+            suggestedTables=[
+                SuggestedTable(
+                    table="campaign_groups",
+                    tooltip=MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+                ),
+                SuggestedTable(
+                    table="campaign_group_stats",
+                    tooltip=MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+                ),
+            ],
         )
 
     def validate_credentials(

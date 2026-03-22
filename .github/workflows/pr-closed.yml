@@ -13,6 +13,7 @@ jobs:
     cleanup-hobby-preview:
         name: Cleanup hobby preview deployment
         if: contains(github.event.pull_request.labels.*.name, 'hobby-preview')
+        timeout-minutes: 5
         uses: ./.github/workflows/pr-cleanup.yml
         # these permissions are required by pr-cleanup.yml
         permissions:
@@ -24,6 +25,7 @@ jobs:
     report-pr-age:
         name: Report age of PR
         runs-on: ubuntu-24.04
+        timeout-minutes: 5
         if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.merged == true
         steps:
             - name: Calculate PR age

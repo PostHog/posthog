@@ -36,27 +36,49 @@ export interface SentimentCard {
     sentiment: MessageSentiment
 }
 
+/** Multiple cards with the same user message text, collapsed into a single row */
+export interface GroupedSentimentCard {
+    /** Representative card (first/most recent occurrence) */
+    card: SentimentCard
+    /** Number of distinct traces with this same message */
+    traceCount: number
+}
+
 export interface LLMAnalyticsSentimentLogicProps {
     tabId?: string
 }
 
 const GENERATIONS_PAGE_SIZE = 200
+/** Stop auto-loading once we have at least this many visible cards */
+const MIN_VISIBLE_CARDS = 50
+/** Cap how many extra pages we fetch automatically to avoid runaway API calls */
+const MAX_AUTO_LOAD_ROUNDS = 3
 // Match backend MAX_MESSAGE_CHARS (2000) so training data captures the same text window the model classified
-const SNIPPET_MAX_LENGTH = 2000
+export const CLASSIFIER_WINDOW = 2000
 
-function getSnippetFromCard(card: SentimentCard): string {
+/** Parse aiInput and return the raw content text for the message at the given index, or '' on failure */
+function getRawMessageText(aiInput: unknown, messageIndex: number): string {
     try {
-        const parsed =
-            typeof card.generation.aiInput === 'string' ? JSON.parse(card.generation.aiInput) : card.generation.aiInput
+        const parsed = typeof aiInput === 'string' ? JSON.parse(aiInput) : aiInput
         if (!Array.isArray(parsed)) {
             return ''
         }
-        const msg = parsed[card.messageIndex]
-        const text = extractContentText(msg?.content)
-        return text.slice(-SNIPPET_MAX_LENGTH)
+        return extractContentText(parsed[messageIndex]?.content)
     } catch {
         return ''
     }
+}
+
+function getCardMessageText(card: SentimentCard): string {
+    const text = getRawMessageText(card.generation.aiInput, card.messageIndex).trim()
+    // Group by the same trailing window the classifier processes so messages
+    // that differ only in a prefix (e.g. varying system prompt headers) are
+    // correctly treated as duplicates.
+    return text.slice(-CLASSIFIER_WINDOW)
+}
+
+function getSnippetFromCard(card: SentimentCard): string {
+    return getRawMessageText(card.generation.aiInput, card.messageIndex).slice(-CLASSIFIER_WINDOW)
 }
 
 interface GenerationsQueryValues {
@@ -168,6 +190,13 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
                 loadGenerations: () => ({}),
             },
         ],
+        autoLoadRounds: [
+            0 as number,
+            {
+                loadGenerations: () => 0,
+                loadMoreGenerations: (state: number) => state + 1,
+            },
+        ],
         hasLoadedOnce: [
             false as boolean,
             {
@@ -276,6 +305,33 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
                 return cards
             },
         ],
+        groupedSentimentCards: [
+            (s) => [s.sentimentCards],
+            (cards: SentimentCard[]): GroupedSentimentCard[] => {
+                const groups = new Map<string, { grouped: GroupedSentimentCard; traceIds: Set<string> }>()
+                const result: GroupedSentimentCard[] = []
+
+                for (const card of cards) {
+                    const text = getCardMessageText(card)
+                    // Empty/unparseable messages get a unique key so they're never grouped
+                    const key = text || `__unique__${card.generation.uuid}:${card.messageIndex}`
+                    const existing = groups.get(key)
+                    if (existing) {
+                        existing.traceIds.add(card.generation.traceId)
+                        existing.grouped.traceCount = existing.traceIds.size
+                    } else {
+                        const grouped: GroupedSentimentCard = {
+                            card,
+                            traceCount: 1,
+                        }
+                        groups.set(key, { grouped, traceIds: new Set([card.generation.traceId]) })
+                        result.push(grouped)
+                    }
+                }
+
+                return result
+            },
+        ],
         stillAnalyzing: [
             (s) => [s.generations, s.sentimentByGenerationId],
             (
@@ -354,8 +410,15 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
                         (gen) => values.sentimentByGenerationId[gen.uuid] === null
                     ).length
                     const cardCount = values.sentimentCards.length
+                    const visibleCards = values.groupedSentimentCards.length
 
-                    if (totalGenerations === 0 || cardCount === 0) {
+                    // Auto-load more generations if we don't have enough visible cards
+                    const shouldAutoLoad =
+                        visibleCards < MIN_VISIBLE_CARDS &&
+                        values.hasMore &&
+                        values.autoLoadRounds < MAX_AUTO_LOAD_ROUNDS
+
+                    if ((totalGenerations === 0 || cardCount === 0) && !shouldAutoLoad) {
                         posthog.capture('llma sentiment empty state', {
                             reason:
                                 totalGenerations === 0
@@ -368,6 +431,10 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
                             sentiment_filter: values.sentimentFilter,
                             intensity_threshold: values.intensityThreshold,
                         })
+                    }
+
+                    if (shouldAutoLoad) {
+                        actions.loadMoreGenerations()
                     }
                 }
                 wasAnalyzing = stillAnalyzing

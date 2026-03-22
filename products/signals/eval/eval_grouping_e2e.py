@@ -227,23 +227,27 @@ class TestGroupingPipeline:
                 self.progress.signal_dropped()
                 return
 
+            # Prepare queries and embeddings outside the lock — these are
+            # store-independent and can run concurrently across signals.
+            queries, query_embeddings, signal_embedding = await self._prepare(description, case)
+
             async with self._match_lock:
-                match_result, specificity_result, queries, query_embeddings, candidates = await self._match(
-                    record_id, description, case
+                match_result, specificity_result, candidates = await self._match(
+                    description, case, queries, query_embeddings
                 )
                 self._capture_match_quality(
                     case, match_result, specificity_result, queries, query_embeddings, candidates
                 )
-                await self._persist_signal(record_id, description, case, specificity_result)
+                self._persist_signal(record_id, description, case, specificity_result, signal_embedding)
 
             self.progress.signal_done()
         except Exception:
             self.progress.signal_dropped()
 
-    async def _match(
-        self, record_id: int, description: str, case: EvalSignalCase
-    ) -> tuple[MatchResult, MatchResult, list[str], list[list[float]], list[list[SignalCandidate]]]:
-        """Generate queries, embed, search, LLM-match, and verify specificity. No side effects."""
+    async def _prepare(
+        self, description: str, case: EvalSignalCase
+    ) -> tuple[list[str], list[list[float]], list[float]]:
+        """Generate search queries and compute all embeddings. No store mutations."""
 
         queries = await generate_search_queries(
             description=description,
@@ -252,7 +256,24 @@ class TestGroupingPipeline:
             signal_type_examples=self.store.get_type_examples(),
         )
 
-        query_embeddings = [await self.store.embed(q) for q in queries]
+        all_embeddings = await asyncio.gather(
+            *[self.store.embed(q) for q in queries],
+            self.store.embed(description),
+        )
+        query_embeddings = list(all_embeddings[: len(queries)])
+        signal_embedding = all_embeddings[-1]
+
+        return queries, query_embeddings, signal_embedding
+
+    async def _match(
+        self,
+        description: str,
+        case: EvalSignalCase,
+        queries: list[str],
+        query_embeddings: list[list[float]],
+    ) -> tuple[MatchResult, MatchResult, list[list[SignalCandidate]]]:
+        """Search, LLM-match, and verify specificity. Must run under _match_lock."""
+
         candidates = [self.store.search(emb) for emb in query_embeddings]
 
         match_result = await match_signal_to_report(
@@ -296,22 +317,22 @@ class TestGroupingPipeline:
                     ),
                 )
 
-        return match_result, specificity_match_result, queries, query_embeddings, candidates
+        return match_result, specificity_match_result, candidates
 
-    async def _persist_signal(
+    def _persist_signal(
         self,
         record_id: int,
         description: str,
         case: EvalSignalCase,
         match_result: MatchResult,
+        signal_embedding: list[float],
     ) -> str:
-        """Write match result to both stores."""
+        """Write match result to both stores. Must run under _match_lock."""
 
         report_id = match_result.report_id if isinstance(match_result, ExistingReportMatch) else str(uuid.uuid4())
 
         self.report_store.insert(report_id, match_result, case.group_index)
 
-        signal_embedding = await self.store.embed(description)
         self.store.store(
             signal_id=f"sig-{record_id}",
             content=description,

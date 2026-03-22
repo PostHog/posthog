@@ -463,31 +463,39 @@ def create_or_update_slack_ticket(
 
     # Post a confirmation reply in the Slack thread
     ticket_url = f"{settings.SITE_URL}/project/{team_id}/support/tickets/{ticket.id}"
+    support_settings = team.conversations_settings or {}
+    confirmation_kwargs: dict = {
+        "channel": slack_channel_id,
+        "thread_ts": thread_ts,
+        "text": f"Ticket #{ticket.ticket_number} created.",
+        "blocks": [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f":ticket: Ticket #{ticket.ticket_number} created",
+                },
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "View in PostHog", "emoji": True},
+                        "url": ticket_url,
+                    }
+                ],
+            },
+        ],
+    }
+    bot_display_name = support_settings.get("slack_bot_display_name")
+    bot_icon_url = support_settings.get("slack_bot_icon_url")
+    if bot_display_name:
+        confirmation_kwargs["username"] = bot_display_name
+    if bot_icon_url:
+        confirmation_kwargs["icon_url"] = bot_icon_url
     try:
-        client.chat_postMessage(
-            channel=slack_channel_id,
-            thread_ts=thread_ts,
-            text=f"Ticket #{ticket.ticket_number} created.",
-            blocks=[
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f":ticket: Ticket #{ticket.ticket_number} created",
-                    },
-                },
-                {
-                    "type": "actions",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": "View in PostHog", "emoji": True},
-                            "url": ticket_url,
-                        }
-                    ],
-                },
-            ],
-        )
+        client.chat_postMessage(**confirmation_kwargs)
     except Exception:
         logger.warning("slack_support_confirmation_failed", ticket_id=str(ticket.id))
 

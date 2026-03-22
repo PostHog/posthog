@@ -12,6 +12,7 @@ use crate::cohorts::membership::{
 use crate::config::Config;
 use crate::database_pools::DatabasePools;
 use crate::db_monitor::DatabasePoolMonitor;
+use crate::flags::flag_group_type_mapping::GroupTypeCacheManager;
 use crate::rayon_dispatcher::RayonDispatcher;
 use crate::router;
 use crate::tokio_monitor::TokioRuntimeMonitor;
@@ -117,6 +118,12 @@ pub async fn serve<F>(
         database_pools.non_persons_reader.clone(),
         Some(config.cohort_cache_capacity_bytes),
         Some(config.cache_ttl_seconds),
+    ));
+
+    let group_type_cache = Arc::new(GroupTypeCacheManager::new(
+        database_pools.persons_reader.clone(),
+        Some(config.group_type_cache_max_entries),
+        Some(config.group_type_cache_ttl_seconds),
     ));
 
     // Initialize the cohort membership provider for realtime/behavioral cohorts.
@@ -376,6 +383,7 @@ pub async fn serve<F>(
         dedicated_redis_client,
         database_pools,
         cohort_cache,
+        group_type_cache,
         geoip_service,
         health,
         feature_flags_billing_limiter,

@@ -1045,6 +1045,7 @@ class DataWarehouseSavedQueryOrigin(StrEnum):
 
 class DataWarehouseSyncInterval(StrEnum):
     FIELD_5MIN = "5min"
+    FIELD_15MIN = "15min"
     FIELD_30MIN = "30min"
     FIELD_1HOUR = "1hour"
     FIELD_6HOUR = "6hour"
@@ -1162,6 +1163,21 @@ class DefaultChannelTypes(StrEnum):
     UNKNOWN = "Unknown"
 
 
+class DetectorType(StrEnum):
+    ZSCORE = "zscore"
+    MAD = "mad"
+    THRESHOLD = "threshold"
+    IQR = "iqr"
+    COPOD = "copod"
+    ECOD = "ecod"
+    ISOLATION_FOREST = "isolation_forest"
+    KNN = "knn"
+    HBOS = "hbos"
+    LOF = "lof"
+    OCSVM = "ocsvm"
+    PCA = "pca"
+
+
 class DistanceFunc(StrEnum):
     L1_DISTANCE = "L1Distance"
     L2_DISTANCE = "L2Distance"
@@ -1178,8 +1194,9 @@ class OrderDirection(StrEnum):
     DESC = "desc"
 
 
-class DomainConnectProviderName(RootModel[Literal["Cloudflare"]]):
-    root: Literal["Cloudflare"] = "Cloudflare"
+class DomainConnectProviderName(StrEnum):
+    CLOUDFLARE = "Cloudflare"
+    VERCEL = "Vercel"
 
 
 class DurationType(StrEnum):
@@ -1300,6 +1317,11 @@ class Metric(StrEnum):
     REQUESTS = "requests"
     QUERY_DURATION = "query_duration"
     ERROR_RATE = "error_rate"
+
+
+class EnsembleOperator(StrEnum):
+    AND_ = "and"
+    OR_ = "or"
 
 
 class EntityType(StrEnum):
@@ -2263,6 +2285,7 @@ class IntegrationKind(StrEnum):
     SALESFORCE = "salesforce"
     HUBSPOT = "hubspot"
     GOOGLE_PUBSUB = "google-pubsub"
+    GOOGLE_CLOUD_SERVICE_ACCOUNT = "google-cloud-service-account"
     GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
     GOOGLE_ADS = "google-ads"
     GOOGLE_SHEETS = "google-sheets"
@@ -2294,6 +2317,12 @@ class IntervalType(StrEnum):
     DAY = "day"
     WEEK = "week"
     MONTH = "month"
+
+
+class Method(StrEnum):
+    LARGEST = "largest"
+    MEAN = "mean"
+    MEDIAN = "median"
 
 
 class LLMTraceEvent(BaseModel):
@@ -2447,10 +2476,10 @@ class MarketingAnalyticsBaseColumns(StrEnum):
     IMPRESSIONS = "Impressions"
     CPC = "CPC"
     CTR = "CTR"
-    REPORTED_CONVERSION = "Reported Conversion"
+    REPORTED_CONVERSIONS = "Reported Conversions"
     REPORTED_CONVERSION_VALUE = "Reported Conversion Value"
     REPORTED_ROAS = "Reported ROAS"
-    COST_PER_REPORTED_CONVERSION = "Cost per Reported Conversion"
+    COST_PER_REPORTED_CONVERSIONS = "Cost per Reported Conversions"
 
 
 class MarketingAnalyticsColumnsSchemaNames(StrEnum):
@@ -3862,6 +3891,12 @@ class SessionSegmentClusterSignalInput(BaseModel):
     weight: float
 
 
+class Theme(StrEnum):
+    LIGHT = "light"
+    DARK = "dark"
+    SYSTEM = "system"
+
+
 class SharingConfigurationSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3871,6 +3906,7 @@ class SharingConfigurationSettings(BaseModel):
     legend: bool | None = None
     noHeader: bool | None = None
     showInspector: bool | None = None
+    theme: Theme | None = None
     whitelabel: bool | None = None
 
 
@@ -4202,6 +4238,7 @@ class TaxonomicFilterGroupType(StrEnum):
     MAX_AI_CONTEXT = "max_ai_context"
     WORKFLOW_VARIABLES = "workflow_variables"
     SUGGESTED_FILTERS = "suggested_filters"
+    RECENT_FILTERS = "recent_filters"
     EMPTY = "empty"
 
 
@@ -6107,6 +6144,24 @@ class PlanningStep(BaseModel):
     status: PlanningStepStatus
 
 
+class PreprocessingConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    diffs_n: int | None = Field(
+        default=None,
+        description=("Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"),
+    )
+    lags_n: int | None = Field(
+        default=None,
+        description=("Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"),
+    )
+    smooth_n: int | None = Field(
+        default=None,
+        description=("Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"),
+    )
+
+
 class ProductItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6737,6 +6792,7 @@ class SessionRecordingType(BaseModel):
     external_references: list[SessionRecordingExternalReference] | None = Field(
         default=None, description="External references to third party issues."
     )
+    has_summary: bool | None = None
     id: str
     inactive_seconds: float | None = None
     keypress_count: float | None = None
@@ -7116,6 +7172,18 @@ class TestCachedBasicQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+
+
+class ThresholdDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    lower_bound: float | None = Field(default=None, description="Lower bound - values below this are anomalies")
+    preprocessing: PreprocessingConfig | None = Field(
+        default=None, description="Preprocessing transforms applied before detection"
+    )
+    type: Literal["threshold"] = "threshold"
+    upper_bound: float | None = Field(default=None, description="Upper bound - values above this are anomalies")
 
 
 class TraceQueryResponse(BaseModel):
@@ -7527,6 +7595,24 @@ class WebVitalsPathBreakdownResult(BaseModel):
     good: list[WebVitalsPathBreakdownResultItem]
     needs_improvements: list[WebVitalsPathBreakdownResultItem]
     poor: list[WebVitalsPathBreakdownResultItem]
+
+
+class ZScoreDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    preprocessing: PreprocessingConfig | None = Field(
+        default=None, description="Preprocessing transforms applied before detection"
+    )
+    threshold: float | None = Field(
+        default=None,
+        description=("Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)"),
+    )
+    type: Literal["zscore"] = "zscore"
+    window: int | None = Field(
+        default=None,
+        description="Rolling window size for calculating mean/std (default: 30)",
+    )
 
 
 class ActorsPropertyTaxonomyQueryResponse(BaseModel):
@@ -8071,6 +8157,17 @@ class BreakdownItem(BaseModel):
     )
     label: str
     value: str | int
+
+
+class COPODDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    preprocessing: PreprocessingConfig | None = Field(
+        default=None, description="Preprocessing transforms applied before detection"
+    )
+    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
+    type: Literal["copod"] = "copod"
 
 
 class CacheMissResponse(BaseModel):
@@ -11056,6 +11153,17 @@ class DocumentSimilarityQueryResponse(BaseModel):
     )
 
 
+class ECODDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    preprocessing: PreprocessingConfig | None = Field(
+        default=None, description="Preprocessing transforms applied before detection"
+    )
+    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
+    type: Literal["ecod"] = "ecod"
+
+
 class EndpointRunRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -11705,6 +11813,7 @@ class FeatureFlagGroupType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregation_group_type_index: int | None = None
     description: str | None = None
     properties: (
         list[
@@ -12090,6 +12199,18 @@ class GroupsQueryResponse(BaseModel):
     types: list[str]
 
 
+class HBOSDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    n_bins: int | None = Field(default=None, description="Number of histogram bins (default: 10)")
+    preprocessing: PreprocessingConfig | None = Field(
+        default=None, description="Preprocessing transforms applied before detection"
+    )
+    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
+    type: Literal["hbos"] = "hbos"
+
+
 class HeatMapQuerySource(RootModel[EventsNode]):
     root: EventsNode
 
@@ -12174,6 +12295,24 @@ class HogQLQueryResponse(BaseModel):
     types: list | None = Field(default=None, description="Types of returned columns")
 
 
+class IQRDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    multiplier: float | None = Field(
+        default=None,
+        description=("IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)"),
+    )
+    preprocessing: PreprocessingConfig | None = Field(
+        default=None, description="Preprocessing transforms applied before detection"
+    )
+    type: Literal["iqr"] = "iqr"
+    window: int | None = Field(
+        default=None,
+        description="Rolling window size for calculating quartiles (default: 30)",
+    )
+
+
 class InsightActorsQueryBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -12184,6 +12323,46 @@ class InsightActorsQueryBase(BaseModel):
     response: ActorsQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class IsolationForestDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    n_estimators: int | None = Field(default=None, description="Number of trees in the forest (default: 100)")
+    preprocessing: PreprocessingConfig | None = Field(
+        default=None, description="Preprocessing transforms applied before detection"
+    )
+    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
+    type: Literal["isolation_forest"] = "isolation_forest"
+
+
+class KNNDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    method: Method | None = Field(
+        default=None,
+        description="Distance method: 'largest', 'mean', 'median' (default: 'largest')",
+    )
+    n_neighbors: int | None = Field(default=None, description="Number of neighbors to consider (default: 5)")
+    preprocessing: PreprocessingConfig | None = Field(
+        default=None, description="Preprocessing transforms applied before detection"
+    )
+    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
+    type: Literal["knn"] = "knn"
+
+
+class LOFDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    n_neighbors: int | None = Field(default=None, description="Number of neighbors for LOF (default: 20)")
+    preprocessing: PreprocessingConfig | None = Field(
+        default=None, description="Preprocessing transforms applied before detection"
+    )
+    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
+    type: Literal["lof"] = "lof"
 
 
 class LifecycleDataWarehouseNode(BaseModel):
@@ -12379,6 +12558,24 @@ class LogsQueryResponse(BaseModel):
     )
 
 
+class MADDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    preprocessing: PreprocessingConfig | None = Field(
+        default=None, description="Preprocessing transforms applied before detection"
+    )
+    threshold: float | None = Field(
+        default=None,
+        description=("Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)"),
+    )
+    type: Literal["mad"] = "mad"
+    window: int | None = Field(
+        default=None,
+        description="Rolling window size for calculating median/MAD (default: 30)",
+    )
+
+
 class MarketingAnalyticsAggregatedQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -12533,6 +12730,33 @@ class NonIntegratedConversionsTableQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
+
+
+class OCSVMDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kernel: str | None = Field(default=None, description='SVM kernel type (default: "rbf")')
+    nu: float | None = Field(
+        default=None,
+        description="Upper bound on training errors fraction (default: 0.1)",
+    )
+    preprocessing: PreprocessingConfig | None = Field(
+        default=None, description="Preprocessing transforms applied before detection"
+    )
+    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
+    type: Literal["ocsvm"] = "ocsvm"
+
+
+class PCADetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    preprocessing: PreprocessingConfig | None = Field(
+        default=None, description="Preprocessing transforms applied before detection"
+    )
+    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
+    type: Literal["pca"] = "pca"
 
 
 class PathsQueryResponse(BaseModel):
@@ -16067,6 +16291,28 @@ class EndpointsUsageTrendsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class EnsembleDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    detectors: list[
+        ZScoreDetectorConfig
+        | MADDetectorConfig
+        | IQRDetectorConfig
+        | ThresholdDetectorConfig
+        | ECODDetectorConfig
+        | COPODDetectorConfig
+        | IsolationForestDetectorConfig
+        | KNNDetectorConfig
+        | HBOSDetectorConfig
+        | LOFDetectorConfig
+        | OCSVMDetectorConfig
+        | PCADetectorConfig
+    ] = Field(..., description="Sub-detector configurations (minimum 2)")
+    operator: EnsembleOperator = Field(..., description="How to combine sub-detector results")
+    type: Literal["ensemble"] = "ensemble"
+
+
 class ErrorTrackingBreakdownsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -17145,6 +17391,40 @@ class DatabaseSchemaViewTable(BaseModel):
     query: HogQLQuery
     row_count: float | None = None
     type: Literal["view"] = "view"
+
+
+class DetectorConfig(
+    RootModel[
+        EnsembleDetectorConfig
+        | ZScoreDetectorConfig
+        | MADDetectorConfig
+        | IQRDetectorConfig
+        | ThresholdDetectorConfig
+        | ECODDetectorConfig
+        | COPODDetectorConfig
+        | IsolationForestDetectorConfig
+        | KNNDetectorConfig
+        | HBOSDetectorConfig
+        | LOFDetectorConfig
+        | OCSVMDetectorConfig
+        | PCADetectorConfig
+    ]
+):
+    root: (
+        EnsembleDetectorConfig
+        | ZScoreDetectorConfig
+        | MADDetectorConfig
+        | IQRDetectorConfig
+        | ThresholdDetectorConfig
+        | ECODDetectorConfig
+        | COPODDetectorConfig
+        | IsolationForestDetectorConfig
+        | KNNDetectorConfig
+        | HBOSDetectorConfig
+        | LOFDetectorConfig
+        | OCSVMDetectorConfig
+        | PCADetectorConfig
+    ) = Field(..., description="Detector configuration types")
 
 
 class ErrorTrackingIssueCorrelationQuery(BaseModel):
@@ -20252,6 +20532,18 @@ class SourceConfig(BaseModel):
         description="Tables to suggest enabling, with optional tooltip explaining why",
     )
     unreleasedSource: bool | None = None
+    webhookFields: (
+        list[
+            SourceFieldInputConfig
+            | SourceFieldSwitchGroupConfig
+            | SourceFieldSelectConfig
+            | SourceFieldOauthConfig
+            | SourceFieldFileUploadConfig
+            | SourceFieldSSHTunnelConfig
+        ]
+        | None
+    ) = None
+    webhookSetupCaption: str | None = None
 
 
 class Option(BaseModel):

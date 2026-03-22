@@ -1,6 +1,7 @@
 import { Tabs } from '@base-ui/react/tabs'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { lazy, Suspense, useRef } from 'react'
 
 import { IconApps, IconChat, IconChevronRight, IconSearch } from '@posthog/icons'
@@ -148,13 +149,17 @@ export function Nav(): JSX.Element {
 
                         <ButtonPrimitive
                             iconOnly
+                            data-attr="nav-search"
                             tooltip={
                                 <>
                                     <span>Search</span> <RenderKeybind keybind={[keyBinds.search]} />
                                 </>
                             }
                             tooltipPlacement={isLayoutNavCollapsed ? 'right' : undefined}
-                            onClick={() => toggleCommand()}
+                            onClick={() => {
+                                posthog.capture('nav search clicked')
+                                toggleCommand()
+                            }}
                         >
                             <IconSearch className="size-4 text-secondary" />
                         </ButtonPrimitive>
@@ -167,7 +172,12 @@ export function Nav(): JSX.Element {
                                 tooltip="Chat"
                                 tooltipPlacement="right"
                                 active={activePanelIdentifier === 'Chat'}
-                                onClick={() => handlePanelTriggerClick('Chat')}
+                                onClick={() => {
+                                    posthog.capture('nav chat panel toggled', {
+                                        is_open: activePanelIdentifier !== 'Chat',
+                                    })
+                                    handlePanelTriggerClick('Chat')
+                                }}
                             >
                                 <span
                                     className={cn(
@@ -192,7 +202,10 @@ export function Nav(): JSX.Element {
                 <Tabs.Root
                     className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-hidden"
                     value={isLayoutNavCollapsed && navExperimentActiveTab === 'chat' ? 'home' : navExperimentActiveTab}
-                    onValueChange={(value) => setNavExperimentTab(value as NavExperimentTab)}
+                    onValueChange={(value) => {
+                        posthog.capture('nav tab clicked', { tab: value })
+                        setNavExperimentTab(value as NavExperimentTab)
+                    }}
                     orientation={isLayoutNavCollapsed ? 'vertical' : 'horizontal'}
                 >
                     {!isLayoutNavCollapsed && (
@@ -234,16 +247,23 @@ export function Nav(): JSX.Element {
                                 ))}
                             </Tabs.List>
 
-                            <div className="h-px bg-border-primary -mx-1 w-[calc(100%+var(--spacing)*4)]" />
+                            <div className="px-2">
+                                <div className="h-px bg-border-primary " />
+                            </div>
                         </>
                     )}
 
                     <div className="flex-1 overflow-hidden relative">
-                        <Tabs.Panel value="home" className="absolute inset-0 flex flex-col" keepMounted>
+                        <Tabs.Panel value="home" className="absolute inset-0 flex flex-col" keepMounted tabIndex={-1}>
                             <NavTabBrowse />
                         </Tabs.Panel>
                         {!isLayoutNavCollapsed && (
-                            <Tabs.Panel value="chat" className="absolute inset-0 flex flex-col" keepMounted>
+                            <Tabs.Panel
+                                value="chat"
+                                className="absolute inset-0 flex flex-col"
+                                keepMounted
+                                tabIndex={-1}
+                            >
                                 <Suspense
                                     fallback={
                                         <div className="flex flex-col gap-px px-1 pt-2">
@@ -261,7 +281,9 @@ export function Nav(): JSX.Element {
                         )}
                     </div>
 
-                    <div className="border-b border-primary h-px" />
+                    <div className="px-2">
+                        <div className="h-px bg-border-primary " />
+                    </div>
 
                     <div className="p-1">
                         <NavBarFooter isLayoutNavCollapsed={isLayoutNavCollapsed} />

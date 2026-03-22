@@ -11,7 +11,7 @@ export {
 export { BackButton, type BackButtonProps } from './BackButton'
 export { Card, type CardProps } from './Card'
 export { DescriptionList, type DescriptionListProps, type DescriptionListItem } from './DescriptionList'
-export { EmptyState, type EmptyStateProps } from './EmptyState'
+export { EmptyState, type EmptyStateProps, type EmptyStateIllustrationType } from './EmptyState'
 export { Link, type LinkProps } from './Link'
 export { LoadingState, type LoadingStateProps } from './LoadingState'
 export { Stack, type StackProps } from './Stack'

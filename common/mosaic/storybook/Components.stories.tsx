@@ -13,6 +13,7 @@ import {
     type DataTableColumn,
     DescriptionList,
     EmptyState,
+    type EmptyStateIllustrationType,
     Link,
     ProgressBar,
     Select,
@@ -332,9 +333,29 @@ ProgressBarStory.storyName = 'ProgressBar'
 
 export const EmptyStateStory: StoryFn = () => (
     <Stack gap="md">
-        <Card padding="md">
-            <EmptyState title="No data found" description="Try adjusting your filters or date range" />
-        </Card>
+        <Section title="Text only">
+            <Card padding="md">
+                <EmptyState title="No data found" description="Try adjusting your filters or date range" />
+            </Card>
+        </Section>
+        <Section title="With illustrations">
+            <Stack gap="sm">
+                {(['table', 'chart', 'funnel', 'number', 'generic'] as EmptyStateIllustrationType[]).map((type) => (
+                    <Card key={type} padding="md">
+                        <EmptyState icon={type} description={`Empty state: ${type}`} />
+                    </Card>
+                ))}
+            </Stack>
+        </Section>
+        <Section title="Illustration with title and description">
+            <Card padding="md">
+                <EmptyState
+                    icon="table"
+                    title="No rows to display"
+                    description="Try adjusting your filters or date range"
+                />
+            </Card>
+        </Section>
     </Stack>
 )
 EmptyStateStory.storyName = 'EmptyState'
