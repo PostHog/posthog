@@ -145,7 +145,7 @@ async fn load_token_from_pg(
         WHERE secure_value = $1
           AND (
               scopes IS NULL
-              OR scopes = '{*}'
+              OR '*' = ANY(scopes)
               OR 'feature_flag:read' = ANY(scopes)
               OR 'feature_flag:write' = ANY(scopes)
           )
@@ -203,7 +203,7 @@ async fn load_personal_key_from_pg(
         WHERE pak.secure_value = $1
           AND u.is_active = true
           AND (
-              pak.scopes = '{*}'
+              '*' = ANY(pak.scopes)
               OR 'feature_flag:read' = ANY(pak.scopes)
               OR 'feature_flag:write' = ANY(pak.scopes)
           )

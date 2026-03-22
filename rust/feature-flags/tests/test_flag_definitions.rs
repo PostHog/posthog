@@ -1857,6 +1857,7 @@ async fn test_valid_pak_used_to_authenticate_from_cache_updates_last_used_at() {
     context.populate_cache_for_team(team.id).await.unwrap();
 
     let server = common::ServerHandle::for_config(config.clone()).await;
+    server.wait_until_ready().await;
     let client = reqwest::Client::new();
     let url = format!(
         "http://{}/flags/definitions?token={}",
