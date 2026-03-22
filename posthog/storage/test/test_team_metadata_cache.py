@@ -231,6 +231,9 @@ class TestTeamMetadataCacheSignals(BaseTest):
             team.delete()
 
         mock_capture.assert_called_once()
+        args, _ = mock_capture.call_args
+        self.assertIsInstance(args[0], Exception)
+        self.assertEqual(str(args[0]), "Redis down")
 
     @patch("posthog.storage.team_access_cache.token_auth_cache")
     def test_team_delete_handles_no_project_secret_api_keys(self, mock_token_cache):
