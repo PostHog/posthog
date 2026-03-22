@@ -216,6 +216,22 @@ class TestTeamMetadataCacheSignals(BaseTest):
         invalidated_values = set(mock_token_cache.invalidate_tokens.call_args[0][0])
         self.assertEqual(invalidated_values, {"sha256$hashed_value_1", "sha256$hashed_value_2"})
 
+    @patch("posthog.storage.team_access_cache_signal_handlers.capture_exception")
+    @patch("posthog.storage.team_access_cache.token_auth_cache")
+    def test_team_delete_psak_cache_handles_redis_failure(self, mock_token_cache, mock_capture):
+        from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+
+        mock_token_cache.is_configured = True
+        mock_token_cache.invalidate_tokens.side_effect = Exception("Redis down")
+
+        team = Team.objects.create(organization=self.organization, name="Test Team")
+        ProjectSecretAPIKey.objects.create(team=team, label="Key 1", secure_value="sha256$hashed_1")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            team.delete()
+
+        mock_capture.assert_called_once()
+
     @patch("posthog.storage.team_access_cache.token_auth_cache")
     def test_team_delete_handles_no_project_secret_api_keys(self, mock_token_cache):
         team = Team.objects.create(

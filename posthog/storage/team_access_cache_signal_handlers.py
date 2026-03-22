@@ -113,16 +113,16 @@ def team_pre_save_auth_cache(sender, instance: "Team", **kwargs):
 @receiver(post_save, sender=Team)
 def team_saved_auth_cache(sender, instance: "Team", created, **kwargs):
     """Update team authentication cache on team save."""
-    transaction.on_commit(lambda: _update_team_authentication_cache(instance, created, **kwargs))
+    transaction.on_commit(lambda: _update_team_authentication_cache(instance, created))
 
 
 @receiver(post_delete, sender=Team)
 def team_deleted_auth_cache(sender, instance: "Team", **kwargs):
     """Handle team deletion for access cache."""
-    transaction.on_commit(lambda: _update_team_authentication_cache_on_delete(instance, **kwargs))
+    transaction.on_commit(lambda: _update_team_authentication_cache_on_delete(instance))
 
 
-def _update_team_authentication_cache(instance: Team, created: bool, **kwargs):
+def _update_team_authentication_cache(instance: Team, created: bool):
     """
     Invalidate specific token cache entries when Team auth fields change.
 
@@ -170,7 +170,7 @@ def _update_team_authentication_cache(instance: Team, created: bool, **kwargs):
         logger.exception("Error updating auth cache on team save", team_id=instance.pk)
 
 
-def _update_team_authentication_cache_on_delete(instance: Team, **kwargs):
+def _update_team_authentication_cache_on_delete(instance: Team):
     """Invalidate cached secret tokens when a team is deleted.
 
     Called from a transaction.on_commit callback, so the DB transaction has

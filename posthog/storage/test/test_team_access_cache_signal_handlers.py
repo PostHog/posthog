@@ -636,18 +636,19 @@ class TestPersonalApiKeySavedSignalHandler(TestCase):
 
         mock_on_commit.assert_not_called()
 
-    @patch("posthog.tasks.team_access_cache_tasks.invalidate_token_sync")
+    @patch("posthog.tasks.team_access_cache_tasks.invalidate_token_cache_task")
+    @patch("posthog.tasks.team_access_cache_tasks.token_auth_cache")
     @patch("django.db.transaction.on_commit")
-    def test_sync_failure_propagates(self, mock_on_commit, mock_sync):
-        mock_sync.side_effect = Exception("Redis down")
+    def test_sync_failure_schedules_async_retry(self, mock_on_commit, mock_cache, mock_task):
+        mock_cache.invalidate_token.side_effect = Exception("Redis down")
         instance = MagicMock(secure_value="sha256$abc123", user_id=42)
         instance._old_secure_value = None
         personal_api_key_saved(sender=PersonalAPIKey, instance=instance, created=False)
 
         mock_on_commit.assert_called_once()
         on_commit_callback = mock_on_commit.call_args[0][0]
-        with self.assertRaises(Exception, msg="Redis down"):
-            on_commit_callback()
+        on_commit_callback()
+        mock_task.apply_async.assert_called_once_with(args=["sha256$abc123"], countdown=5)
 
 
 class TestPersonalApiKeyDeletedSignalHandler(TestCase):
