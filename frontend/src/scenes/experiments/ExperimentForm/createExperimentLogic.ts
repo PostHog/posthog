@@ -91,6 +91,8 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             ['featureFlagKeyValidation', 'featureFlagKeyValidationLoading'],
             projectLogic,
             ['currentProjectId'],
+            teamLogic,
+            ['currentTeamId'],
         ],
         actions: [
             eventUsageLogic,
@@ -360,16 +362,41 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     })),
                 ]
 
-                const experimentPayload: Experiment = {
-                    ...values.experiment,
-                    scheduling_config: schedulingConfig,
-                    saved_metrics_ids: savedMetrics,
-                }
+                // Check if we should use the new products architecture
+                const useProductsArchitecture = !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_CREATE_IN_PRODUCT]
 
-                const response = (await api.create(
-                    `api/projects/${values.currentProjectId}/experiments`,
-                    experimentPayload
-                )) as Experiment
+                // Determine endpoint based on feature flag
+                const endpoint = useProductsArchitecture
+                    ? `api/environments/${values.currentTeamId}/experiments`
+                    : `api/projects/${values.currentProjectId}/experiments`
+
+                // Prepare payload based on format
+                const experimentPayload: any = useProductsArchitecture
+                    ? {
+                          // New format: feature_flag_filters
+                          name: values.experiment.name,
+                          feature_flag_key: values.experiment.feature_flag_key,
+                          description: values.experiment.description || '',
+                          feature_flag_filters: {
+                              key: values.experiment.feature_flag_key,
+                              name: values.experiment.name,
+                              variants: values.experiment.parameters?.feature_flag_variants || [],
+                          },
+                          scheduling_config: schedulingConfig,
+                          saved_metrics_ids: savedMetrics,
+                          exposure_preaggregation_enabled:
+                              !!values.featureFlags[FEATURE_FLAGS.EXPERIMENT_QUERY_PREAGGREGATION],
+                      }
+                    : {
+                          // Old format: full experiment with parameters
+                          ...values.experiment,
+                          scheduling_config: schedulingConfig,
+                          saved_metrics_ids: savedMetrics,
+                          exposure_preaggregation_enabled:
+                              !!values.featureFlags[FEATURE_FLAGS.EXPERIMENT_QUERY_PREAGGREGATION],
+                      }
+
+                const response = (await api.create(endpoint, experimentPayload)) as Experiment
 
                 if (response.id) {
                     // Refresh tree navigation
