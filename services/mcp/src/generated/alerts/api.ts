@@ -856,6 +856,25 @@ export const AlertsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const AlertsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    checks_date_from: zod
+        .string()
+        .optional()
+        .describe(
+            "Relative date string for the start of the check history window (e.g. '-24h', '-7d', '-14d'). Returns checks created after this time. Max retention is 14 days."
+        ),
+    checks_date_to: zod
+        .string()
+        .optional()
+        .describe(
+            "Relative date string for the end of the check history window (e.g. '-1h', '-1d'). Defaults to now if not specified."
+        ),
+    checks_limit: zod
+        .number()
+        .optional()
+        .describe('Maximum number of check results to return (default 5, max 500). Applied after date filtering.'),
+})
+
 export const AlertsPartialUpdateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this alert configuration.'),
     project_id: zod
