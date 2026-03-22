@@ -1,14 +1,15 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useCallback, useMemo, useRef, useState } from 'react'
 
-import { IconColumns, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
+import { IconChevronRight, IconColumns, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { slugifyHeading } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { urls } from 'scenes/urls'
 
@@ -21,10 +22,94 @@ import { PROMPT_NAME_MAX_LENGTH, PromptAnalyticsScope, isPrompt, llmPromptLogic 
 
 const MonacoDiffEditor = lazy(() => import('lib/components/MonacoDiffEditor'))
 
+interface HeadingEntry {
+    level: number
+    text: string
+    slug: string
+}
+
+function parseMarkdownHeadings(markdown: string): HeadingEntry[] {
+    const headings: HeadingEntry[] = []
+    for (const line of markdown.split('\n')) {
+        const match = /^(#{1,6})\s+(.+)$/.exec(line.trim())
+        if (match) {
+            const text = match[2].replace(/[*_`~[\]]/g, '').trim()
+            headings.push({
+                level: match[1].length,
+                text,
+                slug: slugifyHeading(text),
+            })
+        }
+    }
+    return headings
+}
+
+function PromptOutline({
+    promptText,
+    containerRef,
+}: {
+    promptText: string
+    containerRef: React.RefObject<HTMLDivElement | null>
+}): JSX.Element | null {
+    const [isExpanded, setIsExpanded] = useState(false)
+    const headings = useMemo(() => parseMarkdownHeadings(promptText), [promptText])
+
+    const handleHeadingClick = useCallback(
+        (slug: string) => {
+            const container = containerRef.current
+            if (!container) {
+                return
+            }
+            const target = container.querySelector(`#${CSS.escape(slug)}`)
+            if (target) {
+                target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            }
+        },
+        [containerRef]
+    )
+
+    if (headings.length === 0) {
+        return null
+    }
+
+    const minLevel = Math.min(...headings.map((h) => h.level))
+
+    return (
+        <div className="mb-3 rounded border bg-bg-light" data-attr="llma-prompt-outline">
+            <button
+                type="button"
+                className="flex w-full cursor-pointer items-center gap-1.5 border-none bg-transparent px-3 py-2 text-left text-xs font-semibold uppercase text-secondary"
+                onClick={() => setIsExpanded(!isExpanded)}
+            >
+                <IconChevronRight className={`h-3 w-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                Prompt outline
+                <span className="font-normal">({headings.length})</span>
+            </button>
+            {isExpanded && (
+                <ul className="m-0 list-none space-y-0.5 border-t px-3 py-2">
+                    {headings.map((heading, index) => (
+                        <li key={index} style={{ paddingLeft: `${(heading.level - minLevel) * 16}px` }}>
+                            <button
+                                type="button"
+                                className="cursor-pointer truncate border-none bg-transparent p-0 text-sm text-primary hover:text-link"
+                                onClick={() => handleHeadingClick(heading.slug)}
+                                title={heading.text}
+                            >
+                                {heading.text}
+                            </button>
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </div>
+    )
+}
+
 export function PromptViewDetails(): JSX.Element {
     const { prompt, isRenderingMarkdown, isDiffVisible, canCompareVersions, compareVersionOptions } =
         useValues(llmPromptLogic)
     const { toggleMarkdownRendering, setCompareVersion } = useActions(llmPromptLogic)
+    const markdownContainerRef = useRef<HTMLDivElement>(null)
 
     if (!prompt || !isPrompt(prompt)) {
         return <></>
@@ -100,7 +185,14 @@ export function PromptViewDetails(): JSX.Element {
                 {isDiffVisible ? (
                     <PromptDiffView />
                 ) : isRenderingMarkdown ? (
-                    <LemonMarkdown className="mt-1 rounded border bg-bg-light p-3">{prompt.prompt}</LemonMarkdown>
+                    <>
+                        <PromptOutline promptText={promptText} containerRef={markdownContainerRef} />
+                        <div ref={markdownContainerRef}>
+                            <LemonMarkdown className="mt-1 rounded border bg-bg-light p-3" generateHeadingIds>
+                                {prompt.prompt}
+                            </LemonMarkdown>
+                        </div>
+                    </>
                 ) : (
                     <pre className="mt-1 max-w-3xl rounded border bg-bg-light p-3 whitespace-pre-wrap">
                         {prompt.prompt}
