@@ -374,7 +374,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             hidden={!isAdmin || (!threadLoading && !pendingPrompt)}
                         >
                             <LemonButton
-                                data-attr="max-send-message"
+                                data-attr={showStopButton ? 'max-stop-generation' : 'max-send-message'}
                                 type={(isThreadVisible && !hasQuestion) || showStopButton ? 'secondary' : 'primary'}
                                 onClick={() => {
                                     if (threadLoading) {
