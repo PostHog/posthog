@@ -73,7 +73,7 @@ function spikeBarFill(d: SparklineDatum, defaultColor: string, patternIdFor: (c:
     return d.color || defaultColor
 }
 
-function ensureStripePatterns(
+function createeStripePatterns(
     defs: d3.Selection<SVGDefsElement, unknown, null, undefined>,
     animatedColors: string[]
 ): (color: string) => string {
@@ -164,7 +164,7 @@ export function renderVolumeSparkline(svgEl: SVGSVGElement, args: VolumeSparklin
     const animatedColors = [...new Set(occurrences.filter((d) => d.animated && d.color).map((d) => d.color as string))]
 
     const defs = svg.append('defs')
-    const patternIdFor = ensureStripePatterns(defs, animatedColors)
+    const patternIdFor = createeStripePatterns(defs, animatedColors)
 
     const xTicks = d3.timeTicks(extent[0], maxDate, 8)
     const xAxisFull = d3.axisBottom(xScale).tickValues(xTicks).tickSize(0).tickPadding(5)
