@@ -141,30 +141,19 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert list_for_another_insight.status_code == status.HTTP_200_OK
         assert len(list_for_another_insight.json()["results"]) == 0
 
-    def test_retrieve_checks_default_limit(self) -> None:
-        creation_request = {
-            "insight": self.insight["id"],
-            "subscribed_users": [self.user.id],
-            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
-            "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
-            "name": "checks test",
-        }
-        alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
-        alert_obj = AlertConfiguration.objects.get(id=alert["id"])
-
-        for i in range(8):
-            AlertCheck.objects.create(
-                alert_configuration=alert_obj,
-                calculated_value=float(i),
-                state=AlertState.NOT_FIRING,
-            )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
-        assert response.status_code == status.HTTP_200_OK
-        assert len(response.json()["checks"]) == 5
-
-    def test_retrieve_checks_with_limit(self) -> None:
+    @parameterized.expand(
+        [
+            ("default_limit", 8, "", 5),
+            ("explicit_limit", 10, "?checks_limit=3", 3),
+            ("capped_at_max", 3, "?checks_limit=9999", 3),
+            ("negative_clamped_to_1", 5, "?checks_limit=-5", 1),
+            ("zero_clamped_to_1", 5, "?checks_limit=0", 1),
+            ("invalid_falls_back_to_default", 5, "?checks_limit=abc", 5),
+        ]
+    )
+    def test_retrieve_checks_limit_behaviour(
+        self, _name: str, total_checks: int, query_param: str, expected_count: int
+    ) -> None:
         creation_request = {
             "insight": self.insight["id"],
             "subscribed_users": [self.user.id],
@@ -176,16 +165,16 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
         alert_obj = AlertConfiguration.objects.get(id=alert["id"])
 
-        for i in range(10):
+        for i in range(total_checks):
             AlertCheck.objects.create(
                 alert_configuration=alert_obj,
                 calculated_value=float(i),
                 state=AlertState.NOT_FIRING,
             )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}?checks_limit=3")
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}{query_param}")
         assert response.status_code == status.HTTP_200_OK
-        assert len(response.json()["checks"]) == 3
+        assert len(response.json()["checks"]) == expected_count
 
     def test_retrieve_checks_with_date_from(self) -> None:
         creation_request = {
@@ -265,30 +254,6 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert len(checks) == 3
         values = [c["calculated_value"] for c in checks]
         assert 4.0 not in values
-
-    def test_retrieve_checks_limit_capped_at_max(self) -> None:
-        creation_request = {
-            "insight": self.insight["id"],
-            "subscribed_users": [self.user.id],
-            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
-            "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
-            "name": "checks cap test",
-        }
-        alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
-        alert_obj = AlertConfiguration.objects.get(id=alert["id"])
-
-        for i in range(3):
-            AlertCheck.objects.create(
-                alert_configuration=alert_obj,
-                calculated_value=float(i),
-                state=AlertState.NOT_FIRING,
-            )
-
-        # Requesting over the max should still work (capped to 500)
-        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}?checks_limit=9999")
-        assert response.status_code == status.HTTP_200_OK
-        assert len(response.json()["checks"]) == 3
 
     def test_alert_limit(self) -> None:
         with mock.patch("posthog.api.alert.AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER") as alert_limit:

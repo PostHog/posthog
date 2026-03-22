@@ -571,7 +571,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         raw_limit = request.query_params.get("checks_limit")
         if raw_limit is not None:
             try:
-                limit = min(int(raw_limit), self.CHECKS_MAX_LIMIT)
+                limit = max(1, min(int(raw_limit), self.CHECKS_MAX_LIMIT))
             except (ValueError, TypeError):
                 limit = self.CHECKS_DEFAULT_LIMIT
         else:
