@@ -228,6 +228,44 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         for check in checks:
             assert check["calculated_value"] >= 10.0
 
+    def test_retrieve_checks_with_date_from_and_date_to(self) -> None:
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "name": "checks window test",
+        }
+        alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+        alert_obj = AlertConfiguration.objects.get(id=alert["id"])
+
+        now = datetime.now(UTC)
+        # Create checks at different times: 3 days ago, 2 days ago, 1 day ago, now
+        times_and_values = [
+            (now - timedelta(hours=72), 1.0),
+            (now - timedelta(hours=48), 2.0),
+            (now - timedelta(hours=24), 3.0),
+            (now, 4.0),
+        ]
+        for created_at, value in times_and_values:
+            check = AlertCheck.objects.create(
+                alert_configuration=alert_obj,
+                calculated_value=value,
+                state=AlertState.NOT_FIRING,
+            )
+            AlertCheck.objects.filter(id=check.id).update(created_at=created_at)
+
+        # Window from 4 days ago to 12 hours ago — should get checks with values 1.0, 2.0, 3.0 but not 4.0
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/alerts/{alert['id']}?checks_date_from=-4d&checks_date_to=-12h"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        checks = response.json()["checks"]
+        assert len(checks) == 3
+        values = [c["calculated_value"] for c in checks]
+        assert 4.0 not in values
+
     def test_retrieve_checks_limit_capped_at_max(self) -> None:
         creation_request = {
             "insight": self.insight["id"],

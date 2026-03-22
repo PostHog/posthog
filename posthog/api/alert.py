@@ -136,7 +136,7 @@ class AlertSerializer(serializers.ModelSerializer):
     checks = AlertCheckSerializer(
         many=True,
         read_only=True,
-        help_text="Alert check results. By default returns the last 5. Use checks_date_from (e.g. '-24h', '-7d') to get checks within a time window, and checks_limit to control the maximum returned (default 5, max 500). Only populated on retrieve.",
+        help_text="Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, and checks_limit to control the maximum returned (default 5, max 500). Only populated on retrieve.",
     )
     threshold = ThresholdSerializer(
         help_text="Threshold configuration with bounds and type for evaluating the alert.",
@@ -536,7 +536,13 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 name="checks_date_from",
                 type=str,
                 required=False,
-                description="Relative date string to filter checks (e.g. '-24h', '-7d', '-14d'). Returns checks created after this time. Max retention is 14 days.",
+                description="Relative date string for the start of the check history window (e.g. '-24h', '-7d', '-14d'). Returns checks created after this time. Max retention is 14 days.",
+            ),
+            OpenApiParameter(
+                name="checks_date_to",
+                type=str,
+                required=False,
+                description="Relative date string for the end of the check history window (e.g. '-1h', '-1d'). Defaults to now if not specified.",
             ),
             OpenApiParameter(
                 name="checks_limit",
@@ -556,6 +562,12 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             parsed_date = relative_date_parse(checks_date_from, ZoneInfo("UTC"))
             checks_qs = checks_qs.filter(created_at__gte=parsed_date)
 
+        checks_date_to = request.query_params.get("checks_date_to")
+        if checks_date_to:
+            parsed_date = relative_date_parse(checks_date_to, ZoneInfo("UTC"))
+            checks_qs = checks_qs.filter(created_at__lte=parsed_date)
+
+        has_date_filter = checks_date_from or checks_date_to
         raw_limit = request.query_params.get("checks_limit")
         if raw_limit is not None:
             try:
@@ -563,7 +575,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             except (ValueError, TypeError):
                 limit = self.CHECKS_DEFAULT_LIMIT
         else:
-            limit = self.CHECKS_MAX_LIMIT if checks_date_from else self.CHECKS_DEFAULT_LIMIT
+            limit = self.CHECKS_MAX_LIMIT if has_date_filter else self.CHECKS_DEFAULT_LIMIT
 
         instance.checks = checks_qs[:limit]
         serializer = self.get_serializer(instance)
