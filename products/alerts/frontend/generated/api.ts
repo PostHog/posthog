@@ -8,7 +8,14 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import type { AlertApi, AlertsListParams, PaginatedAlertListApi, PatchedAlertApi } from './api.schemas'
+import type {
+    AlertApi,
+    AlertSimulateApi,
+    AlertSimulateResponseApi,
+    AlertsListParams,
+    PaginatedAlertListApi,
+    PatchedAlertApi,
+} from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
 type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
@@ -126,5 +133,25 @@ export const alertsDestroy = async (projectId: string, id: string, options?: Req
     return apiMutator<void>(getAlertsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+/**
+ * Simulate a detector on an insight's historical data. Read-only — no AlertCheck records are created.
+ */
+export const getAlertsSimulateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/alerts/simulate/`
+}
+
+export const alertsSimulateCreate = async (
+    projectId: string,
+    alertSimulateApi: AlertSimulateApi,
+    options?: RequestInit
+): Promise<AlertSimulateResponseApi> => {
+    return apiMutator<AlertSimulateResponseApi>(getAlertsSimulateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(alertSimulateApi),
     })
 }

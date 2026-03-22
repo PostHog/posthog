@@ -6,7 +6,9 @@ import { useValues } from 'kea'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 
 import {
+    IconCode,
     IconCursor,
+    IconDatabase,
     IconFunnels,
     IconGraph,
     IconHogQL,
@@ -21,12 +23,12 @@ import {
     IconUpload,
     IconUserPaths,
 } from '@posthog/icons'
-import { IconCode } from '@posthog/icons'
 import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
 
 import { EditorCommands, EditorRange } from 'lib/components/RichContentEditor/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconBold, IconItalic, IconTableChart } from 'lib/lemon-ui/icons'
+import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isKeyOf } from 'lib/utils'
@@ -80,6 +82,12 @@ type SlashCommandsItem = {
     featureFlag?: ValueOf<typeof FEATURE_FLAGS>
 }
 
+type SlashCommandCategory = {
+    title: string
+    icon?: JSX.Element
+    items: SlashCommandsItem[]
+}
+
 const TEXT_CONTROLS: SlashCommandsItem[] = [
     {
         title: 'h1',
@@ -108,154 +116,173 @@ const TEXT_CONTROLS: SlashCommandsItem[] = [
     },
 ]
 
-const SLASH_COMMANDS: SlashCommandsItem[] = [
+const SLASH_COMMAND_CATEGORIES: SlashCommandCategory[] = [
     {
-        title: 'Trend',
-        search: 'graph trend insight',
-        icon: <IconTrends color="currentColor" />,
-        command: (chain, pos) =>
-            chain.insertContentAt(
-                pos,
-                buildInsightVizQueryContent({
-                    kind: NodeKind.TrendsQuery,
-                    filterTestAccounts: false,
-                    series: [
-                        {
-                            kind: NodeKind.EventsNode,
-                            event: '$pageview',
-                            name: '$pageview',
-                            math: BaseMathType.TotalCount,
-                        },
-                    ],
-                    interval: 'day',
-                    trendsFilter: {
-                        display: ChartDisplayType.ActionsLineGraph,
-                    },
-                })
-            ),
-    },
-    {
-        title: 'Funnel',
-        search: 'funnel insight',
-        icon: <IconFunnels color="currentColor" />,
-        command: (chain, pos) =>
-            chain.insertContentAt(
-                pos,
-                buildInsightVizQueryContent({
-                    kind: NodeKind.FunnelsQuery,
-                    series: [
-                        {
-                            kind: NodeKind.EventsNode,
-                            name: '$pageview',
-                            event: '$pageview',
-                        },
-                        {
-                            kind: NodeKind.EventsNode,
-                            name: '$pageview',
-                            event: '$pageview',
-                        },
-                    ],
-                    funnelsFilter: {
-                        funnelVizType: FunnelVizType.Steps,
-                    },
-                })
-            ),
-    },
-    {
-        title: 'Retention',
-        search: 'retention insight',
-        icon: <IconRetention color="currentColor" />,
-        command: (chain, pos) =>
-            chain.insertContentAt(
-                pos,
-                buildInsightVizQueryContent({
-                    kind: NodeKind.RetentionQuery,
-                    retentionFilter: {
-                        period: RetentionPeriod.Day,
-                        totalIntervals: 11,
-                        targetEntity: {
-                            id: '$pageview',
-                            name: '$pageview',
-                            type: 'events',
-                        },
-                        returningEntity: {
-                            id: '$pageview',
-                            name: '$pageview',
-                            type: 'events',
-                        },
-                        retentionType: 'retention_first_time',
-                    },
-                })
-            ),
-    },
-    {
-        title: 'Paths',
-        search: 'user paths insight',
-        icon: <IconUserPaths color="currentColor" />,
-        command: (chain, pos) =>
-            chain.insertContentAt(
-                pos,
-                buildInsightVizQueryContent({
-                    kind: NodeKind.PathsQuery,
-                    pathsFilter: {
-                        includeEventTypes: [PathType.PageView],
-                    },
-                })
-            ),
-    },
-    {
-        title: 'Stickiness',
-        search: 'stickiness insight',
-        icon: <IconStickiness color="currentColor" />,
-        command: (chain, pos) =>
-            chain.insertContentAt(
-                pos,
-                buildInsightVizQueryContent({
-                    kind: NodeKind.StickinessQuery,
-                    series: [
-                        {
-                            kind: NodeKind.EventsNode,
-                            name: '$pageview',
-                            event: '$pageview',
-                            math: BaseMathType.TotalCount,
-                        },
-                    ],
-                    stickinessFilter: {},
-                })
-            ),
-    },
-    {
-        title: 'Lifecycle',
-        search: 'lifecycle insight',
-        icon: <IconLifecycle color="currentColor" />,
-        command: (chain, pos) =>
-            chain.insertContentAt(
-                pos,
-                buildInsightVizQueryContent({
-                    kind: NodeKind.LifecycleQuery,
-                    series: [
-                        {
-                            kind: NodeKind.EventsNode,
-                            name: '$pageview',
-                            event: '$pageview',
-                            math: BaseMathType.TotalCount,
-                        },
-                    ],
-                })
-            ),
+        title: 'Insight',
+        icon: <IconGraph color="currentColor" />,
+        items: [
+            {
+                title: 'Trend',
+                search: 'graph trend insight',
+                icon: <IconTrends color="currentColor" />,
+                command: (chain, pos) =>
+                    chain.insertContentAt(
+                        pos,
+                        buildInsightVizQueryContent({
+                            kind: NodeKind.TrendsQuery,
+                            filterTestAccounts: false,
+                            series: [
+                                {
+                                    kind: NodeKind.EventsNode,
+                                    event: '$pageview',
+                                    name: '$pageview',
+                                    math: BaseMathType.TotalCount,
+                                },
+                            ],
+                            interval: 'day',
+                            trendsFilter: {
+                                display: ChartDisplayType.ActionsLineGraph,
+                            },
+                        })
+                    ),
+            },
+            {
+                title: 'Funnel',
+                search: 'funnel insight',
+                icon: <IconFunnels color="currentColor" />,
+                command: (chain, pos) =>
+                    chain.insertContentAt(
+                        pos,
+                        buildInsightVizQueryContent({
+                            kind: NodeKind.FunnelsQuery,
+                            series: [
+                                {
+                                    kind: NodeKind.EventsNode,
+                                    name: '$pageview',
+                                    event: '$pageview',
+                                },
+                                {
+                                    kind: NodeKind.EventsNode,
+                                    name: '$pageview',
+                                    event: '$pageview',
+                                },
+                            ],
+                            funnelsFilter: {
+                                funnelVizType: FunnelVizType.Steps,
+                            },
+                        })
+                    ),
+            },
+            {
+                title: 'Retention',
+                search: 'retention insight',
+                icon: <IconRetention color="currentColor" />,
+                command: (chain, pos) =>
+                    chain.insertContentAt(
+                        pos,
+                        buildInsightVizQueryContent({
+                            kind: NodeKind.RetentionQuery,
+                            retentionFilter: {
+                                period: RetentionPeriod.Day,
+                                totalIntervals: 11,
+                                targetEntity: {
+                                    id: '$pageview',
+                                    name: '$pageview',
+                                    type: 'events',
+                                },
+                                returningEntity: {
+                                    id: '$pageview',
+                                    name: '$pageview',
+                                    type: 'events',
+                                },
+                                retentionType: 'retention_first_time',
+                            },
+                        })
+                    ),
+            },
+            {
+                title: 'Paths',
+                search: 'user paths insight',
+                icon: <IconUserPaths color="currentColor" />,
+                command: (chain, pos) =>
+                    chain.insertContentAt(
+                        pos,
+                        buildInsightVizQueryContent({
+                            kind: NodeKind.PathsQuery,
+                            pathsFilter: {
+                                includeEventTypes: [PathType.PageView],
+                            },
+                        })
+                    ),
+            },
+            {
+                title: 'Stickiness',
+                search: 'stickiness insight',
+                icon: <IconStickiness color="currentColor" />,
+                command: (chain, pos) =>
+                    chain.insertContentAt(
+                        pos,
+                        buildInsightVizQueryContent({
+                            kind: NodeKind.StickinessQuery,
+                            series: [
+                                {
+                                    kind: NodeKind.EventsNode,
+                                    name: '$pageview',
+                                    event: '$pageview',
+                                    math: BaseMathType.TotalCount,
+                                },
+                            ],
+                            stickinessFilter: {},
+                        })
+                    ),
+            },
+            {
+                title: 'Lifecycle',
+                search: 'lifecycle insight',
+                icon: <IconLifecycle color="currentColor" />,
+                command: (chain, pos) =>
+                    chain.insertContentAt(
+                        pos,
+                        buildInsightVizQueryContent({
+                            kind: NodeKind.LifecycleQuery,
+                            series: [
+                                {
+                                    kind: NodeKind.EventsNode,
+                                    name: '$pageview',
+                                    event: '$pageview',
+                                    math: BaseMathType.TotalCount,
+                                },
+                            ],
+                        })
+                    ),
+            },
+            {
+                title: 'Saved insight',
+                search: 'insight saved existing browse',
+                icon: <IconGraph color="currentColor" />,
+                command: (chain, pos) => {
+                    addInsightsToNotebookModalLogic.actions.openModal(typeof pos === 'number' ? pos : null)
+                    return chain
+                },
+            },
+        ],
     },
     {
         title: 'SQL',
-        search: 'sql',
         icon: <IconHogQL color="currentColor" />,
-        command: (chain, pos) =>
-            chain.insertContentAt(
-                pos,
-                buildNodeQueryContent({
-                    kind: NodeKind.DataTableNode,
-                    source: {
-                        kind: NodeKind.HogQLQuery,
-                        query: `select event,
+        items: [
+            {
+                title: 'SQL',
+                search: 'sql hogql query',
+                icon: <IconHogQL color="currentColor" />,
+                command: (chain, pos) =>
+                    chain.insertContentAt(
+                        pos,
+                        buildNodeQueryContent({
+                            kind: NodeKind.DataTableNode,
+                            source: {
+                                kind: NodeKind.HogQLQuery,
+                                query: `select event,
         person.properties.email,
         properties.$browser,
         count()
@@ -267,190 +294,209 @@ group by event,
         person.properties.email
 order by count() desc
     limit 100`,
-                        filters: {
-                            dateRange: {
-                                date_from: '-24h',
+                                filters: {
+                                    dateRange: {
+                                        date_from: '-24h',
+                                    },
+                                },
+                            },
+                        })
+                    ),
+            },
+            {
+                title: 'SQL (DuckDB)',
+                search: 'duck sql',
+                icon: <IconHogQL color="currentColor" />,
+                command: (chain, pos) =>
+                    chain.insertContentAt(pos, {
+                        type: NotebookNodeType.DuckSQL,
+                        attrs: {
+                            code: '',
+                            returnVariable: 'duck_df',
+                            __init: {
+                                showSettings: true,
                             },
                         },
-                    },
-                })
-            ),
+                    }),
+                featureFlag: FEATURE_FLAGS.NOTEBOOK_PYTHON,
+            },
+            {
+                title: 'SQL (HogQL)',
+                search: 'hogql sql',
+                icon: <IconHogQL color="currentColor" />,
+                command: (chain, pos) =>
+                    chain.insertContentAt(pos, {
+                        type: NotebookNodeType.HogQLSQL,
+                        attrs: {
+                            code: '',
+                            returnVariable: 'hogql_df',
+                            __init: {
+                                showSettings: true,
+                            },
+                        },
+                    }),
+                featureFlag: FEATURE_FLAGS.NOTEBOOK_PYTHON,
+            },
+            {
+                title: 'Python',
+                search: 'python',
+                icon: <IconPython color="currentColor" />,
+                command: (chain, pos) =>
+                    chain.insertContentAt(pos, {
+                        type: NotebookNodeType.Python,
+                        attrs: {
+                            code: '',
+                            __init: {
+                                showSettings: true,
+                            },
+                        },
+                    }),
+                featureFlag: FEATURE_FLAGS.NOTEBOOK_PYTHON,
+            },
+        ],
     },
     {
-        title: 'SQL (DuckDB)',
-        search: 'duck sql',
-        icon: <IconHogQL color="currentColor" />,
-        command: (chain, pos) =>
-            chain.insertContentAt(pos, {
-                type: NotebookNodeType.DuckSQL,
-                attrs: {
-                    code: '',
-                    returnVariable: 'duck_df',
-                    __init: {
-                        showSettings: true,
-                    },
-                },
-            }),
-        featureFlag: FEATURE_FLAGS.NOTEBOOK_PYTHON,
+        title: 'Data',
+        icon: <IconDatabase />,
+        items: [
+            {
+                title: 'Events',
+                search: 'data explore',
+                icon: <IconCursor />,
+                command: (chain, pos) =>
+                    chain.insertContentAt(
+                        pos,
+                        buildNodeQueryContent({
+                            kind: NodeKind.DataTableNode,
+                            source: {
+                                kind: NodeKind.EventsQuery,
+                                select: defaultDataTableColumns(NodeKind.EventsQuery),
+                                properties: [],
+                                after: '-24h',
+                                limit: 100,
+                            },
+                        })
+                    ),
+            },
+            {
+                title: 'People',
+                search: 'persons users',
+                icon: <IconPeople />,
+                command: (chain, pos) =>
+                    chain.insertContentAt(
+                        pos,
+                        buildNodeQueryContent({
+                            kind: NodeKind.DataTableNode,
+                            columns: defaultDataTableColumns(NodeKind.ActorsQuery),
+                            source: {
+                                kind: NodeKind.ActorsQuery,
+                                select: defaultDataTableColumns(NodeKind.ActorsQuery),
+                                properties: [],
+                            },
+                        })
+                    ),
+            },
+            {
+                title: 'Session recordings',
+                search: 'video replay',
+                icon: <IconRewindPlay />,
+                command: (chain, pos) =>
+                    chain.insertContentAt(pos, { type: NotebookNodeType.RecordingPlaylist, attrs: {} }),
+            },
+        ],
     },
     {
-        title: 'SQL (HogQL)',
-        search: 'hogql sql',
-        icon: <IconHogQL color="currentColor" />,
-        command: (chain, pos) =>
-            chain.insertContentAt(pos, {
-                type: NotebookNodeType.HogQLSQL,
-                attrs: {
-                    code: '',
-                    returnVariable: 'hogql_df',
-                    __init: {
-                        showSettings: true,
-                    },
-                },
-            }),
-        featureFlag: FEATURE_FLAGS.NOTEBOOK_PYTHON,
-    },
-    {
-        title: 'Python',
-        search: 'python',
-        icon: <IconPython color="currentColor" />,
-        command: (chain, pos) =>
-            chain.insertContentAt(pos, {
-                type: NotebookNodeType.Python,
-                attrs: {
-                    code: '',
-                    __init: {
-                        showSettings: true,
-                    },
-                },
-            }),
-        featureFlag: FEATURE_FLAGS.NOTEBOOK_PYTHON,
-    },
-    {
-        title: 'Events',
-        search: 'data explore',
-        icon: <IconCursor />,
-        command: (chain, pos) =>
-            chain.insertContentAt(
-                pos,
-                buildNodeQueryContent({
-                    kind: NodeKind.DataTableNode,
-                    source: {
-                        kind: NodeKind.EventsQuery,
-                        select: defaultDataTableColumns(NodeKind.EventsQuery),
-                        properties: [],
-                        after: '-24h',
-                        limit: 100,
-                    },
-                })
-            ),
-    },
-    {
-        title: 'Insight',
-        search: 'insight saved existing browse',
-        icon: <IconGraph color="currentColor" />,
-        command: (chain, pos) => {
-            addInsightsToNotebookModalLogic.actions.openModal(typeof pos === 'number' ? pos : null)
-            return chain
-        },
-    },
-    {
-        title: 'People',
-        search: 'persons users',
-        icon: <IconPeople />,
-        command: (chain, pos) =>
-            chain.insertContentAt(
-                pos,
-                buildNodeQueryContent({
-                    kind: NodeKind.DataTableNode,
-                    columns: defaultDataTableColumns(NodeKind.ActorsQuery),
-                    source: {
-                        kind: NodeKind.ActorsQuery,
-                        select: defaultDataTableColumns(NodeKind.ActorsQuery),
-                        properties: [],
-                    },
-                })
-            ),
-    },
-    {
-        title: 'Session recordings',
-        search: 'video replay',
-        icon: <IconRewindPlay />,
-        command: (chain, pos) => chain.insertContentAt(pos, { type: NotebookNodeType.RecordingPlaylist, attrs: {} }),
-    },
-    {
-        title: 'Image',
-        search: 'picture gif',
+        title: 'Media',
         icon: <IconUpload />,
-        command: async (chain, pos) => {
-            // Trigger upload followed by insert
-            try {
-                const files = await selectFiles({ contentType: 'image/*', multiple: false })
+        items: [
+            {
+                title: 'Image',
+                search: 'picture gif',
+                icon: <IconUpload />,
+                command: async (chain, pos) => {
+                    // Trigger upload followed by insert
+                    try {
+                        const files = await selectFiles({ contentType: 'image/*', multiple: false })
 
-                if (files.length) {
-                    return chain.insertContentAt(pos, { type: NotebookNodeType.Image, attrs: { file: files[0] } })
-                }
-            } catch {
-                lemonToast.error('Something went wrong when trying to select a file.')
-            }
+                        if (files.length) {
+                            return chain.insertContentAt(pos, {
+                                type: NotebookNodeType.Image,
+                                attrs: { file: files[0] },
+                            })
+                        }
+                    } catch {
+                        lemonToast.error('Something went wrong when trying to select a file.')
+                    }
 
-            return chain
-        },
-    },
-    {
-        title: 'Table',
-        search: 'table grid spreadsheet',
-        icon: <IconTableChart />,
-        command: (chain, pos) =>
-            chain.insertContentAt(pos, {
-                type: 'table',
-                content: [
-                    {
-                        type: 'tableRow',
+                    return chain
+                },
+            },
+            {
+                title: 'Table',
+                search: 'table grid spreadsheet',
+                icon: <IconTableChart />,
+                command: (chain, pos) =>
+                    chain.insertContentAt(pos, {
+                        type: 'table',
                         content: [
-                            { type: 'tableHeader', content: [{ type: 'paragraph' }] },
-                            { type: 'tableHeader', content: [{ type: 'paragraph' }] },
-                            { type: 'tableHeader', content: [{ type: 'paragraph' }] },
+                            {
+                                type: 'tableRow',
+                                content: [
+                                    { type: 'tableHeader', content: [{ type: 'paragraph' }] },
+                                    { type: 'tableHeader', content: [{ type: 'paragraph' }] },
+                                    { type: 'tableHeader', content: [{ type: 'paragraph' }] },
+                                ],
+                            },
+                            {
+                                type: 'tableRow',
+                                content: [
+                                    { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                                    { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                                    { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                                ],
+                            },
+                            {
+                                type: 'tableRow',
+                                content: [
+                                    { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                                    { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                                    { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                                ],
+                            },
                         ],
-                    },
-                    {
-                        type: 'tableRow',
-                        content: [
-                            { type: 'tableCell', content: [{ type: 'paragraph' }] },
-                            { type: 'tableCell', content: [{ type: 'paragraph' }] },
-                            { type: 'tableCell', content: [{ type: 'paragraph' }] },
-                        ],
-                    },
-                    {
-                        type: 'tableRow',
-                        content: [
-                            { type: 'tableCell', content: [{ type: 'paragraph' }] },
-                            { type: 'tableCell', content: [{ type: 'paragraph' }] },
-                            { type: 'tableCell', content: [{ type: 'paragraph' }] },
-                        ],
-                    },
-                ],
-            }),
-    },
-    {
-        title: 'Embedded iframe',
-        search: 'iframe embed',
-        icon: <IconCode />,
-        command: async (chain, pos) => {
-            return chain.insertContentAt(pos, buildNodeEmbed())
-        },
-    },
-    {
-        title: 'LaTeX',
-        search: 'latex math formula equation',
-        icon: <IconSquareRoot color="currentColor" />,
-        command: (chain, pos) =>
-            chain.insertContentAt(pos, {
-                type: NotebookNodeType.Latex,
-                attrs: { content: '' }, // Default empty content
-            }),
+                    }),
+            },
+            {
+                title: 'Embedded iframe',
+                search: 'iframe embed',
+                icon: <IconCode />,
+                command: async (chain, pos) => {
+                    return chain.insertContentAt(pos, buildNodeEmbed())
+                },
+            },
+            {
+                title: 'LaTeX',
+                search: 'latex math formula equation',
+                icon: <IconSquareRoot color="currentColor" />,
+                command: (chain, pos) =>
+                    chain.insertContentAt(pos, {
+                        type: NotebookNodeType.Latex,
+                        attrs: { content: '' }, // Default empty content
+                    }),
+            },
+        ],
     },
 ]
+
+/** Flatten all categories into a single list of commands, respecting feature flags. */
+function flattenCommands(
+    categories: SlashCommandCategory[],
+    featureFlags: Record<string, boolean | string | undefined>
+): SlashCommandsItem[] {
+    return categories.flatMap((category) =>
+        category.items.filter((item) => !item.featureFlag || featureFlags[item.featureFlag])
+    )
+}
 
 export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommands(
     { mode, range, getPos, onClose, query }: SlashCommandsProps,
@@ -462,11 +508,8 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     const [selectedIndex, setSelectedIndex] = useState(0)
     const [selectedHorizontalIndex, setSelectedHorizontalIndex] = useState(0)
 
-    const availableSlashCommands = useMemo(
-        () => SLASH_COMMANDS.filter((item) => !item.featureFlag || featureFlags[item.featureFlag]),
-        [featureFlags]
-    )
-    const allCommmands = [...TEXT_CONTROLS, ...availableSlashCommands]
+    const allFlatCommands = useMemo(() => flattenCommands(SLASH_COMMAND_CATEGORIES, featureFlags), [featureFlags])
+    const allCommmands = [...TEXT_CONTROLS, ...allFlatCommands]
 
     const fuse = useMemo(() => {
         return new Fuse(allCommmands, {
@@ -475,6 +518,8 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
         })
         // oxlint-disable-next-line exhaustive-deps
     }, [allCommmands])
+
+    const isSearching = !!query
 
     const filteredCommands = useMemo(() => {
         if (!query) {
@@ -485,8 +530,8 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     }, [query, fuse])
 
     const filteredSlashCommands = useMemo(
-        () => filteredCommands.filter((item) => availableSlashCommands.includes(item)),
-        [filteredCommands, availableSlashCommands]
+        () => filteredCommands.filter((item) => allFlatCommands.includes(item)),
+        [filteredCommands, allFlatCommands]
     )
 
     useEffect(() => {
@@ -494,25 +539,29 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
         setSelectedHorizontalIndex(0)
     }, [query])
 
-    const execute = async (item: SlashCommandsItem): Promise<void> => {
-        if (editor) {
-            const selectedNode = editor.getSelectedNode()
-            const isTextNode = selectedNode === null || selectedNode.isText
-            const isTextCommand = TEXT_CONTROLS.map((c) => c.title).includes(item.title)
+    const execute = useCallback(
+        async (item: SlashCommandsItem): Promise<void> => {
+            if (editor) {
+                const selectedNode = editor.getSelectedNode()
+                const isTextNode = selectedNode === null || selectedNode.isText
+                const isTextCommand = TEXT_CONTROLS.map((c) => c.title).includes(item.title)
 
-            const position = mode === 'slash' ? range.from : getPos()
-            let chain = mode === 'slash' ? editor.deleteRange(range) : editor.chain()
+                const position = mode === 'slash' ? range.from : getPos()
+                let chain = mode === 'slash' ? editor.deleteRange(range) : editor.chain()
 
-            if (!isTextNode && isTextCommand) {
-                chain = chain.insertContentAt(position, { type: 'paragraph' })
+                if (!isTextNode && isTextCommand) {
+                    chain = chain.insertContentAt(position, { type: 'paragraph' })
+                }
+
+                const partialCommand = await item.command(chain, position)
+                partialCommand.run()
+
+                onClose?.()
             }
-
-            const partialCommand = await item.command(chain, position)
-            partialCommand.run()
-
-            onClose?.()
-        }
-    }
+        },
+        // oxlint-disable-next-line exhaustive-deps
+        [editor, mode, range, getPos, onClose]
+    )
 
     const onPressEnter = async (): Promise<void> => {
         const command =
@@ -524,7 +573,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
         setSelectedIndex(Math.max(selectedIndex - 1, -1))
     }
     const onPressDown = (): void => {
-        setSelectedIndex(Math.min(selectedIndex + 1, availableSlashCommands.length - 1))
+        setSelectedIndex(Math.min(selectedIndex + 1, allFlatCommands.length - 1))
     }
 
     const onPressLeft = (): void => {
@@ -536,23 +585,26 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
 
     const onKeyDown = useCallback(
         (event: KeyboardEvent): boolean => {
-            const keyMappings = {
-                ArrowUp: onPressUp,
-                ArrowDown: onPressDown,
-                ArrowLeft: onPressLeft,
-                ArrowRight: onPressRight,
-                Enter: onPressEnter,
-            }
+            if (isSearching) {
+                // When searching, keep the flat list keyboard navigation
+                const keyMappings = {
+                    ArrowUp: onPressUp,
+                    ArrowDown: onPressDown,
+                    ArrowLeft: onPressLeft,
+                    ArrowRight: onPressRight,
+                    Enter: onPressEnter,
+                }
 
-            if (isKeyOf(event.key, keyMappings)) {
-                keyMappings[event.key]()
-                return true
+                if (isKeyOf(event.key, keyMappings)) {
+                    keyMappings[event.key]()
+                    return true
+                }
             }
 
             return false
         },
         // oxlint-disable-next-line exhaustive-deps
-        [selectedIndex, selectedHorizontalIndex, filteredCommands]
+        [selectedIndex, selectedHorizontalIndex, filteredCommands, isSearching]
     )
 
     // Expose the keydown handler to the tiptap extension
@@ -576,6 +628,33 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
         return () => window.removeEventListener('keydown', keyDownListener, true)
     }, [onKeyDown, mode])
 
+    /** Build categorized menu data for the non-search view. */
+    const categorizedMenuData = useMemo(
+        () =>
+            SLASH_COMMAND_CATEGORIES.flatMap((category) => {
+                const availableItems = category.items.filter(
+                    (item) => !item.featureFlag || featureFlags[item.featureFlag]
+                )
+                if (availableItems.length === 0) {
+                    return []
+                }
+                return [
+                    {
+                        title: category.title,
+                        icon: category.icon,
+                        menuItems: availableItems.map(
+                            (item): LemonMenuItem => ({
+                                label: item.title,
+                                icon: item.icon,
+                                onClick: () => void execute(item),
+                            })
+                        ),
+                    },
+                ]
+            }),
+        [featureFlags, execute]
+    )
+
     if (!editor) {
         return null
     }
@@ -596,21 +675,43 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
 
             <LemonDivider />
 
-            {filteredSlashCommands.map((item, index) => (
-                <LemonButton
-                    key={item.title}
-                    fullWidth
-                    icon={item.icon}
-                    active={index === selectedIndex}
-                    onClick={() => void execute(item)}
-                >
-                    {item.title}
-                </LemonButton>
-            ))}
+            {isSearching ? (
+                // When searching, show a flat filtered list so all items are discoverable
+                <>
+                    {filteredSlashCommands.map((item, index) => (
+                        <LemonButton
+                            key={item.title}
+                            fullWidth
+                            icon={item.icon}
+                            active={index === selectedIndex}
+                            onClick={() => void execute(item)}
+                        >
+                            {item.title}
+                        </LemonButton>
+                    ))}
 
-            {filteredSlashCommands.length === 0 && (
-                <div className="text-secondary p-1">
-                    Nothing matching <code>/{query}</code>
+                    {filteredSlashCommands.length === 0 && (
+                        <div className="text-secondary p-1">
+                            Nothing matching <code>/{query}</code>
+                        </div>
+                    )}
+                </>
+            ) : (
+                // When not searching, show categorized nested menus
+                <div className="deprecated-space-y-px">
+                    {categorizedMenuData.map((category) => (
+                        <LemonMenu
+                            key={category.title}
+                            items={category.menuItems}
+                            placement="right-start"
+                            trigger="hover"
+                            closeParentPopoverOnClickInside
+                        >
+                            <LemonButton fullWidth icon={category.icon} size="small">
+                                {category.title}
+                            </LemonButton>
+                        </LemonMenu>
+                    ))}
                 </div>
             )}
 

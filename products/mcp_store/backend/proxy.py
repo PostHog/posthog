@@ -50,6 +50,9 @@ def validate_installation_auth(installation: MCPServerInstallation) -> tuple[boo
     Returns (True, None) if auth is valid, or (False, error_response) if not.
     """
     if not installation.is_enabled:
+        logger.warning(
+            "Proxy auth failed: server is disabled", installation_id=str(installation.id), url=installation.url
+        )
         return False, HttpResponse(
             '{"error": "Server is disabled"}',
             content_type="application/json",
@@ -59,6 +62,9 @@ def validate_installation_auth(installation: MCPServerInstallation) -> tuple[boo
     sensitive = installation.sensitive_configuration or {}
 
     if sensitive.get("needs_reauth"):
+        logger.warning(
+            "Proxy auth failed: needs re-authentication", installation_id=str(installation.id), url=installation.url
+        )
         return False, HttpResponse(
             '{"error": "Installation needs re-authentication"}',
             content_type="application/json",
@@ -67,6 +73,9 @@ def validate_installation_auth(installation: MCPServerInstallation) -> tuple[boo
 
     if installation.auth_type == "oauth":
         if not sensitive.get("access_token"):
+            logger.warning(
+                "Proxy auth failed: no OAuth credentials", installation_id=str(installation.id), url=installation.url
+            )
             return False, HttpResponse(
                 '{"error": "No credentials configured"}',
                 content_type="application/json",
@@ -83,6 +92,9 @@ def validate_installation_auth(installation: MCPServerInstallation) -> tuple[boo
             )
 
     if installation.auth_type == "api_key" and not sensitive.get("api_key"):
+        logger.warning(
+            "Proxy auth failed: no API key configured", installation_id=str(installation.id), url=installation.url
+        )
         return False, HttpResponse(
             '{"error": "No credentials configured"}',
             content_type="application/json",
@@ -104,6 +116,7 @@ def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> Http
 
     data = request.data
     if not data or not isinstance(data, (dict, list)):
+        logger.warning("Proxy request rejected: invalid request body", url=installation.url)
         return HttpResponse(
             '{"error": "Request body must be valid JSON"}',
             content_type="application/json",
@@ -113,6 +126,7 @@ def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> Http
     body = json.dumps(data).encode()
 
     if len(body) > MAX_PROXY_BODY_SIZE:
+        logger.warning("Proxy request rejected: body too large", url=installation.url, body_size=len(body))
         return HttpResponse(
             '{"error": "Request body too large"}',
             content_type="application/json",
@@ -169,6 +183,14 @@ def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> Http
         upstream_response.read()
     finally:
         client.close()
+
+    if upstream_response.status_code >= 400:
+        logger.warning(
+            "Upstream MCP server returned error",
+            url=installation.url,
+            status_code=upstream_response.status_code,
+            response_body=upstream_response.text[:500] if upstream_response.text else "",
+        )
 
     response = HttpResponse(
         upstream_response.content,

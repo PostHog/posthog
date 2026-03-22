@@ -417,7 +417,9 @@ class ModalSandbox:
 
         return is_clean, result.stdout
 
-    def execute_task(self, task_id: str, run_id: str, repository: str, create_pr: bool = True) -> ExecutionResult:
+    def execute_task(
+        self, task_id: str, run_id: str, repository: str | None = None, create_pr: bool = True
+    ) -> ExecutionResult:
         """No-op: Task execution is now handled by agent-server."""
         return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
 
@@ -438,7 +440,7 @@ class ModalSandbox:
 
     def start_agent_server(
         self,
-        repository: str,
+        repository: str | None,
         task_id: str,
         run_id: str,
         mode: str = "background",
@@ -455,8 +457,11 @@ class ModalSandbox:
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
 
-        org, repo = repository.lower().split("/")
-        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+        repo_flag = ""
+        if repository:
+            org, repo = repository.lower().split("/")
+            repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+            repo_flag = f" --repositoryPath {shlex.quote(repo_path)}"
 
         mcp_servers_arg = ""
         if mcp_configs:
@@ -469,13 +474,13 @@ class ModalSandbox:
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         command = (
             f"cd /scripts && "
-            f"nohup {env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT} --repositoryPath {shlex.quote(repo_path)} "
+            f"nohup {env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
             f"{branch_flag}{mcp_servers_arg} "
             f"> /tmp/agent-server.log 2>&1 &"
         )
 
-        logger.info(f"Starting agent-server in sandbox {self.id} for {repository}")
+        logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
         result = self.execute(command, timeout_seconds=30)
 
         if result.exit_code != 0:

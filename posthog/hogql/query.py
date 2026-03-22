@@ -15,7 +15,12 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_default_limit_for_context
+from posthog.hogql.constants import (
+    HogQLGlobalSettings,
+    LimitContext,
+    get_default_hogql_global_settings,
+    get_default_limit_for_context,
+)
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.schema.logs import HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES
@@ -309,7 +314,10 @@ class HogQLQueryExecutor:
                     )
 
     def _effective_direct_postgres_settings(self) -> HogQLGlobalSettings:
-        settings = self.settings.model_copy(deep=True) if self.settings is not None else HogQLGlobalSettings()
+        settings = get_default_hogql_global_settings(
+            self.team.pk,
+            self.settings,
+        )
 
         if self.limit_context in (
             LimitContext.EXPORT,
@@ -456,14 +464,16 @@ class HogQLQueryExecutor:
                         "connect_timeout": DIRECT_POSTGRES_CONNECT_TIMEOUT_SECONDS,
                         "sslmode": _get_sslmode(require_ssl),
                         "options": f"-c default_transaction_read_only=on -c statement_timeout={statement_timeout_ms}",
+                        # Prevent libpq from probing ~/.postgresql/ for client certs,
+                        # which fails with "Permission denied" in containers where
+                        # $HOME is /root/ but the process runs as a non-root user.
+                        "sslcert": "/tmp/no.txt",
+                        "sslkey": "/tmp/no.txt",
+                        "sslrootcert": "/tmp/no.txt",
                     }
                     if host.endswith(".us.postwh.com"):
                         # DuckLake hosts require SSL but do not use certificate-based auth.
-                        # Override sslmode to "require" (encrypt without cert verification).
                         connection_kwargs["sslmode"] = "require"
-                        connection_kwargs["sslcert"] = "/tmp/no.txt"
-                        connection_kwargs["sslkey"] = "/tmp/no.txt"
-                        connection_kwargs["sslrootcert"] = "/tmp/no.txt"
 
                     with psycopg.connect(**connection_kwargs) as connection:
                         with connection.cursor() as cursor:
@@ -487,7 +497,7 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor._generate_clickhouse_sql")
     def _generate_clickhouse_sql(self):
-        settings = self.settings or HogQLGlobalSettings()
+        settings = get_default_hogql_global_settings(self.team.pk, self.settings)
         if self.limit_context in (
             LimitContext.EXPORT,
             LimitContext.COHORT_CALCULATION,

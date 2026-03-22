@@ -288,6 +288,14 @@ export interface PaginatedProjectBackwardCompatBasicListApi {
 
 export type ProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
 
+export type ProjectBackwardCompatApiProductIntentsItem = {
+    product_type?: string
+    created_at?: string
+    /** @nullable */
+    onboarding_completed_at?: string | null
+    updated_at?: string
+}
+
 export type EffectiveMembershipLevelEnumApi =
     (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
 
@@ -295,6 +303,22 @@ export const EffectiveMembershipLevelEnumApi = {
     Number1: 1,
     Number8: 8,
     Number15: 15,
+} as const
+
+/**
+ * * `30d` - 30 Days
+ * `90d` - 90 Days
+ * `1y` - 1 Year
+ * `5y` - 5 Years
+ */
+export type SessionRecordingRetentionPeriodEnumApi =
+    (typeof SessionRecordingRetentionPeriodEnumApi)[keyof typeof SessionRecordingRetentionPeriodEnumApi]
+
+export const SessionRecordingRetentionPeriodEnumApi = {
+    '30d': '30d',
+    '90d': '90d',
+    '1y': '1y',
+    '5y': '5y',
 } as const
 
 /**
@@ -533,6 +557,20 @@ export interface ProjectBackwardCompatApi {
     session_recording_linked_flag?: unknown | null
     session_recording_network_payload_capture_config?: unknown | null
     session_recording_masking_config?: unknown | null
+    /** @nullable */
+    session_recording_url_trigger_config?: (unknown | null)[] | null
+    /** @nullable */
+    session_recording_url_blocklist_config?: (unknown | null)[] | null
+    /** @nullable */
+    session_recording_event_trigger_config?: (string | null)[] | null
+    /**
+     * @maxLength 24
+     * @nullable
+     */
+    session_recording_trigger_match_type_config?: string | null
+    /** V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields. */
+    session_recording_trigger_groups?: unknown | null
+    session_recording_retention_period?: SessionRecordingRetentionPeriodEnumApi
     session_replay_config?: unknown | null
     survey_config?: unknown | null
     access_control?: boolean
@@ -558,7 +596,7 @@ export interface ProjectBackwardCompatApi {
     surveys_opt_in?: boolean | null
     /** @nullable */
     heatmaps_opt_in?: boolean | null
-    readonly product_intents: string
+    readonly product_intents: readonly ProjectBackwardCompatApiProductIntentsItem[]
     /** @nullable */
     flags_persistence_default?: boolean | null
     /** @nullable */
@@ -583,6 +621,14 @@ export interface ProjectBackwardCompatApi {
 }
 
 export type PatchedProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
+
+export type PatchedProjectBackwardCompatApiProductIntentsItem = {
+    product_type?: string
+    created_at?: string
+    /** @nullable */
+    onboarding_completed_at?: string | null
+    updated_at?: string
+}
 
 /**
  * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
@@ -658,6 +704,20 @@ export interface PatchedProjectBackwardCompatApi {
     session_recording_linked_flag?: unknown | null
     session_recording_network_payload_capture_config?: unknown | null
     session_recording_masking_config?: unknown | null
+    /** @nullable */
+    session_recording_url_trigger_config?: (unknown | null)[] | null
+    /** @nullable */
+    session_recording_url_blocklist_config?: (unknown | null)[] | null
+    /** @nullable */
+    session_recording_event_trigger_config?: (string | null)[] | null
+    /**
+     * @maxLength 24
+     * @nullable
+     */
+    session_recording_trigger_match_type_config?: string | null
+    /** V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields. */
+    session_recording_trigger_groups?: unknown | null
+    session_recording_retention_period?: SessionRecordingRetentionPeriodEnumApi
     session_replay_config?: unknown | null
     survey_config?: unknown | null
     access_control?: boolean
@@ -683,7 +743,7 @@ export interface PatchedProjectBackwardCompatApi {
     surveys_opt_in?: boolean | null
     /** @nullable */
     heatmaps_opt_in?: boolean | null
-    readonly product_intents?: string
+    readonly product_intents?: readonly PatchedProjectBackwardCompatApiProductIntentsItem[]
     /** @nullable */
     flags_persistence_default?: boolean | null
     /** @nullable */
@@ -707,14 +767,17 @@ export interface PatchedProjectBackwardCompatApi {
     readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnumApi[]
 }
 
+export type RoleApiMembersItem = { [key: string]: unknown }
+
 export interface RoleApi {
     readonly id: string
     /** @maxLength 200 */
     name: string
     readonly created_at: string
     readonly created_by: UserBasicApi
-    readonly members: string
-    readonly is_default: string
+    /** Members assigned to this role */
+    readonly members: readonly RoleApiMembersItem[]
+    readonly is_default: boolean
 }
 
 export interface PaginatedRoleListApi {
@@ -726,14 +789,17 @@ export interface PaginatedRoleListApi {
     results: RoleApi[]
 }
 
+export type PatchedRoleApiMembersItem = { [key: string]: unknown }
+
 export interface PatchedRoleApi {
     readonly id?: string
     /** @maxLength 200 */
     name?: string
     readonly created_at?: string
     readonly created_by?: UserBasicApi
-    readonly members?: string
-    readonly is_default?: string
+    /** Members assigned to this role */
+    readonly members?: readonly PatchedRoleApiMembersItem[]
+    readonly is_default?: boolean
 }
 
 export interface CommentApi {
@@ -920,7 +986,7 @@ export interface ExportedAssetApi {
     insight?: number | null
     export_format: ExportFormatEnumApi
     readonly created_at: string
-    readonly has_content: string
+    readonly has_content: boolean
     export_context?: unknown | null
     readonly filename: string
     /** @nullable */
@@ -1000,6 +1066,18 @@ export interface FlagValueResponseApi {
     refreshing: boolean
 }
 
+export interface SharePasswordApi {
+    readonly id: number
+    readonly created_at: string
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    note?: string | null
+    readonly created_by_email: string
+    readonly is_active: boolean
+}
+
 export interface SharingConfigurationApi {
     readonly created_at: string
     enabled?: boolean
@@ -1007,7 +1085,7 @@ export interface SharingConfigurationApi {
     readonly access_token: string | null
     settings?: unknown | null
     password_required?: boolean
-    readonly share_passwords: string
+    readonly share_passwords: readonly SharePasswordApi[]
 }
 
 /**
@@ -1019,6 +1097,7 @@ export interface SharingConfigurationApi {
  * `google-cloud-storage` - Google Cloud Storage
  * `google-ads` - Google Ads
  * `google-sheets` - Google Sheets
+ * `google-cloud-service-account` - Google Cloud Service Account
  * `snapchat` - Snapchat
  * `linkedin-ads` - Linkedin Ads
  * `reddit-ads` - Reddit Ads
@@ -1039,9 +1118,9 @@ export interface SharingConfigurationApi {
  * `jira` - Jira
  * `pinterest-ads` - Pinterest Ads
  */
-export type KindBfbEnumApi = (typeof KindBfbEnumApi)[keyof typeof KindBfbEnumApi]
+export type Kind8d6EnumApi = (typeof Kind8d6EnumApi)[keyof typeof Kind8d6EnumApi]
 
-export const KindBfbEnumApi = {
+export const Kind8d6EnumApi = {
     Slack: 'slack',
     SlackPosthogCode: 'slack-posthog-code',
     Salesforce: 'salesforce',
@@ -1050,6 +1129,7 @@ export const KindBfbEnumApi = {
     GoogleCloudStorage: 'google-cloud-storage',
     GoogleAds: 'google-ads',
     GoogleSheets: 'google-sheets',
+    GoogleCloudServiceAccount: 'google-cloud-service-account',
     Snapchat: 'snapchat',
     LinkedinAds: 'linkedin-ads',
     RedditAds: 'reddit-ads',
@@ -1076,7 +1156,7 @@ export const KindBfbEnumApi = {
  */
 export interface IntegrationApi {
     readonly id: number
-    kind: KindBfbEnumApi
+    kind: Kind8d6EnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -1098,7 +1178,7 @@ export interface PaginatedIntegrationListApi {
  */
 export interface PatchedIntegrationApi {
     readonly id?: number
-    kind?: KindBfbEnumApi
+    kind?: Kind8d6EnumApi
     config?: unknown
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -1513,6 +1593,8 @@ export type OrganizationApiTeamsItem = { [key: string]: unknown }
 
 export type OrganizationApiProjectsItem = { [key: string]: unknown }
 
+export type OrganizationApiMetadata = { [key: string]: string }
+
 export interface OrganizationApi {
     readonly id: string
     /** @maxLength 64 */
@@ -1530,7 +1612,7 @@ export interface OrganizationApi {
     /** @nullable */
     readonly available_product_features: readonly unknown[] | null
     is_member_join_email_enabled?: boolean
-    readonly metadata: string
+    readonly metadata: OrganizationApiMetadata
     /** @nullable */
     readonly customer_id: string | null
     /** @nullable */
@@ -1539,7 +1621,7 @@ export interface OrganizationApi {
     members_can_invite?: boolean | null
     members_can_use_personal_api_keys?: boolean
     allow_publicly_shared_resources?: boolean
-    readonly member_count: string
+    readonly member_count: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
     /** Default statistical method for new experiments in this organization.

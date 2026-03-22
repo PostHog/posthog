@@ -236,6 +236,8 @@ interface SchemaComposition {
     pathParamNames: string[]
     queryParamNames: string[]
     bodyFieldNames: string[]
+    /** Maps alias → original field name for renamed params */
+    renamedFields: Record<string, string>
 }
 
 function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec: OpenApiSpec): SchemaComposition {
@@ -248,6 +250,8 @@ function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec
 
     const excludeSet = new Set(config.exclude_params ?? [])
     const includeSet = config.include_params ? new Set(config.include_params) : undefined
+    // original → alias mapping from rename_params config
+    const renameMap = new Map(Object.entries(config.rename_params ?? {}))
 
     // Path params (omit project_id and organization_id — these are auto-resolved)
     const allPathParams = (resolved.operation.parameters ?? []).filter((p) => p.in === 'path')
@@ -346,7 +350,11 @@ function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec
                         continue
                     }
 
-                    bodyFieldNames.push(name)
+                    // If this field is renamed, store the alias instead so the
+                    // handler references params.<alias>. The original→alias
+                    // mapping is tracked in renamedFields for body-building.
+                    const alias = renameMap.get(name)
+                    bodyFieldNames.push(alias ?? name)
                 }
             }
 
@@ -388,6 +396,19 @@ function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec
         }
     }
 
+    // rename_params: swap original field names for MCP-safe aliases in the schema.
+    // The handler maps back to the original name when building the request body.
+    const renamedFields: Record<string, string> = {}
+    if (renameMap.size > 0) {
+        // We need the Body import to reference .shape['original'] for the alias type
+        const bodyImport = `${pascal}Body`
+        for (const [original, alias] of renameMap) {
+            renamedFields[alias] = original
+            schemaExpr += `\n    .omit({ '${original}': true })`
+            schemaExpr += `\n    .extend({ ${alias}: ${bodyImport}.shape['${original}'] })`
+        }
+    }
+
     return {
         orvalImports,
         toolInputsImports,
@@ -395,6 +416,7 @@ function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec
         pathParamNames,
         queryParamNames,
         bodyFieldNames,
+        renamedFields,
     }
 }
 
@@ -516,7 +538,10 @@ function generateToolCode(
     if (hasBody) {
         handlerBody += `        const body: Record<string, unknown> = {}\n`
         for (const bf of composition.bodyFieldNames) {
-            handlerBody += `        if (params.${bf} !== undefined) body['${bf}'] = params.${bf}\n`
+            // If the field was renamed, bf is the alias (used for params access)
+            // and bodyKey is the original name (used as the HTTP body key).
+            const bodyKey = composition.renamedFields[bf] ?? bf
+            handlerBody += `        if (params.${bf} !== undefined) body['${bodyKey}'] = params.${bf}\n`
         }
     }
 

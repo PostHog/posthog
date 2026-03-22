@@ -40,7 +40,7 @@ const meta: Meta = {
                 },
             },
             patch: {
-                '/api/environments/@current/add_product_intent/': {},
+                '/api/environments/:team_id/add_product_intent/': {},
             },
         }),
     ],

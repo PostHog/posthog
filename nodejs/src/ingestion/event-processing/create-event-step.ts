@@ -7,7 +7,7 @@ import { ProcessingStep } from '../pipelines/steps'
 import { EventToEmit } from './emit-event-step'
 
 export interface CreateEventStepInput {
-    person: Person
+    person?: Person
     preparedEvent: PreIngestionEvent
     processPerson: boolean
     historicalMigration: boolean

@@ -1,6 +1,6 @@
 from django.db import IntegrityError
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import NotFound
 
@@ -42,10 +42,14 @@ class RoleSerializer(serializers.ModelSerializer):
         validated_data["organization"] = self.context["view"].organization
         return super().create(validated_data)
 
+    @extend_schema_field(
+        serializers.ListField(child=serializers.DictField(), help_text="Members assigned to this role")
+    )
     def get_members(self, role: Role):
         members = RoleMembership.objects.filter(role=role)
         return RoleMembershipSerializer(members, many=True).data
 
+    @extend_schema_field(serializers.BooleanField())
     def get_is_default(self, role: Role):
         """Check if this role is the default role for the organization"""
         view = self.context.get("view")

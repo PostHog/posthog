@@ -18,7 +18,7 @@ import {
     IconPlus,
     IconShare,
 } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
@@ -292,8 +292,15 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
 
-    const { sourceQuery, exportContext, insightLoading, showLegacyFilters, hasQueryInput, isEmbeddedMode } =
-        useValues(sqlEditorLogic)
+    const {
+        sourceQuery,
+        exportContext,
+        insightLoading,
+        viewLoading,
+        showLegacyFilters,
+        hasQueryInput,
+        isEmbeddedMode,
+    } = useValues(sqlEditorLogic)
     const { setSourceQuery, runQuery, shareTab } = useActions(sqlEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
@@ -629,6 +636,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                     tabId={tabId}
                     setProgress={setProgress}
                     progress={queryId ? progressCache[queryId] : undefined}
+                    viewLoading={viewLoading}
                 />
             </div>
             <div className="flex justify-between px-2 border-t">
@@ -775,6 +783,7 @@ const Content = ({
     setProgress,
     progress,
     insightLoading,
+    viewLoading,
 }: any): JSX.Element | null => {
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
 
@@ -805,6 +814,17 @@ const Content = ({
         })
     }, [rows, sortColumns])
     if (activeTab === OutputTab.Materialization) {
+        if (viewLoading) {
+            return (
+                <div className="flex flex-1 items-center justify-center border-t">
+                    <div className="flex flex-col items-center gap-3 text-secondary">
+                        <Spinner className="text-6xl" />
+                        <span className="text-sm font-medium">Loading view...</span>
+                    </div>
+                </div>
+            )
+        }
+
         return (
             <TabScroller>
                 <div className="px-6 py-4 border-t">

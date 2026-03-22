@@ -134,5 +134,37 @@ resource "posthog_dashboard_layout" "team_analytics_platform_slos" {
         }
       })
     },
+    {
+      insight_id = posthog_insight.slo["subscriptions_us"].id
+      layouts_json = jsonencode({
+        sm = {
+          h      = 5
+          i      = "subscriptions_us"
+          w      = 6
+          x      = 0
+          y      = 21
+          minH   = 1
+          minW   = 1
+          moved  = false
+          static = false
+        }
+      })
+    },
+    {
+      insight_id = posthog_insight.slo["subscriptions_eu"].id
+      layouts_json = jsonencode({
+        sm = {
+          h      = 5
+          i      = "subscriptions_eu"
+          w      = 6
+          x      = 6
+          y      = 21
+          minH   = 1
+          minW   = 1
+          moved  = false
+          static = false
+        }
+      })
+    },
   ]
 }

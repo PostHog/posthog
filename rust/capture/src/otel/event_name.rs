@@ -15,6 +15,14 @@ fn classify_gen_ai_operation(op: &str) -> &'static str {
     }
 }
 
+fn classify_traceloop_request_type(request_type: &str) -> &'static str {
+    match request_type {
+        "chat" | "completion" => "$ai_generation",
+        "embedding" | "embeddings" => "$ai_embedding",
+        _ => "$ai_span",
+    }
+}
+
 fn classify_vercel_ai_operation(op_id: &str) -> &'static str {
     match op_id {
         s if s.ends_with(".doGenerate") || s.ends_with(".doStream") => "$ai_generation",
@@ -27,6 +35,10 @@ const EVENT_CLASSIFIERS: &[EventClassifier] = &[
     EventClassifier {
         attr_key: "gen_ai.operation.name",
         classify: classify_gen_ai_operation,
+    },
+    EventClassifier {
+        attr_key: "llm.request.type",
+        classify: classify_traceloop_request_type,
     },
     EventClassifier {
         attr_key: "ai.operationId",
@@ -87,6 +99,24 @@ mod tests {
                 get_event_name(&attrs_with("ai.operationId", op_id)),
                 expected,
                 "ai.operationId={op_id}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_from_traceloop_request_type() {
+        for (request_type, expected) in [
+            ("chat", "$ai_generation"),
+            ("completion", "$ai_generation"),
+            ("embedding", "$ai_embedding"),
+            ("embeddings", "$ai_embedding"),
+            ("rerank", "$ai_span"),
+            ("unknown", "$ai_span"),
+        ] {
+            assert_eq!(
+                get_event_name(&attrs_with("llm.request.type", request_type)),
+                expected,
+                "llm.request.type={request_type}"
             );
         }
     }

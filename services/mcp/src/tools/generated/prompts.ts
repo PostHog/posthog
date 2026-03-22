@@ -5,6 +5,8 @@ import type { Schemas } from '@/api/generated'
 import {
     LlmPromptsCreateBody,
     LlmPromptsListQueryParams,
+    LlmPromptsNameDuplicateCreateBody,
+    LlmPromptsNameDuplicateCreateParams,
     LlmPromptsNamePartialUpdateBody,
     LlmPromptsNamePartialUpdateParams,
     LlmPromptsNameRetrieveParams,
@@ -98,9 +100,32 @@ const promptUpdate = (): ToolBase<typeof PromptUpdateSchema, Schemas.LLMPrompt> 
     },
 })
 
+const PromptDuplicateSchema = LlmPromptsNameDuplicateCreateParams.omit({ project_id: true }).extend(
+    LlmPromptsNameDuplicateCreateBody.shape
+)
+
+const promptDuplicate = (): ToolBase<typeof PromptDuplicateSchema, Schemas.LLMPrompt> => ({
+    name: 'prompt-duplicate',
+    schema: PromptDuplicateSchema,
+    handler: async (context: Context, params: z.infer<typeof PromptDuplicateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.new_name !== undefined) {
+            body['new_name'] = params.new_name
+        }
+        const result = await context.api.request<Schemas.LLMPrompt>({
+            method: 'POST',
+            path: `/api/environments/${projectId}/llm_prompts/name/${params.prompt_name}/duplicate/`,
+            body,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'prompt-list': promptList,
     'prompt-get': promptGet,
     'prompt-create': promptCreate,
     'prompt-update': promptUpdate,
+    'prompt-duplicate': promptDuplicate,
 }

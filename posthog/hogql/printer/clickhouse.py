@@ -87,6 +87,9 @@ class ClickHousePrinter(HogQLPrinter):
             raise InternalHogQLError("Printing queries with a FROM clause is not permitted before type resolution")
         return super().visit_join_expr(node)
 
+    def visit_values_query(self, node: ast.ValuesQuery):
+        raise QueryError("VALUES clause is not supported in ClickHouse dialect")
+
     def visit_and(self, node: ast.And):
         """
         optimizations:
@@ -894,6 +897,16 @@ class ClickHousePrinter(HogQLPrinter):
             return optimized_property_group_call
 
         return super().visit_call(node)
+
+    def visit_array_slice(self, node: ast.ArraySlice):
+        array_str = self.visit(node.array)
+        start_str = self.visit(node.start_expr) if node.start_expr is not None else "1"
+        if node.end_expr is None:
+            return f"arraySlice({array_str}, {start_str})"
+
+        end_str = self.visit(node.end_expr)
+        length_str = f"plus(minus({end_str}, {start_str}), 1)"
+        return f"arraySlice({array_str}, {start_str}, {length_str})"
 
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
         raise QueryError("Printing HogQLX tags is only supported in HogQL queries")

@@ -33,21 +33,25 @@ export function hogQLToFilterValue(value?: string): { groupIndex?: number; aggre
 const UNIQUE_USERS = 'person_id'
 export const CUSTOM_DATA_WAREHOUSE_ITEMS = '__custom_data_warehouse_items__'
 
+export function getCustomAggregationEditorValue(value: string, baseValues: string[]): string {
+    return !value || baseValues.includes(value) || value === CUSTOM_DATA_WAREHOUSE_ITEMS ? '' : value
+}
+
 type AggregationSelectProps = {
     insightProps: InsightLogicProps
     className?: string
     hogqlAvailable?: boolean
     value?: string
-    disabledReason?: string
 }
 
 export function AggregationSelect({
     insightProps,
     className,
     hogqlAvailable,
-    disabledReason,
 }: AggregationSelectProps): JSX.Element | null {
-    const { querySource, isLifecycle, hasOnlyDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
+    const { querySource, isFunnels, isLifecycle, hasOnlyDataWarehouseSeries } = useValues(
+        insightVizDataLogic(insightProps)
+    )
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
     const { groupTypes, aggregationLabel } = useValues(groupsModel)
@@ -57,9 +61,9 @@ export function AggregationSelect({
         return null
     }
 
-    const showCustomDataWarehouseItemsOption = isLifecycle && hasOnlyDataWarehouseSeries
     const value =
-        isLifecycleQuery(querySource) && querySource.customAggregationTarget
+        (isLifecycleQuery(querySource) && querySource.customAggregationTarget) ||
+        (isFunnelsQuery(querySource) && querySource.funnelsFilter?.customAggregationTarget)
             ? CUSTOM_DATA_WAREHOUSE_ITEMS
             : getHogQLValue(
                   isStickinessQuery(querySource) ? undefined : querySource.aggregation_group_type_index,
@@ -69,15 +73,30 @@ export function AggregationSelect({
     const onChange = (value: string): void => {
         const { aggregationQuery, groupIndex } = hogQLToFilterValue(value)
         if (isFunnelsQuery(querySource)) {
-            updateQuerySource({
-                aggregation_group_type_index: groupIndex,
-                funnelsFilter: { ...querySource.funnelsFilter, funnelAggregateByHogQL: aggregationQuery },
-            } as FunnelsQuery)
+            if (value === CUSTOM_DATA_WAREHOUSE_ITEMS) {
+                updateQuerySource({
+                    aggregation_group_type_index: undefined,
+                    funnelsFilter: {
+                        ...querySource.funnelsFilter,
+                        funnelAggregateByHogQL: undefined,
+                        customAggregationTarget: true,
+                    },
+                } as FunnelsQuery)
+            } else {
+                updateQuerySource({
+                    aggregation_group_type_index: groupIndex,
+                    funnelsFilter: {
+                        ...querySource.funnelsFilter,
+                        funnelAggregateByHogQL: aggregationQuery,
+                        customAggregationTarget: undefined,
+                    },
+                } as FunnelsQuery)
+            }
         } else if (isLifecycleQuery(querySource)) {
             if (value === CUSTOM_DATA_WAREHOUSE_ITEMS) {
                 updateQuerySource({
-                    customAggregationTarget: true,
                     aggregation_group_type_index: undefined,
+                    customAggregationTarget: true,
                 } as LifecycleQuery)
             } else {
                 updateQuerySource({
@@ -115,36 +134,43 @@ export function AggregationSelect({
         })
     }
 
-    if (showCustomDataWarehouseItemsOption) {
-        optionSections[0].options.push({
-            value: CUSTOM_DATA_WAREHOUSE_ITEMS,
-            label: 'Custom entities',
-            tooltip:
-                'Custom entities from your data warehouse instead of persons or groups. This option is only available for insights with data warehouse only series.',
-        })
-    }
-
     if (hogqlAvailable) {
         baseValues.push(`properties.$session_id`)
         optionSections[0].options.push({
             value: 'properties.$session_id',
             label: `Unique sessions`,
         })
+    }
+
+    if (isFunnels || isLifecycle) {
+        optionSections[0].options.push({
+            value: CUSTOM_DATA_WAREHOUSE_ITEMS,
+            label: 'Custom entities',
+            tooltip:
+                'Custom entities from your data warehouse instead of persons or groups. This mainly affects how aggregation labels are shown and disables the persons modal.',
+            disabledReason: hasOnlyDataWarehouseSeries
+                ? undefined
+                : 'This option is only available for insights with only data warehouse series.',
+        })
+    }
+
+    if (hogqlAvailable) {
+        const customAggregationEditorValue = getCustomAggregationEditorValue(value, baseValues)
         optionSections[0].options.push({
             label: 'Custom SQL expression',
             options: [
                 {
                     // This is a bit of a hack so that the HogQL option is only highlighted as active when the user has
                     // set a custom value (because actually _all_ the options are HogQL)
-                    value: !value || baseValues.includes(value) ? '' : value,
-                    label: <span className="font-mono">{value}</span>,
+                    value: customAggregationEditorValue,
+                    label: <span className="font-mono">{customAggregationEditorValue}</span>,
                     labelInMenu: function CustomHogQLOptionWrapped({ onSelect }) {
                         return (
                             // eslint-disable-next-line react/forbid-dom-props
                             <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
                                 <HogQLEditor
                                     onChange={onSelect}
-                                    value={value}
+                                    value={customAggregationEditorValue}
                                     placeholder={
                                         "Enter SQL expression, such as:\n- distinct_id\n- properties.$session_id\n- concat(distinct_id, ' ', properties.$session_id)\n- if(1 < 2, 'one', 'two')"
                                     }
@@ -166,7 +192,6 @@ export function AggregationSelect({
                     onChange(newValue)
                 }
             }}
-            disabledReason={disabledReason}
             data-attr="retention-aggregation-selector"
             dropdownMatchSelectWidth={false}
             options={optionSections}

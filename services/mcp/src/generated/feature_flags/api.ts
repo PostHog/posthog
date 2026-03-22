@@ -296,6 +296,10 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                             .optional()
                             .describe('Rollout percentage for this release condition group.'),
                         variant: zod.string().nullish().describe('Variant key override for multivariate flags.'),
+                        aggregation_group_type_index: zod
+                            .number()
+                            .nullish()
+                            .describe('Group type index for this condition set. None means person-level aggregation.'),
                     })
                 )
                 .optional()
@@ -603,6 +607,10 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             .optional()
                             .describe('Rollout percentage for this release condition group.'),
                         variant: zod.string().nullish().describe('Variant key override for multivariate flags.'),
+                        aggregation_group_type_index: zod
+                            .number()
+                            .nullish()
+                            .describe('Group type index for this condition set. None means person-level aggregation.'),
                     })
                 )
                 .optional()

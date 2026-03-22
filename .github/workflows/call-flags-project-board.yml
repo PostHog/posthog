@@ -12,6 +12,7 @@ permissions:
 
 jobs:
     call-flags-project:
+        timeout-minutes: 5
         uses: PostHog/.github/.github/workflows/flags-project-board.yml@main
         # Only on PostHog/posthog, as there's no GitHub token on forks
         if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
