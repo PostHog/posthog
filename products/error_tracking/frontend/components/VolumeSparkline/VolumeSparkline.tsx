@@ -7,12 +7,16 @@ import { cn } from 'lib/utils/css-classes'
 
 import { useSparklineOptions } from '../../hooks/use-sparkline-options'
 import { errorTrackingVolumeSparklineLogic } from './errorTrackingVolumeSparklineLogic'
-import type { SparklineData, SparklineDatum, SparklineEvent, VolumeSparklineXAxisMode } from './types'
+import type {
+    SparklineData,
+    SparklineDatum,
+    SparklineEvent,
+    VolumeSparklineLayout,
+    VolumeSparklineXAxisMode,
+} from './types'
 import { renderVolumeSparkline } from './volumeSparklineRender'
 
-export type { VolumeSparklineXAxisMode } from './types'
-
-type VolumeSparklineLayout = 'compact' | 'detailed'
+export type { VolumeSparklineLayout, VolumeSparklineXAxisMode } from './types'
 
 export type VolumeSparklineProps = {
     data: SparklineData

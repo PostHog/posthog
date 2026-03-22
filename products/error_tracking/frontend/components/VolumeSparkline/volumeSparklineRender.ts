@@ -1,6 +1,7 @@
 import * as d3 from 'd3'
 
 import type { SparklineData, SparklineDatum, SparklineEvent, VolumeSparklineXAxisMode } from './types'
+import { renderVolumeSparklineEventMarkers } from './volumeSparklineEvents'
 
 const VOLUME_SPARKLINE_X_AXIS_RESERVE_PX: Record<VolumeSparklineXAxisMode, number> = {
     full: 26,
@@ -9,7 +10,6 @@ const VOLUME_SPARKLINE_X_AXIS_RESERVE_PX: Record<VolumeSparklineXAxisMode, numbe
 }
 
 const VOLUME_SPARKLINE_EVENT_LABEL_BAR_GAP_PX = 10
-import { renderVolumeSparklineEventMarkers } from './volumeSparklineEvents'
 
 const STRIPE_CELL = 12
 
@@ -33,29 +33,9 @@ export type VolumeSparklineRenderArgs = {
     eventMinSpace?: number
 }
 
-// TODO: DO SOMETHING ABOUT IT BEFORE PROD
-function roundedTopBarPath(x: number, y: number, w: number, h: number, r: number): string {
-    if (w <= 0 || h <= 0) {
-        return ''
-    }
-    const rr = Math.min(Math.max(r, 0), w / 2, h / 2)
-    const x0 = x
-    const x1 = x + w
-    const y0 = y
-    const y1 = y + h
-    if (rr <= 0) {
-        return `M ${x0} ${y0} L ${x1} ${y0} L ${x1} ${y1} L ${x0} ${y1} Z`
-    }
-    return [
-        `M ${x0 + rr} ${y0}`,
-        `L ${x1 - rr} ${y0}`,
-        `Q ${x1} ${y0} ${x1} ${y0 + rr}`,
-        `L ${x1} ${y1}`,
-        `L ${x0} ${y1}`,
-        `L ${x0} ${y0 + rr}`,
-        `Q ${x0} ${y0} ${x0 + rr} ${y0}`,
-        'Z',
-    ].join(' ')
+/** Rounded top, square bottom: native rx/ry + clip away bottom rounding (same idea as legacy SparklineChart). */
+function roundedTopBarClipPathPx(borderRadius: number): string {
+    return `inset(0 0 ${borderRadius + 1}px 0)`
 }
 
 function hashColorId(color: string): string {
@@ -205,12 +185,27 @@ export function renderVolumeSparkline(svgEl: SVGSVGElement, args: VolumeSparklin
         const fill = spikeBarFill(d, backgroundColor, patternIdFor)
 
         if (barHeight > 0) {
-            const dPath = roundedTopBarPath(barX, barTop, barW, barHeight, borderRadius)
-            g.append('path').attr('class', 'bar-main').attr('d', dPath).style('fill', fill)
+            const clip = roundedTopBarClipPathPx(borderRadius)
+            g.append('rect')
+                .attr('class', 'bar-main')
+                .attr('x', barX)
+                .attr('y', barTop + borderRadius)
+                .attr('width', barW)
+                .attr('height', chartHeight - barTop)
+                .attr('rx', borderRadius)
+                .attr('ry', borderRadius)
+                .style('clip-path', clip)
+                .style('fill', fill)
 
-            g.append('path')
+            g.append('rect')
                 .attr('class', 'bar-hover-overlay')
-                .attr('d', dPath)
+                .attr('x', barX)
+                .attr('y', barTop + borderRadius)
+                .attr('width', barW)
+                .attr('height', chartHeight - barTop)
+                .attr('rx', borderRadius)
+                .attr('ry', borderRadius)
+                .style('clip-path', clip)
                 .style('fill', 'black')
                 .style('opacity', 0)
                 .style('pointer-events', 'none')
