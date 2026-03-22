@@ -2555,15 +2555,20 @@ class FeatureFlagViewSet(
                             """
                             (
                                 (
+                                    -- Boolean flag: fully rolled out (100% with no properties)
+                                    -- A flag is boolean only when multivariate key is absent (NULL).
+                                    -- Flags with multivariate: {"variants": []} are treated as
+                                    -- multivariate by FeatureFlagStatusChecker, not boolean.
                                     EXISTS (
                                         SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
                                         WHERE elem->>'rollout_percentage' = '100'
                                         AND (elem->'properties')::text = '[]'::text
                                     )
-                                    AND (posthog_featureflag.filters->>'multivariate' IS NULL OR jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') = 0)
+                                    AND posthog_featureflag.filters->>'multivariate' IS NULL
                                 )
                                 OR
                                 (
+                                    -- Multivariate flag: a variant at 100% AND a release condition at 100%
                                     EXISTS (
                                         SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'multivariate'->'variants') AS variant
                                         WHERE variant->>'rollout_percentage' = '100'
@@ -2576,6 +2581,7 @@ class FeatureFlagViewSet(
                                 )
                                 OR
                                 (
+                                    -- Multivariate flag: release condition at 100% with variant override
                                     EXISTS (
                                         SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
                                         WHERE elem->>'rollout_percentage' = '100'
