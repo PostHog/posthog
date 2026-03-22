@@ -475,6 +475,18 @@ class TestUserSavedSignalHandler(TestCase):
         user_saved(sender=User, instance=mock_user, created=False)
         self.assertEqual(mock_on_commit.call_count, 1)
 
+    @patch("django.db.transaction.on_commit")
+    def test_from_db_sets_original_is_active_for_change_detection(self, mock_on_commit):
+        user = User.objects.create(email="fromdb-test@example.com", is_active=True)
+        mock_on_commit.reset_mock()
+
+        loaded_user = User.objects.get(pk=user.pk)
+        self.assertEqual(loaded_user._original_is_active, True)
+
+        loaded_user.is_active = False
+        loaded_user.save()
+        mock_on_commit.assert_called_once()
+
 
 class TestOrganizationMembershipSavedSignalHandler(TestCase):
     @patch("posthog.tasks.team_access_cache_tasks.invalidate_user_tokens_sync")
