@@ -12,6 +12,7 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
+import posthog.storage.team_access_cache_signal_handlers  # noqa: F401 — registers PSAK delete handler
 from posthog.models.team.team import Team
 from posthog.storage.team_metadata_cache import (
     TEAM_METADATA_FIELDS,
@@ -187,6 +188,45 @@ class TestTeamMetadataCacheSignals(BaseTest):
 
         # Cache should NOT be cleared
         mock_clear.assert_not_called()
+
+    @patch("posthog.storage.team_access_cache.token_auth_cache")
+    def test_team_delete_clears_project_secret_api_key_cache(self, mock_token_cache):
+        from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+
+        team = Team.objects.create(
+            organization=self.organization,
+            name="Test Team",
+        )
+
+        ProjectSecretAPIKey.objects.create(
+            team=team,
+            label="Key 1",
+            secure_value="sha256$hashed_value_1",
+        )
+        ProjectSecretAPIKey.objects.create(
+            team=team,
+            label="Key 2",
+            secure_value="sha256$hashed_value_2",
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            team.delete()
+
+        mock_token_cache.invalidate_tokens.assert_called_once()
+        invalidated_values = set(mock_token_cache.invalidate_tokens.call_args[0][0])
+        self.assertEqual(invalidated_values, {"sha256$hashed_value_1", "sha256$hashed_value_2"})
+
+    @patch("posthog.storage.team_access_cache.token_auth_cache")
+    def test_team_delete_handles_no_project_secret_api_keys(self, mock_token_cache):
+        team = Team.objects.create(
+            organization=self.organization,
+            name="Test Team",
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            team.delete()
+
+        mock_token_cache.invalidate_tokens.assert_not_called()
 
 
 class TestCacheStats(BaseTest):

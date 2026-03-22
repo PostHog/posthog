@@ -131,6 +131,8 @@
     'posthog.tasks.tasks.update_survey_adaptive_sampling',
     'posthog.tasks.tasks.update_survey_iteration',
     'posthog.tasks.tasks.verify_persons_data_in_sync',
+    'posthog.tasks.team_access_cache_tasks.invalidate_token_cache_task',
+    'posthog.tasks.team_access_cache_tasks.invalidate_user_tokens_task',
     'posthog.tasks.team_metadata.cleanup_stale_expiry_tracking_task',
     'posthog.tasks.team_metadata.refresh_expiring_team_metadata_cache_entries',
     'posthog.tasks.team_metadata.update_team_metadata_cache_task',
