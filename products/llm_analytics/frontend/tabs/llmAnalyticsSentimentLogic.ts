@@ -90,8 +90,6 @@ interface GenerationsQueryValues {
 // Tracks the raw (pre-dedup) count from the last loadMoreGenerations fetch,
 // so the listener can determine hasMore accurately despite deduplication.
 let lastRawFetchCount = 0
-// How many extra pages we've auto-loaded in the current session (reset on fresh load)
-let autoLoadRounds = 0
 
 async function fetchGenerations(values: GenerationsQueryValues, cursor: string | null): Promise<SentimentGeneration[]> {
     const response = (await api.query({
@@ -190,6 +188,13 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
                     [cardKey]: feedbackLabel,
                 }),
                 loadGenerations: () => ({}),
+            },
+        ],
+        autoLoadRounds: [
+            0 as number,
+            {
+                loadGenerations: () => 0,
+                loadMoreGenerations: (state: number) => state + 1,
             },
         ],
         hasLoadedOnce: [
@@ -344,7 +349,6 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
                 }
             },
             loadGenerationsSuccess: ({ generations }) => {
-                autoLoadRounds = 0
                 actions.setHasMore(generations.length >= GENERATIONS_PAGE_SIZE)
                 for (const gen of generations) {
                     if (values.sentimentByGenerationId[gen.uuid] === undefined) {
@@ -410,7 +414,9 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
 
                     // Auto-load more generations if we don't have enough visible cards
                     const shouldAutoLoad =
-                        visibleCards < MIN_VISIBLE_CARDS && values.hasMore && autoLoadRounds < MAX_AUTO_LOAD_ROUNDS
+                        visibleCards < MIN_VISIBLE_CARDS &&
+                        values.hasMore &&
+                        values.autoLoadRounds < MAX_AUTO_LOAD_ROUNDS
 
                     if ((totalGenerations === 0 || cardCount === 0) && !shouldAutoLoad) {
                         posthog.capture('llma sentiment empty state', {
@@ -428,7 +434,6 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
                     }
 
                     if (shouldAutoLoad) {
-                        autoLoadRounds++
                         actions.loadMoreGenerations()
                     }
                 }
