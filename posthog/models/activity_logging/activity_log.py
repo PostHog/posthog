@@ -307,6 +307,8 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
     ],
     "OrganizationDomain": [
         "last_verification_retry",
+        "scim_enabled",
+        "scim_bearer_token",
     ],
 }
 
