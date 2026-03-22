@@ -1,19 +1,17 @@
 # phrocs Build Workflow
 #
-# This workflow builds phrocs binaries for all supported platforms and publishes
-# them as GitHub releases.
-#
-# Download the latest version:
-#   macOS (Apple Silicon): curl -L https://github.com/PostHog/posthog/releases/download/phrocs-latest/phrocs-darwin-arm64 -o phrocs && chmod +x phrocs
-#   macOS (Intel):         curl -L https://github.com/PostHog/posthog/releases/download/phrocs-latest/phrocs-darwin-amd64 -o phrocs && chmod +x phrocs
-#   Linux (amd64):         curl -L https://github.com/PostHog/posthog/releases/download/phrocs-latest/phrocs-linux-amd64 -o phrocs && chmod +x phrocs
-#   Linux (arm64):         curl -L https://github.com/PostHog/posthog/releases/download/phrocs-latest/phrocs-linux-arm64 -o phrocs && chmod +x phrocs
-#
-# Or browse all versions at: https://github.com/PostHog/posthog/releases?q=phrocs-&expanded=true
+# Triggers:
+#   - Push to master (paths: tools/phrocs/**) → updates phrocs-latest release
+#   - Manual dispatch with version input       → creates phrocs-X.Y.Z semver release + updates Homebrew
 
 name: Build phrocs
 
 on:
+    workflow_dispatch:
+        inputs:
+            version:
+                description: 'Semver version (e.g. 1.0.1)'
+                required: true
     push:
         branches:
             - master
@@ -22,6 +20,10 @@ on:
             - '!tools/phrocs/README.md'
             - '.github/workflows/build-phrocs.yml'
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
 permissions:
     contents: write
 
@@ -29,6 +31,8 @@ jobs:
     build:
         runs-on: ubuntu-24.04
         timeout-minutes: 10
+
+        if: github.repository == 'PostHog/posthog'
 
         steps:
             - name: Checkout repository
@@ -42,25 +46,20 @@ jobs:
                   cache-dependency-path: tools/phrocs/go.sum
 
             - name: Build all platform binaries
-              run: cd tools/phrocs && make build-all
+              env:
+                  PHROCS_VERSION: ${{ inputs.version || github.sha }}
+              run: cd tools/phrocs && make build-all VERSION="$PHROCS_VERSION"
 
-            - name: Create versioned and latest releases
+            - name: Generate checksums
+              run: |
+                  cd tools/phrocs/dist
+                  sha256sum phrocs-* > checksums.txt
+
+            - name: Update latest release
               env:
                   GH_TOKEN: ${{ github.token }}
+                  GIT_SHA: ${{ github.sha }}
               run: |
-                  VERSION="phrocs-$(date +%Y%m%d-%H%M%S)"
-
-                  # Versioned release for history
-                  gh release create "$VERSION" \
-                      tools/phrocs/dist/phrocs-linux-amd64 \
-                      tools/phrocs/dist/phrocs-linux-arm64 \
-                      tools/phrocs/dist/phrocs-darwin-amd64 \
-                      tools/phrocs/dist/phrocs-darwin-arm64 \
-                      --title "phrocs $VERSION" \
-                      --notes "Built from commit ${{ github.sha }}" \
-                      --latest=false
-
-                  # Update floating latest release
                   gh release delete phrocs-latest --yes || true
                   git push origin :refs/tags/phrocs-latest || true
                   gh release create phrocs-latest \
@@ -68,21 +67,71 @@ jobs:
                       tools/phrocs/dist/phrocs-linux-arm64 \
                       tools/phrocs/dist/phrocs-darwin-amd64 \
                       tools/phrocs/dist/phrocs-darwin-arm64 \
-                      --title "phrocs (latest)" \
-                      --notes "Latest phrocs build — same as $VERSION
-
-                  Download:
-                  \`\`\`sh
-                  # macOS (Apple Silicon)
-                  curl -L https://github.com/PostHog/posthog/releases/download/phrocs-latest/phrocs-darwin-arm64 -o phrocs && chmod +x phrocs
-
-                  # macOS (Intel)
-                  curl -L https://github.com/PostHog/posthog/releases/download/phrocs-latest/phrocs-darwin-amd64 -o phrocs && chmod +x phrocs
-
-                  # Linux (amd64)
-                  curl -L https://github.com/PostHog/posthog/releases/download/phrocs-latest/phrocs-linux-amd64 -o phrocs && chmod +x phrocs
-
-                  # Linux (arm64)
-                  curl -L https://github.com/PostHog/posthog/releases/download/phrocs-latest/phrocs-linux-arm64 -o phrocs && chmod +x phrocs
-                  \`\`\`" \
+                      tools/phrocs/dist/checksums.txt \
+                      --title "phrocs-latest" \
+                      --notes "Built from commit ${GIT_SHA}" \
                       --latest=false
+
+            - name: Create semver release
+              if: github.event_name == 'workflow_dispatch'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  GIT_SHA: ${{ github.sha }}
+                  PHROCS_VERSION: ${{ inputs.version }}
+              run: |
+                  gh release create "phrocs-${PHROCS_VERSION}" \
+                      tools/phrocs/dist/phrocs-linux-amd64 \
+                      tools/phrocs/dist/phrocs-linux-arm64 \
+                      tools/phrocs/dist/phrocs-darwin-amd64 \
+                      tools/phrocs/dist/phrocs-darwin-arm64 \
+                      tools/phrocs/dist/checksums.txt \
+                      --title "phrocs-${PHROCS_VERSION}" \
+                      --notes "Built from commit ${GIT_SHA}" \
+                      --latest=false
+
+            - name: Generate Homebrew tap token
+              id: app-token
+              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              if: github.event_name == 'workflow_dispatch'
+              with:
+                  app_id: ${{ secrets.GH_APP_HOMEBREW_TAP_RELEASER_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_HOMEBREW_TAP_RELEASER_PRIVATE_KEY }}
+
+            - name: Prepare Homebrew formula
+              if: github.event_name == 'workflow_dispatch'
+              env:
+                  PHROCS_VERSION: ${{ inputs.version }}
+              run: |
+                  SHA256_DARWIN_AMD64=$(grep phrocs-darwin-amd64 tools/phrocs/dist/checksums.txt | awk '{print $1}')
+                  SHA256_DARWIN_ARM64=$(grep phrocs-darwin-arm64 tools/phrocs/dist/checksums.txt | awk '{print $1}')
+                  SHA256_LINUX_AMD64=$(grep phrocs-linux-amd64 tools/phrocs/dist/checksums.txt | awk '{print $1}')
+                  SHA256_LINUX_ARM64=$(grep phrocs-linux-arm64 tools/phrocs/dist/checksums.txt | awk '{print $1}')
+
+                  sed \
+                      -e "s/VERSION_PLACEHOLDER/${PHROCS_VERSION}/g" \
+                      -e "s/SHA256_DARWIN_AMD64/${SHA256_DARWIN_AMD64}/g" \
+                      -e "s/SHA256_DARWIN_ARM64/${SHA256_DARWIN_ARM64}/g" \
+                      -e "s/SHA256_LINUX_AMD64/${SHA256_LINUX_AMD64}/g" \
+                      -e "s/SHA256_LINUX_ARM64/${SHA256_LINUX_ARM64}/g" \
+                      tools/phrocs/Formula/phrocs.rb > /tmp/phrocs.rb
+
+            - name: Checkout Homebrew tap
+              uses: actions/checkout@v6
+              if: github.event_name == 'workflow_dispatch'
+              with:
+                  repository: PostHog/homebrew-tap
+                  token: ${{ steps.app-token.outputs.token }}
+
+            - name: Update Homebrew formula
+              if: github.event_name == 'workflow_dispatch'
+              run: cp /tmp/phrocs.rb Formula/phrocs.rb
+
+            - name: Commit Homebrew formula update
+              if: github.event_name == 'workflow_dispatch'
+              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+              with:
+                  commit_message: 'chore: update phrocs formula to ${{ inputs.version }}'
+                  repo: PostHog/homebrew-tap
+                  branch: main
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
