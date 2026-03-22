@@ -56,7 +56,7 @@ class TestExperimentViewSet(BaseTest):
         assert response.data["feature_flag_key"] == "new-format-flag"
 
         # Verify database objects were created
-        experiment = Experiment.objects.get(id=response.data["id"])
+        experiment = Experiment.objects.get(id=response.data["id"], team_id=self.team.id)
         assert experiment.name == "New Format Test"
 
         flag = FeatureFlag.objects.get(key="new-format-flag", team=self.team)
