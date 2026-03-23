@@ -1,6 +1,7 @@
 import typing
 import collections.abc
 
+import google.auth.transport.requests
 from google.api_core.exceptions import NotFound, PermissionDenied
 from google.cloud import bigquery, iam_admin_v1
 
@@ -80,12 +81,8 @@ class BigQueryImpersonateServiceAccountTestStep(DestinationTestStep):
 
         try:
             their_credentials = impersonate_service_account(self.integration)
-            client = bigquery.Client(
-                project=self.integration.project_id,
-                credentials=their_credentials,
-            )
             # This triggers an actual credential refresh
-            list(client.query("SELECT 1").result())
+            their_credentials.refresh(google.auth.transport.requests.Request())
 
         except NotFound:
             service_account_email = self.integration.service_account_email
@@ -353,7 +350,6 @@ class BigQueryTableTestStep(DestinationTestStep):
     async def _run_step(self) -> DestinationTestStepResult:
         """Run this test step."""
         from google.api_core.exceptions import BadRequest
-        from google.cloud import bigquery
         from google.cloud.exceptions import NotFound
 
         client = get_client(self.project_id, self.integration, self.service_account_info)
