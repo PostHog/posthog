@@ -1066,12 +1066,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         eligible_schemas = [s for s in db_schemas if s.name in webhook_source_schemas]
 
-        if not eligible_schemas:
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "No webhook-eligible incremental schemas found for this source"},
-            )
-
         hog_fn_result = get_or_create_webhook_hog_function(
             team=self.team,
             source=source,

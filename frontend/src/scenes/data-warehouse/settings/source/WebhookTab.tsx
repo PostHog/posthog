@@ -1,14 +1,17 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCopy } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { WebhookInfo } from '~/types'
 
+import {
+    WebhookRefreshButton,
+    WebhookSetupForm,
+    WebhookStatusTags,
+    WebhookUrlDisplay,
+} from '../../external/forms/WebhookSetupForm'
 import { webhookTabLogic } from './webhookTabLogic'
 
 export function WebhookTab({ id }: { id: string }): JSX.Element {
@@ -16,12 +19,14 @@ export function WebhookTab({ id }: { id: string }): JSX.Element {
         webhookInfo,
         webhookInfoLoading,
         webhookCreating,
-        createWebhookError,
+        createWebhookResult,
         internalStateLabel,
         externalStateLabel,
         mappedTables,
+        source,
+        sourceConfig,
     } = useValues(webhookTabLogic({ id }))
-    const { createWebhook } = useActions(webhookTabLogic({ id }))
+    const { createWebhook, loadWebhookInfo } = useActions(webhookTabLogic({ id }))
 
     if (webhookInfoLoading && !webhookInfo) {
         return (
@@ -33,80 +38,111 @@ export function WebhookTab({ id }: { id: string }): JSX.Element {
         )
     }
 
+    // No webhook exists yet — show setup flow (or re-creation if external webhook is missing)
+    const logicProps = { id }
+
     if (!webhookInfo?.exists) {
-        return <WebhookSetup creating={webhookCreating} error={createWebhookError} onCreate={createWebhook} />
+        return (
+            <WebhookSetupForm
+                sourceName={sourceConfig?.label ?? source?.source_type ?? 'source'}
+                sourceConfig={sourceConfig}
+                webhookResult={createWebhookResult}
+                webhookCreating={webhookCreating}
+                onCreateWebhook={createWebhook}
+                formLogic={webhookTabLogic(logicProps)}
+                formKey="webhookFieldInputs"
+            />
+        )
     }
+
+    // Webhook exists but is missing at the source — offer re-creation
+    const externalMissing =
+        webhookInfo.external_status && !webhookInfo.external_status.exists && !webhookInfo.external_status.error
 
     return (
         <div className="space-y-4">
             <WebhookStatusSection
                 webhookInfo={webhookInfo}
+                webhookInfoLoading={webhookInfoLoading}
                 internalStateLabel={internalStateLabel}
                 externalStateLabel={externalStateLabel}
+                onRefresh={loadWebhookInfo}
             />
+            {externalMissing && (
+                <WebhookRecreateSection
+                    id={id}
+                    sourceName={sourceConfig?.label ?? source?.source_type ?? 'source'}
+                    sourceConfig={sourceConfig}
+                    webhookCreating={webhookCreating}
+                    createWebhookResult={createWebhookResult}
+                    onCreateWebhook={createWebhook}
+                />
+            )}
             <WebhookDetailsSection webhookInfo={webhookInfo} />
             {mappedTables.length > 0 && <MappedTablesSection mappedTables={mappedTables} />}
         </div>
     )
 }
 
-function WebhookSetup({
-    creating,
-    error,
-    onCreate,
-}: {
-    creating: boolean
-    error: string | null
-    onCreate: () => void
-}): JSX.Element {
-    return (
-        <LemonCard hoverEffect={false} className="space-y-4">
-            <h3 className="text-lg font-semibold">Set up webhook</h3>
-            <p>
-                Instead of polling for changes on a schedule, a webhook pushes new data to PostHog in real-time. This
-                means faster syncs and less load on your source.
-            </p>
-            {error && <LemonBanner type="warning">{error}</LemonBanner>}
-            <LemonButton type="primary" onClick={onCreate} loading={creating}>
-                {creating ? 'Creating webhook...' : 'Set up webhook'}
-            </LemonButton>
-        </LemonCard>
-    )
-}
-
 function WebhookStatusSection({
     webhookInfo,
+    webhookInfoLoading,
     internalStateLabel,
     externalStateLabel,
+    onRefresh,
 }: {
     webhookInfo: WebhookInfo
+    webhookInfoLoading: boolean
     internalStateLabel: { label: string; tagType: 'success' | 'warning' | 'danger' | 'default' }
     externalStateLabel: { label: string; tagType: 'success' | 'warning' | 'danger' | 'default' }
+    onRefresh: () => void
 }): JSX.Element {
     const externalStatus = webhookInfo.external_status
 
     return (
         <LemonCard hoverEffect={false} className="space-y-4">
-            <h3 className="text-lg font-semibold">Webhook status</h3>
-
-            <div className="flex gap-8">
-                <div className="space-y-1">
-                    <p className="text-xs font-semibold text-muted uppercase">Source webhook</p>
-                    <LemonTag type={externalStateLabel.tagType}>{externalStateLabel.label}</LemonTag>
-                </div>
-                <div className="space-y-1">
-                    <p className="text-xs font-semibold text-muted uppercase">PostHog processing</p>
-                    <LemonTag type={internalStateLabel.tagType}>{internalStateLabel.label}</LemonTag>
-                </div>
+            <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold mb-0">Webhook status</h3>
+                <WebhookRefreshButton onClick={onRefresh} loading={webhookInfoLoading} />
             </div>
+
+            <WebhookStatusTags externalStateLabel={externalStateLabel} internalStateLabel={internalStateLabel} />
 
             {externalStatus && !externalStatus.exists && !externalStatus.error && (
                 <LemonBanner type="warning">
-                    Webhook not found on your source account. It may have been deleted.
+                    Webhook not found on your source account. It may have been deleted. You can re-create it below.
                 </LemonBanner>
             )}
             {externalStatus?.error && <LemonBanner type="info">{externalStatus.error}</LemonBanner>}
         </LemonCard>
+    )
+}
+
+function WebhookRecreateSection({
+    id,
+    sourceName,
+    sourceConfig,
+    webhookCreating,
+    createWebhookResult,
+    onCreateWebhook,
+}: {
+    id: string
+    sourceName: string
+    sourceConfig: any
+    webhookCreating: boolean
+    createWebhookResult: { success: boolean; webhook_url: string; error?: string } | null
+    onCreateWebhook: () => void
+}): JSX.Element {
+    return (
+        <WebhookSetupForm
+            sourceName={sourceName}
+            sourceConfig={sourceConfig}
+            webhookResult={createWebhookResult}
+            webhookCreating={webhookCreating}
+            onCreateWebhook={onCreateWebhook}
+            formLogic={webhookTabLogic({ id })}
+            formKey="webhookFieldInputs"
+        />
     )
 }
 
@@ -117,29 +153,7 @@ function WebhookDetailsSection({ webhookInfo }: { webhookInfo: WebhookInfo }): J
         <LemonCard hoverEffect={false} className="space-y-3">
             <h3 className="text-lg font-semibold">Details</h3>
 
-            {webhookInfo.webhook_url && (
-                <div>
-                    <p className="text-xs font-semibold text-muted uppercase mb-1">Webhook URL</p>
-                    <div className="flex items-center gap-2">
-                        <code className="text-sm bg-bg-light rounded border px-2 py-1 break-all flex-1">
-                            {webhookInfo.webhook_url}
-                        </code>
-                        <LemonButton
-                            icon={<IconCopy />}
-                            size="small"
-                            type="secondary"
-                            onClick={() => void copyToClipboard(webhookInfo.webhook_url!, 'webhook URL')}
-                        />
-                    </div>
-                </div>
-            )}
-
-            {webhookInfo.hog_function?.created_at && (
-                <div>
-                    <p className="text-xs font-semibold text-muted uppercase mb-1">Created</p>
-                    <TZLabel time={webhookInfo.hog_function.created_at} />
-                </div>
-            )}
+            {webhookInfo.webhook_url && <WebhookUrlDisplay url={webhookInfo.webhook_url} />}
 
             {externalStatus?.enabled_events && externalStatus.enabled_events.length > 0 && (
                 <div>

@@ -1,10 +1,13 @@
 import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { getErrorsForFields } from 'scenes/data-warehouse/new/sourceWizardLogic'
 
+import { SourceConfig } from '~/queries/schema/schema-general'
 import { ExternalDataSource, WebhookInfo } from '~/types'
 
 import { dataWarehouseSourceSettingsLogic } from './dataWarehouseSourceSettingsLogic'
@@ -14,8 +17,6 @@ export interface WebhookTabLogicProps {
     id: string
 }
 
-const REFRESH_INTERVAL = 5000
-
 export const webhookTabLogic = kea<webhookTabLogicType>([
     props({} as WebhookTabLogicProps),
     key(({ id }: WebhookTabLogicProps) => id),
@@ -23,7 +24,10 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
     actions({
         createWebhook: true,
         setWebhookCreating: (creating: boolean) => ({ creating }),
-        setCreateWebhookError: (error: string | null) => ({ error }),
+        setCreateWebhookResult: (result: { success: boolean; webhook_url: string; error?: string } | null) => ({
+            result,
+        }),
+        submitWebhookFields: true,
     }),
     reducers({
         webhookCreating: [
@@ -33,11 +37,11 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
                 setWebhookCreating: (_, { creating }) => creating,
             },
         ],
-        createWebhookError: [
-            null as string | null,
+        createWebhookResult: [
+            null as { success: boolean; webhook_url: string; error?: string } | null,
             {
                 createWebhook: () => null,
-                setCreateWebhookError: (_, { error }) => error,
+                setCreateWebhookResult: (_, { result }) => result,
             },
         ],
     }),
@@ -58,6 +62,16 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
                     dataWarehouseSourceSettingsLogic({ id: props.id, availableSources: {} }).selectors.source(state),
             ],
             (source: ExternalDataSource | null): ExternalDataSource | null => source,
+        ],
+        sourceConfig: [
+            () => [
+                (state: any, props: WebhookTabLogicProps) =>
+                    dataWarehouseSourceSettingsLogic({
+                        id: props.id,
+                        availableSources: {},
+                    }).selectors.sourceFieldConfig(state),
+            ],
+            (sourceFieldConfig: SourceConfig | null): SourceConfig | null => sourceFieldConfig,
         ],
         internalStateLabel: [
             (s) => [s.webhookInfo],
@@ -124,28 +138,50 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
             },
         ],
     }),
-    listeners(({ actions, props, cache }) => ({
+    forms(({ values, actions }) => ({
+        webhookFieldInputs: {
+            defaults: {} as Record<string, any>,
+            errors: (sourceValues) => {
+                const webhookFields = values.sourceConfig?.webhookFields ?? []
+                return getErrorsForFields(webhookFields, {
+                    prefix: '',
+                    payload: sourceValues as Record<string, any>,
+                }).payload
+            },
+            submit: async () => {
+                actions.submitWebhookFields()
+            },
+        },
+    })),
+    listeners(({ actions, props, values }) => ({
         createWebhook: async () => {
             try {
                 const result = await api.externalDataSources.createWebhook(props.id)
+                actions.setCreateWebhookResult(result)
                 if (result.success) {
                     lemonToast.success('Webhook created successfully')
-                } else {
-                    actions.setCreateWebhookError(result.error || 'Failed to create webhook')
                 }
             } catch (e: any) {
-                actions.setCreateWebhookError(e.message || 'Failed to create webhook')
+                actions.setCreateWebhookResult({
+                    success: false,
+                    webhook_url: '',
+                    error: e.data?.message ?? e.message ?? 'Failed to create webhook',
+                })
             }
             actions.setWebhookCreating(false)
             actions.loadWebhookInfo()
         },
-        loadWebhookInfoSuccess: () => {
-            cache.disposables?.add(() => {
-                const timerId = setTimeout(() => {
+        submitWebhookFields: async () => {
+            const fieldValues = values.webhookFieldInputs
+            if (Object.keys(fieldValues).length > 0) {
+                try {
+                    await api.externalDataSources.updateWebhookInputs(props.id, fieldValues)
+                    lemonToast.success('Webhook inputs saved')
                     actions.loadWebhookInfo()
-                }, REFRESH_INTERVAL)
-                return () => clearTimeout(timerId)
-            }, 'webhookInfoRefreshTimeout')
+                } catch (e: any) {
+                    lemonToast.error(e.data?.message ?? e.message ?? 'Failed to update webhook inputs')
+                }
+            }
         },
     })),
     afterMount(({ actions }) => {
