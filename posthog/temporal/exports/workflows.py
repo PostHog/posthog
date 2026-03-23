@@ -1,3 +1,4 @@
+import json
 import traceback
 import dataclasses
 from datetime import timedelta
@@ -28,6 +29,11 @@ class ExportAssetWorkflowInputs:
 @wf.defn(name="export-asset")
 class ExportAssetWorkflow(PostHogWorkflow):
     """One-off export workflow: export a single asset with durable retry, then emit SLO outcome."""
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> ExportAssetWorkflowInputs:
+        loaded = json.loads(inputs[0])
+        return ExportAssetWorkflowInputs(**loaded)
 
     @wf.run
     async def run(self, inputs: ExportAssetWorkflowInputs) -> None:
