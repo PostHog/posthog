@@ -4,11 +4,12 @@ import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Team } from '../../types'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
-import { EventOutput, HeatmapsOutput, IngestionOutputs } from '../outputs'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
 import { OkResultWithContext } from '../pipelines/filter-map-batch-pipeline'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { ok } from '../pipelines/results'
+import { EventOutput, HeatmapsOutput } from './outputs'
 import {
     TestingPerDistinctIdPipelineConfig,
     TestingPerDistinctIdPipelineInput,

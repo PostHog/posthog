@@ -1,8 +1,6 @@
 import { KafkaProducerWrapper, MessageKey, MessageWithoutTopic } from '../../kafka/producer'
 import { logger } from '../../utils/logger'
 
-export * from '../event-processing/output-types'
-
 export interface IngestionOutputConfig {
     topic: string
     producer: KafkaProducerWrapper

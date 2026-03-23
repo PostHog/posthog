@@ -3,12 +3,13 @@ import { Message } from 'node-rdkafka'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Team } from '../../types'
 import { AI_EVENT_TYPES } from '../ai'
-import { EventOutput, HeatmapsOutput, IngestionOutputs } from '../outputs'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 import {
     ClientIngestionWarningSubpipelineInput,
     createClientIngestionWarningSubpipeline,
 } from './client-ingestion-warning-subpipeline'
+import { EventOutput, HeatmapsOutput } from './outputs'
 import { TestingAiEventSubpipelineInput, createTestingAiEventSubpipeline } from './testing-ai-event-subpipeline'
 import { TestingEventSubpipelineInput, createTestingEventSubpipeline } from './testing-event-subpipeline'
 import { TestingHeatmapSubpipelineInput, createTestingHeatmapSubpipeline } from './testing-heatmap-subpipeline'

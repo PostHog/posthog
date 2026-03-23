@@ -1,29 +1,8 @@
-import {
-    KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
-    KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
-    KAFKA_EVENTS_JSON,
-} from '../../config/kafka-topics'
-import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT, HEATMAPS_OUTPUT, IngestionOutputDefinition } from '../outputs'
-import { DEFAULT_PRODUCER, ProducerName } from './producers'
+export const EVENTS_OUTPUT = 'events' as const
+export type EventOutput = typeof EVENTS_OUTPUT
 
-/** Static config for all analytics ingestion outputs. */
-export const INGESTION_OUTPUT_DEFINITIONS: Record<string, IngestionOutputDefinition<ProducerName>> = {
-    [EVENTS_OUTPUT]: {
-        defaultTopic: KAFKA_EVENTS_JSON,
-        defaultProducerName: DEFAULT_PRODUCER,
-        producerOverrideEnvVar: 'INGESTION_OUTPUT_EVENTS_PRODUCER',
-        topicOverrideEnvVar: 'INGESTION_OUTPUT_EVENTS_TOPIC',
-    },
-    [AI_EVENTS_OUTPUT]: {
-        defaultTopic: KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
-        defaultProducerName: DEFAULT_PRODUCER,
-        producerOverrideEnvVar: 'INGESTION_OUTPUT_AI_EVENTS_PRODUCER',
-        topicOverrideEnvVar: 'INGESTION_OUTPUT_AI_EVENTS_TOPIC',
-    },
-    [HEATMAPS_OUTPUT]: {
-        defaultTopic: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
-        defaultProducerName: DEFAULT_PRODUCER,
-        producerOverrideEnvVar: 'INGESTION_OUTPUT_HEATMAPS_PRODUCER',
-        topicOverrideEnvVar: 'INGESTION_OUTPUT_HEATMAPS_TOPIC',
-    },
-}
+export const AI_EVENTS_OUTPUT = 'ai_events' as const
+export type AiEventOutput = typeof AI_EVENTS_OUTPUT
+
+export const HEATMAPS_OUTPUT = 'heatmaps' as const
+export type HeatmapsOutput = typeof HEATMAPS_OUTPUT

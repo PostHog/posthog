@@ -40,8 +40,8 @@ import {
     createPosthogRedisConnectionConfig,
 } from './config/redis-pools'
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
-import { INGESTION_OUTPUT_DEFINITIONS } from './ingestion/analytics/outputs'
-import { PRODUCER_CONFIG_MAP, ProducerName } from './ingestion/analytics/producers'
+import { INGESTION_OUTPUT_DEFINITIONS } from './ingestion/analytics/config/outputs'
+import { PRODUCER_CONFIG_MAP, ProducerName } from './ingestion/analytics/config/producers'
 import { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { ErrorTrackingConsumer } from './ingestion/error-tracking/error-tracking-consumer'
 import { IngestionConsumer, IngestionConsumerDeps } from './ingestion/ingestion-consumer'

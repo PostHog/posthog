@@ -5,7 +5,7 @@ import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { createTestMessage } from '../../../tests/helpers/kafka-message'
 import { Person, PersonMode, PreIngestionEvent, ProjectId, TimestampFormat } from '../../types'
 import { castTimestampOrNow } from '../../utils/utils'
-import { EVENTS_OUTPUT } from '../outputs'
+import { EVENTS_OUTPUT } from '../analytics/outputs'
 import { isOkResult } from '../pipelines/results'
 import { CreateEventStepInput, createCreateEventStep } from './create-event-step'
 

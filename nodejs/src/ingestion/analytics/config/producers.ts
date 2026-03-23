@@ -1,4 +1,4 @@
-import type { AllowedConfigKey } from '../outputs'
+import type { AllowedConfigKey } from '../../outputs'
 
 /**
  * DEFAULT uses the existing KAFKA_PRODUCER_* env vars — backwards compatible

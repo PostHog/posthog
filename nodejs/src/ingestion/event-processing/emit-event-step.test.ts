@@ -9,7 +9,8 @@ import { EventHeaders, ISOTimestamp, ProcessedEvent, ProjectId } from '../../typ
 import { MessageSizeTooLarge } from '../../utils/db/error'
 import { eventProcessedAndIngestedCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { captureIngestionWarning } from '../../worker/ingestion/utils'
-import { EVENTS_OUTPUT, EventOutput, IngestionOutputs } from '../outputs'
+import { EVENTS_OUTPUT, EventOutput } from '../analytics/outputs'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { isOkResult } from '../pipelines/results'
 import {
     EmitEventStepConfig,

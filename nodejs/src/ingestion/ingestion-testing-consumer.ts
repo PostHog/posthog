@@ -8,6 +8,7 @@ import { HealthCheckResult, HealthCheckResultError, PluginServerService, Plugins
 import { logger } from '../utils/logger'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { TeamManager } from '../utils/team-manager'
+import { EVENTS_OUTPUT, HEATMAPS_OUTPUT } from './analytics/outputs'
 import {
     TestingJoinedIngestionPipelineConfig,
     TestingJoinedIngestionPipelineContext,
@@ -16,7 +17,7 @@ import {
     createTestingJoinedIngestionPipeline,
 } from './analytics/testing-joined-ingestion-pipeline'
 import { latestOffsetTimestampGauge } from './ingestion-consumer'
-import { EVENTS_OUTPUT, HEATMAPS_OUTPUT, IngestionOutputs } from './outputs'
+import { IngestionOutputs } from './outputs/ingestion-outputs'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
 import { createContext } from './pipelines/helpers'
