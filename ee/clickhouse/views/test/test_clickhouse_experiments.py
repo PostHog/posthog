@@ -2198,6 +2198,7 @@ class TestExperimentCRUD(APILicensedTest):
                     {
                         "properties": [],
                         "rollout_percentage": 100,
+                        "aggregation_group_type_index": None,
                     }
                 ],
                 "multivariate": {
@@ -2255,6 +2256,7 @@ class TestExperimentCRUD(APILicensedTest):
                     {
                         "properties": [],
                         "rollout_percentage": 100,
+                        "aggregation_group_type_index": None,
                     }
                 ],
                 "multivariate": {
@@ -2323,6 +2325,7 @@ class TestExperimentCRUD(APILicensedTest):
                     {
                         "properties": [],
                         "rollout_percentage": 100,
+                        "aggregation_group_type_index": None,
                     }
                 ],
                 "multivariate": {
@@ -2660,7 +2663,10 @@ class TestExperimentCRUD(APILicensedTest):
         )
         self.assertEqual(
             feature_flag.filters["groups"],
-            [{"properties": [], "rollout_percentage": 99}, {"properties": [], "rollout_percentage": 1}],
+            [
+                {"properties": [], "rollout_percentage": 99, "aggregation_group_type_index": 1},
+                {"properties": [], "rollout_percentage": 1, "aggregation_group_type_index": 1},
+            ],
         )
 
         # Test removing aggregation_group_type_index

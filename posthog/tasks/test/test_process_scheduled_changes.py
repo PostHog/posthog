@@ -66,7 +66,9 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         process_scheduled_changes()
 
         updated_flag = FeatureFlag.objects.get(key="flag-1")
-        self.assertEqual(updated_flag.filters["groups"][0], new_release_condition)
+        self.assertEqual(
+            updated_flag.filters["groups"][0], {**new_release_condition, "aggregation_group_type_index": None}
+        )
 
     def test_schedule_feature_flag_add_release_condition_preserve_variants(self) -> None:
         variants = [
@@ -116,7 +118,9 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         process_scheduled_changes()
 
         updated_flag = FeatureFlag.objects.get(key="flag-1")
-        self.assertEqual(updated_flag.filters["groups"][0], new_release_condition)
+        self.assertEqual(
+            updated_flag.filters["groups"][0], {**new_release_condition, "aggregation_group_type_index": None}
+        )
         self.assertEqual(updated_flag.filters["multivariate"]["variants"], variants)
 
     def test_schedule_feature_flag_invalid_payload(self) -> None:
@@ -244,7 +248,13 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
 
         # The changes due have been propagated in the correct order (oldest scheduled_at first)
         updated_flag = FeatureFlag.objects.get(key="flag-1")
-        self.assertEqual(updated_flag.filters["groups"], [change_past_condition, change_due_now_condition])
+        self.assertEqual(
+            updated_flag.filters["groups"],
+            [
+                {**change_past_condition, "aggregation_group_type_index": None},
+                {**change_due_now_condition, "aggregation_group_type_index": None},
+            ],
+        )
 
     def test_scheduled_changes_create_activity_log_with_trigger(self) -> None:
         """Test that scheduled changes create activity logs with trigger information while preserving user attribution"""
@@ -684,7 +694,9 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
 
         # Check that existing release conditions were preserved
         self.assertEqual(len(updated_flag.filters["groups"]), 1)
-        self.assertEqual(updated_flag.filters["groups"][0], existing_release_condition)
+        self.assertEqual(
+            updated_flag.filters["groups"][0], {**existing_release_condition, "aggregation_group_type_index": None}
+        )
 
     def test_schedule_feature_flag_update_variants_empty_variants_with_payloads(self) -> None:
         """Test that update_variants works correctly when clearing variants but having old payloads"""

@@ -162,7 +162,15 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         expected_flag_response = {
             "key": self.feature_flag_to_copy.key,
             "name": self.feature_flag_to_copy.name,
-            "filters": self.feature_flag_to_copy.filters,
+            "filters": {
+                "groups": [
+                    {
+                        "rollout_percentage": self.rollout_percentage_to_copy,
+                        "aggregation_group_type_index": None,
+                    }
+                ],
+                "aggregation_group_type_index": None,
+            },
             "active": self.feature_flag_to_copy.active,
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
             "deleted": False,
@@ -248,7 +256,15 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         expected_flag_response = {
             "key": self.feature_flag_to_copy.key,
             "name": self.feature_flag_to_copy.name,
-            "filters": self.feature_flag_to_copy.filters,
+            "filters": {
+                "groups": [
+                    {
+                        "rollout_percentage": self.rollout_percentage_to_copy,
+                        "aggregation_group_type_index": None,
+                    }
+                ],
+                "aggregation_group_type_index": None,
+            },
             "active": self.feature_flag_to_copy.active,
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
             "deleted": False,
@@ -379,7 +395,15 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         expected_flag_response = {
             "key": self.feature_flag_to_copy.key,
             "name": self.feature_flag_to_copy.name,
-            "filters": self.feature_flag_to_copy.filters,
+            "filters": {
+                "groups": [
+                    {
+                        "rollout_percentage": self.rollout_percentage_to_copy,
+                        "aggregation_group_type_index": None,
+                    }
+                ],
+                "aggregation_group_type_index": None,
+            },
             "active": self.feature_flag_to_copy.active,
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
             "deleted": False,
