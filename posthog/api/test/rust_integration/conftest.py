@@ -210,7 +210,12 @@ class TestDB:
 
 
 @pytest.fixture()
-def db(env: TestEnv) -> Iterator[TestDB]:
+def db(env: TestEnv, api: "DjangoAPI") -> Iterator[TestDB]:
+    """Per-test database helper for persons, groups, and cohort membership.
+
+    Depends on ``api`` so that pytest tears ``db`` down first (cleaning up
+    cohort people by cohort ID) before ``api`` deletes the cohorts themselves.
+    """
     persons_conn = psycopg2.connect(PERSONS_DATABASE_URL)
     persons_conn.autocommit = True
     main_conn = psycopg2.connect(DATABASE_URL)
@@ -262,10 +267,14 @@ class DjangoAPI:
     def cleanup(self) -> None:
         """Delete all flags and cohorts for this team."""
         for resource in ["feature_flags", "cohorts"]:
-            resp = self.session.get(f"{self.base_url}/api/projects/{self.team_id}/{resource}/")
-            if resp.status_code == 200:
-                for item in resp.json().get("results", []):
-                    self.session.delete(f"{self.base_url}/api/projects/{self.team_id}/{resource}/{item['id']}/")
+            resp = self.session.get(
+                f"{self.base_url}/api/projects/{self.team_id}/{resource}/",
+                params={"limit": 1000},
+            )
+            assert resp.ok, f"Failed to list {resource}: {resp.text}"
+            for item in resp.json().get("results", []):
+                del_resp = self.session.delete(f"{self.base_url}/api/projects/{self.team_id}/{resource}/{item['id']}/")
+                assert del_resp.ok, f"Failed to delete {resource}/{item['id']}: {del_resp.text}"
 
 
 @pytest.fixture()
@@ -290,5 +299,5 @@ def evaluate_flags(
     if groups:
         payload["groups"] = groups
     resp = requests.post(f"{RUST_FLAGS_URL}/flags", params={"v": "2"}, json=payload, timeout=10)
-    resp.raise_for_status()
+    assert resp.ok, f"Rust /flags returned {resp.status_code}: {resp.text}"
     return resp.json()

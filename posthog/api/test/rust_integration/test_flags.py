@@ -13,6 +13,7 @@ from conftest import DjangoAPI, TestDB, TestEnv, evaluate_flags
 
 
 def _cohort_filters(*and_groups: list[dict[str, Any]]) -> dict[str, Any]:
+    """Build OR-of-AND cohort filters. With no args, returns an empty filter (for static cohorts)."""
     return {
         "properties": {
             "type": "OR",
@@ -228,4 +229,4 @@ def test_disabled_flag(db: TestDB, api: DjangoAPI, env: TestEnv):
 
     result = evaluate_flags(env.api_token, "disabled_user")
     assert result["flags"]["active-flag"]["enabled"] is True
-    assert "disabled-flag" not in result["flags"] or result["flags"]["disabled-flag"]["enabled"] is False
+    assert result["flags"]["disabled-flag"]["enabled"] is False
