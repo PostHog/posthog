@@ -286,7 +286,12 @@ describe('insightsTableDataLogic', () => {
             const insight: Partial<InsightModel> = {
                 result: [
                     makeCompareResult({ compare_label: CompareLabelType.Current, compare: true }),
-                    makeCompareResult({ compare_label: CompareLabelType.Previous, compare: true, count: 80, data: [8, 16, 24] }),
+                    makeCompareResult({
+                        compare_label: CompareLabelType.Previous,
+                        compare: true,
+                        count: 80,
+                        data: [8, 16, 24],
+                    }),
                     makeCompareResult({
                         compare_label: CompareLabelType.Current,
                         compare: true,
