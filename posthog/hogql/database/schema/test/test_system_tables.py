@@ -92,7 +92,7 @@ def _create_alert(team: Team, label: str) -> AlertConfiguration:
 
 
 def _create_activity_log(team: Team, label: str) -> ActivityLog:
-    return ActivityLog.objects.create(team=team, activity="updated", scope="FeatureFlag", item_id=label)
+    return ActivityLog.objects.create(team_id=team.pk, activity="updated", scope="FeatureFlag", item_id=label)
 
 
 def _create_action(team: Team, label: str) -> Action:
