@@ -20,13 +20,9 @@ from posthog.schema import (
     FunnelsDataWarehouseNode,
     FunnelsFilter,
     FunnelsQuery,
-    HogQLQueryModifiers,
-    PersonsOnEventsMode,
     PropertyOperator,
     StepOrderValue,
 )
-
-from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -434,10 +430,6 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
         response = FunnelsQueryRunner(
             query=funnels_query,
             team=self.team,
-            modifiers=create_default_modifiers_for_team(
-                self.team,
-                HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
-            ),
         ).calculate()
 
         results = response.results
