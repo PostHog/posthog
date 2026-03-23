@@ -45,7 +45,6 @@ export function slugifyHeading(text: string): string {
         .replace(/^-|-$/g, '')
 }
 
-/** Extract the plain text from React children (recursively). */
 function extractTextFromChildren(children: React.ReactNode): string {
     if (typeof children === 'string') {
         return children
@@ -137,21 +136,15 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                       ])
                   )
                 : generateHeadingIds
-                  ? (() => {
-                        const slugCounts = new Map<string, number>()
-                        return Object.fromEntries(
-                            HEADING_TAGS.map((tag) => [
-                                tag,
-                                ({ children }: any): JSX.Element => {
-                                    const baseSlug = slugifyHeading(extractTextFromChildren(children))
-                                    const count = slugCounts.get(baseSlug) ?? 0
-                                    slugCounts.set(baseSlug, count + 1)
-                                    const id = count === 0 ? baseSlug : `${baseSlug}-${count}`
-                                    return React.createElement(tag, { id }, children)
-                                },
-                            ])
-                        )
-                    })()
+                  ? Object.fromEntries(
+                        HEADING_TAGS.map((tag) => [
+                            tag,
+                            ({ children }: any): JSX.Element => {
+                                const id = slugifyHeading(extractTextFromChildren(children))
+                                return React.createElement(tag, { id }, children)
+                            },
+                        ])
+                    )
                   : {}),
         }),
         [disableDocsRedirect, lowKeyHeadings, wrapCode, generateHeadingIds]

@@ -34,19 +34,12 @@ interface HeadingTreeNode {
 
 function parseMarkdownHeadings(markdown: string): HeadingEntry[] {
     const headings: HeadingEntry[] = []
-    const slugCounts = new Map<string, number>()
     for (const line of markdown.split('\n')) {
         const match = /^(#{1,6})\s+(.+)$/.exec(line.trim())
         if (match) {
-            const text = match[2]
-                .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-                .replace(/[*_`~[\]]/g, '')
-                .trim()
-            const baseSlug = slugifyHeading(text)
-            const count = slugCounts.get(baseSlug) ?? 0
-            slugCounts.set(baseSlug, count + 1)
-            const slug = count === 0 ? baseSlug : `${baseSlug}-${count}`
-            headings.push({ level: match[1].length, text, slug })
+            const raw = match[2].trim()
+            const textForSlug = raw.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+            headings.push({ level: match[1].length, text: raw, slug: slugifyHeading(textForSlug) })
         }
     }
     return headings
