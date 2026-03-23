@@ -13,7 +13,6 @@ from django.utils import timezone
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from loginas.utils import is_impersonated_session
-from openai import APITimeoutError, RateLimitError
 from rest_framework import (
     pagination,
     serializers,
@@ -36,6 +35,7 @@ from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.utils import relative_date_parse
 
+from products.conversations.backend.ai.suggest import NoMessagesError, suggest_reply
 from products.conversations.backend.api.serializers import TicketAssignmentSerializer
 from products.conversations.backend.cache import (
     get_cached_unread_count,
@@ -49,7 +49,6 @@ from products.conversations.backend.events import (
 )
 from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
-from products.conversations.backend.services.ai_suggest import NoMessagesError, suggest_reply
 
 from ee.models.rbac.role import Role
 
@@ -537,7 +536,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         ticket = self.get_object()
 
         try:
-            reply_text = suggest_reply(ticket, self.team, request.user.distinct_id)
+            reply_text = suggest_reply(ticket, self.team, request.user)
             return Response({"suggestion": reply_text})
         except NoMessagesError:
             return Response(
@@ -554,25 +553,12 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
         except Exception as e:
-            # Check for specific error types
-            error_type = "unknown_error"
-            error_msg = "Failed to generate suggestion"
-
-            if isinstance(e, APITimeoutError):
-                error_type = "timeout"
-                error_msg = "AI service timed out. Please try again."
-            elif isinstance(e, RateLimitError):
-                error_type = "rate_limit"
-                error_msg = "AI service rate limit reached. Please try again in a moment."
-            else:
-                error_msg = "Failed to generate suggestion. Please try again."
-
             logger.exception(
                 "AI suggest_reply failed", extra={"ticket_id": str(ticket.id), "error_type": type(e).__name__}
             )
             capture_exception(e, {"ticket_id": str(ticket.id)})
             return Response(
-                {"detail": error_msg, "error_type": error_type},
+                {"detail": "Failed to generate suggestion. Please try again.", "error_type": "unknown_error"},
                 status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 

@@ -1,8 +1,9 @@
 from posthog.test.base import BaseTest
 
-from posthog.models.link import Link
 from posthog.models.team import Team
 from posthog.models.user import User
+
+from products.links.backend.models import Link
 
 
 class TestLinkModel(BaseTest):

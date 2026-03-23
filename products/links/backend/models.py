@@ -11,11 +11,6 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTMode
 logger = structlog.get_logger(__name__)
 
 
-# KLUDGE: This is only here because we want some of our management commands
-# to know this file exists and we havent figured out why it cant find models
-# inside our `products` folder
-#
-# See https://github.com/PostHog/posthog/pull/32364
 class Link(FileSystemSyncMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     """
     Links that redirect to a specified destination URL.
@@ -44,6 +39,7 @@ class Link(FileSystemSyncMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel
                 fields=["short_link_domain", "short_code"], name="unique_short_link_domain_short_code"
             )
         ]
+        db_table = "posthog_link"
 
     def __str__(self):
         return f"{self.id} -> {self.redirect_url}"
