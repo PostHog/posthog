@@ -44,7 +44,7 @@ To launch the full development stack (backend, nodejs services, workers, fronten
 hogli start
 ```
 
-`hogli start` delegates to [`bin/start`](../bin/start), which orchestrates all services through `mprocs`. When you need a one-shot way to verify your code before pushing:
+`hogli start` delegates to [`bin/start`](../bin/start), which orchestrates all services through `phrocs`. When you need a one-shot way to verify your code before pushing:
 
 ```bash
 hogli lint

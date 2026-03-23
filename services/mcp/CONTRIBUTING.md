@@ -36,9 +36,9 @@ services/mcp/
 
 ## Local Development
 
-### 1. Start via mprocs (Recommended)
+### 1. Start via phrocs (Recommended)
 
-The MCP server is already configured in our mprocs setup. From the repo root:
+The MCP server is already configured in our phrocs setup. From the repo root:
 
 ```bash
 # Start the full stack (includes MCP server)
@@ -125,9 +125,9 @@ The UI should render inline showing charts or tables with a "View in PostHog" li
 
 ### Hot Reload for UI Changes
 
-**Option 1: Using mprocs (Recommended)**
+**Option 1: Using phrocs (Recommended)**
 
-In mprocs, start both `mcp-ui-apps` and `mcp`:
+In phrocs, start both `mcp-ui-apps` and `mcp`:
 
 1. Press `a` to see all processes
 2. Navigate to `mcp-ui-apps` and press `s` to start (builds UI apps and watches for changes)

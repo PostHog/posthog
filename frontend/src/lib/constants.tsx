@@ -148,7 +148,7 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
 }
 
 // NOTE: Run `dev:sync-flags` locally to sync these flags into your local project
-// or if you're running flox + mprocs you can also run the `sync-feature-flags` process
+// or if you're running flox + phrocs you can also run the `sync-feature-flags` process
 //
 // If this is a multivariate flag, please add the `multivariate=true` tag at the end of your comment
 // if you want the script to properly create a multivariate flag. You can also specify the different

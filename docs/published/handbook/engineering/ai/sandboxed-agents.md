@@ -194,7 +194,7 @@ Key requirements:
 - `DEBUG=1` and `SANDBOX_PROVIDER=docker` in your `.env`
 - A GitHub App with Contents and Pull Requests permissions
 - The `tasks` feature flag enabled at 100%
-- Temporal running (starts automatically via mprocs with `./bin/start`)
+- Temporal running (starts automatically via phrocs with `./bin/start`)
 
 ## Questions?
 
