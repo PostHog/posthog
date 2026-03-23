@@ -13,7 +13,11 @@ from temporalio import (
 from temporalio.testing import WorkflowEnvironment
 
 from posthog.sync import database_sync_to_async
-from posthog.temporal.data_modeling.activities import GetDAGStructureInputs, get_dag_structure_activity
+from posthog.temporal.data_modeling.activities import (
+    GetDAGStructureInputs,
+    PreemptDAGRunInputs,
+    get_dag_structure_activity,
+)
 from posthog.temporal.data_modeling.activities.get_dag_structure import DAG as DAGPlan
 from posthog.temporal.data_modeling.workflows.execute_dag import (
     EmptyDAGOrCycleError,
@@ -392,7 +396,7 @@ class TestExecuteDAGWorkflow:
                 env.client,
                 task_queue="test-queue",
                 workflows=[ExecuteDAGWorkflow],
-                activities=[stub_get_dag_structure],
+                activities=[stub_preempt_dag_run, stub_get_dag_structure],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 result: ExecuteDAGResult = await env.client.execute_workflow(
@@ -411,6 +415,11 @@ class TestExecuteDAGWorkflow:
 
 _mock_workflow_calls: list[str] = []
 _mock_workflow_should_fail: set[str] = set()
+
+
+@temporal_activity.defn(name="preempt_dag_run_activity")
+async def stub_preempt_dag_run(_: PreemptDAGRunInputs) -> None:
+    return None
 
 
 @temporal_workflow.defn(name="data-modeling-materialize-view")
@@ -462,7 +471,7 @@ class TestExecuteDAGWorkflowWithMocks:
                 env.client,
                 task_queue="test-queue",
                 workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
-                activities=[stub_get_dag_structure],
+                activities=[stub_preempt_dag_run, stub_get_dag_structure],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 result: ExecuteDAGResult = await env.client.execute_workflow(
@@ -501,7 +510,7 @@ class TestExecuteDAGWorkflowWithMocks:
                 env.client,
                 task_queue="test-queue",
                 workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
-                activities=[stub_get_dag_structure],
+                activities=[stub_preempt_dag_run, stub_get_dag_structure],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 result: ExecuteDAGResult = await env.client.execute_workflow(
@@ -540,7 +549,7 @@ class TestExecuteDAGWorkflowWithMocks:
                 env.client,
                 task_queue="test-queue",
                 workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
-                activities=[stub_get_dag_structure],
+                activities=[stub_preempt_dag_run, stub_get_dag_structure],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 result: ExecuteDAGResult = await env.client.execute_workflow(
@@ -582,7 +591,7 @@ class TestExecuteDAGWorkflowWithMocks:
                 env.client,
                 task_queue="test-queue",
                 workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
-                activities=[stub_get_dag_structure],
+                activities=[stub_preempt_dag_run, stub_get_dag_structure],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 result: ExecuteDAGResult = await env.client.execute_workflow(
@@ -626,7 +635,7 @@ class TestExecuteDAGWorkflowWithMocks:
                 env.client,
                 task_queue="test-queue",
                 workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
-                activities=[stub_get_dag_structure],
+                activities=[stub_preempt_dag_run, stub_get_dag_structure],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 result: ExecuteDAGResult = await env.client.execute_workflow(

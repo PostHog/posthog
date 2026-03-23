@@ -135,6 +135,27 @@ def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, 
             new_fields.append(field)
             continue
 
+        # Handle array/list types (e.g., Array(DateTime))
+        if pa.types.is_list(field.type):
+            if "datetime" in type.lower():
+                list_element_type: pa.DataType = pa.timestamp("us", tz="UTC")
+                list_type = pa.list_(list_element_type)
+                list_field = field.with_type(list_type)
+                list_int64 = pc.cast(column, pa.list_(pa.int64()))
+                list_timestamp_s = pc.cast(list_int64, pa.list_(pa.timestamp("s")))
+                list_column = pc.cast(list_timestamp_s, list_type)
+            else:
+                list_element_type = pa.date32()
+                list_type = pa.list_(list_element_type)
+                list_field = field.with_type(list_type)
+                list_int32 = pc.cast(column, pa.list_(pa.int32()))
+                list_column = pc.cast(list_int32, list_type)
+
+            new_fields.append(list_field)
+            new_columns.append(list_column)
+            continue
+
+        # Handle scalar types
         if "datetime64" in type.lower() and pa.types.is_timestamp(field.type):
             new_field: pa.Field = field.with_type(pa.timestamp("us", tz="UTC"))
             new_column = pc.cast(column, new_field.type)
@@ -288,7 +309,15 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
         "IPv6": ("toString", ()),
     }
 
-    has_type_to_convert = lambda ch_type: any(uat.lower() in ch_type.lower() for uat in arrow_type_conversion)
+    def _needs_conversion(ch_type: str) -> bool:
+        # Skip array types from conversion — they are already properly typed by ClickHouse
+        # and attempting to convert them causes errors like:
+        # "Illegal type Array(DateTime) of argument of function toTimezone"
+        is_array_type = ch_type.lower().startswith("array(")
+        if is_array_type:
+            return False
+        return any(uat.lower() in ch_type.lower() for uat in arrow_type_conversion)
+
     get_call_tuple = lambda ch_type: next(
         iter([call_tuple for uat, call_tuple in arrow_type_conversion.items() if uat.lower() in ch_type.lower()])
     )
@@ -301,7 +330,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
             table_describe_response = await ch_response.content.read()
             for line in table_describe_response.decode("utf-8").splitlines():
                 column_name, ch_type = line.strip().split("\t")
-                if has_type_to_convert(ch_type):
+                if _needs_conversion(ch_type):
                     query_typings.append((column_name, ch_type, get_call_tuple(ch_type)))
                 else:
                     query_typings.append((column_name, ch_type, None))
