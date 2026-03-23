@@ -121,7 +121,6 @@ if (res.status >= 400) {
             "required": False,
         },
         {
-        {
             "key": "user_attributes",
             "type": "dictionary",
             "label": "Custom User Attributes",
