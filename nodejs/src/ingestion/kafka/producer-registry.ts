@@ -5,27 +5,36 @@ import { getNamedProducerConfig, hasNamedProducerConfig } from './named-producer
 const DEFAULT_KEY = '__DEFAULT__'
 
 export class KafkaProducerRegistry {
-    private producers: Map<string, KafkaProducerWrapper> = new Map()
+    private producers: Map<string, Promise<KafkaProducerWrapper>> = new Map()
 
     constructor(private kafkaClientRack: string | undefined) {}
 
     /**
      * Get or create a producer (singleton per name).
+     * Safe for concurrent calls — caches the in-flight promise to prevent duplicate creation.
      *
      * - `undefined` → default producer using the existing KAFKA_PRODUCER_* convention
      * - any string  → named producer from INGESTION_KAFKA_PRODUCER_{NAME}_* env vars (throws if unconfigured)
      */
     async getProducer(name: string | undefined): Promise<KafkaProducerWrapper> {
-        if (name === undefined) {
-            return this.getDefaultProducer()
-        }
+        const key = name === undefined ? DEFAULT_KEY : name.toUpperCase()
 
-        const normalizedName = name.toUpperCase()
-        const existing = this.producers.get(normalizedName)
+        const existing = this.producers.get(key)
         if (existing) {
             return existing
         }
 
+        const promise = name === undefined ? this.createDefaultProducer() : this.createNamedProducer(key)
+        this.producers.set(key, promise)
+        return promise
+    }
+
+    private async createDefaultProducer(): Promise<KafkaProducerWrapper> {
+        logger.info('📝', 'Creating default producer via KAFKA_PRODUCER_* config')
+        return KafkaProducerWrapper.create(this.kafkaClientRack, 'PRODUCER')
+    }
+
+    private async createNamedProducer(normalizedName: string): Promise<KafkaProducerWrapper> {
         if (!hasNamedProducerConfig(normalizedName)) {
             throw new Error(
                 `No INGESTION_KAFKA_PRODUCER_${normalizedName}_* env vars found. ` +
@@ -35,30 +44,17 @@ export class KafkaProducerRegistry {
 
         const config = getNamedProducerConfig(normalizedName)
         logger.info('📝', `Creating named producer "${normalizedName}"`, { config })
-        const producer = await KafkaProducerWrapper.createWithConfig(this.kafkaClientRack, config)
-        this.producers.set(normalizedName, producer)
-        return producer
-    }
-
-    private async getDefaultProducer(): Promise<KafkaProducerWrapper> {
-        const existing = this.producers.get(DEFAULT_KEY)
-        if (existing) {
-            return existing
-        }
-
-        logger.info('📝', 'Creating default producer via KAFKA_PRODUCER_* config')
-        const producer = await KafkaProducerWrapper.create(this.kafkaClientRack, 'PRODUCER')
-        this.producers.set(DEFAULT_KEY, producer)
-        return producer
+        return KafkaProducerWrapper.createWithConfig(this.kafkaClientRack, config)
     }
 
     /** Flush and disconnect all producers. Continues on failure to ensure all producers are attempted. */
     async disconnectAll(): Promise<void> {
         const entries = Array.from(this.producers.entries())
         const errors: [string, unknown][] = []
-        for (const [name, producer] of entries) {
+        for (const [name, producerPromise] of entries) {
             logger.info('🔌', `Disconnecting producer "${name}"`)
             try {
+                const producer = await producerPromise
                 await producer.disconnect()
             } catch (err) {
                 logger.error('🔌', `Failed to disconnect producer "${name}"`, { err })
