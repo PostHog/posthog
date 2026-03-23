@@ -240,8 +240,12 @@ class DjangoAPI:
     base_url: str
     team_id: int
 
-    def create_cohort(self, name: str, filters: dict[str, Any], is_static: bool = False) -> dict[str, Any]:
-        data: dict[str, Any] = {"name": name, "filters": json.dumps(filters)}
+    def create_cohort(
+        self, name: str, filters: dict[str, Any] | None = None, is_static: bool = False
+    ) -> dict[str, Any]:
+        data: dict[str, Any] = {"name": name}
+        if filters is not None:
+            data["filters"] = json.dumps(filters)
         if is_static:
             data["is_static"] = "true"
         resp = self.session.post(

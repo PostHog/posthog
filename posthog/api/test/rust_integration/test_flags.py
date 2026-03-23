@@ -135,7 +135,7 @@ def test_static_cohort(db: TestDB, api: DjangoAPI, env: TestEnv):
     member_id = db.create_person(["member"], {"email": "member@example.com"})
     db.create_person(["nonmember"], {"email": "other@example.com"})
 
-    cohort = api.create_cohort("Static VIPs", _cohort_filters(), is_static=True)
+    cohort = api.create_cohort("Static VIPs", is_static=True)
     db.add_to_static_cohort(member_id, cohort["id"])
 
     api.create_flag(
