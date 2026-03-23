@@ -472,7 +472,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     const newState = state.map((t) =>
                         t === tab
                             ? !t.active
-                                ? { ...t, active: true }
+                                ? { ...t, active: true, badge: false }
                                 : t
                             : t.active
                               ? {
@@ -1520,7 +1520,9 @@ export const sceneLogic = kea<sceneLogicType>([
                         // When the tab is loading, don't flicker between the loaded title and the new one
                         return
                     }
-                    const newTabs = values.tabs.map((tab, i) => (i === activeIndex ? { ...tab, title, iconType } : tab))
+                    const newTabs = values.tabs.map((tab, i) =>
+                        i === activeIndex ? { ...tab, title, iconType, badge: false } : tab
+                    )
                     actions.setTabs(newTabs)
                 }
                 if (!process?.env?.STORYBOOK) {
