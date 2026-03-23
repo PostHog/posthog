@@ -510,13 +510,13 @@ class TestCohort(BaseTest):
             self.assertEqual(cohort.cohort_type, "realtime")
             self.assertEqual(cohort.count, REALTIME_COHORT_MAX_PERSON_COUNT)
 
-    @pytest.mark.ee
     @parameterized.expand(
         [
             ("_safe_reset_calculating_state", "DB connection lost"),
             ("save", "DB error"),
         ]
     )
+    @pytest.mark.ee
     def test_calculate_people_ch_updates_version_even_when_finally_raises(self, method_name, error_message):
         from unittest.mock import patch
 
