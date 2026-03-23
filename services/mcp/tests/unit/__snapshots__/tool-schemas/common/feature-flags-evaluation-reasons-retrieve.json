@@ -1,0 +1,17 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "distinct_id": {
+            "description": "User distinct ID",
+            "minLength": 1,
+            "type": "string"
+        },
+        "groups": {
+            "default": "{}",
+            "description": "Groups for feature flag evaluation (JSON object string)",
+            "type": "string"
+        }
+    },
+    "required": ["distinct_id"],
+    "type": "object"
+}

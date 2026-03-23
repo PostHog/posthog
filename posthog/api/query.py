@@ -318,6 +318,12 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 if result.get("query_status") and result["query_status"].get("complete") is False
                 else status.HTTP_200_OK
             )
+
+            if request.META.get("HTTP_X_POSTHOG_CLIENT") == "mcp":
+                formatted = self._try_format_for_llm(query, result)
+                if formatted is not None:
+                    result["formatted_results"] = formatted
+
             return Response(result, status=response_status)
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
@@ -449,6 +455,18 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return
 
         tag_queries(client_query_id=query_id)
+
+    def _try_format_for_llm(self, query: BaseModel, result: dict) -> str | None:
+        """Try to format query results as LLM-friendly text. Returns None on failure."""
+        if not settings.EE_AVAILABLE:
+            return None
+        try:
+            from ee.hogai.context.insight.format import format_query_results_for_llm
+
+            return format_query_results_for_llm(query, result, self.team)
+        except Exception:
+            logger.warning("mcp_llm_format_failed", exc_info=True)
+            return None
 
 
 MAX_QUERY_TIMEOUT = 600

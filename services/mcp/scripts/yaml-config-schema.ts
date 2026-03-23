@@ -113,3 +113,47 @@ export const CategoryConfigSchema = z
     .strict()
 
 export type CategoryConfig = z.infer<typeof CategoryConfigSchema>
+
+// ------------------------------------------------------------------
+// Query wrapper config — tools generated from frontend/src/queries/schema.json
+// ------------------------------------------------------------------
+
+export const QueryWrapperToolConfigSchema = z
+    .object({
+        /** Name of the definition in schema.json (e.g. "AssistantTrendsQuery") */
+        schema_ref: z.string(),
+        enabled: z.boolean(),
+        scopes: z.array(z.string()).optional(),
+        annotations: z
+            .object({
+                readOnly: z.boolean(),
+                destructive: z.boolean(),
+                idempotent: z.boolean(),
+            })
+            .strict()
+            .optional(),
+        mcp_version: z.number().int().positive().optional(),
+        title: z.string().optional(),
+        description: z.string().optional(),
+        ui_resource_uri: z.string().optional(),
+        /** Properties to exclude from the generated Zod schema */
+        exclude_properties: z.array(z.string()).optional(),
+    })
+    .strict()
+
+export type QueryWrapperToolConfig = z.infer<typeof QueryWrapperToolConfigSchema>
+
+export type EnabledQueryWrapperToolConfig = Omit<QueryWrapperToolConfig, 'scopes' | 'annotations'> & {
+    scopes: string[]
+    annotations: { readOnly: boolean; destructive: boolean; idempotent: boolean }
+}
+
+export const QueryWrappersConfigSchema = z
+    .object({
+        category: z.string(),
+        feature: z.string(),
+        wrappers: z.record(z.string(), QueryWrapperToolConfigSchema),
+    })
+    .strict()
+
+export type QueryWrappersConfig = z.infer<typeof QueryWrappersConfigSchema>
