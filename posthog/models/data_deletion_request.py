@@ -11,6 +11,7 @@ class RequestType(models.TextChoices):
 
 
 class RequestStatus(models.TextChoices):
+    DRAFT = "draft"
     PENDING = "pending"
     APPROVED = "approved"
     IN_PROGRESS = "in_progress"
@@ -21,17 +22,32 @@ class RequestStatus(models.TextChoices):
 class DataDeletionRequest(UUIDModel):
     # Request config
     team_id = models.IntegerField()
-    request_type = models.CharField(max_length=40, choices=RequestType.choices)
+    request_type = models.CharField(
+        max_length=40,
+        choices=RequestType.choices,
+        help_text="property_removal: remove specific properties from matching events. "
+        "event_removal: delete entire events matching the criteria.",
+    )
     start_time = models.DateTimeField()
     end_time = models.DateTimeField()
-    events = ArrayField(models.CharField(max_length=400))
-    properties = ArrayField(models.CharField(max_length=400), blank=True, default=list)
-    status = models.CharField(max_length=40, choices=RequestStatus.choices, default=RequestStatus.PENDING)
+    events = ArrayField(
+        models.CharField(max_length=400),
+        help_text="Enter event names as a comma-separated list, e.g. ['$pageview', '$autocapture'].",
+    )
+    properties = ArrayField(
+        models.CharField(max_length=400),
+        blank=True,
+        default=list,
+        help_text="Enter property names as a comma-separated list, e.g. ['$ip', '$geoip_city']. "
+        "Required for property_removal requests.",
+    )
+    status = models.CharField(max_length=40, choices=RequestStatus.choices, default=RequestStatus.DRAFT)
 
-    # Stats
+    # Stats (populated by ClickHouse query)
     count = models.BigIntegerField(null=True, blank=True)
     part_count = models.IntegerField(null=True, blank=True)
     parts_size = models.BigIntegerField(null=True, blank=True)
+    stats_calculated_at = models.DateTimeField(null=True, blank=True)
 
     # Metadata
     notes = models.TextField(blank=True, default="")
@@ -43,6 +59,13 @@ class DataDeletionRequest(UUIDModel):
     )
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="data_deletion_requests_updated",
+    )
 
     # Approval workflow
     requires_approval = models.BooleanField(default=True)
