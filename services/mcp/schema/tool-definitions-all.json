@@ -17,7 +17,7 @@
     "error-details": {
         "description": "Use this tool to get the details of an error in the project.",
         "category": "Error tracking",
-        "feature": "error-tracking",
+        "feature": "error_tracking",
         "summary": "Get the details of an error in the project.",
         "title": "Get error details",
         "required_scopes": ["error_tracking:read"],
@@ -32,7 +32,7 @@
     "list-errors": {
         "description": "Use this tool to list errors in the project.",
         "category": "Error tracking",
-        "feature": "error-tracking",
+        "feature": "error_tracking",
         "summary": "List errors in the project.",
         "title": "List errors",
         "required_scopes": ["error_tracking:read"],
@@ -47,7 +47,7 @@
     "update-issue-status": {
         "description": "Use this tool to update the status of an error tracking issue. Valid statuses are: active, resolved, archived, suppressed, or pending_release.",
         "category": "Error tracking",
-        "feature": "error-tracking",
+        "feature": "error_tracking",
         "summary": "Update the status of an error tracking issue.",
         "title": "Update issue status",
         "required_scopes": ["error_tracking:write"],
@@ -273,7 +273,7 @@
     "evaluations-get": {
         "description": "List LLM analytics evaluations for the project. Evaluations automatically score AI generations for quality, relevance, safety, and other criteria. Supports optional search by name/description and filtering by enabled status. Evaluation results are stored as '$ai_evaluation' events — to query results, use the execute-sql or query-run tool with a HogQL query filtering on event = '$ai_evaluation'. Key properties: $ai_evaluation_id (evaluation UUID), $ai_evaluation_name, $ai_target_event_id (generation event UUID), $ai_trace_id, $ai_evaluation_result (boolean pass/fail), $ai_evaluation_reasoning (text), $ai_evaluation_applicable (boolean, false = N/A).",
         "category": "LLM analytics",
-        "feature": "llm-analytics",
+        "feature": "llm_analytics",
         "summary": "List LLM analytics evaluations.",
         "title": "List evaluations",
         "required_scopes": ["evaluation:read"],
@@ -288,7 +288,7 @@
     "evaluation-get": {
         "description": "Get a specific LLM analytics evaluation by its UUID. Returns full details including name, type (llm_judge or hog), configuration, conditions, and enabled status.",
         "category": "LLM analytics",
-        "feature": "llm-analytics",
+        "feature": "llm_analytics",
         "summary": "Get a specific evaluation by ID.",
         "title": "Get evaluation",
         "required_scopes": ["evaluation:read"],
@@ -303,7 +303,7 @@
     "evaluation-create": {
         "description": "Create a new LLM analytics evaluation. Two types are supported: 'llm_judge' uses an LLM to score generations against a prompt you define (for subjective checks like tone, helpfulness, hallucination detection), and 'hog' runs deterministic code against each generation (for rule-based checks like format validation, keyword detection, length limits). For llm_judge evaluations, provide a prompt in evaluation_config and a model_configuration. For hog evaluations, provide source code in evaluation_config.",
         "category": "LLM analytics",
-        "feature": "llm-analytics",
+        "feature": "llm_analytics",
         "summary": "Create a new evaluation.",
         "title": "Create evaluation",
         "required_scopes": ["evaluation:write"],
@@ -318,7 +318,7 @@
     "evaluation-update": {
         "description": "Update an existing LLM analytics evaluation. You can change the name, description, enabled status, evaluation config (prompt or source code), and output config. Use this to enable/disable evaluations or modify their scoring logic.",
         "category": "LLM analytics",
-        "feature": "llm-analytics",
+        "feature": "llm_analytics",
         "summary": "Update an evaluation.",
         "title": "Update evaluation",
         "required_scopes": ["evaluation:write"],
@@ -333,7 +333,7 @@
     "evaluation-delete": {
         "description": "Delete an LLM analytics evaluation (soft delete). The evaluation will be marked as deleted and will no longer run.",
         "category": "LLM analytics",
-        "feature": "llm-analytics",
+        "feature": "llm_analytics",
         "summary": "Delete an evaluation.",
         "title": "Delete evaluation",
         "required_scopes": ["evaluation:write"],
@@ -348,7 +348,7 @@
     "evaluation-run": {
         "description": "Trigger an evaluation run on a specific $ai_generation event. This executes the evaluation (either LLM judge or Hog code) against the target event asynchronously via a background workflow. The run is async — it returns a workflow_id and status 'started'. Results are written as '$ai_evaluation' events once complete. To check results after triggering a run, query events with: SELECT properties.$ai_evaluation_result as result, properties.$ai_evaluation_reasoning as reasoning FROM events WHERE event = '$ai_evaluation' AND properties.$ai_evaluation_id = '<evaluation_uuid>' AND properties.$ai_target_event_id = '<generation_event_uuid>' ORDER BY timestamp DESC LIMIT 1.",
         "category": "LLM analytics",
-        "feature": "llm-analytics",
+        "feature": "llm_analytics",
         "summary": "Run an evaluation on a specific event.",
         "title": "Run evaluation",
         "required_scopes": ["evaluation:write"],
@@ -363,7 +363,7 @@
     "get-llm-total-costs-for-project": {
         "description": "Fetches the total LLM daily costs for each model for a project over a given number of days. If no number of days is provided, it defaults to 7. The results are sorted by model name. The total cost is rounded to 4 decimal places. The query is executed against the project's data warehouse. Show the results as a Markdown formatted table with the following information for each model: Model name, Total cost in USD, Each day's date, Each day's cost in USD. Write in bold the model name with the highest total cost. Properly render the markdown table in the response.",
         "category": "LLM analytics",
-        "feature": "llm-analytics",
+        "feature": "llm_analytics",
         "summary": "Fetches the total LLM daily costs for each model for a project over a given number of days.",
         "title": "Get LLM costs",
         "required_scopes": ["warehouse_table:read"],
@@ -512,10 +512,10 @@
     "survey-create": {
         "description": "Creates a new survey in the project. Surveys can be popover or API-based and support various question types including open-ended, multiple choice, rating, and link questions. Once created, you should ask the user if they want to add the survey to their application code.",
         "category": "Surveys",
-        "summary": "Creates a new survey in the project.",
-        "required_scopes": ["survey:write"],
         "feature": "surveys",
-        "title": "Create survey",
+        "summary": "Creates a new survey in the project.",
+        "title": "Creates a new survey in the project.",
+        "required_scopes": ["survey:write"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -527,10 +527,10 @@
     "survey-get": {
         "description": "Get a specific survey by ID. Returns the survey configuration including questions, targeting, and scheduling details.",
         "category": "Surveys",
-        "summary": "Get a specific survey by ID.",
-        "required_scopes": ["survey:read"],
         "feature": "surveys",
-        "title": "Get survey",
+        "summary": "Get a specific survey by ID.",
+        "title": "Get a specific survey by ID.",
+        "required_scopes": ["survey:read"],
         "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
@@ -542,10 +542,10 @@
     "surveys-get-all": {
         "description": "Get all surveys in the project with optional filtering. Can filter by search term or use pagination.",
         "category": "Surveys",
-        "summary": "Get all surveys in the project with optional filtering.",
-        "required_scopes": ["survey:read"],
         "feature": "surveys",
-        "title": "Get all surveys",
+        "summary": "Get all surveys in the project with optional filtering.",
+        "title": "Get all surveys in the project with optional filtering.",
+        "required_scopes": ["survey:read"],
         "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
@@ -557,10 +557,10 @@
     "survey-update": {
         "description": "Update an existing survey by ID. Can update name, description, questions, scheduling, and other survey properties.",
         "category": "Surveys",
-        "summary": "Update an existing survey by ID.",
-        "required_scopes": ["survey:write"],
         "feature": "surveys",
-        "title": "Update survey",
+        "summary": "Update an existing survey by ID.",
+        "title": "Update an existing survey by ID.",
+        "required_scopes": ["survey:write"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -572,10 +572,10 @@
     "survey-delete": {
         "description": "Delete a survey by ID (soft delete - marks as archived).",
         "category": "Surveys",
-        "summary": "Delete a survey by ID.",
-        "required_scopes": ["survey:write"],
         "feature": "surveys",
-        "title": "Delete survey",
+        "summary": "Delete a survey by ID.",
+        "title": "Delete a survey by ID.",
+        "required_scopes": ["survey:write"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": true,
@@ -587,10 +587,10 @@
     "surveys-global-stats": {
         "description": "Get aggregated response statistics across all surveys in the project. Includes event counts (shown, dismissed, sent), unique respondents, conversion rates, and timing data. Supports optional date filtering.",
         "category": "Surveys",
-        "summary": "Get aggregated response statistics across all surveys.",
-        "required_scopes": ["survey:read"],
         "feature": "surveys",
-        "title": "Get all survey response stats",
+        "summary": "Get aggregated response statistics across all surveys.",
+        "title": "Get aggregated response statistics across all surveys.",
+        "required_scopes": ["survey:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -602,10 +602,10 @@
     "survey-stats": {
         "description": "Get response statistics for a specific survey. Includes detailed event counts (shown, dismissed, sent), unique respondents, conversion rates, and timing data. Supports optional date filtering.",
         "category": "Surveys",
-        "summary": "Get response statistics for a specific survey.",
-        "required_scopes": ["survey:read"],
         "feature": "surveys",
-        "title": "Get survey response stats",
+        "summary": "Get response statistics for a specific survey.",
+        "title": "Get response statistics for a specific survey.",
+        "required_scopes": ["survey:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -706,7 +706,7 @@
     "read-data-schema": {
         "description": "Use this tool to explore the user's data schema. The user implements PostHog SDKs to collect events, properties, and property values. They are used by users to create insights with visualizations, SQL queries, watch session recordings, filter data, target particular users or groups by traits or behavior, etc. Each event, action, and entity has its own data schema. You must verify that specific combinations exist before using it anywhere else. Events or properties starting from \"$\" are system properties automatically captured by SDKs. Do not rely on your training data or PostHog defaults for events or properties. Always use this tool to confirm what actually exists in the user's project before referencing any event, property, or property value.",
         "category": "Data schema",
-        "feature": "data-schema",
+        "feature": "data_schema",
         "summary": "Explore the user's events, actions, properties, and property values.",
         "title": "Read data schema",
         "required_scopes": ["event_definition:read", "property_definition:read"],
@@ -721,7 +721,7 @@
     "read-data-warehouse-schema": {
         "description": "Use this tool to retrieve the core data warehouse schemas for PostHog tables (events, groups, persons, sessions) and the available data warehouse tables, views, and system tables. Use this to understand the data model before writing HogQL queries.",
         "category": "Data schema",
-        "feature": "data-schema",
+        "feature": "data_schema",
         "summary": "Read core data warehouse schemas and table lists.",
         "title": "Read data warehouse schema",
         "required_scopes": ["warehouse_table:read", "warehouse_view:read"],

@@ -12,7 +12,6 @@ from posthog.models.file_system.file_system import FileSystem, escape_path, spli
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.insight import Insight
-from posthog.models.link import Link
 from posthog.models.surveys.survey import Survey
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -20,6 +19,7 @@ from posthog.session_recordings.models.session_recording_playlist import Session
 
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
+from products.links.backend.models import Link
 from products.notebooks.backend.models import Notebook
 
 MIXIN_MODELS = {

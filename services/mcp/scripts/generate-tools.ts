@@ -119,19 +119,18 @@ function loadKnownSchemaTypes(spec: OpenApiSpec): Set<string> {
 /**
  * Find an operation by operationId. When the same endpoint exists at both
  * /api/environments/ and /api/projects/, prefers /api/projects/.
- * Also matches _N deduplicated variants (e.g. issues_list matches issues_list_2).
+ * Prefers an exact operationId match, then falls back to matching _N deduplicated
+ * variants (e.g. issues_list matches issues_list_2) for backward compatibility.
  */
 function findOperation(spec: OpenApiSpec, operationId: string): ResolvedOperation | undefined {
     const base = operationId.replace(/_\d+$/, '')
-    let fallback: ResolvedOperation | undefined
+    let exactFallback: ResolvedOperation | undefined
+    let baseFallback: ResolvedOperation | undefined
+    let baseProject: ResolvedOperation | undefined
 
     for (const [urlPath, methods] of Object.entries(spec.paths)) {
         for (const [method, op] of Object.entries(methods)) {
             if (!op?.operationId) {
-                continue
-            }
-            const opBase = op.operationId.replace(/_\d+$/, '')
-            if (opBase !== base) {
                 continue
             }
             const resolved = {
@@ -139,15 +138,33 @@ function findOperation(spec: OpenApiSpec, operationId: string): ResolvedOperatio
                 path: urlPath,
                 operation: op,
             }
-            if (urlPath.startsWith('/api/projects/')) {
-                return resolved
+
+            if (op.operationId === operationId) {
+                if (urlPath.startsWith('/api/projects/')) {
+                    return resolved
+                }
+                if (!exactFallback) {
+                    exactFallback = resolved
+                }
+                continue
             }
-            if (!fallback) {
-                fallback = resolved
+
+            const opBase = op.operationId.replace(/_\d+$/, '')
+            if (opBase !== base) {
+                continue
+            }
+            if (urlPath.startsWith('/api/projects/')) {
+                if (!baseProject) {
+                    baseProject = resolved
+                }
+                continue
+            }
+            if (!baseFallback) {
+                baseFallback = resolved
             }
         }
     }
-    return fallback
+    return exactFallback ?? baseProject ?? baseFallback
 }
 
 function resolveSchema(spec: OpenApiSpec, schemaOrRef: OpenApiSchema | { $ref: string }): OpenApiSchema | undefined {
@@ -528,9 +545,10 @@ function generateToolCode(
         handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
     }
 
-    // Soft-delete overrides the HTTP method: use PATCH { deleted: true } instead of DELETE.
-    // This is necessary for endpoints backed by ForbidDestroyModel (e.g. actions).
-    const isSoftDelete = config.soft_delete === true
+    // Soft-delete overrides the HTTP method: use PATCH instead of DELETE.
+    // `true` sends { deleted: true }, a string value specifies the field name (e.g. "archived").
+    const isSoftDelete = config.soft_delete !== undefined && config.soft_delete !== false
+    const softDeleteField = typeof config.soft_delete === 'string' ? config.soft_delete : 'deleted'
 
     const hasBody = !isSoftDelete && composition.bodyFieldNames.length > 0
     const hasQuery = composition.queryParamNames.length > 0
@@ -550,7 +568,7 @@ function generateToolCode(
     handlerBody += `            method: '${httpMethod}',\n`
     handlerBody += `            path: ${pathExpr},\n`
     if (isSoftDelete) {
-        handlerBody += `            body: { deleted: true },\n`
+        handlerBody += `            body: { ${softDeleteField}: true },\n`
     } else if (hasBody) {
         handlerBody += `            body,\n`
     }
