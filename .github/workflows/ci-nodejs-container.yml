@@ -52,6 +52,7 @@ jobs:
             github.event_name == 'merge_group' ||
             (github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.changes.outputs.node_files == 'true')
         runs-on: depot-ubuntu-latest
+        timeout-minutes: 15
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow reading the repo contents

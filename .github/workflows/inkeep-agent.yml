@@ -24,6 +24,7 @@ jobs:
               (github.event_name == 'pull_request_review' && contains(github.event.review.body || '', '@inkeep'))
             )
         runs-on: ubuntu-latest
+        timeout-minutes: 10
         steps:
             - name: Trigger Inkeep Agent
               uses: inkeep/inkeep-agents-action@39c725a2bf4d24acb89ae70139e13bf50f637c20 # v0.6.0

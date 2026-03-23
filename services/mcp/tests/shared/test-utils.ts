@@ -105,7 +105,10 @@ export async function cleanupResources(
 
     for (const surveyId of resources.surveys) {
         try {
-            await client.surveys({ projectId }).delete({ surveyId, softDelete: false })
+            await client.request({
+                method: 'DELETE',
+                path: `/api/projects/${projectId}/surveys/${surveyId}/`,
+            })
         } catch (error) {
             console.warn(`Failed to cleanup survey ${surveyId}:`, error)
         }

@@ -19,7 +19,10 @@ from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.caching.fetch_from_cache import InsightResult
 from posthog.event_usage import EventSource
 from posthog.models import AlertConfiguration, Insight
-from posthog.tasks.alerts.utils import AlertEvaluationResult, is_non_time_series_trend
+from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.tasks.alerts.detectors import get_detector
+from posthog.tasks.alerts.utils import NON_TIME_SERIES_DISPLAY_TYPES, WRAPPER_NODE_KINDS, AlertEvaluationResult
+from posthog.utils import get_from_dict_or_attr
 
 
 # TODO: move the TrendResult UI type to schema.ts and use that instead
@@ -75,7 +78,12 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
     But in some cases (when check_current_interval = True) like value > X or value inc > X, we can check the value for the current interval and alert right away if threshold is breached.
     So then we check current interval value first and alert if threshold breached, otherwise fallback and process previous interval.
     """
-    config = TrendsAlertConfig.model_validate(alert.config)
+
+    if alert.config and "type" in alert.config and alert.config["type"] == "TrendsAlertConfig":
+        config = TrendsAlertConfig.model_validate(alert.config)
+    else:
+        raise ValueError(f"Unsupported alert config type: {alert.config}")
+
     condition = AlertCondition.model_validate(alert.condition)
     threshold = InsightThreshold.model_validate(alert.threshold.configuration) if alert.threshold else None
 
@@ -85,7 +93,7 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
     has_breakdown = query.breakdownFilter and (
         (query.breakdownFilter.breakdown and query.breakdownFilter.breakdown_type) or query.breakdownFilter.breakdowns
     )
-    is_non_time_series = is_non_time_series_trend(query)
+    is_non_time_series = _is_non_time_series_trend(query)
     check_current_interval = config.check_ongoing_interval
 
     # Do not use cache hourly trends alerts.
@@ -97,6 +105,9 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
 
     match condition.type:
         case AlertConditionType.ABSOLUTE_VALUE:
+            if threshold.type != InsightThresholdType.ABSOLUTE:
+                raise ValueError(f"Absolute threshold not configured for alert condition ABSOLUTE_VALUE")
+
             if is_non_time_series:
                 # for non time series, it's an aggregated value for full interval
                 # so we need to compute full insight
@@ -121,6 +132,12 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                 calculation_result, alert, threshold.bounds, threshold.type, condition, interval
             ):
                 return no_result_evaluation
+
+            if check_current_interval and threshold.bounds.upper is None:
+                # checking for value > X so we can also check current interval value
+                raise ValueError(
+                    f"check_ongoing_interval is only supported for alert condition ABSOLUTE_VALUE when upper threshold is specified"
+                )
 
             if has_breakdown:
                 # for breakdowns, we need to check all values in calculation_result.result
@@ -186,6 +203,9 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                     )
                     return AlertEvaluationResult(value=prev_interval_value, breaches=breaches)
         case AlertConditionType.RELATIVE_INCREASE:
+            if is_non_time_series:
+                raise ValueError(f"Relative alerts not supported for non time series trends")
+
             # to measure relative increase, we can't alert until current interval has completed
             # as to check increase less than X, we need interval to complete
             # so we need to compute the trend values for last 3 intervals
@@ -220,6 +240,13 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
             # and increase will be the evaluated value of that result
             increase = None
             breaches = []
+
+            if check_current_interval and threshold.bounds.upper is None:
+                # checking for value increased > X so we can also check current interval value
+                # as can alert right away if current interval value - previous interval value > upper threshold
+                raise ValueError(
+                    f"check_ongoing_interval is only supported for alert condition RELATIVE_INCREASE when upper threshold is specified"
+                )
 
             for result in results_to_evaluate:
                 current_interval_value = _pick_interval_value_from_trend_result(query, result, 0)
@@ -286,6 +313,9 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
             return AlertEvaluationResult(value=(increase if not has_breakdown else None), breaches=[])
 
         case AlertConditionType.RELATIVE_DECREASE:
+            if is_non_time_series:
+                raise ValueError(f"Relative alerts not supported for non time series trends")
+
             # to measure relative decrease, we can't alert until current interval has completed
             # as to check decrease more than X, we need interval to complete
             # so we need to compute the trend values for last 3 intervals
@@ -357,6 +387,10 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
             raise NotImplementedError(f"Unsupported alert condition type: {condition.type}")
 
 
+def _is_non_time_series_trend(query: TrendsQuery) -> bool:
+    return bool(query.trendsFilter and query.trendsFilter.display in NON_TIME_SERIES_DISPLAY_TYPES)
+
+
 def _date_range_override_for_intervals(query: TrendsQuery, last_x_intervals: int = 1) -> Optional[dict]:
     """
     Resulting filter overrides don't set 'date_to' so we always get value for current interval.
@@ -390,7 +424,7 @@ def _pick_interval_value_from_trend_result(query: TrendsQuery, result: TrendResu
     """
     assert interval_to_pick <= 0
 
-    if is_non_time_series_trend(query):
+    if _is_non_time_series_trend(query):
         # only one value in result
         return result["aggregated_value"]
 
@@ -440,6 +474,15 @@ DETECTOR_MIN_SAMPLES: dict[DetectorType, int] = {
     DetectorType.ZSCORE: 31,  # window + 1
     DetectorType.MAD: 31,  # window + 1
     DetectorType.THRESHOLD: 1,  # single data point sufficient
+    DetectorType.IQR: 31,  # window + 1
+    DetectorType.COPOD: 10,
+    DetectorType.ECOD: 10,
+    DetectorType.HBOS: 10,
+    DetectorType.ISOLATION_FOREST: 10,
+    DetectorType.KNN: 10,
+    DetectorType.LOF: 20,  # needs n_neighbors samples
+    DetectorType.OCSVM: 10,
+    DetectorType.PCA: 10,
 }
 
 
@@ -482,7 +525,7 @@ def check_trends_alert_with_detector(
     # Calculate date range to fetch enough data
     filters_override = _date_range_override_for_detector(query, min_samples)
 
-    is_non_time_series = is_non_time_series_trend(query)
+    is_non_time_series = _is_non_time_series_trend(query)
     if is_non_time_series:
         filters_override = None  # full insight for aggregated values
 
@@ -568,3 +611,123 @@ def _date_range_override_for_detector(query: TrendsQuery, min_samples: int) -> d
             date_from = f"-{min_samples}h"
 
     return {"date_from": date_from}
+
+
+def simulate_detector_on_insight(
+    insight: Insight,
+    team: Any,
+    detector_config: dict[str, Any],
+    series_index: int = 0,
+    date_from: str | None = None,
+) -> dict[str, Any]:
+    """
+    Run a detector over the full historical data of an insight using detect_batch().
+    Returns per-point scores and triggered indices for chart visualization.
+    No AlertCheck records are created — this is read-only.
+    """
+    if insight.query is None:
+        raise ValueError("Insight has no valid query.")
+
+    with upgrade_query(insight):
+        query = insight.query
+
+    kind = get_from_dict_or_attr(query, "kind")
+    if kind in WRAPPER_NODE_KINDS:
+        query = get_from_dict_or_attr(query, "source")
+        kind = get_from_dict_or_attr(query, "kind")
+
+    if kind != "TrendsQuery":
+        raise ValueError("Only TrendsQuery insights are supported for simulation.")
+
+    trends_query = TrendsQuery.model_validate(query)
+
+    detector_type_str = detector_config.get("type", "zscore")
+
+    # Calculate minimum samples needed
+    if detector_type_str == "ensemble":
+        sub_detectors = detector_config.get("detectors", [])
+        min_samples = max((d.get("window", 30) + 1 for d in sub_detectors), default=31)
+    else:
+        detector_type = DetectorType(detector_type_str)
+        min_samples = DETECTOR_MIN_SAMPLES.get(detector_type, 31)
+        window = detector_config.get("window", 30)
+        if detector_type in (DetectorType.ZSCORE, DetectorType.MAD):
+            min_samples = max(min_samples, window + 1)
+
+    # Fetch enough historical data
+    is_non_time_series = _is_non_time_series_trend(trends_query)
+    if is_non_time_series:
+        filters_override = None
+    elif date_from:
+        # User-requested range — use it directly, but the detector will still
+        # need min_samples internally so we don't clamp here; if the user asks
+        # for too few points the detector simply won't trigger on early ones.
+        filters_override = {"date_from": date_from}
+    else:
+        filters_override = _date_range_override_for_detector(trends_query, min_samples)
+
+    execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+    if trends_query.interval == IntervalType.HOUR:
+        execution_mode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+
+    calculation_result = calculate_for_query_based_insight(
+        insight,
+        team=team,
+        execution_mode=execution_mode,
+        user=None,
+        filters_override=filters_override,
+    )
+
+    if calculation_result.result is None or not calculation_result.result:
+        raise ValueError("No results found for insight.")
+
+    # Pick the series
+    config = TrendsAlertConfig(type="TrendsAlertConfig", series_index=series_index)
+    selected_series_result = _pick_series_result(config, calculation_result)
+
+    if is_non_time_series:
+        data_list: list[float] = [float(selected_series_result.get("aggregated_value", 0))]
+    else:
+        data_list = [float(v) for v in selected_series_result.get("data", [])]
+
+    data = np.array(data_list)
+    if len(data) == 0:
+        raise ValueError("No data points found for the selected series.")
+
+    dates: list[str] = selected_series_result.get("days") or selected_series_result.get("labels") or []
+
+    # Run batch detection
+    detector = get_detector(detector_config)
+    result = detector.detect_batch(data)
+
+    # Map triggered indices to dates
+    triggered_dates: list[str] = []
+    if result.triggered_indices and dates:
+        triggered_dates = [dates[i] for i in result.triggered_indices if i < len(dates)]
+
+    scores = result.all_scores if result.all_scores else [None] * len(data)
+
+    # For ensemble detectors, include per-sub-detector scores for visualization
+    sub_detector_scores: list[dict[str, Any]] | None = None
+    if detector_type_str == "ensemble" and result.metadata:
+        sub_results = result.metadata.get("sub_results", [])
+        sub_detector_scores = [
+            {"type": sr.get("type", "unknown"), "scores": sr.get("all_scores", [])}
+            for sr in sub_results
+            if sr.get("all_scores")
+        ]
+
+    response: dict[str, Any] = {
+        "data": data_list,
+        "dates": dates,
+        "scores": scores,
+        "triggered_indices": result.triggered_indices or [],
+        "triggered_dates": triggered_dates,
+        "interval": trends_query.interval.value if trends_query.interval else None,
+        "total_points": len(data),
+        "anomaly_count": len(result.triggered_indices) if result.triggered_indices else 0,
+    }
+    if sub_detector_scores:
+        response["sub_detector_scores"] = sub_detector_scores
+
+    return response

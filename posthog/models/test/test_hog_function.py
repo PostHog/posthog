@@ -277,7 +277,7 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
             {"key": "$host", "operator": "regex", "value": "^(localhost|127\\.0\\.0\\.1)($|:)"},
             {"key": "$pageview", "operator": "regex", "value": "test"},
         ]
-        # 1 select team (for field comparison), 1 update team, 1 load hog flows, 1 load hog functions, 1 update hog functions
+        # 1 read old secret tokens (pre_save), 1 update team, 1 load hog flows, 1 load hog functions, 1 update hog functions
         # Note: RemoteConfig refresh queries are now deferred via async signals
         with self.assertNumQueries(5):
             self.team.save()

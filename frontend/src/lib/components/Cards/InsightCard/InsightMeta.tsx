@@ -27,7 +27,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -49,9 +49,11 @@ import {
     DashboardTile,
     ExporterFormat,
     InsightColor,
+    InsightLogicProps,
     QueryBasedInsightModel,
 } from '~/types'
 
+import { getDisplayLabelsToggleText, toggleDisplayLabelsInInsightQuery } from './displayLabelsToggle'
 import { InsightCardProps } from './InsightCard'
 import { InsightDetails } from './InsightDetails'
 import { InsightMoveToDashboardMenu } from './InsightMoveToDashboardMenu'
@@ -117,21 +119,35 @@ export function InsightMeta({
     onDragHandleMouseDown,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, dashboards, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
-    const { insightProps, insightFeedback } = useValues(insightLogic)
-    const { setInsightFeedback } = useActions(insightLogic)
-    const { exportContext, insightData } = useValues(insightDataLogic(insightProps))
-    const { samplingFactor } = useValues(insightVizDataLogic(insightProps))
+    const insightLogicProps: InsightLogicProps = {
+        dashboardItemId: insight.short_id,
+        dashboardId,
+        cachedInsight: insight,
+        filtersOverride: filtersOverride ?? null,
+        variablesOverride: variablesOverride ?? null,
+        tileFiltersOverride: tile?.filters_overrides ?? null,
+    }
+    const { insightFeedback, canToggleDisplayLabelsForInsight } = useValues(insightLogic(insightLogicProps))
+    const { setInsightFeedback } = useActions(insightLogic(insightLogicProps))
+    const { exportContext, insightData } = useValues(insightDataLogic(insightLogicProps))
+    const { samplingFactor } = useValues(insightVizDataLogic(insightLogicProps))
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { updateInsightDirect } = useActions(insightsModel)
-    const { reportDashboardInsightMetaUpdated } = useActions(eventUsageLogic)
+    const { reportDashboardInsightMetaUpdated, reportDashboardInsightValuesOnSeriesToggled } =
+        useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const showCompactTile =
         placement === DashboardPlacement.Dashboard ||
         placement === DashboardPlacement.ProjectHomepage ||
         placement === DashboardPlacement.Public
+    const isDashboardCardPlacement =
+        placement === DashboardPlacement.Dashboard ||
+        placement === DashboardPlacement.Public ||
+        placement === DashboardPlacement.Builtin
 
     const isSqlInsight = isDataVisualizationNode(insight.query)
+    const displayLabelsToggleText = getDisplayLabelsToggleText(insight.query)
     const showCompactHeading = !showCompactTile || (!filtersOverride?.date_from && !isSqlInsight)
 
     const topHeadingProps = {
@@ -156,6 +172,7 @@ export function InsightMeta({
                   AccessControlLevel.Editor
               )
             : true
+    const canToggleDisplayLabels = isDashboardCardPlacement && canEditInsight && canToggleDisplayLabelsForInsight
 
     // For dashboard-specific actions (remove from dashboard, change tile color), check dashboard permissions
     const currentDashboard = dashboardId ? nameSortedDashboards.find((d) => d.id === dashboardId) : null
@@ -361,11 +378,33 @@ export function InsightMeta({
                     >
                         Duplicate
                     </LemonButton>
+                    {canToggleDisplayLabels && (
+                        <>
+                            <LemonDivider />
+                            <LemonButton
+                                onClick={() => {
+                                    const query = toggleDisplayLabelsInInsightQuery(insight.query)
+                                    if (query !== insight.query) {
+                                        updateInsightDirect(insight, { query })
+                                        reportDashboardInsightValuesOnSeriesToggled(
+                                            dashboardId,
+                                            insight.id,
+                                            DashboardEventSource.MoreDropdown
+                                        )
+                                    }
+                                }}
+                                fullWidth
+                            >
+                                {displayLabelsToggleText}
+                            </LemonButton>
+                            <LemonDivider />
+                        </>
+                    )}
 
                     {/* Dashboard related */}
                     {canEditDashboard && (
                         <>
-                            <LemonDivider />
+                            {!canToggleDisplayLabels && <LemonDivider />}
                             {showCompactTile && toggleShowDescription && !!insight.description && (
                                 <LemonButton onClick={toggleShowDescription} fullWidth>
                                     {tile?.show_description === false ? 'Show description' : 'Hide description'}
@@ -463,7 +502,7 @@ export function InsightMeta({
                                     {
                                         export_format: ExporterFormat.PNG,
                                         insight: insight.id,
-                                        dashboard: insightProps.dashboardId,
+                                        dashboard: insightLogicProps.dashboardId,
                                     },
                                     {
                                         export_format: ExporterFormat.CSV,

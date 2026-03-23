@@ -15,6 +15,7 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
@@ -63,12 +64,12 @@ function VerifiedDomainsTable(): JSX.Element {
     const {
         verifiedDomains,
         verifiedDomainsLoading,
-        currentOrganization,
         updatingDomainLoading,
         isSSOEnforcementAvailable,
         isSAMLAvailable,
         isSCIMAvailable,
     } = useValues(verifiedDomainsLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const {
         updateDomain,
         deleteVerifiedDomain,

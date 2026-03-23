@@ -1,6 +1,7 @@
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 import { useRef } from 'react'
 
 import {
@@ -407,8 +408,12 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                 isSideActionRight
                                                                 onClick={(e) => {
                                                                     e.stopPropagation()
+                                                                    posthog.capture('homepage configure home clicked', {
+                                                                        source: 'navbar',
+                                                                    })
                                                                     showConfigurePinnedTabsModal()
                                                                 }}
+                                                                data-attr="menu-item-side-action-configure-home"
                                                                 tooltip="Configure tabs & home"
                                                                 tooltipPlacement="right"
                                                                 className="opacity-0 group-hover:opacity-100 transition-all duration-50"

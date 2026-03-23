@@ -988,6 +988,11 @@ export interface TraceReviewCreateApi {
     comment?: string | null
     /** Full desired score set for this review. Omit scorers you want to leave blank. */
     scores?: TraceReviewScoreWriteApi[]
+    /**
+     * Optional review queue ID for queue-context saves. When provided, the matching pending queue item is cleared after the review is saved. If omitted, any pending queue item for the same trace is cleared.
+     * @nullable
+     */
+    queue_id?: string | null
 }
 
 export interface PatchedTraceReviewUpdateApi {
@@ -1003,6 +1008,11 @@ export interface PatchedTraceReviewUpdateApi {
     comment?: string | null
     /** Full desired score set for this review. Omit scorers you want to leave blank. */
     scores?: TraceReviewScoreWriteApi[]
+    /**
+     * Optional review queue ID for queue-context saves. When provided, the matching pending queue item is cleared after the review is saved. If omitted, any pending queue item for the same trace is cleared.
+     * @nullable
+     */
+    queue_id?: string | null
 }
 
 export interface LLMPromptApi {
@@ -1056,6 +1066,14 @@ export interface PatchedLLMPromptPublishApi {
      * @minimum 1
      */
     base_version?: number
+}
+
+export interface LLMPromptDuplicateApi {
+    /**
+     * Name for the duplicated prompt. Must be unique and use only letters, numbers, hyphens, and underscores.
+     * @maxLength 255
+     */
+    new_name: string
 }
 
 export interface LLMPromptVersionSummaryApi {
