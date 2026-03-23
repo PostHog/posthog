@@ -1,10 +1,15 @@
-use axum::http::StatusCode;
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use metrics::counter;
 use serde::Serialize;
 use thiserror::Error;
 use tracing::Level;
+
+use crate::v1::analytics::header::{
+    ACCEPT_ENCODING_ALL, ACCEPT_JSON, DEFAULT_RETRY_AFTER_SECS, WWW_AUTHENTICATE_INVALID,
+    WWW_AUTHENTICATE_MISSING,
+};
 
 const ERROR_METRIC_KEY: &str = "capture_v1_analytics_error";
 
@@ -123,9 +128,9 @@ impl Error {
 
             Self::BillingLimitExceeded | Self::RateLimited(_) => "rate_limit_error",
 
-            Self::InternalError(_)
-            | Self::ServiceUnavailable(_)
-            | Self::GatewayTimeout => "server_error",
+            Self::InternalError(_) | Self::ServiceUnavailable(_) | Self::GatewayTimeout => {
+                "server_error"
+            }
         }
     }
 
@@ -174,9 +179,9 @@ impl Error {
             | Self::RateLimited(_) => Level::WARN,
 
             // 5xx server errors: error
-            Self::InternalError(_)
-            | Self::ServiceUnavailable(_)
-            | Self::GatewayTimeout => Level::ERROR,
+            Self::InternalError(_) | Self::ServiceUnavailable(_) | Self::GatewayTimeout => {
+                Level::ERROR
+            }
         }
     }
 
@@ -221,6 +226,30 @@ impl Error {
             Self::GatewayTimeout => StatusCode::GATEWAY_TIMEOUT,
         }
     }
+
+    pub fn response_headers(&self) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ACCEPT, ACCEPT_JSON);
+        headers.insert(header::ACCEPT_ENCODING, ACCEPT_ENCODING_ALL);
+
+        match self {
+            Self::MissingApiToken => {
+                headers.insert(header::WWW_AUTHENTICATE, WWW_AUTHENTICATE_MISSING);
+            }
+            Self::InvalidApiToken(_) => {
+                headers.insert(header::WWW_AUTHENTICATE, WWW_AUTHENTICATE_INVALID);
+            }
+            Self::BillingLimitExceeded | Self::RateLimited(_) => {
+                headers.insert(header::RETRY_AFTER, DEFAULT_RETRY_AFTER_SECS);
+            }
+            Self::InternalError(_) | Self::ServiceUnavailable(_) => {
+                headers.insert(header::RETRY_AFTER, DEFAULT_RETRY_AFTER_SECS);
+            }
+            _ => {}
+        }
+
+        headers
+    }
 }
 
 /// Logs at `warn!` or `error!` based on the error variant's `log_level()`,
@@ -256,7 +285,9 @@ impl From<serde_json::Error> for Error {
 
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
+        let status = self.status_code();
+        let headers = self.response_headers();
         let body = ErrorResponse::new(&self);
-        (self.status_code(), Json(body)).into_response()
+        (status, headers, Json(body)).into_response()
     }
 }
