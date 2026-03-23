@@ -8,8 +8,7 @@ import { LemonBanner, LemonButton, LemonSelect, LemonTag, LemonTextArea, Link, T
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { slugifyHeading } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
+import { LemonMarkdown, slugifyHeading } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { urls } from 'scenes/urls'
 
@@ -35,15 +34,19 @@ interface HeadingTreeNode {
 
 function parseMarkdownHeadings(markdown: string): HeadingEntry[] {
     const headings: HeadingEntry[] = []
+    const slugCounts = new Map<string, number>()
     for (const line of markdown.split('\n')) {
         const match = /^(#{1,6})\s+(.+)$/.exec(line.trim())
         if (match) {
-            const text = match[2].replace(/[*_`~[\]]/g, '').trim()
-            headings.push({
-                level: match[1].length,
-                text,
-                slug: slugifyHeading(text),
-            })
+            const text = match[2]
+                .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+                .replace(/[*_`~[\]]/g, '')
+                .trim()
+            const baseSlug = slugifyHeading(text)
+            const count = slugCounts.get(baseSlug) ?? 0
+            slugCounts.set(baseSlug, count + 1)
+            const slug = count === 0 ? baseSlug : `${baseSlug}-${count}`
+            headings.push({ level: match[1].length, text, slug })
         }
     }
     return headings
@@ -324,7 +327,7 @@ export function PromptViewDetails(): JSX.Element {
                         <PromptOutline promptText={promptText} containerRef={markdownContainerRef} className="mt-2" />
                         <div ref={markdownContainerRef}>
                             <LemonMarkdown className="mt-1 rounded border bg-bg-light p-3" generateHeadingIds>
-                                {prompt.prompt}
+                                {promptText}
                             </LemonMarkdown>
                         </div>
                     </>

@@ -137,15 +137,21 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                       ])
                   )
                 : generateHeadingIds
-                  ? Object.fromEntries(
-                        HEADING_TAGS.map((tag) => [
-                            tag,
-                            ({ children }: any): JSX.Element => {
-                                const id = slugifyHeading(extractTextFromChildren(children))
-                                return React.createElement(tag, { id }, children)
-                            },
-                        ])
-                    )
+                  ? (() => {
+                        const slugCounts = new Map<string, number>()
+                        return Object.fromEntries(
+                            HEADING_TAGS.map((tag) => [
+                                tag,
+                                ({ children }: any): JSX.Element => {
+                                    const baseSlug = slugifyHeading(extractTextFromChildren(children))
+                                    const count = slugCounts.get(baseSlug) ?? 0
+                                    slugCounts.set(baseSlug, count + 1)
+                                    const id = count === 0 ? baseSlug : `${baseSlug}-${count}`
+                                    return React.createElement(tag, { id }, children)
+                                },
+                            ])
+                        )
+                    })()
                   : {}),
         }),
         [disableDocsRedirect, lowKeyHeadings, wrapCode, generateHeadingIds]
