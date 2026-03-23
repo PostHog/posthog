@@ -196,8 +196,8 @@ jobs:
 
                       // Validate params early so the user gets immediate feedback
                       if (canaryWeight !== 'auto') {
-                          const w = parseInt(canaryWeight, 10);
-                          if (isNaN(w) || w < 1 || w > 10) {
+                          const w = Number(canaryWeight);
+                          if (!Number.isInteger(w) || w < 1 || w > 10) {
                               await github.rest.issues.createComment({
                                   owner: context.repo.owner,
                                   repo: context.repo.repo,
@@ -264,7 +264,7 @@ jobs:
         name: Build feature-flags image and enable canary
         needs: [handle_comment]
         if: >-
-            always() &&
+            !cancelled() &&
             github.repository == 'PostHog/posthog' && (
                 github.event_name == 'workflow_dispatch' ||
                 (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'canary-flags')) ||
@@ -306,6 +306,7 @@ jobs:
                           prNumber = context.payload.pull_request.number;
                           canaryWeight = 'auto';
                           targetEnvironment = 'dev';
+                          headSha = context.payload.pull_request.head.sha;
                       }
 
                       if (isNaN(prNumber) || prNumber <= 0) {
@@ -313,15 +314,20 @@ jobs:
                           return;
                       }
 
-                      // For non-comment triggers we need to fetch the PR head SHA now.
+                      // For workflow_dispatch we need to fetch the PR to get the
+                      // head SHA and author. For pull_request the payload has both.
                       // For issue_comment the SHA was already pinned in handle_comment.
-                      if (!headSha) {
+                      let prAuthor;
+                      if (context.eventName === 'workflow_dispatch') {
                           const { data: pr } = await github.rest.pulls.get({
                               owner: context.repo.owner,
                               repo: context.repo.repo,
                               pull_number: prNumber
                           });
                           headSha = pr.head.sha;
+                          prAuthor = pr.user.login;
+                      } else if (context.eventName === 'pull_request') {
+                          prAuthor = context.payload.pull_request.user.login;
                       }
 
                       const allReviews = await github.paginate(github.rest.pulls.listReviews, {
@@ -331,8 +337,13 @@ jobs:
                           per_page: 100,
                       });
 
-                      // Keep only the latest review per reviewer
-                      const latestByReviewer = allReviews.reduce((acc, r) => {
+                      // Keep only the latest meaningful review per reviewer.
+                      // Filter to APPROVED/CHANGES_REQUESTED so that a follow-up
+                      // COMMENTED review doesn't shadow a prior approval.
+                      const significantReviews = allReviews.filter(r =>
+                          r.state === 'APPROVED' || r.state === 'CHANGES_REQUESTED'
+                      );
+                      const latestByReviewer = significantReviews.reduce((acc, r) => {
                           if (!acc[r.user.login] || new Date(r.submitted_at) > new Date(acc[r.user.login].submitted_at)) {
                               acc[r.user.login] = r;
                           }
@@ -358,6 +369,9 @@ jobs:
                       core.setOutput('canary_weight', canaryWeight);
                       core.setOutput('target_environment', targetEnvironment);
                       core.setOutput('image_tag', `sha-${shortSha}`);
+                      if (prAuthor) {
+                          core.setOutput('pr_author', prAuthor);
+                      }
 
                       console.log(`PR #${prNumber} approved. SHA: ${headSha}`);
 
@@ -382,8 +396,7 @@ jobs:
                       });
 
                       const labelEvent = events
-                          .reverse()
-                          .find(e => e.event === 'labeled' && e.label.name === 'canary-flags');
+                          .findLast(e => e.event === 'labeled' && e.label.name === 'canary-flags');
 
                       if (!labelEvent) {
                           core.setFailed('canary-flags label event not found — cannot verify authorization');
@@ -427,23 +440,16 @@ jobs:
               if: github.event_name != 'issue_comment'
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               env:
-                  PR_NUMBER: ${{ steps.pr_info.outputs.pr_number }}
+                  PR_AUTHOR: ${{ steps.pr_info.outputs.pr_author }}
               with:
                   script: |
-                      const prNumber = parseInt(process.env.PR_NUMBER);
-
-                      // For pull_request events the payload has the author directly;
-                      // for workflow_dispatch we need to fetch the PR.
-                      let prAuthor;
-                      if (context.eventName === 'pull_request') {
-                          prAuthor = context.payload.pull_request.user.login;
-                      } else {
-                          const { data: pr } = await github.rest.pulls.get({
-                              owner: context.repo.owner,
-                              repo: context.repo.repo,
-                              pull_number: prNumber
-                          });
-                          prAuthor = pr.user.login;
+                      // pr_author is set by pr_info: from the API for workflow_dispatch,
+                      // from the event payload for pull_request.
+                      // For issue_comment this step is skipped entirely (checked in handle_comment).
+                      const prAuthor = process.env.PR_AUTHOR;
+                      if (!prAuthor) {
+                          core.setFailed('pr_author output not set by pr_info step');
+                          return;
                       }
 
                       try {
@@ -568,7 +574,7 @@ jobs:
                   tags: ghcr.io/posthog/posthog/feature-flags:${{ steps.pr_info.outputs.image_tag }}
                   platforms: linux/arm64
                   build-args: |
-                      SCCACHE_LOG=debug
+                      SCCACHE_LOG=warn
                       SCCACHE_NO_DAEMON=1
                       BIN=feature-flags
                   secrets: |

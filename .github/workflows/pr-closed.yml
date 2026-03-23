@@ -34,15 +34,20 @@ jobs:
                   private_key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
 
             - name: Dispatch canary disable to charts repo
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
               with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: disable-canary-flags
-                  client-payload: |
-                      {
-                        "pr_number": "${{ github.event.pull_request.number }}"
-                      }
+                  github-token: ${{ steps.deployer.outputs.token }}
+                  script: |
+                      await github.rest.repos.createDispatchEvent({
+                          owner: 'PostHog',
+                          repo: 'charts',
+                          event_type: 'disable-canary-flags',
+                          client_payload: {
+                              pr_number: process.env.PR_NUMBER
+                          }
+                      });
 
     report-pr-age:
         name: Report age of PR
