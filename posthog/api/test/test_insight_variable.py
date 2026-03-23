@@ -2,11 +2,13 @@ from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest import TestCase
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
+from rest_framework.exceptions import PermissionDenied
 
-from posthog.api.insight_variable import map_stale_to_latest
+from posthog.api.insight_variable import InsightVariableViewSet, map_stale_to_latest
+from posthog.auth import SharingAccessTokenAuthentication
 from posthog.models.insight_variable import InsightVariable
 
 
@@ -94,13 +96,6 @@ class TestInsightVariable(APIBaseTest):
         assert response.json()["code_name"] == expected_code_name
 
     def test_sharing_token_auth_denied(self):
-        from unittest.mock import patch
-
-        from rest_framework.exceptions import PermissionDenied
-
-        from posthog.api.insight_variable import InsightVariableViewSet
-        from posthog.auth import SharingAccessTokenAuthentication
-
         request = MagicMock()
         request.successful_authenticator = SharingAccessTokenAuthentication()
 

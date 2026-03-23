@@ -261,13 +261,13 @@ class TestQueryDateRange(APIBaseTest):
 
 
 class TestExactTimerange(APIBaseTest):
-    @parameterized.expand(
-        [
-            ("day", IntervalType.DAY),
-            ("hour", IntervalType.HOUR),
-            ("minute", IntervalType.MINUTE),
-        ]
-    )
+    INTERVALS = [
+        ("day", IntervalType.DAY),
+        ("hour", IntervalType.HOUR),
+        ("minute", IntervalType.MINUTE),
+    ]
+
+    @parameterized.expand(INTERVALS)
     def test_date_to_returns_now_directly_when_exact_timerange_true_and_no_date_to(self, _name, interval):
         now = parser.isoparse("2021-08-25T14:30:45.123456Z")
         qdr = QueryDateRange(
@@ -278,18 +278,17 @@ class TestExactTimerange(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("day", IntervalType.DAY),
-            ("hour", IntervalType.HOUR),
-            ("minute", IntervalType.MINUTE),
+            ("day", IntervalType.DAY, "2021-08-25T23:59:59.999999Z"),
+            ("hour", IntervalType.HOUR, "2021-08-25T14:59:59.999999Z"),
+            ("minute", IntervalType.MINUTE, "2021-08-25T14:30:59.999999Z"),
         ]
     )
-    def test_date_to_rounds_when_exact_timerange_false_and_no_date_to(self, _name, interval):
+    def test_date_to_rounds_when_exact_timerange_false_and_no_date_to(self, _name, interval, expected_str):
         now = parser.isoparse("2021-08-25T14:30:45.123456Z")
         qdr = QueryDateRange(
             team=self.team, date_range=DateRange(date_from="-7d"), interval=interval, now=now, exact_timerange=False
         )
-        result = qdr.date_to()
-        self.assertNotEqual(result, qdr.now_with_timezone)
+        self.assertEqual(qdr.date_to(), parser.isoparse(expected_str))
 
     def test_date_from_does_not_truncate_when_exact_timerange_true(self):
         now = parser.isoparse("2021-08-25T14:30:45.000Z")
@@ -312,13 +311,7 @@ class TestExactTimerange(APIBaseTest):
         # Without exact_timerange, always_truncate=True rounds to the hour boundary
         self.assertEqual(qdr_normal.date_from(), parser.isoparse("2021-08-23T14:00:00Z"))
 
-    @parameterized.expand(
-        [
-            ("day", IntervalType.DAY),
-            ("hour", IntervalType.HOUR),
-            ("minute", IntervalType.MINUTE),
-        ]
-    )
+    @parameterized.expand(INTERVALS)
     def test_use_start_of_interval_false_when_exact_timerange_true(self, _name, interval):
         now = parser.isoparse("2021-08-25T14:30:45.000Z")
         qdr = QueryDateRange(
