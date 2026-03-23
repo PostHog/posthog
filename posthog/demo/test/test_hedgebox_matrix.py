@@ -58,7 +58,7 @@ class TestHedgeboxMatrixDemoWarehouseTables(SimpleTestCase):
                         ]
                     )
                 ]
-            )
+            )  # type: ignore[list-item]
         ]
 
         table_specs = {table_spec.name: table_spec for table_spec in matrix._demo_data_warehouse_table_specs()}
