@@ -50,6 +50,7 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
         }),
         loadPrompts: (debounce: boolean = true) => ({ debounce }),
         deletePrompt: (promptName: string) => ({ promptName }),
+        duplicatePrompt: (promptName: string, newName: string) => ({ promptName, newName }),
     }),
 
     reducers({
@@ -158,6 +159,16 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
                 await asyncActions.loadPrompts(false)
             } catch {
                 lemonToast.error('Failed to archive prompt')
+            }
+        },
+
+        duplicatePrompt: async ({ promptName, newName }) => {
+            try {
+                await api.llmPrompts.duplicateByName(promptName, newName)
+                lemonToast.success(`Prompt duplicated as "${newName}".`)
+                router.actions.push(urls.llmAnalyticsPrompt(newName))
+            } catch {
+                lemonToast.error('Failed to duplicate prompt')
             }
         },
     })),

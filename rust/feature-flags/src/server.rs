@@ -355,6 +355,30 @@ pub async fn serve<F>(
         "Created team negative cache for invalid API tokens"
     );
 
+    // Auth token cache: read-through cache for secret + personal API key validation.
+    // Uses the flags Redis client for cache reads/writes. No in-memory negative cache —
+    // Python signal handlers invalidate Redis on scope/key changes, but cannot reach
+    // Rust's in-memory cache, which would cause stale denials.
+    let auth_redis = dedicated_redis_client
+        .clone()
+        .unwrap_or_else(|| redis_client.clone());
+    let auth_token_inner = Arc::new(common_cache::ReadThroughCache::new(
+        auth_redis.clone(),
+        auth_redis,
+        common_cache::CacheConfig::with_ttl(
+            crate::api::auth::TOKEN_CACHE_PREFIX,
+            config.auth_token_cache_ttl_seconds,
+        ),
+        None,
+    ));
+    let auth_token_cache = Arc::new(common_cache::ReadThroughCacheWithMetrics::new(
+        auth_token_inner,
+        "auth",
+        "token",
+        &[],
+    ));
+    tracing::info!("Created auth token read-through cache (no negative cache)");
+
     if *config.skip_writes {
         tracing::warn!(
             "SKIP_WRITES is enabled: all writes to PostgreSQL and Redis are disabled. \
@@ -395,6 +419,7 @@ pub async fn serve<F>(
         config_hypercache_reader,
         rayon_dispatcher,
         team_negative_cache,
+        auth_token_cache,
         cohort_membership_provider,
         config,
     );

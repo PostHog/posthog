@@ -78,16 +78,8 @@ const columns: LemonTableColumns<Span> = [
 ]
 
 export default function TracingScene(): JSX.Element {
-    const {
-        spans,
-        spansLoading,
-        isTraceModalOpen,
-        traceSpans,
-        traceSpansLoading,
-        selectedTraceId,
-        sparklineData,
-        sparklineRowsLoading,
-    } = useValues(tracingSceneLogic)
+    const { spans, spansLoading, isTraceModalOpen, traceSpans, traceSpansLoading, selectedTraceId, sparklineData } =
+        useValues(tracingSceneLogic)
     const { openTraceModal, closeTraceModal } = useActions(tracingSceneLogic)
 
     const rootSpan = traceSpans.find((s) => !s.parent_span_id)
@@ -101,11 +93,7 @@ export default function TracingScene(): JSX.Element {
                     type: 'tracing',
                 }}
             />
-            <TracingSparkline
-                sparklineData={sparklineData}
-                sparklineLoading={sparklineRowsLoading}
-                displayTimezone="UTC"
-            />
+            <TracingSparkline sparklineData={sparklineData} sparklineLoading={spansLoading} displayTimezone="UTC" />
             <LemonTable
                 columns={columns}
                 dataSource={spans}

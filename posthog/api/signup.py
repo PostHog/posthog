@@ -641,7 +641,7 @@ def lookup_invite_for_saml(email: str, organization_domain_id: str) -> Optional[
 
 def process_social_invite_signup(
     strategy: DjangoStrategy, invite_id: str, email: str, full_name: str, user: Optional[User] = None
-) -> User:
+) -> Optional[User]:
     try:
         # nosemgrep: idor-lookup-without-org (invite UUID from server session serves as auth token)
         invite: Union[OrganizationInvite, TeamInviteSurrogate] = OrganizationInvite.objects.select_related(
@@ -651,11 +651,7 @@ def process_social_invite_signup(
         try:
             invite = TeamInviteSurrogate(invite_id)
         except Team.DoesNotExist:
-            raise ValidationError(
-                "Team does not exist",
-                code="invalid_invite",
-                params={"source": "social_create_user"},
-            )
+            return None
 
     if user:
         invite.validate(user=user, email=email)
@@ -812,6 +808,8 @@ def social_create_user(
     if invite_id:
         from_invite = True
         user = process_social_invite_signup(strategy, invite_id, email, full_name)
+        if user is None:
+            return redirect("/login?error_code=invalid_invite")
 
     else:
         # JIT Provisioning?

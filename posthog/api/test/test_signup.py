@@ -17,7 +17,7 @@ from django.utils import timezone
 
 from rest_framework import status
 
-from posthog.api.signup import _save_session_with_recovery
+from posthog.api.signup import _save_session_with_recovery, process_social_invite_signup
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.constants import AvailableFeature
 from posthog.models import Dashboard, Organization, Team, User
@@ -2346,3 +2346,8 @@ class TestInviteSignupAPI(APIBaseTest):
 
         # AND then
         self.assertEqual(response.json()["detail"], f"/login?next=/signup/{invite.id}")
+
+    def test_process_social_invite_signup_returns_none_for_nonexistent_invite(self):
+        nonexistent_id = str(uuid.uuid4())
+        result = process_social_invite_signup(mock.MagicMock(), nonexistent_id, "test@example.com", "Test User")
+        self.assertIsNone(result)
