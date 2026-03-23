@@ -631,6 +631,7 @@ RESOURCE_SCHEMAS = {
         "resource_name": "geographic_view",
         "primary_key": [
             "geographic_view.country_criterion_id",
+            "geographic_view.location_type",
             "campaign.id",
             "customer.id",
             "segments.date",
@@ -638,6 +639,7 @@ RESOURCE_SCHEMAS = {
         "filter_field_names": [("segments.date", IncrementalFieldType.Date)],
         "should_sync_default": False,
         "description": "This can load 100's of millions of rows for active campaigns. We don't recommend enabling this table unless if you know you need it.",
+        "extra_where": "metrics.impressions > 0",
         "partition_keys": ["segments.date", "campaign.id", "geographic_view.country_criterion_id"],
         "field_names": [
             "geographic_view.country_criterion_id",
