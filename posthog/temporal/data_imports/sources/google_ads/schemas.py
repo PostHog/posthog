@@ -638,7 +638,7 @@ RESOURCE_SCHEMAS = {
         ],
         "description": "This can load 100's of millions of rows for active campaigns. We don't recommend enabling this table unless you know you need it.",
         "should_sync_default": False,
-        "description": "This can load 100's of millions of rows for active campaigns. We don't recommend enabling this table unless if you know you need it.",
+        "description": "This table can load hundreds of millions of rows for active campaigns. We don't recommend enabling it unless you know you need it.",
         "extra_where": "metrics.impressions > 0",
         "partition_keys": ["segments.date", "campaign.id", "geographic_view.country_criterion_id"],
         "field_names": [
