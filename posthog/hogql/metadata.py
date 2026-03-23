@@ -1,4 +1,4 @@
-from typing import Optional, Union, cast
+from typing import Literal, Optional, Union, cast
 
 from django.conf import settings
 
@@ -150,7 +150,9 @@ def process_expr_on_table(
             select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
 
         # Nothing to return, we just make sure it doesn't throw
-        dialect = "postgres" if getattr(context.database, "_connection_id", None) else "clickhouse"
+        dialect: Literal["clickhouse", "postgres"] = (
+            "postgres" if getattr(context.database, "_connection_id", None) else "clickhouse"
+        )
         prepare_and_print_ast(select_query, context, dialect)
     except (NotImplementedError, SyntaxError):
         raise
