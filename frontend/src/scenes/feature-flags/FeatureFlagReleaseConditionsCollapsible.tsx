@@ -611,7 +611,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                         value={group.rollout_percentage ?? 100}
                                                         step={0.01}
                                                         onChange={(value) => {
-                                                            const numValue = value ? parseFloat(value.toString()) : 0
+                                                            const raw = value ? parseFloat(value.toString()) : 0
+                                                            const numValue = Math.round(raw * 100) / 100
                                                             updateConditionSet(
                                                                 index,
                                                                 Math.min(100, Math.max(0, numValue))

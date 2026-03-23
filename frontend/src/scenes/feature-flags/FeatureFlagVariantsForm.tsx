@@ -261,10 +261,11 @@ export function FeatureFlagVariantsForm({
                                 step={0.01}
                                 value={variant.rollout_percentage || 0}
                                 onChange={(changedValue) => {
-                                    const numValue =
+                                    const raw =
                                         changedValue !== undefined && !isNaN(Number(changedValue))
                                             ? parseFloat(changedValue.toString())
                                             : 0
+                                    const numValue = Math.round(raw * 100) / 100
 
                                     onVariantChange?.(index, 'rollout_percentage', numValue)
                                 }}
