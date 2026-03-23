@@ -5,7 +5,6 @@ from uuid import uuid4
 
 import structlog
 import posthoganalytics
-from asgiref.sync import database_sync_to_async
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     BaseMessage,
@@ -32,6 +31,7 @@ from posthog.schema import (
 
 from posthog.event_usage import groups
 from posthog.models import Team, User
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.core.agent_modes.prompt_builder import AgentPromptBuilder
 from ee.hogai.core.agent_modes.prompts import (

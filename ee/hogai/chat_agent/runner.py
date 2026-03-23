@@ -3,13 +3,13 @@ from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
 import posthoganalytics
-from asgiref.sync import database_sync_to_async
 from opentelemetry import trace
 
 from posthog.schema import AgentMode, AssistantMessage, HumanMessage, MaxBillingContext
 
 from posthog import event_usage
 from posthog.models import Team, User
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.chat_agent.stream_processor import ChatAgentStreamProcessor
