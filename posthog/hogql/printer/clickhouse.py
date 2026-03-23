@@ -963,7 +963,9 @@ class ClickHousePrinter(HogQLPrinter):
                     found_aliases[alias.alias] = alias
 
         columns_sql = []
+        used_aliases: set[str] = set()
         for column in columns:
+            printed_alias: str | None = None
             if isinstance(column, ast.Alias):
                 # It's either a visible alias, or the last hidden alias with this name.
                 if found_aliases.get(column.alias) == column:
@@ -974,10 +976,20 @@ class ClickHousePrinter(HogQLPrinter):
                     else:
                         # Always print visible aliases.
                         pass
+                    printed_alias = column.alias
                 else:
                     # Non-unique hidden alias. Skip.
                     column = column.expr
-            elif isinstance(column, ast.Call):
+            else:
+                column_type = getattr(column, "type", None)
+                if isinstance(column_type, ast.FieldAliasType):
+                    printed_alias = column_type.alias
+                elif isinstance(column_type, ast.FieldType):
+                    printed_alias = column_type.name
+                elif isinstance(column_type, ast.ExpressionFieldType):
+                    printed_alias = column_type.name
+
+            if isinstance(column, ast.Call):
                 with self.context.timings.measure("printer"):
                     column_alias = safe_identifier(
                         HogQLPrinter(
@@ -985,8 +997,17 @@ class ClickHousePrinter(HogQLPrinter):
                             dialect="hogql",
                         ).visit(column)
                     )
-                column = ast.Alias(alias=column_alias, expr=column)
+                # ClickHouse rejects duplicate aliases for different expressions in the
+                # same SELECT. This can happen after "*" expansion if a subquery already
+                # exposes a generated expression name like `toDate(period_end)`.
+                if column_alias not in used_aliases:
+                    column = ast.Alias(alias=column_alias, expr=column)
+                    printed_alias = column_alias
+                else:
+                    printed_alias = None
             columns_sql.append(self.visit(column))
+            if printed_alias is not None:
+                used_aliases.add(printed_alias)
 
         return columns_sql
 
