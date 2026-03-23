@@ -2,13 +2,13 @@ import { hostname } from 'os'
 
 import { AllowedConfigKey, getProducerConfig } from './kafka-producer-config'
 
-const TEST_CONFIG_MAP: Record<string, AllowedConfigKey> = {
-    TEST_BROKER: 'metadata.broker.list',
-    TEST_SECURITY_PROTOCOL: 'security.protocol',
-    TEST_COMPRESSION: 'compression.codec',
-    TEST_LINGER: 'linger.ms',
-    TEST_BATCH_SIZE: 'batch.size',
-    TEST_SSL_VERIFY: 'enable.ssl.certificate.verification',
+const TEST_CONFIG_MAP: Partial<Record<AllowedConfigKey, string>> = {
+    'metadata.broker.list': 'TEST_BROKER',
+    'security.protocol': 'TEST_SECURITY_PROTOCOL',
+    'compression.codec': 'TEST_COMPRESSION',
+    'linger.ms': 'TEST_LINGER',
+    'batch.size': 'TEST_BATCH_SIZE',
+    'enable.ssl.certificate.verification': 'TEST_SSL_VERIFY',
 }
 
 describe('getProducerConfig', () => {

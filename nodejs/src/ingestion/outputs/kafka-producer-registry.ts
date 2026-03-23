@@ -16,7 +16,7 @@ export class KafkaProducerRegistry<P extends string> {
 
     constructor(
         private kafkaClientRack: string | undefined,
-        private configMaps: Record<P, Record<string, AllowedConfigKey>>
+        private configMaps: Record<P, Partial<Record<AllowedConfigKey, string>>>
     ) {}
 
     /**

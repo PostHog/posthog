@@ -11,20 +11,20 @@ export type DefaultProducer = typeof DEFAULT_PRODUCER
 export type ProducerName = DefaultProducer
 
 /**
- * Mapping from env var name to rdkafka config key for each producer.
+ * Mapping from rdkafka config key to env var name for each producer.
  * Each producer has a fixed set of env vars — no dynamic scanning.
  */
-export const PRODUCER_CONFIG_MAP: Record<ProducerName, Record<string, AllowedConfigKey>> = {
+export const PRODUCER_CONFIG_MAP: Record<ProducerName, Partial<Record<AllowedConfigKey, string>>> = {
     [DEFAULT_PRODUCER]: {
-        KAFKA_PRODUCER_METADATA_BROKER_LIST: 'metadata.broker.list',
-        KAFKA_PRODUCER_SECURITY_PROTOCOL: 'security.protocol',
-        KAFKA_PRODUCER_SASL_MECHANISMS: 'sasl.mechanisms',
-        KAFKA_PRODUCER_SASL_USERNAME: 'sasl.username',
-        KAFKA_PRODUCER_SASL_PASSWORD: 'sasl.password',
-        KAFKA_PRODUCER_COMPRESSION_CODEC: 'compression.codec',
-        KAFKA_PRODUCER_LINGER_MS: 'linger.ms',
-        KAFKA_PRODUCER_BATCH_SIZE: 'batch.size',
-        KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: 'queue.buffering.max.messages',
-        KAFKA_PRODUCER_ENABLE_SSL_CERTIFICATE_VERIFICATION: 'enable.ssl.certificate.verification',
+        'metadata.broker.list': 'KAFKA_PRODUCER_METADATA_BROKER_LIST',
+        'security.protocol': 'KAFKA_PRODUCER_SECURITY_PROTOCOL',
+        'sasl.mechanisms': 'KAFKA_PRODUCER_SASL_MECHANISMS',
+        'sasl.username': 'KAFKA_PRODUCER_SASL_USERNAME',
+        'sasl.password': 'KAFKA_PRODUCER_SASL_PASSWORD',
+        'compression.codec': 'KAFKA_PRODUCER_COMPRESSION_CODEC',
+        'linger.ms': 'KAFKA_PRODUCER_LINGER_MS',
+        'batch.size': 'KAFKA_PRODUCER_BATCH_SIZE',
+        'queue.buffering.max.messages': 'KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES',
+        'enable.ssl.certificate.verification': 'KAFKA_PRODUCER_ENABLE_SSL_CERTIFICATE_VERIFICATION',
     },
 }

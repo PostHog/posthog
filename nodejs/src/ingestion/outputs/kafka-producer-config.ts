@@ -40,20 +40,21 @@ export type AllowedConfigKey = keyof z.input<typeof producerConfigSchema>
 /**
  * Build an rdkafka producer config from environment variables.
  *
- * Takes a map of env var names to rdkafka config keys, reads each env var,
+ * Takes a map of rdkafka config keys to env var names, reads each env var,
  * and parses the values through the zod schema. Missing env vars fall back
  * to schema defaults. Invalid values throw.
  *
- * @param envVarMap - Maps env var names (e.g. `KAFKA_PRODUCER_LINGER_MS`) to
- *   rdkafka config keys (e.g. `linger.ms`).
+ * @param envVarMap - Maps rdkafka config keys (e.g. `linger.ms`) to
+ *   env var names (e.g. `KAFKA_PRODUCER_LINGER_MS`).
  * @returns A fully typed `ProducerGlobalConfig` with `client.id` set to the hostname.
  */
-export function getProducerConfig(envVarMap: Record<string, AllowedConfigKey>): ProducerGlobalConfig {
+export function getProducerConfig(envVarMap: Partial<Record<AllowedConfigKey, string>>): ProducerGlobalConfig {
     const envValues: Record<string, string> = {}
-    for (const envVar in envVarMap) {
+    for (const configKey in envVarMap) {
+        const envVar = envVarMap[configKey as AllowedConfigKey]!
         const value = process.env[envVar]
         if (value) {
-            envValues[envVarMap[envVar]] = value
+            envValues[configKey] = value
         }
     }
 

@@ -6,12 +6,12 @@ jest.mock('../../kafka/producer')
 
 type TestProducer = 'ALPHA' | 'BETA'
 
-const TEST_CONFIG_MAP: Record<TestProducer, Record<string, AllowedConfigKey>> = {
+const TEST_CONFIG_MAP: Record<TestProducer, Partial<Record<AllowedConfigKey, string>>> = {
     ALPHA: {
-        TEST_ALPHA_BROKER: 'metadata.broker.list',
+        'metadata.broker.list': 'TEST_ALPHA_BROKER',
     },
     BETA: {
-        TEST_BETA_BROKER: 'metadata.broker.list',
+        'metadata.broker.list': 'TEST_BETA_BROKER',
     },
 }
 
