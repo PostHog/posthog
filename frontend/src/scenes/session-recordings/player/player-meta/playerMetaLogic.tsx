@@ -391,6 +391,47 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 })
             },
         ],
+        sessionSummarySegmentRanges: [
+            (s) => [s.sessionSummary],
+            (sessionSummary: SessionSummaryContent | null) => {
+                if (!sessionSummary?.segments || !sessionSummary?.key_actions) {
+                    return null
+                }
+                const ranges: {
+                    index: number
+                    name: string
+                    startMs: number
+                    endMs: number
+                    success: boolean | null
+                }[] = []
+                for (const segment of sessionSummary.segments) {
+                    if (segment.index == null || !segment.name) {
+                        continue
+                    }
+                    const segmentKeyActions = sessionSummary.key_actions.filter(
+                        (ka) => ka.segment_index === segment.index
+                    )
+                    const allEvents = segmentKeyActions.flatMap((ka) => ka.events ?? [])
+                    const validEvents = allEvents.filter(
+                        (e) => e.milliseconds_since_start != null && e.milliseconds_since_start >= 0
+                    )
+                    if (validEvents.length === 0) {
+                        continue
+                    }
+                    const startMs = Math.min(...validEvents.map((e) => e.milliseconds_since_start!))
+                    const endMs = Math.max(...validEvents.map((e) => e.milliseconds_since_start!))
+                    const outcome = sessionSummary.segment_outcomes?.find((o) => o.segment_index === segment.index)
+                    ranges.push({
+                        index: segment.index,
+                        name: segment.name,
+                        startMs,
+                        endMs: endMs > startMs ? endMs : startMs + 1000,
+                        success: outcome?.success ?? null,
+                    })
+                }
+                return ranges.length > 0 ? ranges : null
+            },
+        ],
     })),
     listeners(({ actions, values, props }) => ({
         loadRecordingMetaSuccess: () => {
