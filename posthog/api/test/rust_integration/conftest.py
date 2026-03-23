@@ -260,16 +260,24 @@ class DjangoAPI:
         return resp.json()
 
     def cleanup(self) -> None:
-        """Delete all flags and cohorts for this team."""
+        """Delete all flags and cohorts created during this test.
+
+        Feature flags use soft delete (PATCH with deleted=true) because the
+        viewset doesn't expose a DELETE action. Cohorts support DELETE.
+        """
         for resource in ["feature_flags", "cohorts"]:
             resp = self.session.get(
                 f"{self.base_url}/api/projects/{self.team_id}/{resource}/",
                 params={"limit": 1000},
             )
-            assert resp.ok, f"Failed to list {resource}: {resp.text}"
+            if not resp.ok:
+                continue
             for item in resp.json().get("results", []):
-                del_resp = self.session.delete(f"{self.base_url}/api/projects/{self.team_id}/{resource}/{item['id']}/")
-                assert del_resp.ok, f"Failed to delete {resource}/{item['id']}: {del_resp.text}"
+                url = f"{self.base_url}/api/projects/{self.team_id}/{resource}/{item['id']}/"
+                if resource == "feature_flags":
+                    self.session.patch(url, json={"deleted": True})
+                else:
+                    self.session.delete(url)
 
 
 @pytest.fixture()

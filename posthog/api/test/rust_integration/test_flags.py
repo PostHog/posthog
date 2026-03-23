@@ -237,4 +237,5 @@ def test_disabled_flag(db: TestDB, api: DjangoAPI, env: TestEnv):
 
     result = evaluate_flags(env.api_token, "disabled_user")
     assert result["flags"]["active-flag"]["enabled"] is True
-    assert result["flags"]["disabled-flag"]["enabled"] is False
+    # Inactive flags are excluded from the response entirely
+    assert "disabled-flag" not in result["flags"]

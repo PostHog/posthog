@@ -159,6 +159,10 @@ jobs:
                   WRITE_DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
                   PERSONS_READ_DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog_persons
                   PERSONS_WRITE_DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog_persons
+                  # The behavioral cohorts DB stores pre-computed cohort membership
+                  # used for static and behavioral cohort evaluation.
+                  BEHAVIORAL_COHORTS_READ_DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog_persons
+                  ENABLE_REALTIME_COHORT_EVALUATION: 'true'
                   REDIS_URL: redis://localhost:6379/
 
             - name: Start Django API server
