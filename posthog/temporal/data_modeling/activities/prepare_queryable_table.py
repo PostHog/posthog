@@ -8,7 +8,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 
 from products.data_warehouse.backend.data_load.create_table import create_table_from_saved_query
-from products.data_warehouse.backend.models import DataModelingJob, DataWarehouseSavedQuery, DataWarehouseTable
+from products.data_warehouse.backend.models import DataWarehouseSavedQuery, DataWarehouseTable
 
 LOGGER = get_logger(__name__)
 
@@ -51,16 +51,6 @@ class PrepareQueryableTableResult:
     total_storage_mib: float | None
 
 
-@database_sync_to_async
-def _get_storage_metrics(job_id: str, table: DataWarehouseTable) -> PrepareQueryableTableResult:
-    job = DataModelingJob.objects.get(id=job_id)
-    table.refresh_from_db()
-    return PrepareQueryableTableResult(
-        storage_delta_mib=job.storage_delta_mib,
-        total_storage_mib=table.size_in_s3_mib,
-    )
-
-
 @activity.defn
 async def prepare_queryable_table_activity(inputs: PrepareQueryableTableInputs) -> PrepareQueryableTableResult:
     """Prepare materialized files for querying and create DataWarehouseTable.
@@ -85,11 +75,14 @@ async def prepare_queryable_table_activity(inputs: PrepareQueryableTableInputs) 
         logger=logger,
     )
     await logger.adebug("Creating DataWarehouseTable model")
-    saved_query_table = await create_table_from_saved_query(
+    create_result = await create_table_from_saved_query(
         inputs.job_id, inputs.saved_query_id, inputs.team_id, folder_path
     )
 
-    await _update_saved_query_with_table(inputs, saved_query, saved_query_table)
+    await _update_saved_query_with_table(inputs, saved_query, create_result.table)
     await logger.ainfo(f"Updated saved query row count: id={saved_query.id} row_count={inputs.row_count}")
 
-    return await _get_storage_metrics(inputs.job_id, saved_query_table)
+    return PrepareQueryableTableResult(
+        storage_delta_mib=create_result.storage_delta_mib,
+        total_storage_mib=create_result.total_storage_mib,
+    )

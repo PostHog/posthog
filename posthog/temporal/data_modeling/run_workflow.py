@@ -682,7 +682,8 @@ async def materialize_model(
     await database_sync_to_async(saved_query.save)()
 
     await logger.adebug("Creating DataWarehouseTable model")
-    dwh_table = await create_table_from_saved_query(str(job.id), str(saved_query.id), team.pk, folder_path)
+    create_result = await create_table_from_saved_query(str(job.id), str(saved_query.id), team.pk, folder_path)
+    dwh_table = create_result.table
 
     await database_sync_to_async(saved_query.refresh_from_db)()
     saved_query.table_id = dwh_table.id

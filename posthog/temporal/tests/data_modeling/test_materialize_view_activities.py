@@ -26,6 +26,7 @@ from posthog.temporal.data_modeling.activities import (
 from posthog.temporal.data_modeling.activities.materialize_view import InvalidNodeTypeException
 
 from products.data_modeling.backend.models import DAG, Node, NodeType
+from products.data_warehouse.backend.data_load.create_table import CreateTableResult
 from products.data_warehouse.backend.models import DataModelingJob, DataWarehouseSavedQuery, DataWarehouseTable
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJobStatus
 
@@ -218,7 +219,9 @@ class TestPrepareQueryableTableActivity:
             ) as mock_create_table,
         ):
             mock_prepare.return_value = "test-bucket/queryable_folder"
-            mock_create_table.return_value = warehouse_table
+            mock_create_table.return_value = CreateTableResult(
+                table=warehouse_table, storage_delta_mib=None, total_storage_mib=None
+            )
             await activity_environment.run(prepare_queryable_table_activity, inputs)
             mock_prepare.assert_called_once()
             mock_create_table.assert_called_once_with(
@@ -249,7 +252,9 @@ class TestPrepareQueryableTableActivity:
             ) as mock_create_table,
         ):
             mock_prepare.return_value = "test-bucket/queryable_folder"
-            mock_create_table.return_value = warehouse_table
+            mock_create_table.return_value = CreateTableResult(
+                table=warehouse_table, storage_delta_mib=None, total_storage_mib=None
+            )
             await activity_environment.run(prepare_queryable_table_activity, inputs)
             await database_sync_to_async(asaved_query.refresh_from_db)()
             assert asaved_query.table_id == warehouse_table.id
