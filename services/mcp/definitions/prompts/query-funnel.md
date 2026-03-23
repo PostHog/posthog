@@ -90,11 +90,11 @@ You should not filter events by time using property filters. Instead, use the `d
 
 ## Exclusion steps
 
-Users may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events should not be included in the main sequence. You should include start and end indexes for each exclusion where the minimum index is 1 (after first step) and the maximum index is the number of steps in the funnel. Exclusion events cannot be actions, only events.
+Users may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events should not be included in the main sequence. You should include start and end indexes (0-based) for each exclusion where the minimum `funnelFromStep` is 0 (first step) and the maximum `funnelToStep` is the number of steps minus one. Exclusion events cannot be actions, only events.
 
 IMPORTANT: Exclusion steps filter out conversions where the exclusion event occurred BETWEEN the specified steps. This does NOT exclude users who completed the event before the funnel started or after it ended.
 
-For example, there is a sequence with three steps: sign up (step 1), finish onboarding (step 2), purchase (step 3). If the user wants to exclude all conversions in which users navigated away between sign up and finishing onboarding, the exclusion step will be `$pageleave` with `funnelFromStep: 1` and `funnelToStep: 2`.
+For example, there is a sequence with three steps: sign up (step 0), finish onboarding (step 1), purchase (step 2). If the user wants to exclude all conversions in which users navigated away between sign up and finishing onboarding, the exclusion step will be `$pageleave` with `funnelFromStep: 0` and `funnelToStep: 1`.
 
 ## Breakdown
 
