@@ -2,8 +2,8 @@ import { DataLoadError } from './data-loader'
 import { HostBridge } from './host-bridge'
 import { MetadataFooter } from './metadata-footer'
 import { PlaybackController } from './playback-controller'
-import type { PlayerConfig } from './protocol'
 import { createReplayer } from './replayer-factory'
+import type { PlayerConfig } from './types'
 import { ViewportScaler } from './viewport-scaler'
 
 async function init(config: PlayerConfig, bridge: HostBridge): Promise<void> {

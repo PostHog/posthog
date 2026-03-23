@@ -40,6 +40,7 @@ export function buildCaptureConfig(input: RasterizeRecordingInput): CaptureConfi
     // This eliminates the need for a separate post-processing encode pass.
     if (playbackSpeed > 1) {
         ffmpegVideoFilters.push(`setpts=${playbackSpeed}*PTS`)
+        ffmpegVideoFilters.push(`fps=${outputFps}`)
     }
 
     return {
