@@ -114,7 +114,7 @@ class TestVercelWebhooks(VercelTestBase):
         assert OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
 
         payload = {
-            "type": "integration.configuration-removed",
+            "type": "integration-configuration.removed",
             "payload": {"installationId": self.installation_id},
         }
         signature = self._sign_payload(payload)
@@ -131,7 +131,7 @@ class TestVercelWebhooks(VercelTestBase):
         self.installation.save()
 
         payload = {
-            "type": "integration.configuration-removed",
+            "type": "integration-configuration.removed",
             "payload": {"installationId": self.installation_id},
         }
         signature = self._sign_payload(payload)
@@ -145,7 +145,7 @@ class TestVercelWebhooks(VercelTestBase):
     @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
     def test_deauthorization_unknown_config_succeeds(self):
         payload = {
-            "type": "integration.configuration-removed",
+            "type": "integration-configuration.removed",
             "payload": {"installationId": "icfg_unknown"},
         }
         signature = self._sign_payload(payload)
