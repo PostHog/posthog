@@ -232,7 +232,7 @@ import {
 
 import { AgentMode } from '../queries/schema'
 import { MaxUIContext } from '../scenes/max/maxTypes'
-import { AlertType, AlertTypeWrite } from './components/Alerts/types'
+import { AlertSimulationResult, AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ErrorTrackingFingerprint,
     ErrorTrackingRelease,
@@ -397,6 +397,10 @@ export class ApiConfig {
             throw new Error('Team ID is not known.')
         }
         return this._currentTeamId
+    }
+
+    static hasCurrentTeamId(): boolean {
+        return !!this._currentTeamId
     }
 
     static setCurrentTeamId(id: TeamType['id']): void {
@@ -1877,6 +1881,10 @@ export class ApiRequest {
         return this.llmPromptByName(name, teamId).addPathComponent('archive')
     }
 
+    public llmPromptDuplicateByName(name: string, teamId?: TeamType['id']): ApiRequest {
+        return this.llmPromptByName(name, teamId).addPathComponent('duplicate')
+    }
+
     public llmPromptResolveByName(name: string, teamId?: TeamType['id']): ApiRequest {
         return this.llmPrompts(teamId).addPathComponent('resolve').addPathComponent('name').addPathComponent(name)
     }
@@ -2057,8 +2065,8 @@ const api = {
         async analyze(id: number): Promise<{ result: string }> {
             return await new ApiRequest().insight(id).withAction('analyze').get()
         },
-        async generateName(query: Record<string, any>): Promise<{ name: string }> {
-            return await new ApiRequest().insights().withAction('generate_name').create({ data: { query } })
+        async generateMetadata(query: Record<string, any>): Promise<{ name: string; description: string }> {
+            return await new ApiRequest().insights().withAction('generate_metadata').create({ data: { query } })
         },
         async trending(params?: { days?: number; limit?: number }): Promise<InsightModel[]> {
             return await new ApiRequest()
@@ -2983,6 +2991,12 @@ const api = {
             data: Pick<CustomerJourneyApi, 'insight' | 'name'> & { description?: string }
         ): Promise<CustomerJourneyApi> {
             return await new ApiRequest().customerJourneys().create({ data })
+        },
+        async update(
+            id: CustomerJourneyApi['id'],
+            data: Partial<Pick<CustomerJourneyApi, 'name' | 'description'>>
+        ): Promise<CustomerJourneyApi> {
+            return await new ApiRequest().customerJourneysDetail(id).update({ data })
         },
         async delete(id: CustomerJourneyApi['id']): Promise<void> {
             return await new ApiRequest().customerJourneysDetail(id).delete()
@@ -5247,6 +5261,14 @@ const api = {
         async delete(alertId: AlertType['id']): Promise<void> {
             return await new ApiRequest().alert(alertId).delete()
         },
+        async simulate(data: {
+            insight: number
+            detector_config: Record<string, any>
+            series_index?: number
+            date_from?: string
+        }): Promise<AlertSimulationResult> {
+            return await new ApiRequest().alerts().withAction('simulate').create({ data })
+        },
     },
 
     dataColorThemes: {
@@ -5753,6 +5775,10 @@ const api = {
 
         async create(data: { name: LLMPrompt['name']; prompt: LLMPrompt['prompt'] }): Promise<LLMPrompt> {
             return await new ApiRequest().llmPrompts().create({ data })
+        },
+
+        async duplicateByName(promptName: string, newName: string): Promise<LLMPrompt> {
+            return await new ApiRequest().llmPromptDuplicateByName(promptName).create({ data: { new_name: newName } })
         },
     },
 

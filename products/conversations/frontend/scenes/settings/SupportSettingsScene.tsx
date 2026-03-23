@@ -299,6 +299,10 @@ function SlackChannelSection(): JSX.Element {
         slackChannelsLoading,
         slackTicketEmoji,
         slackTicketEmojiValue,
+        slackBotIconUrl,
+        slackBotIconUrlValue,
+        slackBotDisplayName,
+        slackBotDisplayNameValue,
     } = useValues(supportSettingsLogic)
     const {
         connectSlack,
@@ -306,6 +310,9 @@ function SlackChannelSection(): JSX.Element {
         loadSlackChannelsWithToken,
         setSlackTicketEmojiValue,
         saveSlackTicketEmoji,
+        setSlackBotIconUrlValue,
+        setSlackBotDisplayNameValue,
+        saveSlackBotSettings,
         disconnectSlack,
     } = useActions(supportSettingsLogic)
 
@@ -386,6 +393,47 @@ function SlackChannelSection(): JSX.Element {
                                 size="small"
                                 onClick={saveSlackTicketEmoji}
                                 disabledReason={!slackTicketEmojiValue ? 'Enter an emoji name' : undefined}
+                            >
+                                Save
+                            </LemonButton>
+                        </div>
+                    </div>
+                    <LemonDivider />
+                    <div className="flex flex-col gap-2">
+                        <div>
+                            <label className="font-medium">Bot appearance</label>
+                            <p className="text-xs text-muted-alt">
+                                Override the bot's display name and icon when posting messages. Leave blank to use
+                                defaults. Requires the bot to be re-authorized if it was connected before this feature
+                                was available.
+                            </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <LemonInput
+                                value={slackBotDisplayNameValue ?? slackBotDisplayName ?? ''}
+                                onChange={setSlackBotDisplayNameValue}
+                                placeholder="Display name (e.g. SupportHog)"
+                                className="flex-1"
+                            />
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <LemonInput
+                                value={slackBotIconUrlValue ?? slackBotIconUrl ?? ''}
+                                onChange={setSlackBotIconUrlValue}
+                                placeholder="Icon URL (e.g. https://example.com/icon.png)"
+                                className="flex-1"
+                            />
+                        </div>
+                        <div>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={saveSlackBotSettings}
+                                disabledReason={
+                                    slackBotDisplayNameValue === null && slackBotIconUrlValue === null
+                                        ? 'No changes to save'
+                                        : undefined
+                                }
                             >
                                 Save
                             </LemonButton>

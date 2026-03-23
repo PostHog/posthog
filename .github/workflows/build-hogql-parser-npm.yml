@@ -18,6 +18,7 @@ jobs:
     check-package-version:
         name: Check npm package version
         runs-on: ubuntu-24.04
+        timeout-minutes: 5
         outputs:
             committed-version: ${{ steps.check-package-version.outputs.committed-version }}
             published-version: ${{ steps.check-package-version.outputs.published-version }}
@@ -84,6 +85,7 @@ jobs:
         name: Publish on npm
         needs: build-wasm
         runs-on: ubuntu-24.04
+        timeout-minutes: 10
         permissions:
             contents: read
             id-token: write

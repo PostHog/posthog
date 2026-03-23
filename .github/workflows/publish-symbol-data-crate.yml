@@ -12,6 +12,7 @@ jobs:
     publish:
         name: Publish to crates.io
         runs-on: ubuntu-24.04
+        timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
 
         permissions:

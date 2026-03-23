@@ -429,8 +429,9 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
     )
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def find(self, request: request.Request, **kw) -> response.Response:
+        _, group_key = self._safely_get_query_params(require_group_key=True)
         try:
-            group = self.get_queryset().get(group_key=request.GET["group_key"])
+            group = self.get_queryset().get(group_key=group_key)
             if (
                 self._is_crm_enabled(cast(User, request.user))
                 and not ResourceNotebook.objects.filter(group=group.id).exists()
@@ -471,27 +472,22 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
     def update_property(self, request: request.Request, **_kw) -> response.Response:
         try:
             group = self.get_object()
-            for key in ["value", "key"]:
-                if request.data.get(key) is None:
-                    return response.Response(
-                        {
-                            "attr": key,
-                            "code": "This field is required.",
-                            "detail": "required",
-                            "type": "validation_error",
-                        },
-                        status=400,
-                    )
-            create_or_update = "update" if request.data["key"] in group.group_properties.keys() else "create"
-            original_value = group.group_properties.get(request.data["key"], None)
-            group.group_properties[request.data["key"]] = request.data["value"]
+            property_key = request.data.get("key")
+            property_value = request.data.get("value")
+            if not property_key:
+                raise ValidationError({"key": ["This field is required."]})
+            if property_value is None:
+                raise ValidationError({"value": ["This field is required."]})
+            create_or_update = "update" if property_key in group.group_properties else "create"
+            original_value = group.group_properties.get(property_key, None)
+            group.group_properties[property_key] = property_value
             group.save()
 
             create_property_definition(
                 team_id=self.team.pk,
                 group_type_index=group.group_type_index,
-                property_name=request.data["key"],
-                property_value=request.data["value"],
+                property_name=property_key,
+                property_value=property_value,
             )
 
             # Need to update ClickHouse too
@@ -509,7 +505,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 self.trigger_group_identify(
                     group=group,
                     operation=f"group property {create_or_update}",
-                    group_properties={request.data["key"]: request.data["value"]},
+                    group_properties={property_key: property_value},
                 )
             except TriggerGroupIdentifyException as exc:
                 return response.Response(data=exc.exception_data, status=exc.status_code)
@@ -523,13 +519,13 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 scope="Group",
                 activity=f"{create_or_update}_property",
                 detail=Detail(
-                    name=str(request.data["key"]),
+                    name=str(property_key),
                     changes=[
                         Change(
                             type="Group",
-                            action=f"created" if create_or_update == "create" else "changed",
+                            action="created" if create_or_update == "create" else "changed",
                             before=original_value,
-                            after=request.data["value"],
+                            after=property_value,
                         )
                     ],
                 ),
@@ -694,9 +690,11 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def related(self, request: request.Request, pk=None, **kw) -> response.Response:
         group_type_index = request.GET.get("group_type_index")
-        id = request.GET["id"]
+        actor_id = request.GET.get("id")
+        if not actor_id:
+            raise ValidationError({"id": ["This query parameter is required."]})
 
-        results = RelatedActorsQuery(self.team, group_type_index, id).run()
+        results = RelatedActorsQuery(self.team, group_type_index, actor_id).run()
         return response.Response(results)
 
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
@@ -723,8 +721,12 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
     def property_values(self, request: request.Request, **kw):
         with tracer.start_as_current_span("groups_api_property_values") as span:
             value_filter = request.GET.get("value")
-            group_type_index = request.GET["group_type_index"]
-            key = request.GET["key"]
+            group_type_index = request.GET.get("group_type_index")
+            if not group_type_index:
+                raise ValidationError({"group_type_index": ["This query parameter is required."]})
+            key = request.GET.get("key")
+            if not key:
+                raise ValidationError({"key": ["This query parameter is required."]})
 
             span.set_attribute("team_id", self.team.pk)
             span.set_attribute("group_type_index", group_type_index)

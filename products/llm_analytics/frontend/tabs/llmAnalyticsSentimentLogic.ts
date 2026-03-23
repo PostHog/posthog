@@ -49,6 +49,10 @@ export interface LLMAnalyticsSentimentLogicProps {
 }
 
 const GENERATIONS_PAGE_SIZE = 200
+/** Stop auto-loading once we have at least this many visible cards */
+const MIN_VISIBLE_CARDS = 50
+/** Cap how many extra pages we fetch automatically to avoid runaway API calls */
+const MAX_AUTO_LOAD_ROUNDS = 3
 // Match backend MAX_MESSAGE_CHARS (2000) so training data captures the same text window the model classified
 export const CLASSIFIER_WINDOW = 2000
 
@@ -184,6 +188,13 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
                     [cardKey]: feedbackLabel,
                 }),
                 loadGenerations: () => ({}),
+            },
+        ],
+        autoLoadRounds: [
+            0 as number,
+            {
+                loadGenerations: () => 0,
+                loadMoreGenerations: (state: number) => state + 1,
             },
         ],
         hasLoadedOnce: [
@@ -399,8 +410,15 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
                         (gen) => values.sentimentByGenerationId[gen.uuid] === null
                     ).length
                     const cardCount = values.sentimentCards.length
+                    const visibleCards = values.groupedSentimentCards.length
 
-                    if (totalGenerations === 0 || cardCount === 0) {
+                    // Auto-load more generations if we don't have enough visible cards
+                    const shouldAutoLoad =
+                        visibleCards < MIN_VISIBLE_CARDS &&
+                        values.hasMore &&
+                        values.autoLoadRounds < MAX_AUTO_LOAD_ROUNDS
+
+                    if ((totalGenerations === 0 || cardCount === 0) && !shouldAutoLoad) {
                         posthog.capture('llma sentiment empty state', {
                             reason:
                                 totalGenerations === 0
@@ -413,6 +431,10 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
                             sentiment_filter: values.sentimentFilter,
                             intensity_threshold: values.intensityThreshold,
                         })
+                    }
+
+                    if (shouldAutoLoad) {
+                        actions.loadMoreGenerations()
                     }
                 }
                 wasAnalyzing = stillAnalyzing
