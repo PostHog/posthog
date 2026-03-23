@@ -4544,6 +4544,21 @@ class TestPostgresPrinter(BaseTest):
 
     @parameterized.expand(
         [
+            ("date_trunc('second', timestamp)", "date_trunc('second', events.timestamp)"),
+            ("date_trunc('minute', timestamp)", "date_trunc('minute', events.timestamp)"),
+            ("date_trunc('hour', timestamp)", "date_trunc('hour', events.timestamp)"),
+            ("date_trunc('day', timestamp)", "date_trunc('day', events.timestamp)"),
+            ("date_trunc('week', timestamp)", "date_trunc('week', events.timestamp)"),
+            ("date_trunc('month', timestamp)", "date_trunc('month', events.timestamp)"),
+            ("date_trunc('quarter', timestamp)", "date_trunc('quarter', events.timestamp)"),
+            ("date_trunc('year', timestamp)", "date_trunc('year', events.timestamp)"),
+        ]
+    )
+    def test_date_trunc_passthrough_in_postgres(self, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
+    @parameterized.expand(
+        [
             (
                 "toStartOfFiveMinutes(timestamp)",
                 "date_trunc('hour', events.timestamp) + "
