@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 
 import { IconBook } from '@posthog/icons'
 
@@ -539,6 +540,14 @@ export const maxLogic = kea<maxLogicType>([
         },
     })),
 
+    subscriptions(({ props }) => ({
+        chatTitle: (title: string | null) => {
+            if (title && title !== 'New chat' && title !== 'Chat history') {
+                updateInactiveTab(props.tabId, { title })
+            }
+        },
+    })),
+
     afterMount(({ actions, values }) => {
         // Restore pending prompt from sessionStorage (e.g., after OAuth redirect during consent flow)
         if (!values.question) {
@@ -580,6 +589,11 @@ export const maxLogic = kea<maxLogicType>([
         },
         [urls.ai()]: (_, search) => {
             if (search.ask && !search.chat && !values.question) {
+                // Clear any existing conversation so the tab title updates
+                if (values.conversationId) {
+                    actions.startNewConversation()
+                }
+
                 let uiContext: Partial<MaxUIContext> | undefined = undefined
                 try {
                     const stored = sessionStorage.getItem(PENDING_MAX_CONTEXT_KEY)
