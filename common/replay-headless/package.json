@@ -3,6 +3,19 @@
     "version": "0.0.1",
     "private": true,
     "main": "dist/player.html",
+    "typesVersions": {
+        "*": {
+            "protocol": [
+                "src/protocol.ts"
+            ]
+        }
+    },
+    "exports": {
+        "./protocol": {
+            "types": "./src/protocol.ts",
+            "default": "./dist/protocol.js"
+        }
+    },
     "scripts": {
         "build": "node build.mjs",
         "test": "jest",
@@ -11,7 +24,8 @@
     "dependencies": {
         "@posthog/replay-shared": "workspace:*",
         "@posthog/rrweb": "0.0.26",
-        "@posthog/rrweb-types": "0.0.26"
+        "@posthog/rrweb-types": "0.0.26",
+        "p-limit": "3.1.0"
     },
     "devDependencies": {
         "@swc/core": "^1.11.29",

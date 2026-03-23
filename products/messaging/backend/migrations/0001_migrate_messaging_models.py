@@ -45,7 +45,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
-        ("posthog", "1062_migrate_links_models"),
+        ("posthog", "1063_remove_surveyresponsearchive_survey_and_more"),
     ]
 
     operations = [

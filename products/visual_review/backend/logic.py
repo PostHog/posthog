@@ -7,6 +7,7 @@ Called by api/api.py facade. Do not call from outside this module.
 
 from uuid import UUID
 
+from django.conf import settings
 from django.db import (
     models as db_models,
     transaction,
@@ -22,6 +23,12 @@ from .signing import sign_snapshot_hash, verify_signed_hash
 from .storage import ArtifactStorage
 
 logger = structlog.get_logger(__name__)
+
+# Derive the writer alias from the app label — must match db_routing.yaml.
+# Falls back to "default" when the product database isn't configured.
+_APP_LABEL = "visual_review"
+_WRITER_ALIAS = f"{_APP_LABEL}_db_writer"
+WRITER_DB = _WRITER_ALIAS if _WRITER_ALIAS in settings.DATABASES else "default"
 
 
 class RepoNotFoundError(Exception):
@@ -272,7 +279,7 @@ def _verify_baseline_hashes(repo: Repo, raw_hashes: dict[str, str]) -> dict[str,
     return verified
 
 
-@transaction.atomic
+@transaction.atomic(using=WRITER_DB)
 def create_run(
     repo_id: UUID,
     team_id: int,
@@ -398,7 +405,9 @@ def create_run(
             )
 
     # Post pending status after transaction commits
-    transaction.on_commit(lambda: _post_commit_status(run, repo, "pending", "Visual review in progress"))
+    transaction.on_commit(
+        lambda: _post_commit_status(run, repo, "pending", "Visual review in progress"), using=WRITER_DB
+    )
 
     return run, uploads
 
@@ -909,7 +918,7 @@ def auto_approve_run(run_id: UUID, user_id: int) -> tuple[Run, str]:
     return run, baseline_content
 
 
-@transaction.atomic
+@transaction.atomic(using=WRITER_DB)
 def approve_run(run_id: UUID, user_id: int, approved_snapshots: list[dict], commit_to_github: bool = True) -> Run:
     """
     Approve visual changes for a run.

@@ -525,7 +525,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             index,
             isPrimary,
         }),
-        reportExperimentLaunched: (experiment: Experiment, launchDate: Dayjs) => ({ experiment, launchDate }),
         reportExperimentStartDateChange: (experiment: Experiment, newStartDate: string) => ({
             experiment,
             newStartDate,
@@ -1496,12 +1495,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 breakdown_property: breakdown.property,
                 breakdown_index: index,
                 is_primary_metric: isPrimary,
-            })
-        },
-        reportExperimentLaunched: ({ experiment, launchDate }) => {
-            posthog.capture('experiment launched', {
-                ...getEventPropertiesForExperiment(experiment),
-                launch_date: launchDate.toISOString(),
             })
         },
         reportExperimentStartDateChange: ({ experiment, newStartDate }) => {

@@ -601,6 +601,7 @@ mod tests {
             team_hypercache_reader,
             hypercache_reader,
             NegativeCache::new(100, 300),
+            false,
         );
 
         match flag_service.verify_token_and_get_team(&token).await {
@@ -631,6 +632,7 @@ mod tests {
             team_hypercache_reader,
             hypercache_reader,
             NegativeCache::new(100, 300),
+            false,
         );
         assert!(matches!(
             flag_service.verify_token_and_get_team(&result).await,

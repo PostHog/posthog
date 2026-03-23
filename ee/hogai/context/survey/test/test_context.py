@@ -2,7 +2,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
-from posthog.models import Survey
+from products.surveys.backend.models import Survey
 
 from ee.hogai.context.survey.context import SurveyContext
 

@@ -19,7 +19,7 @@ import isEqual from 'lodash.isequal'
 import { Uri, editor } from 'monaco-editor'
 import posthog from 'posthog-js'
 
-import { LemonDialog, LemonInput, lemonToast } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonDialog, LemonInput, lemonToast, Tooltip } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
@@ -242,10 +242,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         initialize: true,
         loadUpstream: (modelId: string) => ({ modelId }),
         saveAsView: (materializeAfterSave = false, fromDraft?: string) => ({ fromDraft, materializeAfterSave }),
-        saveAsViewSubmit: (name: string, materializeAfterSave = false, fromDraft?: string) => ({
+        saveAsViewSubmit: (name: string, materializeAfterSave = false, fromDraft?: string, isTest = false) => ({
             fromDraft,
             name,
             materializeAfterSave,
+            isTest,
         }),
         saveAsInsight: true,
         saveAsInsightSubmit: (name: string) => ({ name }),
@@ -787,9 +788,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunFirstQuery)
         },
         saveAsView: async ({ fromDraft, materializeAfterSave = false }) => {
+            const isStaff = values.user?.is_staff ?? false
             LemonDialog.openForm({
                 title: 'Save as view',
-                initialValues: { viewName: values.activeTab?.name || '' },
+                initialValues: { viewName: values.activeTab?.name || '', isTest: false },
                 description: `View names can only contain letters, numbers, '_', or '$'. Spaces are not allowed.`,
                 content: (isLoading) =>
                     isLoading ? (
@@ -797,14 +799,33 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             <ViewEmptyState />
                         </div>
                     ) : (
-                        <LemonField name="viewName">
-                            <LemonInput
-                                data-attr="sql-editor-input-save-view-name"
-                                disabled={isLoading}
-                                placeholder="Please enter the name of the view"
-                                autoFocus
-                            />
-                        </LemonField>
+                        <>
+                            <LemonField name="viewName">
+                                <LemonInput
+                                    data-attr="sql-editor-input-save-view-name"
+                                    disabled={isLoading}
+                                    placeholder="Please enter the name of the view"
+                                    autoFocus
+                                />
+                            </LemonField>
+                            {isStaff && (
+                                <LemonField name="isTest" className="mt-2">
+                                    {({ value, onChange }) => (
+                                        <div className="flex items-center gap-2">
+                                            <LemonCheckbox
+                                                checked={value}
+                                                onChange={onChange}
+                                                data-attr="sql-editor-input-save-view-is-test"
+                                                label="Is this view for testing only?"
+                                            />
+                                            <Tooltip title="Test views and any downstream assets that depend on them will be automatically deleted after 1 week.">
+                                                <span className="text-muted cursor-pointer">&#9432;</span>
+                                            </Tooltip>
+                                        </div>
+                                    )}
+                                </LemonField>
+                            )}
+                        </>
                     ),
                 errors: {
                     viewName: (name) =>
@@ -814,13 +835,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                               ? 'Name must be valid'
                               : undefined,
                 },
-                onSubmit: async ({ viewName }) => {
-                    await asyncActions.saveAsViewSubmit(viewName, materializeAfterSave, fromDraft)
+                onSubmit: async ({ viewName, isTest }) => {
+                    await asyncActions.saveAsViewSubmit(viewName, materializeAfterSave, fromDraft, isTest)
                 },
                 shouldAwaitSubmit: true,
             })
         },
-        saveAsViewSubmit: async ({ name, materializeAfterSave = false, fromDraft }) => {
+        saveAsViewSubmit: async ({ name, materializeAfterSave = false, fromDraft, isTest = false }) => {
             const query: HogQLQuery = values.sourceQuery.source
 
             const queryToSave = {
@@ -840,6 +861,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     name,
                     query: queryToSave,
                     types,
+                    ...(isTest ? { is_test: true } : {}),
                 })
 
                 // Saved queries are unique by team,name
