@@ -19,12 +19,6 @@ from ee.models import Conversation
 
 _tracer = trace.get_tracer(__name__)
 
-
-@_tracer.start_as_current_span("posthoganalytics.capture")
-def _traced_capture(**kwargs):
-    posthoganalytics.capture(**kwargs)
-
-
 if TYPE_CHECKING:
     from products.slack_app.backend.slack_thread import SlackThreadContext
 
@@ -156,19 +150,20 @@ class ChatAgentRunner(BaseAgentRunner):
         stream_only_assistant_messages: bool = False,
     ) -> AsyncGenerator[AssistantOutput, None]:
         if self._selected_agent_mode and self._user:
-            _traced_capture(
-                distinct_id=self._user.distinct_id,
-                event="ai mode executed",
-                properties={
-                    "mode": self._selected_agent_mode,
-                    "previous_mode": None,
-                    "is_initial_mode": True,
-                    "conversation_id": str(self._conversation.id),
-                    "$session_id": self._session_id,
-                },
-                groups=event_usage.groups(team=self._team),
-                send_feature_flags=True,
-            )
+            with _tracer.start_as_current_span("posthoganalytics.capture"):
+                posthoganalytics.capture(
+                    distinct_id=self._user.distinct_id,
+                    event="ai mode executed",
+                    properties={
+                        "mode": self._selected_agent_mode,
+                        "previous_mode": None,
+                        "is_initial_mode": True,
+                        "conversation_id": str(self._conversation.id),
+                        "$session_id": self._session_id,
+                    },
+                    groups=event_usage.groups(team=self._team),
+                    send_feature_flags=True,
+                )
 
         last_ai_message: AssistantMessage | None = None
         async for stream_event in super().astream(

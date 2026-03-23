@@ -64,11 +64,6 @@ logger = structlog.get_logger(__name__)
 _tracer = trace.get_tracer(__name__)
 
 
-@_tracer.start_as_current_span("posthoganalytics.capture")
-def _traced_capture(**kwargs):
-    posthoganalytics.capture(**kwargs)
-
-
 class BaseAgentLoopExecutable(BaseAgentExecutable[AssistantState, PartialAssistantState]):
     def __init__(
         self,
@@ -430,16 +425,17 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
             # Track successful tool execution
             user_distinct_id = self._get_user_distinct_id(config)
             if user_distinct_id:
-                _traced_capture(
-                    distinct_id=user_distinct_id,
-                    event="ai tool executed",
-                    properties={
-                        **self._get_debug_props(config),
-                        "tool_name": tool_call.name,
-                    },
-                    groups=groups(None, self._team),
-                    send_feature_flags=True,
-                )
+                with _tracer.start_as_current_span("posthoganalytics.capture"):
+                    posthoganalytics.capture(
+                        distinct_id=user_distinct_id,
+                        event="ai tool executed",
+                        properties={
+                            **self._get_debug_props(config),
+                            "tool_name": tool_call.name,
+                        },
+                        groups=groups(None, self._team),
+                        send_feature_flags=True,
+                    )
         except MaxToolError as e:
             logger.exception(
                 "maxtool_error", extra={"tool": tool_call.name, "error": str(e), "retry_strategy": e.retry_strategy}
@@ -531,17 +527,18 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
             agent_mode = result.artifact
             user_distinct_id = self._get_user_distinct_id(config)
             if user_distinct_id:
-                _traced_capture(
-                    distinct_id=user_distinct_id,
-                    event="ai mode executed",
-                    properties={
-                        **self._get_debug_props(config),
-                        "mode": agent_mode,
-                        "previous_mode": state.agent_mode_or_default,
-                    },
-                    groups=groups(None, self._team),
-                    send_feature_flags=True,
-                )
+                with _tracer.start_as_current_span("posthoganalytics.capture"):
+                    posthoganalytics.capture(
+                        distinct_id=user_distinct_id,
+                        event="ai mode executed",
+                        properties={
+                            **self._get_debug_props(config),
+                            "mode": agent_mode,
+                            "previous_mode": state.agent_mode_or_default,
+                        },
+                        groups=groups(None, self._team),
+                        send_feature_flags=True,
+                    )
 
         return PartialAssistantState(
             messages=[tool_message],
