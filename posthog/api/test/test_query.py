@@ -1236,7 +1236,6 @@ class TestQueryUpgrade(APIBaseTest):
 
 class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
     ENDPOINT = "query"
-    LLM_FORMAT_HEADER = "HTTP_X_POSTHOG_CLIENT"
 
     @patch("posthog.api.query.process_query_model")
     def test_trends_query_includes_formatted_results(self, mock_process_query_model):
@@ -1261,7 +1260,7 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(
             f"/api/environments/{self.team.id}/query/",
             {"query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}},
-            **{self.LLM_FORMAT_HEADER: "mcp"},
+            HTTP_X_POSTHOG_CLIENT="mcp",
         )
 
         self.assertEqual(response.status_code, 200)
@@ -1283,7 +1282,7 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(
             f"/api/environments/{self.team.id}/query/",
             {"query": {"kind": "HogQLQuery", "query": "select event, count() from events group by event"}},
-            **{self.LLM_FORMAT_HEADER: "mcp"},
+            HTTP_X_POSTHOG_CLIENT="mcp",
         )
 
         self.assertEqual(response.status_code, 200)
@@ -1329,7 +1328,7 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(
             f"/api/environments/{self.team.id}/query/",
             {"query": {"kind": "EventsQuery", "select": ["event"]}},
-            **{self.LLM_FORMAT_HEADER: "mcp"},
+            HTTP_X_POSTHOG_CLIENT="mcp",
         )
 
         self.assertEqual(response.status_code, 200)
@@ -1361,7 +1360,7 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(
             f"/api/environments/{self.team.id}/query/",
             {"query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}},
-            **{self.LLM_FORMAT_HEADER: "mcp"},
+            HTTP_X_POSTHOG_CLIENT="mcp",
         )
 
         self.assertEqual(response.status_code, 200)
