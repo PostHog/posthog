@@ -111,6 +111,105 @@ Examples of using a breakdown:
 - page views to sign up funnel by country: you need to find a property such as `$geoip_country_code` and set it as a breakdown.
 - conversion rate of users who have completed onboarding after signing up by an organization: you need to find a property such as `organization name` and set it as a breakdown.
 
+# Examples
+
+## Conversion from first event ingested to insight saved for organizations over 6 months
+
+```json
+{
+  "kind": "FunnelsQuery",
+  "series": [
+    { "kind": "EventsNode", "event": "first team event ingested" },
+    { "kind": "EventsNode", "event": "insight saved" }
+  ],
+  "dateRange": { "date_from": "-6m" },
+  "interval": "month",
+  "aggregation_group_type_index": 0,
+  "funnelsFilter": {
+    "funnelOrderType": "ordered",
+    "funnelVizType": "trends",
+    "funnelWindowInterval": 14,
+    "funnelWindowIntervalUnit": "day"
+  },
+  "filterTestAccounts": true
+}
+```
+
+## Signup page CTA click rate within one hour, excluding page leaves, broken down by OS
+
+```json
+{
+  "kind": "FunnelsQuery",
+  "series": [
+    {
+      "kind": "EventsNode",
+      "event": "$pageview",
+      "properties": [{ "key": "$current_url", "type": "event", "value": "signup", "operator": "icontains" }]
+    },
+    {
+      "kind": "EventsNode",
+      "event": "click subscribe button",
+      "properties": [{ "key": "$current_url", "type": "event", "value": "signup", "operator": "icontains" }]
+    }
+  ],
+  "dateRange": { "date_from": "-180d" },
+  "interval": "week",
+  "funnelsFilter": {
+    "funnelWindowInterval": 1,
+    "funnelWindowIntervalUnit": "hour",
+    "funnelOrderType": "ordered",
+    "exclusions": [{ "kind": "EventsNode", "event": "$pageleave", "funnelFromStep": 0, "funnelToStep": 1 }]
+  },
+  "breakdownFilter": { "breakdown_type": "event", "breakdown": "$os" },
+  "filterTestAccounts": true
+}
+```
+
+## Credit card purchase rate from viewing a product with strict ordering (no events in between)
+
+```json
+{
+  "kind": "FunnelsQuery",
+  "series": [
+    { "kind": "EventsNode", "event": "view product" },
+    {
+      "kind": "EventsNode",
+      "event": "purchase",
+      "properties": [{ "key": "paymentMethod", "type": "event", "value": "credit_card", "operator": "exact" }]
+    }
+  ],
+  "dateRange": { "date_from": "-30d" },
+  "funnelsFilter": {
+    "funnelOrderType": "strict",
+    "funnelWindowInterval": 14,
+    "funnelWindowIntervalUnit": "day"
+  },
+  "filterTestAccounts": true
+}
+```
+
+## View product to buy button to purchase, using actions and events
+
+```json
+{
+  "kind": "FunnelsQuery",
+  "series": [
+    { "kind": "ActionsNode", "id": 8882, "name": "view product" },
+    { "kind": "EventsNode", "event": "click buy button" },
+    {
+      "kind": "ActionsNode",
+      "id": 573,
+      "name": "purchase",
+      "properties": [
+        { "key": "shipping_method", "value": "express_delivery", "operator": "icontains", "type": "event" }
+      ]
+    }
+  ],
+  "funnelsFilter": { "funnelVizType": "steps" },
+  "filterTestAccounts": true
+}
+```
+
 # Reminders
 
 - You MUST ALWAYS use AT LEAST TWO series (events or actions) in the funnel.
