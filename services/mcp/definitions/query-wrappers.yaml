@@ -55,6 +55,28 @@ wrappers:
             - modifiers
             - samplingFactor
 
+    query-retention:
+        schema_ref: AssistantRetentionQuery
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        mcp_version: 2
+        title: Run a retention query
+        description: >
+            Run a retention query to analyze how many users return over time after
+            performing an initial action. Use this to measure user engagement and
+            stickiness by cohort. Use 'event-definitions-list' to discover available events.
+        ui_resource_uri: ui://posthog/query-results.html
+        exclude_properties:
+            - kind
+            - response
+            - modifiers
+            - samplingFactor
+
     query-traces-list:
         schema_ref: TracesQuery
         enabled: true

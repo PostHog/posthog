@@ -507,6 +507,70 @@ const AssistantFunnelsQuery = z.object({
         .describe('Events or actions to include. Prioritize the more popular and fresh events and actions.'),
 })
 
+const RetentionPeriod = z.enum(['Hour', 'Day', 'Week', 'Month'])
+
+const RetentionType = z.enum(['retention_recurring', 'retention_first_time', 'retention_first_ever_occurrence'])
+
+const AssistantRetentionEventsNode = z.object({
+    custom_name: z.string().describe('Custom name for the event if it is needed to be renamed.').optional(),
+    name: z.string().describe('Event name from the plan.'),
+    properties: z.array(AssistantPropertyFilter).describe('Property filters for the event.').optional(),
+    type: z.literal('events'),
+})
+
+const AssistantRetentionActionsNode = z.object({
+    id: z.number().describe('Action ID from the plan.'),
+    name: z.string().describe('Action name from the plan.'),
+    properties: z.array(AssistantPropertyFilter).describe('Property filters for the action.').optional(),
+    type: z.literal('actions'),
+})
+
+const AssistantRetentionEntity = z.union([AssistantRetentionEventsNode, AssistantRetentionActionsNode])
+
+const AssistantRetentionFilter = z.object({
+    cumulative: z
+        .boolean()
+        .describe(
+            'Whether retention should be rolling (aka unbounded, cumulative). Rolling retention means that a user coming back in period 5 makes them count towards all the previous periods.'
+        )
+        .optional(),
+    meanRetentionCalculation: z
+        .enum(['simple', 'weighted', 'none'])
+        .describe(
+            'Whether an additional series should be shown, showing the mean conversion for each period across cohorts.'
+        )
+        .optional(),
+    period: RetentionPeriod.describe('Retention period, the interval to track cohorts by.').default('Day').optional(),
+    retentionReference: z
+        .enum(['total', 'previous'])
+        .describe('Whether retention is with regard to initial cohort size, or that of the previous period.')
+        .optional(),
+    retentionType: RetentionType.describe(
+        'Retention type: recurring or first time. Recurring retention counts a user as part of a cohort if they performed the cohort event during that time period, irrespective of it was their first time or not. First time retention only counts a user as part of the cohort if it was their first time performing the cohort event.'
+    ).optional(),
+    returningEntity: AssistantRetentionEntity.describe('Retention event (event marking the user coming back).'),
+    targetEntity: AssistantRetentionEntity.describe(
+        'Activation event (event putting the actor into the initial cohort).'
+    ),
+    totalIntervals: integer
+        .describe(
+            'How many intervals to show in the chart. The default value is 11 (meaning 10 periods after initial cohort).'
+        )
+        .default(11)
+        .optional(),
+})
+
+const AssistantRetentionQuery = z.object({
+    dateRange: AssistantDateRangeFilter.describe('Date range for the query').optional(),
+    filterTestAccounts: z
+        .boolean()
+        .describe('Exclude internal and test users by applying the respective filters')
+        .default(false)
+        .optional(),
+    properties: z.array(AssistantPropertyFilter).describe('Property filters for all series').default([]).optional(),
+    retentionFilter: AssistantRetentionFilter.describe('Properties specific to the retention insight'),
+})
+
 const DateRange = z.object({
     date_from: z.string().nullable().optional(),
     date_to: z.string().nullable().optional(),
@@ -761,6 +825,12 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         name: 'query-funnel',
         schema: AssistantFunnelsQuery,
         kind: 'FunnelsQuery',
+        uiResourceUri: 'ui://posthog/query-results.html',
+    }),
+    'query-retention': createQueryWrapper({
+        name: 'query-retention',
+        schema: AssistantRetentionQuery,
+        kind: 'RetentionQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
     }),
     'query-traces-list': createQueryWrapper({ name: 'query-traces-list', schema: TracesQuery, kind: 'TracesQuery' }),

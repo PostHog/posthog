@@ -1394,6 +1394,21 @@
             "readOnlyHint": true
         }
     },
+    "query-retention": {
+        "description": "Run a retention query to analyze how many users return over time after performing an initial action. Use this to measure user engagement and stickiness by cohort. Use 'event-definitions-list' to discover available events.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "Run a retention query",
+        "title": "Run a retention query",
+        "required_scopes": ["query:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "query-traces-list": {
         "description": "Query LLM traces to inspect AI/LLM usage. Returns a list of traces with their events, latency, token usage, and other metadata. Use dateRange, properties, and limit to filter results.",
         "category": "Query wrappers",
