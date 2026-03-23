@@ -337,6 +337,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "partial_filter_chosen_my_filter": "something",
             },
             groups=ANY,
+            send_feature_flags=False,
         )
 
     def test_listing_recordings_is_not_nplus1_for_persons(self):

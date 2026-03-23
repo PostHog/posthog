@@ -8,9 +8,10 @@ from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
 from products.visual_review.backend.facade.enums import RunStatus, RunType, SnapshotResult
 from products.visual_review.backend.tasks.tasks import _process_diffs, process_run_diffs
+from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestProcessRunDiffs:
     @pytest.fixture
     def repo(self, team):

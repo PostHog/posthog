@@ -38,8 +38,6 @@ from products.event_definitions.backend.models import EventProperty
 from .exported_asset import ExportedAsset
 from .exported_recording import ExportedRecording
 from .feature_flag import FeatureFlag
-from .surveys.survey import Survey
-from .surveys.survey_response_archive import SurveyResponseArchive
 from .file_system.file_system import FileSystem
 from .file_system.file_system_view_log import FileSystemViewLog
 from .filters import Filter, RetentionFilter
@@ -57,7 +55,6 @@ from .insight_caching_state import InsightCachingState
 from .insight_variable import InsightVariable
 from .instance_setting import InstanceSetting
 from .integration import Integration
-from .link import Link
 from .llm_prompt import LLMPrompt
 from .materialized_column_slots import MaterializedColumnSlot, MaterializedColumnSlotState
 from .message_template import MessageTemplate
@@ -156,7 +153,6 @@ __all__ = [
     "HogFlow",
     "HogFunction",
     "HogFunctionTemplate",
-    "Link",
     "LLMPrompt",
     "HostDefinition",
     "Insight",
@@ -216,8 +212,6 @@ __all__ = [
     "SharePassword",
     "SharingConfiguration",
     "Subscription",
-    "Survey",
-    "SurveyResponseArchive",
     "Tag",
     "TaggedItem",
     "Team",

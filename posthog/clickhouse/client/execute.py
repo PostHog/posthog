@@ -31,6 +31,7 @@ from posthog.clickhouse.query_tagging import (
     Feature,
     Product,
     QueryTags,
+    get_caller_source,
     get_query_tag_value,
     get_query_tags,
 )
@@ -323,9 +324,14 @@ def sync_execute(
             stacktrace="".join(traceback.format_stack()),
         )
 
+    source_file, source_line = get_caller_source()
+    query_log_tags = tags.model_copy(deep=True)
+    query_log_tags.source_file = source_file
+    query_log_tags.source_line = source_line
+
     settings = {
         **core_settings,
-        "log_comment": tags.to_json(),
+        "log_comment": query_log_tags.to_json(),
     }
     if workload == Workload.OFFLINE:
         # disabling hedged requests for offline queries reduces the likelihood of these queries bleeding over into the

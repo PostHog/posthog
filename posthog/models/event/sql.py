@@ -231,9 +231,28 @@ def KAFKA_EVENTS_TABLE_JSON_SQL():
     )
 
 
-EVENTS_TABLE_JSON_MV_SQL = (
-    lambda: """
-CREATE MATERIALIZED VIEW IF NOT EXISTS events_json_mv ON CLUSTER '{cluster}'
+# NOTE: All parameters must have defaults - zero-argument calls must remain valid.
+# 8+ frozen migrations and schema.py reference this function without parameters.
+#
+# Override parameters to create separate pipelines that reuse the events schema:
+# - mv_name: unique MV name to avoid conflicts with the main events_json_mv
+# - kafka_table: different Kafka table consuming from a different topic
+# - target_table: different target table for the MV to write to
+# - on_cluster: False when running on specific node roles (e.g., ingestion layer)
+#
+# Example: error_tracking_events_test uses custom values to create a parallel
+# pipeline for validating Node.js ingestion output against the Python pipeline.
+def EVENTS_TABLE_JSON_MV_SQL(
+    mv_name="events_json_mv",
+    kafka_table="kafka_events_json",
+    target_table=None,
+    on_cluster=True,
+):
+    if target_table is None:
+        target_table = WRITABLE_EVENTS_DATA_TABLE()
+
+    return """
+CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} {on_cluster_clause}
 TO {database}.{target_table}
 AS SELECT
 uuid,
@@ -269,14 +288,16 @@ arrayMap(
         arrayEnumerate(_headers.name)
     )
 ) as consumer_breadcrumbs
-FROM {database}.kafka_events_json
+FROM {database}.{kafka_table}
 """.format(
-        target_table=WRITABLE_EVENTS_DATA_TABLE(),
+        mv_name=mv_name,
+        kafka_table=kafka_table,
+        target_table=target_table,
         dynamically_materialized_columns=MV_DYNAMICALLY_MATERIALIZED_COLUMNS(),
-        cluster=settings.CLICKHOUSE_CLUSTER,
+        on_cluster_clause=f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'" if on_cluster else "",
         database=settings.CLICKHOUSE_DATABASE,
     )
-)
+
 
 # Events recent tables
 

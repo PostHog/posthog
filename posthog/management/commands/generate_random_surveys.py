@@ -9,10 +9,12 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Survey, Team, User
+from posthog.models import Team, User
 from posthog.models.event.sql import BULK_INSERT_EVENT_SQL
 from posthog.models.person.person import Person, PersonDistinctId
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
+
+from products.surveys.backend.models import Survey
 
 
 class MultipleChoiceTemplate(TypedDict):

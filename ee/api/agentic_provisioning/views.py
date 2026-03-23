@@ -58,15 +58,11 @@ ACCESS_TOKEN_EXPIRY_SECONDS = 365 * 24 * 3600
 
 
 # ---------------------------------------------------------------------------
-# Service catalog — two plans (free + pay_as_you_go) and one deployable
-# (analytics). The deployable provisions a PostHog project and defaults to the
-# free plan. When pay_as_you_go is selected, Stripe collects SPT for
-# usage-based billing across all products.
+# Service catalog — a single free deployable (analytics) that provisions a
+# PostHog project. Paid plan (pay_as_you_go with SPT) will be re-added once
+# billing integration is complete.
 # ---------------------------------------------------------------------------
 
-FREE_PLAN_ID = "free"
-PAY_AS_YOU_GO_PLAN_ID = "pay_as_you_go"
-USAGE_BASED_PRICING = {"type": "freeform", "freeform": "Usage-based pricing"}
 ANALYTICS_SERVICE_ID = "analytics"
 
 ALL_CATEGORIES: list[str] = ["analytics", "feature_flags", "ai"]
@@ -79,26 +75,7 @@ SERVICES_CACHE_STORE_TTL = 86400
 
 _EXCLUDED_PRODUCT_TYPES = {"platform_and_support", "integrations"}
 
-FREE_PLAN_SERVICE: dict[str, Any] = {
-    "id": FREE_PLAN_ID,
-    "description": "Free — generous free tier across all PostHog products, no credit card required.",
-    "categories": ALL_CATEGORIES,
-    "pricing": {"type": "free"},
-    "kind": "plan",
-}
-
-PAY_AS_YOU_GO_PLAN_SERVICE: dict[str, Any] = {
-    "id": PAY_AS_YOU_GO_PLAN_ID,
-    "description": "Pay-as-you-go — usage-based pricing across all PostHog products with no minimum commitment.",
-    "categories": ALL_CATEGORIES,
-    "pricing": {
-        "type": "paid",
-        "paid": USAGE_BASED_PRICING,
-    },
-    "kind": "plan",
-}
-
-_FALLBACK_DESCRIPTION = "PostHog — product analytics, session replay, feature flags, A/B testing, surveys, and more."
+_FALLBACK_DESCRIPTION = "PostHog — product analytics, session replay, realtime destinations, feature flags & experiments, surveys, data warehouse, error tracking, llm analytics, logs, posthog ai, emails, and more."
 
 
 def _build_analytics_service(description: str) -> dict[str, Any]:
@@ -106,22 +83,7 @@ def _build_analytics_service(description: str) -> dict[str, Any]:
         "id": ANALYTICS_SERVICE_ID,
         "description": description,
         "categories": ALL_CATEGORIES,
-        "pricing": {
-            "type": "component",
-            "component": {
-                "options": [
-                    {
-                        "parent_service_ids": [FREE_PLAN_ID],
-                        "type": "free",
-                    },
-                    {
-                        "parent_service_ids": [PAY_AS_YOU_GO_PLAN_ID],
-                        "type": "paid",
-                        "paid": USAGE_BASED_PRICING,
-                    },
-                ]
-            },
-        },
+        "pricing": {"type": "free"},
         "kind": "deployable",
     }
 
@@ -146,11 +108,7 @@ def _fetch_services_from_billing() -> list[dict[str, Any]] | None:
     ]
     description = f"PostHog — {', '.join(n for n in product_names if n).lower()}, and more."
 
-    return [
-        FREE_PLAN_SERVICE,
-        PAY_AS_YOU_GO_PLAN_SERVICE,
-        _build_analytics_service(description),
-    ]
+    return [_build_analytics_service(description)]
 
 
 def _get_services() -> list[dict[str, Any]]:
@@ -173,13 +131,13 @@ def _get_services() -> list[dict[str, Any]]:
         return cached
 
     logger.warning("agentic_provisioning.services.no_cache_fallback")
-    fallback = [FREE_PLAN_SERVICE, PAY_AS_YOU_GO_PLAN_SERVICE, _build_analytics_service(_FALLBACK_DESCRIPTION)]
+    fallback = [_build_analytics_service(_FALLBACK_DESCRIPTION)]
     cache.set(SERVICES_CACHE_KEY, fallback, SERVICES_CACHE_RETRY_TTL)
     cache.set(SERVICES_CACHE_EXPIRES_KEY, now + SERVICES_CACHE_RETRY_TTL, SERVICES_CACHE_RETRY_TTL)
     return fallback
 
 
-VALID_SERVICE_IDS: set[str] = {FREE_PLAN_ID, PAY_AS_YOU_GO_PLAN_ID, ANALYTICS_SERVICE_ID}
+VALID_SERVICE_IDS: set[str] = {ANALYTICS_SERVICE_ID}
 
 
 # ---------------------------------------------------------------------------
