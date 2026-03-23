@@ -135,6 +135,7 @@ case "$RS_SVC" in
     export READ_DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
     export MAXMIND_DB_PATH=../share/GeoLite2-City.mmdb
     export REDIS_URL=redis://localhost:6379/
+    export FLAGS_REDIS_URL=${FLAGS_REDIS_URL:-redis://localhost:6379/1}
     export ADDRESS=0.0.0.0:3001
     export DEBUG=1
     export ALLOW_INTERNAL_IPS=${ALLOW_INTERNAL_IPS:-true}
