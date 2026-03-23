@@ -99,6 +99,7 @@ def resolve_dependency_to_node(
 
 def sync_saved_query_to_dag(
     saved_query: "DataWarehouseSavedQuery",
+    materialize: bool = False,
     extra_properties: dict | None = None,  # TODO(andrew): remove this after backfill
     dag: DAG | None = None,
 ) -> Node | None:
@@ -132,7 +133,7 @@ def sync_saved_query_to_dag(
     # determine node type
     if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
         node_type = NodeType.ENDPOINT
-    elif saved_query.table:
+    elif materialize or saved_query.table:
         node_type = NodeType.MAT_VIEW
     else:
         node_type = NodeType.VIEW
