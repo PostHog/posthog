@@ -90,7 +90,7 @@
         }
     },
     "alerts-list": {
-        "description": "List all insight alerts in the project. Returns alerts with their current state, threshold configuration, and timing information. Supports filtering by insight ID via query parameter.",
+        "description": "List all insight alerts in the project. Returns alerts with their current state, threshold or detector configuration, timing information, and firing check history. Supports filtering by insight ID via query parameter. Alerts can use either threshold-based conditions (absolute_value, relative_increase, relative_decrease) or anomaly detection via detector_config (zscore, mad, iqr, isolation_forest, knn, etc.).",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "List alerts",
@@ -105,7 +105,7 @@
         }
     },
     "alert-get": {
-        "description": "Get a specific alert by ID. Returns the full alert configuration including the last 5 check results, threshold settings, and subscribed users.",
+        "description": "Get a specific alert by ID. Returns the full alert configuration including check results, threshold settings, detector_config (for anomaly detection alerts), and subscribed users. Check results include anomaly_scores, triggered_points, and triggered_dates for detector-based alerts. By default returns the last 5 checks. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, and checks_limit to control the maximum returned (default 5, max 500). When date filters are provided without checks_limit, up to 500 checks are returned. Check history is retained for 14 days.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Get alert",
@@ -120,7 +120,7 @@
         }
     },
     "alert-create": {
-        "description": "Create a new alert on an insight. Alerts monitor insight values and notify subscribed users when thresholds are breached. Requires an insight ID, at least one subscribed user, and a threshold configuration. The alert condition determines how the value is evaluated (absolute_value, relative_increase, or relative_decrease).",
+        "description": "Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold configuration with bounds. For anomaly detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. Requires an insight ID and at least one subscribed user.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Create alert",
@@ -135,7 +135,7 @@
         }
     },
     "alert-update": {
-        "description": "Update an existing alert by ID. Can update name, threshold, condition, config, subscribed users, enabled state, calculation interval, and weekend skipping. To snooze an alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.",
+        "description": "Update an existing alert by ID. Can update name, threshold, condition, config, detector_config, subscribed users, enabled state, calculation interval, and weekend skipping. Set detector_config to switch to anomaly detection, or set it to null to switch back to threshold mode. To snooze an alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Update alert",
@@ -162,6 +162,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "alert-simulate": {
+        "description": "Run an anomaly detector on an insight's historical data without creating any alert or check records. Use this to preview how a detector configuration would perform before saving it as an alert. Requires an insight ID and a detector_config object with a type (zscore, mad, iqr, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca, or ensemble). Optionally specify date_from (e.g. '-48h', '-30d') to control how far back to simulate, and series_index to pick which series to analyze. Returns data values, anomaly scores per point, triggered indices and dates, and for ensemble detectors, per-sub-detector score breakdowns.",
+        "category": "Alerts",
+        "feature": "alerts",
+        "summary": "Simulate detector on insight",
+        "title": "Simulate detector on insight",
+        "required_scopes": ["alert:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "annotations-list": {
@@ -884,6 +899,96 @@
             "readOnlyHint": false
         }
     },
+    "feature-flags-activity-retrieve": {
+        "description": "Get the audit trail for a specific feature flag by ID. Returns a paginated list of changes including who made changes, what was changed, and when. Use limit and page query params for pagination.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Get feature flag activity log",
+        "title": "Get feature flag activity log",
+        "required_scopes": ["activity_log:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "feature-flags-dependent-flags-retrieve": {
+        "description": "Get other active feature flags that depend on this flag. Use this to understand flag dependency chains before making changes to a flag's rollout conditions or disabling it.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Get dependent feature flags",
+        "title": "Get dependent feature flags",
+        "required_scopes": ["feature_flag:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "feature-flags-status-retrieve": {
+        "description": "Check the health and evaluation status of a feature flag by ID. Returns a status (active, stale, deleted, or unknown) and a human-readable reason explaining the status.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Get feature flag status",
+        "title": "Get feature flag status",
+        "required_scopes": ["feature_flag:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "feature-flags-evaluation-reasons-retrieve": {
+        "description": "Debug why feature flags evaluate a certain way for a given user. Provide a distinct_id and optionally groups to see each flag's evaluated value and the reason for that evaluation (e.g. condition_match, no_condition_match, disabled).",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Get feature flag evaluation reasons",
+        "title": "Get feature flag evaluation reasons",
+        "required_scopes": ["feature_flag:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "feature-flags-user-blast-radius-create": {
+        "description": "Assess the impact of a feature flag release condition before applying it. Provide a condition object and optionally a group_type_index to see how many users would be affected relative to the total user count.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Get user blast radius",
+        "title": "Get user blast radius",
+        "required_scopes": ["feature_flag:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "feature-flags-copy-flags-create": {
+        "description": "Copy a feature flag from one project to other projects within the same organization. Provide the flag key, source project ID, and a list of target project IDs. Optionally copy scheduled changes with copy_schedule. Returns lists of successful and failed copies.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Copy feature flag across projects",
+        "title": "Copy feature flag across projects",
+        "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "notebooks-list": {
         "description": "List all notebooks in the project. Supports filtering by search term, created_by, last_modified_by, date_from, date_to, and contains. Returns title, short_id, and creation/modification metadata.",
         "category": "Notebooks",
@@ -1124,6 +1229,21 @@
             "readOnlyHint": false
         }
     },
+    "prompt-duplicate": {
+        "description": "Duplicate an existing LLM prompt under a new name. Copies the latest version's content to create a new prompt at version 1. Useful for forking a prompt or as a way to rename since names are immutable after creation.",
+        "category": "Prompts",
+        "feature": "prompts",
+        "summary": "Duplicate prompt",
+        "title": "Duplicate prompt",
+        "required_scopes": ["llm_prompt:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "proxy-list": {
         "description": "List all managed reverse proxies configured for the current organization. Returns each proxy's domain, CNAME target, provisioning status, and the maximum number of proxies allowed by the current plan. Use this to check whether a reverse proxy is set up before recommending one.",
         "category": "Reverse proxy",
@@ -1199,6 +1319,111 @@
             "readOnlyHint": false
         }
     },
+    "surveys-get-all": {
+        "description": "Get all surveys in the project with optional filtering. Can filter by search term or use pagination.",
+        "category": "Surveys",
+        "feature": "surveys",
+        "summary": "Get all surveys in the project with optional filtering.",
+        "title": "Get all surveys in the project with optional filtering.",
+        "required_scopes": ["survey:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "survey-get": {
+        "description": "Get a specific survey by ID. Returns the survey configuration including questions, targeting, and scheduling details.",
+        "category": "Surveys",
+        "feature": "surveys",
+        "summary": "Get a specific survey by ID.",
+        "title": "Get a specific survey by ID.",
+        "required_scopes": ["survey:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "survey-create": {
+        "description": "Creates a new survey in the project. Surveys can be popover or API-based and support various question types including open-ended, multiple choice, rating, and link questions. Once created, you should ask the user if they want to add the survey to their application code.",
+        "category": "Surveys",
+        "feature": "surveys",
+        "summary": "Creates a new survey in the project.",
+        "title": "Creates a new survey in the project.",
+        "required_scopes": ["survey:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "survey-update": {
+        "description": "Update an existing survey by ID. Can update name, description, questions, scheduling, and other survey properties.",
+        "category": "Surveys",
+        "feature": "surveys",
+        "summary": "Update an existing survey by ID.",
+        "title": "Update an existing survey by ID.",
+        "required_scopes": ["survey:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "survey-delete": {
+        "description": "Delete a survey by ID (soft delete - marks as archived).",
+        "category": "Surveys",
+        "feature": "surveys",
+        "summary": "Delete a survey by ID.",
+        "title": "Delete a survey by ID.",
+        "required_scopes": ["survey:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "survey-stats": {
+        "description": "Get response statistics for a specific survey. Includes detailed event counts (shown, dismissed, sent), unique respondents, conversion rates, and timing data. Supports optional date filtering.",
+        "category": "Surveys",
+        "feature": "surveys",
+        "summary": "Get response statistics for a specific survey.",
+        "title": "Get response statistics for a specific survey.",
+        "required_scopes": ["survey:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "surveys-global-stats": {
+        "description": "Get aggregated response statistics across all surveys in the project. Includes event counts (shown, dismissed, sent), unique respondents, conversion rates, and timing data. Supports optional date filtering.",
+        "category": "Surveys",
+        "feature": "surveys",
+        "summary": "Get aggregated response statistics across all surveys.",
+        "title": "Get aggregated response statistics across all surveys.",
+        "required_scopes": ["survey:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "workflows-list": {
         "description": "List all workflows in the project. Returns workflows with their name, description, status (draft/active/archived), version, trigger configuration, and timestamps.",
         "category": "Workflows",
@@ -1222,6 +1447,66 @@
         "title": "Get workflow",
         "required_scopes": ["hog_flow:read"],
         "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "query-trends": {
+        "description": "Run a trends query to analyze metrics over time. Use this to answer questions about event counts, unique users, session counts, or property aggregations with breakdowns and comparisons. Prefer this over raw HogQL for trends analysis. Use 'event-definitions-list' to discover available events, and 'properties-list' to discover available properties for filters and breakdowns.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "Run a trends query",
+        "title": "Run a trends query",
+        "required_scopes": ["query:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "query-funnel": {
+        "description": "Run a funnel query to analyze conversion rates through a sequence of steps. Use this to understand how users progress through multi-step flows like sign-up, onboarding, or purchase funnels. Requires at least two series steps. Use 'event-definitions-list' to discover available events.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "Run a funnel query",
+        "title": "Run a funnel query",
+        "required_scopes": ["query:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "query-retention": {
+        "description": "Run a retention query to analyze how many users return over time after performing an initial action. Use this to measure user engagement and stickiness by cohort. Use 'event-definitions-list' to discover available events.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "Run a retention query",
+        "title": "Run a retention query",
+        "required_scopes": ["query:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "query-traces-list": {
+        "description": "Query LLM traces to inspect AI/LLM usage. Returns a list of traces with their events, latency, token usage, and other metadata. Use dateRange, properties, and limit to filter results.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "List LLM traces",
+        "title": "List LLM traces",
+        "required_scopes": ["query:read"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

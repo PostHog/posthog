@@ -1068,6 +1068,14 @@ export interface PatchedLLMPromptPublishApi {
     base_version?: number
 }
 
+export interface LLMPromptDuplicateApi {
+    /**
+     * Name for the duplicated prompt. Must be unique and use only letters, numbers, hyphens, and underscores.
+     * @maxLength 255
+     */
+    new_name: string
+}
+
 export interface LLMPromptVersionSummaryApi {
     readonly id: string
     readonly version: number

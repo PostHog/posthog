@@ -9,7 +9,7 @@ from xml.etree.ElementTree import Comment
 
 import defusedxml.ElementTree as ET
 
-UDF_VERSION = 10  # Last modified by: @thmsobrmlr, 2025-12-05
+UDF_VERSION = 11  # Last modified by: @sampennington, 2026-03-23
 
 # Clean up all versions less than this
 EARLIEST_UDF_VERSION = 8

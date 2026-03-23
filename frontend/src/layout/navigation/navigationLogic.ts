@@ -148,6 +148,7 @@ export const navigationLogic = kea<navigationLogicType>([
                 if (!organization) {
                     return null
                 }
+                const acknowledged = projectNoticesAcknowledged ?? {}
 
                 // If has closed a notice in this session, don't show any notice (even if there are multiple that apply)
                 // We'll display the "follow-up" one the next time they start a session
@@ -164,21 +165,17 @@ export const navigationLogic = kea<navigationLogicType>([
                     return 'demo_project'
                 } else if (!user?.is_email_verified && !user?.has_social_auth && preflight?.email_service_available) {
                     return 'unverified_email'
-                } else if (
-                    !projectNoticesAcknowledged['real_project_with_no_events'] &&
-                    currentTeam &&
-                    !currentTeam.ingested_event
-                ) {
+                } else if (!acknowledged['real_project_with_no_events'] && currentTeam && !currentTeam.ingested_event) {
                     return 'real_project_with_no_events'
                 } else if (hasEventIngestionRestriction) {
                     return 'event_ingestion_restriction'
                 } else if (
-                    !projectNoticesAcknowledged['missing_reverse_proxy'] &&
+                    !acknowledged['missing_reverse_proxy'] &&
                     proxyRecords !== null &&
                     proxyRecords.length === 0
                 ) {
                     return 'missing_reverse_proxy'
-                } else if (!projectNoticesAcknowledged['invite_teammates'] && memberCount === 1) {
+                } else if (!acknowledged['invite_teammates'] && memberCount === 1) {
                     return 'invite_teammates'
                 }
 

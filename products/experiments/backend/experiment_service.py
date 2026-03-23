@@ -62,7 +62,7 @@ class ExperimentQueryStatus(str, Enum):
 class ExperimentService:
     """Single source of truth for experiment business logic."""
 
-    VALID_METRIC_KINDS = {"ExperimentMetric", "ExperimentTrendsQuery", "ExperimentFunnelsQuery"}
+    LEGACY_METRIC_KINDS = {"ExperimentTrendsQuery", "ExperimentFunnelsQuery"}
 
     def __init__(self, team: Team, user: Any):
         self.team = team
@@ -125,8 +125,14 @@ class ExperimentService:
                 raise ValidationError(f"Invalid metric at index {i}: must be a dict")
 
             kind = metric.get("kind")
-            if kind not in cls.VALID_METRIC_KINDS:
-                raise ValidationError(f"Invalid metric at index {i}: unknown kind '{kind}'")
+            if kind in cls.LEGACY_METRIC_KINDS:
+                raise ValidationError(
+                    f"Invalid metric at index {i}: legacy metric kind '{kind}' is no longer supported for new experiments. "
+                    "Use 'ExperimentMetric' instead."
+                )
+
+            if kind != "ExperimentMetric":
+                raise ValidationError(f"Invalid metric at index {i}: metric kind must be 'ExperimentMetric'")
 
             if kind == "ExperimentMetric":
                 try:
@@ -192,6 +198,8 @@ class ExperimentService:
         event_source: EventSource | None = None,
     ) -> Experiment:
         """Create experiment with full validation and defaults."""
+        self.validate_experiment_metrics(metrics)
+        self.validate_experiment_metrics(metrics_secondary)
         self.validate_saved_metrics_ids(saved_metrics_ids, self.team.id)
         is_draft = start_date is None
 
@@ -300,6 +308,26 @@ class ExperimentService:
         report_user_action(
             self.user,
             "experiment created",
+            analytics_metadata,
+            team=experiment.team,
+            request=request,
+        )
+
+    def _report_experiment_launched(
+        self,
+        experiment: Experiment,
+        *,
+        request: Any | None = None,
+    ) -> None:
+        if request is None:
+            return
+
+        analytics_metadata = experiment.get_analytics_metadata()
+        analytics_metadata["launch_date"] = experiment.start_date.isoformat() if experiment.start_date else None
+
+        report_user_action(
+            self.user,
+            "experiment launched",
             analytics_metadata,
             team=experiment.team,
             request=request,
@@ -536,7 +564,7 @@ class ExperimentService:
     # ------------------------------------------------------------------
 
     @transaction.atomic
-    def launch_experiment(self, experiment: Experiment) -> Experiment:
+    def launch_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
         """Launch a draft experiment: validate readiness, set start_date, activate feature flag."""
         if not experiment.is_draft:
             raise ValidationError("Experiment has already been launched.")
@@ -564,6 +592,24 @@ class ExperimentService:
         feature_flag.active = True
         feature_flag.save()
 
+        experiment.save()
+
+        self._report_experiment_launched(experiment, request=request)
+
+        return experiment
+
+    # ------------------------------------------------------------------
+    # Archive
+    # ------------------------------------------------------------------
+
+    def archive_experiment(self, experiment: Experiment) -> Experiment:
+        """Archive an ended experiment: validate it has ended, set archived=True."""
+        if experiment.archived:
+            raise ValidationError("Experiment is already archived.")
+        if not experiment.end_date:
+            raise ValidationError("Experiment must be ended before it can be archived.")
+
+        experiment.archived = True
         experiment.save()
         return experiment
 
