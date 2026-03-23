@@ -27,7 +27,7 @@ Disabled flags (`active: false`) are not considered stale — they were intentio
 
 ### 1. List stale flags
 
-Call `feature-flag-get-all` with `active: "STALE"`. This returns all stale flags in a single request — PostHog handles the staleness detection server-side using the criteria described above.
+Call `posthog:feature-flag-get-all` with `active: "STALE"`. This returns all stale flags in a single request — PostHog handles the staleness detection server-side using the criteria described above.
 
 ### 2. Assess each candidate
 
@@ -35,7 +35,7 @@ For each stale flag, gather context before recommending action:
 
 **Check if it's tied to an experiment:**
 
-The `feature-flag-get-definition` tool returns an `experiment_set` field. If non-empty, the flag is used by an experiment — check the experiment status before touching it.
+The `posthog:feature-flag-get-definition` tool returns an `experiment_set` field. If non-empty, the flag is used by an experiment — check the experiment status before touching it.
 
 **Check if other flags depend on it:**
 
@@ -63,8 +63,8 @@ For each stale flag, present:
 
 The safest approach is a two-phase cleanup:
 
-1. **Disable** the flag (`active: false`) using `update-feature-flag`. This stops it from being evaluated but keeps the configuration intact. If something breaks, re-enabling is instant.
-2. **Delete** the flag using `delete-feature-flag` after the user confirms no issues. This is a soft-delete — the flag is marked as deleted but not physically removed.
+1. **Disable** the flag (`active: false`) using `posthog:update-feature-flag`. This stops it from being evaluated but keeps the configuration intact. If something breaks, re-enabling is instant.
+2. **Delete** the flag using `posthog:delete-feature-flag` after the user confirms no issues. This is a soft-delete — the flag is marked as deleted but not physically removed.
 
 When disabling or deleting multiple flags, process them one at a time and confirm each action. This makes it easy to stop if something goes wrong.
 
@@ -124,8 +124,8 @@ Present the full cleanup prompt in a copyable format so the user can paste it di
 User: "Can you help me clean up our stale feature flags?"
 
 Agent steps:
-- Call feature-flag-get-all with active: "STALE" to get all stale flags in one request
-- For each stale flag, call feature-flag-get-definition to check experiment_set and dependencies
+- Call posthog:feature-flag-get-all with active: "STALE" to get all stale flags in one request
+- For each stale flag, call posthog:feature-flag-get-definition to check experiment_set and dependencies
 - Present findings:
 
    "I found 7 stale feature flags in your project:
@@ -142,8 +142,8 @@ Agent steps:
    and beta-dashboard-v2 since they have no dependencies."
 
 - User confirms: "Yes, remove those two"
-- Disable each flag first using update-feature-flag (active: false), then confirm with the user before deleting
-- After user confirms no issues, call delete-feature-flag for each
+- Disable each flag first using posthog:update-feature-flag (active: false), then confirm with the user before deleting
+- After user confirms no issues, call posthog:delete-feature-flag for each
 - Classify rollout states from the flag definitions:
    - old-checkout-flow: fully_rolled_out (boolean, 100% rollout, no conditions)
    - beta-dashboard-v2: fully_rolled_out (boolean, 100% rollout, no conditions)
@@ -179,8 +179,8 @@ Agent steps:
 
 ## Related tools
 
-- `feature-flag-get-all`: List and search feature flags (supports `active: "STALE"` filter)
-- `feature-flag-get-definition`: Get full flag details including experiment associations
-- `feature-flags-status-retrieve`: Get the status and reason for a single flag
-- `update-feature-flag`: Disable a flag by setting `active: false`
-- `delete-feature-flag`: Soft-delete a flag
+- `posthog:feature-flag-get-all`: List and search feature flags (supports `active: "STALE"` filter)
+- `posthog:feature-flag-get-definition`: Get full flag details including experiment associations
+- `posthog:feature-flags-status-retrieve`: Get the status and reason for a single flag
+- `posthog:update-feature-flag`: Disable a flag by setting `active: false`
+- `posthog:delete-feature-flag`: Soft-delete a flag
