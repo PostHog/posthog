@@ -42,7 +42,7 @@ export const getRemixSteps = (ctx: OnboardingComponentsContext): StepDefinition[
                                 code: dedent`
                                     import { PostHog } from 'posthog-node'
 
-                                    const posthog = new PostHog(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {
+                                    const posthog = new PostHog(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN!, {
                                         host: process.env.NEXT_PUBLIC_POSTHOG_HOST
                                     })
                                 `,

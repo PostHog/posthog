@@ -51,7 +51,7 @@ export const getNuxtClientSteps = (ctx: OnboardingComponentsContext): StepDefini
             badge: 'required',
             content: (
                 <>
-                    <Markdown>Add your PostHog API key and host to your `nuxt.config.js` file:</Markdown>
+                    <Markdown>Add your PostHog project token and host to your `nuxt.config.js` file:</Markdown>
                     <CodeBlock
                         blocks={[
                             {

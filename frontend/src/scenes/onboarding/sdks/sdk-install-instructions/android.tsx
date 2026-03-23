@@ -26,16 +26,16 @@ function AndroidSetupSnippet({ includeReplay }: AndroidSetupProps): JSX.Element 
             {`class SampleApp : Application() {
 
     companion object {
-        const val POSTHOG_API_KEY = "${currentTeam?.api_token}"
+        const val POSTHOG_PROJECT_TOKEN = "${currentTeam?.api_token}"
         const val POSTHOG_HOST = "${apiHostOrigin()}"
     }
 
     override fun onCreate() {
         super.onCreate()
 
-        // Create a PostHog Config with the given API key and host
+        // Create a PostHog Config with the given project token and host
         val config = PostHogAndroidConfig(
-            apiKey = POSTHOG_API_KEY,
+            apiKey = POSTHOG_PROJECT_TOKEN,
             host = POSTHOG_HOST
         )
         ${
