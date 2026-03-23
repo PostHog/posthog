@@ -337,6 +337,12 @@ class TestPrinter(BaseTest):
             "LIMIT 50000",
         )
 
+    def test_select_set_order_by_prints(self):
+        self.assertEqual(
+            self._select("select 1 union all select 2 order by 1"),
+            "SELECT 1 LIMIT 50000 UNION ALL SELECT 2 ORDER BY 1 ASC LIMIT 50000",
+        )
+
     def test_intersect_and_union_parens(self):
         expr = parse_select("""select 1 as id intersect (select 2 as id union all select 3 as id)""")
         response = to_printed_hogql(expr, self.team)

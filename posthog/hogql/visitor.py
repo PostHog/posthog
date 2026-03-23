@@ -237,6 +237,8 @@ class TraversingVisitor(Visitor[None]):
         self.visit(node.initial_select_query)
         for expr in node.subsequent_select_queries:
             self.visit(expr.select_query)
+        for expr in node.order_by or []:
+            self.visit(expr)
         if node.limit is not None:
             self.visit(node.limit)
         if node.offset is not None:
@@ -878,6 +880,7 @@ class CloningVisitor(Visitor[Any]):
                 SelectSetNode(set_operator=expr.set_operator, select_query=self.visit(expr.select_query))
                 for expr in node.subsequent_select_queries
             ],
+            order_by=[self.visit(expr) for expr in node.order_by] if node.order_by else None,
             limit=self.visit(node.limit) if node.limit is not None else None,
             offset=self.visit(node.offset) if node.offset is not None else None,
             limit_percent=node.limit_percent,

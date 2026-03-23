@@ -184,6 +184,7 @@ class Resolver(CloningVisitor):
             end=node.end,
             initial_select_query=initial,
             subsequent_select_queries=subsequent,
+            order_by=[self.visit(expr) for expr in node.order_by] if node.order_by else None,
             limit=self.visit(node.limit) if node.limit is not None else None,
             offset=self.visit(node.offset) if node.offset is not None else None,
             limit_percent=node.limit_percent,

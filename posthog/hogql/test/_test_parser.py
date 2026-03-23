@@ -1187,6 +1187,42 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_select_columns_qualified(self):
+            self.assertEqual(
+                self._select("select COLUMNS(events.*) from events"),
+                ast.SelectQuery(
+                    select=[ast.ColumnsExpr(columns=[ast.Field(chain=["events", "*"])])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                ),
+            )
+            self.assertEqual(
+                self._select("select COLUMNS(events.* EXCLUDE (event)) from events"),
+                ast.SelectQuery(
+                    select=[ast.ColumnsExpr(columns=[ast.ColumnsExpr(all_columns=True, exclude=["event"])])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                ),
+            )
+            self.assertEqual(
+                self._select("select COLUMNS(events.* REPLACE (1 as event)) from events"),
+                ast.SelectQuery(
+                    select=[ast.ColumnsExpr(all_columns=True, replace={"event": ast.Constant(value=1)})],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                ),
+            )
+            self.assertEqual(
+                self._select("select COLUMNS(events.* EXCLUDE (event) REPLACE (1 as event)) from events"),
+                ast.SelectQuery(
+                    select=[
+                        ast.ColumnsExpr(
+                            all_columns=True,
+                            exclude=["event"],
+                            replace={"event": ast.Constant(value=1)},
+                        )
+                    ],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                ),
+            )
+
         def test_select_from_placeholder(self):
             self.assertEqual(
                 self._select("select 1 from {placeholder}"),
@@ -1808,6 +1844,23 @@ def parser_test_factory(backend: HogQLParserBackend):
                         SelectSetNode(
                             set_operator="EXCEPT ALL",
                             select_query=ast.SelectQuery(select=[ast.Constant(value=2)]),
+                        )
+                    ],
+                ),
+            )
+
+        def test_select_set_order_by(self):
+            self.assertEqual(
+                self._select("select 1 union all select 2 order by 1"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                    subsequent_select_queries=[
+                        SelectSetNode(
+                            set_operator="UNION ALL",
+                            select_query=ast.SelectQuery(
+                                select=[ast.Constant(value=2)],
+                                order_by=[ast.OrderExpr(expr=ast.Constant(value=1), order="ASC")],
+                            ),
                         )
                     ],
                 ),

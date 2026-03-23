@@ -457,6 +457,10 @@ class TestResolver(BaseTest):
 
         self.assertEqual(table_names, ["events", "persons"])
 
+    def test_select_set_order_by_prints(self):
+        printed = self._print_hogql("select 1 union all select 2 order by 1")
+        self.assertEqual(printed, "SELECT 1 LIMIT 50000 UNION ALL SELECT 2 ORDER BY 1 ASC LIMIT 50000")
+
     def test_ctes_loop(self):
         with self.assertRaises(QueryError) as e:
             self._print_hogql("with cte as (select * from cte) select * from cte")

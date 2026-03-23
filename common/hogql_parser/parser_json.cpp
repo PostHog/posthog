@@ -2197,8 +2197,9 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     if (!is_internal) addPositionInfo(json, ctx);
     json["all_columns"] = true;
     Json exclude = Json::array();
-    for (auto ident : ctx->identifierList()->identifier()) {
-      exclude.pushBack(visitAsString(ident));
+    vector<string> identifiers = any_cast<vector<string>>(visit(ctx->identifierList()));
+    for (const auto& ident : identifiers) {
+      exclude.pushBack(ident);
     }
     json["exclude"] = std::move(exclude);
     return json;
@@ -2219,8 +2220,9 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     if (!is_internal) addPositionInfo(json, ctx);
     json["all_columns"] = true;
     Json exclude = Json::array();
-    for (auto ident : ctx->identifierList()->identifier()) {
-      exclude.pushBack(visitAsString(ident));
+    vector<string> identifiers = any_cast<vector<string>>(visit(ctx->identifierList()));
+    for (const auto& ident : identifiers) {
+      exclude.pushBack(ident);
     }
     json["exclude"] = std::move(exclude);
     json["replace"] = buildColumnsReplaceJson(ctx->columnsReplaceList());

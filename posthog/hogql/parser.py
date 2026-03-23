@@ -1280,7 +1280,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.ColumnsExpr(all_columns=True)
 
     def visitColumnExprColumnsQualifiedExclude(self, ctx: HogQLParser.ColumnExprColumnsQualifiedExcludeContext):
-        exclude = [self.visit(ident) for ident in ctx.identifierList().identifier()]
+        exclude = self.visit(ctx.identifierList())
         return ast.ColumnsExpr(all_columns=True, exclude=exclude)
 
     def visitColumnExprColumnsQualifiedReplace(self, ctx: HogQLParser.ColumnExprColumnsQualifiedReplaceContext):
@@ -1290,7 +1290,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprColumnsQualifiedExcludeReplace(
         self, ctx: HogQLParser.ColumnExprColumnsQualifiedExcludeReplaceContext
     ):
-        exclude = [self.visit(ident) for ident in ctx.identifierList().identifier()]
+        exclude = self.visit(ctx.identifierList())
         replace = self._parse_columns_replace_list(ctx.columnsReplaceList())
         return ast.ColumnsExpr(all_columns=True, exclude=exclude, replace=replace)
 
