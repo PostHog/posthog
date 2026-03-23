@@ -27,7 +27,7 @@ export function PersonLastSeenAtEnabled(): JSX.Element {
                 })
             }}
             checked={checked}
-            disabled={currentTeamLoading}
+            loading={currentTeamLoading}
             disabledReason={restrictedReason}
             label="Track when a person was last seen"
             bordered
