@@ -54,7 +54,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
                 const hogFlowInvocationState = item.state as CyclotronJobInvocationHogFlow['state']
 
-                const personIdOrDistinctId = hogFlowInvocationState.event.distinct_id ?? hogFlowInvocationState.personId
+                const personIdOrDistinctId = hogFlowInvocationState.event.distinct_id || hogFlowInvocationState.personId
                 const kind = hogFlowInvocationState.event.distinct_id ? 'distinct_id' : 'person_id'
 
                 const [person, groups] = await Promise.all([

@@ -281,6 +281,11 @@ export interface ECODDetectorConfigApi {
      */
     threshold?: number | null
     type?: ECODDetectorConfigApiType
+    /**
+     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+     * @nullable
+     */
+    window?: number | null
 }
 
 export type COPODDetectorConfigApiType = (typeof COPODDetectorConfigApiType)[keyof typeof COPODDetectorConfigApiType]
@@ -298,6 +303,11 @@ export interface COPODDetectorConfigApi {
      */
     threshold?: number | null
     type?: COPODDetectorConfigApiType
+    /**
+     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+     * @nullable
+     */
+    window?: number | null
 }
 
 export type IsolationForestDetectorConfigApiType =
@@ -321,6 +331,11 @@ export interface IsolationForestDetectorConfigApi {
      */
     threshold?: number | null
     type?: IsolationForestDetectorConfigApiType
+    /**
+     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+     * @nullable
+     */
+    window?: number | null
 }
 
 export type MethodApi = (typeof MethodApi)[keyof typeof MethodApi]
@@ -353,6 +368,11 @@ export interface KNNDetectorConfigApi {
      */
     threshold?: number | null
     type?: KNNDetectorConfigApiType
+    /**
+     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+     * @nullable
+     */
+    window?: number | null
 }
 
 export type HBOSDetectorConfigApiType = (typeof HBOSDetectorConfigApiType)[keyof typeof HBOSDetectorConfigApiType]
@@ -375,6 +395,11 @@ export interface HBOSDetectorConfigApi {
      */
     threshold?: number | null
     type?: HBOSDetectorConfigApiType
+    /**
+     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+     * @nullable
+     */
+    window?: number | null
 }
 
 export type LOFDetectorConfigApiType = (typeof LOFDetectorConfigApiType)[keyof typeof LOFDetectorConfigApiType]
@@ -397,6 +422,11 @@ export interface LOFDetectorConfigApi {
      */
     threshold?: number | null
     type?: LOFDetectorConfigApiType
+    /**
+     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+     * @nullable
+     */
+    window?: number | null
 }
 
 export type OCSVMDetectorConfigApiType = (typeof OCSVMDetectorConfigApiType)[keyof typeof OCSVMDetectorConfigApiType]
@@ -424,6 +454,11 @@ export interface OCSVMDetectorConfigApi {
      */
     threshold?: number | null
     type?: OCSVMDetectorConfigApiType
+    /**
+     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+     * @nullable
+     */
+    window?: number | null
 }
 
 export type PCADetectorConfigApiType = (typeof PCADetectorConfigApiType)[keyof typeof PCADetectorConfigApiType]
@@ -441,6 +476,11 @@ export interface PCADetectorConfigApi {
      */
     threshold?: number | null
     type?: PCADetectorConfigApiType
+    /**
+     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+     * @nullable
+     */
+    window?: number | null
 }
 
 export type EnsembleOperatorApi = (typeof EnsembleOperatorApi)[keyof typeof EnsembleOperatorApi]
@@ -535,7 +575,7 @@ export interface AlertApi {
     readonly last_checked_at: string | null
     /** @nullable */
     readonly next_check_at: string | null
-    /** The last 5 alert check results (only populated on retrieve). */
+    /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, and checks_limit to control the maximum returned (default 5, max 500). Only populated on retrieve. */
     readonly checks: readonly AlertCheckApi[]
     /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
     config?: TrendsAlertConfigApi | null
@@ -597,7 +637,7 @@ export interface PatchedAlertApi {
     readonly last_checked_at?: string | null
     /** @nullable */
     readonly next_check_at?: string | null
-    /** The last 5 alert check results (only populated on retrieve). */
+    /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, and checks_limit to control the maximum returned (default 5, max 500). Only populated on retrieve. */
     readonly checks?: readonly AlertCheckApi[]
     /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
     config?: TrendsAlertConfigApi | null
@@ -675,4 +715,19 @@ export type AlertsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type AlertsRetrieveParams = {
+    /**
+     * Relative date string for the start of the check history window (e.g. '-24h', '-7d', '-14d'). Returns checks created after this time. Max retention is 14 days.
+     */
+    checks_date_from?: string
+    /**
+     * Relative date string for the end of the check history window (e.g. '-1h', '-1d'). Defaults to now if not specified.
+     */
+    checks_date_to?: string
+    /**
+     * Maximum number of check results to return (default 5, max 500). Applied after date filtering.
+     */
+    checks_limit?: number
 }
