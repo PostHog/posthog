@@ -777,6 +777,18 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         # Should not be blocked by impersonation middleware (might get other errors)
         assert response.status_code != 403 or response.json().get("code") != "impersonation_read_only"
 
+    def test_read_only_impersonation_allows_error_tracking_stack_frames_batch_get(self):
+        """POST batch_get is read-only; needed for issue stack source context during impersonation."""
+        self.login_as_other_user_read_only()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/error_tracking/stack_frames/batch_get/",
+            data={"raw_ids": []},
+            content_type="application/json",
+        )
+
+        assert response.status_code != 403 or response.json().get("code") != "impersonation_read_only"
+
     def test_regular_impersonation_allows_write(self):
         """Verify regular (non-read-only) impersonation can still write."""
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
