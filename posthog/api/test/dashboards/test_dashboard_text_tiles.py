@@ -1,5 +1,5 @@
 import datetime
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest
@@ -42,15 +42,15 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         last_modified_by: Optional[User] = None,
         text_id: Optional[int] = None,
         last_modified_at: str = "2022-04-01T12:45:00Z",
-        dashboard_tiles: Optional[list[dict]] = None,
-    ) -> dict:
+        dashboard_tiles: Optional[list[dict[str, Any]]] = None,
+    ) -> dict[str, Any]:
         if not created_by:
             created_by = self.user
 
         if not text_id:
             text_id = mock.ANY
 
-        out = {
+        out: dict[str, Any] = {
             "id": text_id,
             "body": body,
             "created_by": self._serialised_user(created_by),
@@ -75,7 +75,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
     ) -> dict:
         if not tile_id:
             tile_id = mock.ANY
-        text_dashboard_tiles: Optional[list[dict]] = None
+        text_dashboard_tiles: Optional[list[dict[str, Any]]] = None
         if dashboard_id is not None:
             text_dashboard_tiles = [{"id": mock.ANY, "dashboard_id": dashboard_id, "deleted": None}]
         return {
