@@ -90,11 +90,11 @@ You should not filter events by time using property filters. Instead, use the `d
 
 ## Exclusion steps
 
-Users may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events should not be included in the main sequence. You should include start and end indexes (0-based) for each exclusion where the minimum `funnelFromStep` is 0 (first step) and the maximum `funnelToStep` is the number of steps minus one. Exclusion events cannot be actions, only events.
+Users may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events should not be included in the main sequence. You should include start and end indexes for each exclusion where the minimum index is 1 (after first step) and the maximum index is the number of steps in the funnel. Exclusion events cannot be actions, only events.
 
 IMPORTANT: Exclusion steps filter out conversions where the exclusion event occurred BETWEEN the specified steps. This does NOT exclude users who completed the event before the funnel started or after it ended.
 
-For example, there is a sequence with three steps: sign up (step 0), finish onboarding (step 1), purchase (step 2). If the user wants to exclude all conversions in which users navigated away between sign up and finishing onboarding, the exclusion step will be `$pageleave` with `funnelFromStep: 0` and `funnelToStep: 1`.
+For example, there is a sequence with three steps: sign up (step 1), finish onboarding (step 2), purchase (step 3). If the user wants to exclude all conversions in which users navigated away between sign up and finishing onboarding, the exclusion step will be `$pageleave` with `funnelFromStep: 1` and `funnelToStep: 2`.
 
 ## Breakdown
 
@@ -110,105 +110,6 @@ Examples of using a breakdown:
 
 - page views to sign up funnel by country: you need to find a property such as `$geoip_country_code` and set it as a breakdown.
 - conversion rate of users who have completed onboarding after signing up by an organization: you need to find a property such as `organization name` and set it as a breakdown.
-
-# Examples
-
-## Conversion from first event ingested to insight saved for organizations over 6 months
-
-```json
-{
-  "kind": "FunnelsQuery",
-  "series": [
-    { "kind": "EventsNode", "event": "first team event ingested" },
-    { "kind": "EventsNode", "event": "insight saved" }
-  ],
-  "dateRange": { "date_from": "-6m" },
-  "interval": "month",
-  "aggregation_group_type_index": 0,
-  "funnelsFilter": {
-    "funnelOrderType": "ordered",
-    "funnelVizType": "trends",
-    "funnelWindowInterval": 14,
-    "funnelWindowIntervalUnit": "day"
-  },
-  "filterTestAccounts": true
-}
-```
-
-## Signup page CTA click rate within one hour, excluding page leaves, broken down by OS
-
-```json
-{
-  "kind": "FunnelsQuery",
-  "series": [
-    {
-      "kind": "EventsNode",
-      "event": "$pageview",
-      "properties": [{ "key": "$current_url", "type": "event", "value": "signup", "operator": "icontains" }]
-    },
-    {
-      "kind": "EventsNode",
-      "event": "click subscribe button",
-      "properties": [{ "key": "$current_url", "type": "event", "value": "signup", "operator": "icontains" }]
-    }
-  ],
-  "dateRange": { "date_from": "-180d" },
-  "interval": "week",
-  "funnelsFilter": {
-    "funnelWindowInterval": 1,
-    "funnelWindowIntervalUnit": "hour",
-    "funnelOrderType": "ordered",
-    "exclusions": [{ "kind": "EventsNode", "event": "$pageleave", "funnelFromStep": 0, "funnelToStep": 1 }]
-  },
-  "breakdownFilter": { "breakdown_type": "event", "breakdown": "$os" },
-  "filterTestAccounts": true
-}
-```
-
-## Credit card purchase rate from viewing a product with strict ordering (no events in between)
-
-```json
-{
-  "kind": "FunnelsQuery",
-  "series": [
-    { "kind": "EventsNode", "event": "view product" },
-    {
-      "kind": "EventsNode",
-      "event": "purchase",
-      "properties": [{ "key": "paymentMethod", "type": "event", "value": "credit_card", "operator": "exact" }]
-    }
-  ],
-  "dateRange": { "date_from": "-30d" },
-  "funnelsFilter": {
-    "funnelOrderType": "strict",
-    "funnelWindowInterval": 14,
-    "funnelWindowIntervalUnit": "day"
-  },
-  "filterTestAccounts": true
-}
-```
-
-## View product to buy button to purchase, using actions and events
-
-```json
-{
-  "kind": "FunnelsQuery",
-  "series": [
-    { "kind": "ActionsNode", "id": 8882, "name": "view product" },
-    { "kind": "EventsNode", "event": "click buy button" },
-    {
-      "kind": "ActionsNode",
-      "id": 573,
-      "name": "purchase",
-      "properties": [
-        { "key": "shipping_method", "value": "express_delivery", "operator": "icontains", "type": "event" }
-      ]
-    }
-  ],
-  "funnelsFilter": { "funnelVizType": "steps" },
-  "filterTestAccounts": true
-}
-```
 
 # Reminders
 
