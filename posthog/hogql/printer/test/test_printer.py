@@ -11,6 +11,7 @@ from posthog.test.base import (
     _create_person,
     clean_varying_query_parts,
     cleanup_materialized_columns,
+    flush_persons_and_events,
     get_index_from_explain,
     materialized,
     snapshot_clickhouse_queries,
@@ -167,6 +168,36 @@ class TestPrinter(BaseTest):
         repsponse = to_printed_hogql(expr, self.team)
         self.assertEqual(
             repsponse, f"SELECT\n    plus(1, 2),\n    3\nFROM\n    events\nLIMIT {MAX_SELECT_RETURNED_ROWS}"
+        )
+
+    def test_column_aliases_non_postgres_error(self):
+        self._assert_query_error(
+            "select 1 from events as e (event_alias, ts_alias)",
+            "Table column aliases are not allowed in clickhouse dialect",
+        )
+
+    def test_lambda_style_clickhouse_prints(self):
+        printed = self._select("select lambda x: x + 1")
+        self.assertIn("x -> plus(x, 1)", printed)
+
+    def test_array_slice_clickhouse_prints_array_slice(self):
+        printed = self._select("select [1, 2, 3][1:3]")
+        self.assertIn("arraySlice([1, 2, 3], 1, plus(minus(3, 1), 1))", printed)
+
+    def test_try_cast_non_postgres_error(self):
+        self._assert_query_error(
+            "select try_cast(1 as Int64)",
+            "TRY_CAST is not allowed in clickhouse dialect",
+        )
+
+    def test_limit_percent_clickhouse_constant_prints_decimal(self):
+        printed = self._select("select 1 from events limit 40 %")
+        self.assertIn("LIMIT 0.4", printed)
+
+    def test_limit_percent_clickhouse_expression_error(self):
+        self._assert_query_error(
+            "select 1 from events limit (60 + 7) %",
+            "LIMIT percent with expressions is not supported in clickhouse dialect",
         )
 
     def test_union_distinct(self):
@@ -3807,6 +3838,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         _create_event(team=self.team, event=event_name, distinct_id=distinct_id_with_empty)
         _create_event(team=self.team, event=event_name, distinct_id=distinct_id_with_null)
         _create_event(team=self.team, event=event_name, distinct_id=distinct_id_without)
+        flush_persons_and_events()
 
         # Build the is_not_set expression using property_to_expr
         is_not_set_expr = property_to_expr(
@@ -4153,6 +4185,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 event="test_event",
                 properties={"test_prop": case if case != "None" else None},
             )
+        flush_persons_and_events()
 
         for pattern, (ilike_expected, ilike_expected_if_non_nullable) in patterns_and_expected.items():
             if ilike_expected_if_non_nullable is not None and (is_nullable is False):
@@ -4351,6 +4384,10 @@ class TestPostgresPrinter(BaseTest):
                 "SELECT events.event FROM events ORDER BY events.timestamp DESC LIMIT 50000",
             ),
             (
+                "SELECT #1, #2 FROM events",
+                "SELECT #1, #2 FROM events LIMIT 50000",
+            ),
+            (
                 "SELECT count() FROM events GROUP BY event",
                 "SELECT count() FROM events GROUP BY events.event LIMIT 50000",
             ),
@@ -4365,6 +4402,63 @@ class TestPostgresPrinter(BaseTest):
 
         self.assertNotIn("team_id", postgres)
         self.assertNotEqual(postgres, clickhouse)
+
+    def test_column_aliases(self):
+        printed = self._select("SELECT 1 FROM events AS e (event_alias, ts_alias)")
+        self.assertIn("AS e (event_alias, ts_alias)", printed)
+
+    def test_limit_percent_basic(self):
+        printed = self._select("SELECT 1 FROM events LIMIT 10 %")
+        self.assertIn("LIMIT 10 %", printed)
+
+    def test_limit_percent_expr(self):
+        printed = self._select("SELECT 1 FROM events LIMIT (60 + 7) %")
+        self.assertIn("LIMIT (60 + 7) %", printed)
+
+    def test_lambda_style(self):
+        printed = self._select("SELECT lambda x, y: x + y")
+        self.assertIn("lambda x, y: (x + y)", printed)
+
+    @parameterized.expand(
+        [
+            ("[1, 2, 3][1:2]", "[1, 2, 3][1:2]"),
+            ("[1, 2, 3][:]", "[1, 2, 3][:]"),
+            ("[1, 2, 3][(1 + 2):(-3)]", "[1, 2, 3][(1 + 2):-3]"),
+            ("[1, 2, 3][-5:]", "[1, 2, 3][-5:]"),
+            ("([1, 2, 3] || [4, 5, 6])[1:3]", "concat([1, 2, 3], [4, 5, 6])[1:3]"),
+        ]
+    )
+    def test_array_slice(self, expr: str, expected: str):
+        printed = self._select(f"SELECT {expr}")
+        self.assertIn(expected, printed)
+
+    @parameterized.expand(
+        [
+            ("try_cast(1 AS Int64)", "TRY_CAST(1 AS int64)"),
+            ("try_cast(1 AS Int64) + 1", "TRY_CAST(1 AS int64)"),
+        ]
+    )
+    def test_try_cast(self, expr: str, expected: str):
+        printed = self._select(f"SELECT {expr}")
+        self.assertIn(expected, printed)
+
+    @parameterized.expand(
+        [
+            ("1 IS DISTINCT FROM 2", "1 IS DISTINCT FROM 2"),
+            ("1 IS NOT DISTINCT FROM 2", "1 IS NOT DISTINCT FROM 2"),
+        ]
+    )
+    def test_is_distinct_from(self, expr: str, expected: str):
+        printed = self._select(f"SELECT {expr}")
+        self.assertIn(expected, printed)
+
+    def test_limit_percent_with_subquery(self):
+        printed = self._select("SELECT 1 FROM events LIMIT (SELECT avg(team_id) FROM events) %")
+        self.assertIn("LIMIT (SELECT avg(events.team_id) FROM events) %", printed)
+
+    def test_limit_percent_with_offset(self):
+        printed = self._select("SELECT 1 FROM events LIMIT 42% OFFSET 20")
+        self.assertIn("LIMIT 42 % OFFSET 20", printed)
 
     def test_boolean_and_null_literals(self):
         self.assertEqual(self._expr("true"), "true")
@@ -4584,6 +4678,14 @@ class TestPostgresPrinter(BaseTest):
         self.assertEqual(self._expr("event::boolean"), "CAST(events.event AS boolean)")
         self.assertEqual(self._expr("event::INT"), "CAST(events.event AS int)")
         self.assertEqual(self._expr("(1 + 2)::int"), "CAST((1 + 2) AS int)")
+        self.assertEqual(
+            self._expr("CAST(event AS STRUCT(a INTEGER, b VARCHAR))"),
+            'CAST(events.event AS "struct(a integer, b varchar)")',
+        )
+        self.assertEqual(
+            self._expr("CAST(event AS DECIMAL(10, 2))"),
+            'CAST(events.event AS "decimal(10, 2)")',
+        )
 
     @parameterized.expand(
         [
@@ -4726,6 +4828,75 @@ class TestPostgresPrinter(BaseTest):
 
         with self.assertRaises(QueryError):
             self._select("SELECT * FROM (VALUES (1, 'a')) AS v(id, name)", dialect="clickhouse")
+
+    def test_unpivot_prints_basic(self):
+        self.assertEqual(
+            self._select("SELECT field_name, field_value FROM events UNPIVOT (field_value FOR field_name IN (event))"),
+            "SELECT field_name, field_value FROM events UNPIVOT (field_value FOR field_name IN (events.event)) LIMIT 50000",
+        )
+
+    def test_unpivot_prints_with_alias(self):
+        self.assertEqual(
+            self._select("SELECT field_name FROM events UNPIVOT (field_value FOR field_name IN (event)) AS u"),
+            "SELECT u.field_name FROM events UNPIVOT (field_value FOR field_name IN (events.event)) AS u LIMIT 50000",
+        )
+
+    def test_unpivot_prints_with_table_alias(self):
+        self.assertEqual(
+            self._select("SELECT field_name FROM events e UNPIVOT (field_value FOR field_name IN (event))"),
+            "SELECT field_name FROM events AS e UNPIVOT (field_value FOR field_name IN (e.event)) LIMIT 50000",
+        )
+
+    def test_unpivot_prints_with_multiple_in_columns(self):
+        self.assertEqual(
+            self._select(
+                "SELECT field_name, field_value FROM events UNPIVOT (field_value FOR field_name IN (event, uuid))"
+            ),
+            "SELECT field_name, field_value FROM events UNPIVOT (field_value FOR field_name IN (events.event, events.uuid)) LIMIT 50000",
+        )
+
+    def test_unpivot_prints_with_where_group_order(self):
+        result = self._select(
+            "SELECT field_name, count() FROM events UNPIVOT (field_value FOR field_name IN (event)) "
+            "WHERE field_value != '' GROUP BY field_name ORDER BY field_name"
+        )
+        self.assertIn("UNPIVOT", result)
+        self.assertIn("WHERE", result)
+        self.assertIn("GROUP BY", result)
+        self.assertIn("ORDER BY", result)
+
+    def test_unpivot_clickhouse_raises_error(self):
+        from posthog.hogql.errors import QueryError
+
+        with self.assertRaises(QueryError):
+            self._select(
+                "SELECT field_name, field_value FROM events UNPIVOT (field_value FOR field_name IN (event))",
+                dialect="clickhouse",
+            )
+
+    def test_replace_columns_prints(self):
+        self.assertEqual(
+            self._select(
+                "SELECT (* REPLACE (1 AS event)) FROM (SELECT 2 AS event, 3 AS other) AS s",
+            ),
+            "SELECT 1 AS event, s.other FROM (SELECT 2 AS event, 3 AS other) AS s LIMIT 50000",
+        )
+
+    def test_replace_columns_with_exclude_prints(self):
+        self.assertEqual(
+            self._select(
+                "SELECT (* EXCLUDE (b) REPLACE (0 AS a)) FROM (SELECT 1 AS a, 2 AS b, 3 AS c) AS s",
+            ),
+            "SELECT 0 AS a, s.c FROM (SELECT 1 AS a, 2 AS b, 3 AS c) AS s LIMIT 50000",
+        )
+
+    def test_replace_columns_with_column_aliases_prints(self):
+        self.assertEqual(
+            self._select(
+                "SELECT (* REPLACE (0 AS a)) FROM (SELECT 1 AS customer_id, 2 AS b, 3 AS c) AS customers (a, b, c)",
+            ),
+            "SELECT 0 AS a, customers.b, customers.c FROM (SELECT 1 AS customer_id, 2 AS b, 3 AS c) AS customers (a, b, c) LIMIT 50000",
+        )
 
     def test_intersect_all(self):
         result = self._select("select 1 as id intersect all select 2 as id")

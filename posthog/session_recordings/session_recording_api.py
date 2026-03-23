@@ -58,6 +58,7 @@ from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
 from posthog.auth import (
+    ExportRendererAuthentication,
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
@@ -702,6 +703,7 @@ def clean_referer_url(current_url: str | None) -> str:
 class SessionRecordingViewSet(
     TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet, UpdateModelMixin
 ):
+    authentication_classes = [ExportRendererAuthentication]
     scope_object = "session_recording"
     scope_object_read_actions = ["list", "retrieve", "snapshots"]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]

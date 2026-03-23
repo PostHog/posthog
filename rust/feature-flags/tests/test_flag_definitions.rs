@@ -1,5 +1,30 @@
 mod common;
 
+/// Poll until `last_used_at` is set for the given PAK, or panic after ~4s.
+async fn poll_for_pak_last_used_at(
+    context: &feature_flags::utils::test_utils::TestContext,
+    pak_id: &str,
+    message: &str,
+) {
+    use tokio::time::{sleep, Duration};
+
+    let mut conn = context.get_non_persons_connection().await.unwrap();
+    for _ in 0..80 {
+        let count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM posthog_personalapikey WHERE id = $1 AND last_used_at IS NOT NULL",
+        )
+        .bind(pak_id)
+        .fetch_one(&mut *conn)
+        .await
+        .unwrap();
+        if count.0 > 0 {
+            return;
+        }
+        sleep(Duration::from_millis(50)).await;
+    }
+    panic!("{message}");
+}
+
 #[tokio::test]
 async fn test_hypercache_config_generation() {
     use common_hypercache::{HyperCacheConfig, KeyType};
@@ -756,6 +781,15 @@ async fn test_personal_api_key_with_scoped_organizations_removed_member() {
         .remove_user_from_organization(user_id, &org_id)
         .await
         .unwrap();
+    // Simulate Django signal-based cache invalidation (Python handles this in production)
+    let redis_client =
+        feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone())).await;
+    feature_flags::utils::test_utils::invalidate_personal_api_key_auth_cache(
+        redis_client,
+        &api_key_value,
+    )
+    .await
+    .unwrap();
 
     // Should now fail because the user is no longer an org member
     let response = client
@@ -840,6 +874,15 @@ async fn test_personal_api_key_unscoped_removed_member() {
         .remove_user_from_organization(user_id, &org_id)
         .await
         .unwrap();
+    // Simulate Django signal-based cache invalidation (Python handles this in production)
+    let redis_client =
+        feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone())).await;
+    feature_flags::utils::test_utils::invalidate_personal_api_key_auth_cache(
+        redis_client,
+        &api_key_value,
+    )
+    .await
+    .unwrap();
 
     // Should fail because the user is no longer an org member, even without scoped_organizations
     let response = client
@@ -1775,6 +1818,102 @@ async fn test_flag_definitions_project_secret_api_key(
         "Response body: {}",
         response.text().await.unwrap()
     );
+}
+
+#[tokio::test]
+async fn test_valid_pak_used_to_authenticate_from_cache_updates_last_used_at() {
+    use feature_flags::{
+        api::pak_usage::debounce_key, config::Config, utils::test_utils::TestContext,
+    };
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let team = context.insert_new_team(None).await.unwrap();
+    let org_id = context.get_organization_id_for_team(&team).await.unwrap();
+
+    let user_email = TestContext::generate_test_email("pak_cache_last_used");
+    let user_id = context
+        .create_user(&user_email, &org_id, team.id)
+        .await
+        .unwrap();
+    context
+        .add_user_to_organization(user_id, &org_id, 15)
+        .await
+        .unwrap();
+
+    let (pak_id, api_key_value) = context
+        .create_personal_api_key(
+            user_id,
+            "Test PAK Cache",
+            vec!["feature_flag:read"],
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    context.populate_cache_for_team(team.id).await.unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    server.wait_until_ready().await;
+    let client = reqwest::Client::new();
+    let url = format!(
+        "http://{}/flags/definitions?token={}",
+        server.addr, team.api_token
+    );
+
+    // First request: populates the auth token cache and triggers last_used_at update
+    let response = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {api_key_value}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+
+    // Poll for the spawned background task to complete the DB write
+    poll_for_pak_last_used_at(
+        &context,
+        &pak_id,
+        "Timed out waiting for background task to set last_used_at for PAK",
+    )
+    .await;
+
+    // Clear the Redis debounce key so the next request can write to DB again
+    let redis_client =
+        feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone())).await;
+    redis_client
+        .del(debounce_key(&pak_id))
+        .await
+        .expect("Failed to delete debounce key");
+
+    // Reset last_used_at to NULL so we can verify the second request sets it
+    let mut conn = context.get_non_persons_connection().await.unwrap();
+    sqlx::query("UPDATE posthog_personalapikey SET last_used_at = NULL WHERE id = $1")
+        .bind(&pak_id)
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+
+    // Second request: auth comes from the token cache (no DB query for auth),
+    // but should still trigger the last_used_at update via record_pak_last_used
+    let response = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {api_key_value}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+
+    // Poll for the spawned background task to complete the DB write
+    poll_for_pak_last_used_at(
+        &context,
+        &pak_id,
+        "last_used_at should be set after authenticating from the auth token cache",
+    )
+    .await;
 }
 
 #[tokio::test]

@@ -4711,6 +4711,46 @@ export namespace Schemas {
       readonly last_value: number | null;
     }
 
+    export interface AlertSimulate {
+      /** Insight ID to simulate the detector on. */
+      insight: number;
+      /** Detector configuration to simulate. */
+      detector_config: DetectorConfig;
+      /** Zero-based index of the series to analyze. */
+      series_index?: number;
+      /**
+       * Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). If not provided, uses the detector's minimum required samples.
+       * @nullable
+       */
+      date_from?: string | null;
+    }
+
+    export type AlertSimulateResponseSubDetectorScoresItem = {[key: string]: unknown};
+
+    export interface AlertSimulateResponse {
+      /** Data values for each point. */
+      data: number[];
+      /** Date labels for each point. */
+      dates: string[];
+      /** Anomaly score for each point (null if insufficient data). */
+      scores: (number | null)[];
+      /** Indices of points flagged as anomalies. */
+      triggered_indices: number[];
+      /** Dates of points flagged as anomalies. */
+      triggered_dates: string[];
+      /**
+       * Interval of the trends query (hour, day, week, month).
+       * @nullable
+       */
+      interval: string | null;
+      /** Total number of data points analyzed. */
+      total_points: number;
+      /** Number of anomalies detected. */
+      anomaly_count: number;
+      /** Per-sub-detector scores for ensemble detectors. Each entry has 'type' and 'scores' fields. */
+      sub_detector_scores?: AlertSimulateResponseSubDetectorScoresItem[];
+    }
+
     /**
      * * `trace` - trace
     * `generation` - generation
@@ -17364,6 +17404,14 @@ export namespace Schemas {
       readonly first_version_created_at: string;
     }
 
+    export interface LLMPromptDuplicate {
+      /**
+       * Name for the duplicated prompt. Must be unique and use only letters, numbers, hyphens, and underscores.
+       * @maxLength 255
+       */
+      new_name: string;
+    }
+
     export interface LLMPromptPublic {
       id: string;
       name: string;
@@ -22762,6 +22810,22 @@ export namespace Schemas {
     };
 
     /**
+     * * `30d` - 30 Days
+    * `90d` - 90 Days
+    * `1y` - 1 Year
+    * `5y` - 5 Years
+     */
+    export type SessionRecordingRetentionPeriodEnum = typeof SessionRecordingRetentionPeriodEnum[keyof typeof SessionRecordingRetentionPeriodEnum];
+
+
+    export const SessionRecordingRetentionPeriodEnum = {
+      '30d': '30d',
+      '90d': '90d',
+      '1y': '1y',
+      '5y': '5y',
+    } as const;
+
+    /**
      * * `0` - Sunday
     * `1` - Monday
      */
@@ -22847,6 +22911,20 @@ export namespace Schemas {
       session_recording_linked_flag?: unknown | null;
       session_recording_network_payload_capture_config?: unknown | null;
       session_recording_masking_config?: unknown | null;
+      /** @nullable */
+      session_recording_url_trigger_config?: (unknown | null)[] | null;
+      /** @nullable */
+      session_recording_url_blocklist_config?: (unknown | null)[] | null;
+      /** @nullable */
+      session_recording_event_trigger_config?: (string | null)[] | null;
+      /**
+       * @maxLength 24
+       * @nullable
+       */
+      session_recording_trigger_match_type_config?: string | null;
+      /** V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields. */
+      session_recording_trigger_groups?: unknown | null;
+      session_recording_retention_period?: SessionRecordingRetentionPeriodEnum;
       session_replay_config?: unknown | null;
       survey_config?: unknown | null;
       access_control?: boolean;
@@ -23514,22 +23592,6 @@ export namespace Schemas {
 
     export type PatchedTeamManagedViewsets = {[key: string]: boolean};
 
-    /**
-     * * `30d` - 30 Days
-    * `90d` - 90 Days
-    * `1y` - 1 Year
-    * `5y` - 5 Years
-     */
-    export type SessionRecordingRetentionPeriodEnum = typeof SessionRecordingRetentionPeriodEnum[keyof typeof SessionRecordingRetentionPeriodEnum];
-
-
-    export const SessionRecordingRetentionPeriodEnum = {
-      '30d': '30d',
-      '90d': '90d',
-      '1y': '1y',
-      '5y': '5y',
-    } as const;
-
     export interface TeamRevenueAnalyticsConfig {
       base_currency?: BaseCurrencyEnum;
       events?: unknown;
@@ -23646,6 +23708,8 @@ export namespace Schemas {
        * @nullable
        */
       session_recording_trigger_match_type_config?: string | null;
+      /** V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields. */
+      session_recording_trigger_groups?: unknown | null;
       session_recording_retention_period?: SessionRecordingRetentionPeriodEnum;
       session_replay_config?: unknown | null;
       survey_config?: unknown | null;
@@ -24217,6 +24281,20 @@ export namespace Schemas {
       session_recording_linked_flag?: unknown | null;
       session_recording_network_payload_capture_config?: unknown | null;
       session_recording_masking_config?: unknown | null;
+      /** @nullable */
+      session_recording_url_trigger_config?: (unknown | null)[] | null;
+      /** @nullable */
+      session_recording_url_blocklist_config?: (unknown | null)[] | null;
+      /** @nullable */
+      session_recording_event_trigger_config?: (string | null)[] | null;
+      /**
+       * @maxLength 24
+       * @nullable
+       */
+      session_recording_trigger_match_type_config?: string | null;
+      /** V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields. */
+      session_recording_trigger_groups?: unknown | null;
+      session_recording_retention_period?: SessionRecordingRetentionPeriodEnum;
       session_replay_config?: unknown | null;
       survey_config?: unknown | null;
       access_control?: boolean;
@@ -28095,6 +28173,8 @@ export namespace Schemas {
        * @nullable
        */
       session_recording_trigger_match_type_config?: string | null;
+      /** V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields. */
+      session_recording_trigger_groups?: unknown | null;
       session_recording_retention_period?: SessionRecordingRetentionPeriodEnum;
       session_replay_config?: unknown | null;
       survey_config?: unknown | null;
@@ -29100,14 +29180,14 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type EnvironmentsInsightsGenerateNameCreateParams = {
-    format?: EnvironmentsInsightsGenerateNameCreateFormat;
+    export type EnvironmentsInsightsGenerateMetadataCreateParams = {
+    format?: EnvironmentsInsightsGenerateMetadataCreateFormat;
     };
 
-    export type EnvironmentsInsightsGenerateNameCreateFormat = typeof EnvironmentsInsightsGenerateNameCreateFormat[keyof typeof EnvironmentsInsightsGenerateNameCreateFormat];
+    export type EnvironmentsInsightsGenerateMetadataCreateFormat = typeof EnvironmentsInsightsGenerateMetadataCreateFormat[keyof typeof EnvironmentsInsightsGenerateMetadataCreateFormat];
 
 
-    export const EnvironmentsInsightsGenerateNameCreateFormat = {
+    export const EnvironmentsInsightsGenerateMetadataCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
@@ -31900,14 +31980,14 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type InsightsGenerateNameCreateParams = {
-    format?: InsightsGenerateNameCreateFormat;
+    export type InsightsGenerateMetadataCreateParams = {
+    format?: InsightsGenerateMetadataCreateFormat;
     };
 
-    export type InsightsGenerateNameCreateFormat = typeof InsightsGenerateNameCreateFormat[keyof typeof InsightsGenerateNameCreateFormat];
+    export type InsightsGenerateMetadataCreateFormat = typeof InsightsGenerateMetadataCreateFormat[keyof typeof InsightsGenerateMetadataCreateFormat];
 
 
-    export const InsightsGenerateNameCreateFormat = {
+    export const InsightsGenerateMetadataCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;

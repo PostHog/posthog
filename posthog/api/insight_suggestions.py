@@ -29,6 +29,11 @@ class InsightSuggestion(BaseModel):
     targetQuery: InsightVizNode
 
 
+class InsightMetadata(BaseModel):
+    name: str
+    description: str
+
+
 def get_insight_suggestions(
     query: InsightVizNode, team: Team, insight_result: Optional[dict[str, Any]] = None, context: Optional[str] = None
 ) -> list[InsightSuggestion]:
@@ -473,54 +478,64 @@ _NAMING_GUIDANCE: dict[str, str] = {
 }
 
 
-def generate_insight_name(query: InsightVizNode, team: Team) -> str:
-    """Generate a concise, descriptive name for an insight based on its query configuration."""
+def generate_insight_metadata(query: InsightVizNode, team: Team) -> InsightMetadata:
+    """Generate a concise name and description for an insight based on its query configuration."""
     try:
         query_summary = _summarize_query_for_naming(query)
         query_kind = query.source.kind if query.source else "Unknown"
         type_guidance = _NAMING_GUIDANCE.get(query_kind, "")
 
         prompt = (
-            "Name this product analytics insight for a dashboard. "
+            "Name and describe this product analytics insight for a dashboard. "
             "Optimize for clarity and scanability — a teammate should instantly understand "
             "what this insight tracks at a glance.\n\n"
             f"{type_guidance}\n\n"
-            "Rules:\n"
+            "Rules for the NAME:\n"
             "- Title case (e.g. 'Pageviews, Pageleaves')\n"
             "- 3-12 words — use as many as needed to capture all series and breakdowns\n"
             "- Humanize event names: '$pageview' → 'Pageviews', 'user_signed_up' → 'Signups'\n"
-            "- Include 'by <dimension>' only when a breakdown is present. Multiple breakdowns → join with 'and': 'by Browser and OS'\n"
+            "- Include 'by <dimension>' only when a breakdown is present. Multiple breakdowns - join with 'and': 'by Browser and OS'\n"
             "- Drop filler words: 'count', 'total', 'events', 'data', 'trend'\n"
             "- If math is just total count, omit it — it's the default\n\n"
+            "Rules for the DESCRIPTION:\n"
+            "- One short sentence — what this insight measures\n"
+            "- Plain language, no jargon\n\n"
             "Query:\n"
             f"{query_summary}\n\n"
-            "Return ONLY the name."
+            'Return ONLY a JSON object: {"name": "...", "description": "..."}'
         )
 
         messages = [
             {
                 "role": "system",
-                "content": "You are a helpful assistant that generates concise insight names. Return only the name, nothing else.",
+                "content": (
+                    "You are a helpful assistant that generates insight names and descriptions. "
+                    "Return only a JSON object with 'name' and 'description' keys, nothing else."
+                ),
             },
             {"role": "user", "content": prompt},
         ]
 
         content, _, _ = hit_openai(
             messages,
-            f"team/{team.id}/generate-insight-name",
+            f"team/{team.id}/generate-insight-metadata",
             posthog_properties={
                 "ai_product": "product_analytics",
-                "ai_feature": "insight-ai-name-generation",
+                "ai_feature": "insight-ai-metadata-generation",
             },
         )
 
-        name = content.strip().strip('"').strip("'")
-        if len(name) > 100:
-            return name[:97] + "..."
+        parsed = json.loads(content.strip())
+        name = parsed["name"].strip().strip('"').strip("'")
+        description = parsed["description"].strip()
 
-        return name
+        if len(name) > 100:
+            name = name[:97] + "..."
+        if len(description) > 200:
+            description = description[:197] + "..."
+
+        return InsightMetadata(name=name, description=description)
 
     except Exception:
-        # TODO: Fallback to <event> <math> & <event> <math> naming
-        logger.exception("ai_name_generation_failed")
-        return ""
+        logger.exception("ai_metadata_generation_failed")
+        raise

@@ -20,6 +20,8 @@ class PostHogConfig(AppConfig):
     verbose_name = "PostHog"
 
     def ready(self):
+        import posthog.storage.team_access_cache_signal_handlers  # noqa: F401
+
         self._setup_lazy_admin()
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
         # Fall back to DEV_API_KEY in debug so feature flags work locally without manual env setup.
