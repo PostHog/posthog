@@ -413,8 +413,8 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
 
         # Separate conversation events from message events
-        conversation_events = [e for e in actual_output if e[0] == "conversation"]
-        message_events = [e for e in actual_output if e[0] == "message"]
+        conversation_events = [e for e in actual_output if e[0] == AssistantEventType.CONVERSATION]
+        message_events = [e for e in actual_output if e[0] == AssistantEventType.MESSAGE]
 
         # Two conversation events: initial + title update
         self.assertEqual(len(conversation_events), 2)
@@ -499,8 +499,8 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
 
         # Separate conversation events from message events
-        conversation_events = [e for e in actual_output if e[0] == "conversation"]
-        message_events = [e for e in actual_output if e[0] == "message"]
+        conversation_events = [e for e in actual_output if e[0] == AssistantEventType.CONVERSATION]
+        message_events = [e for e in actual_output if e[0] == AssistantEventType.MESSAGE]
 
         # Two conversation events: initial + title update
         self.assertEqual(len(conversation_events), 2)
@@ -580,8 +580,8 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
 
         # Separate conversation events from message events
-        conversation_events = [e for e in actual_output if e[0] == "conversation"]
-        message_events = [e for e in actual_output if e[0] == "message"]
+        conversation_events = [e for e in actual_output if e[0] == AssistantEventType.CONVERSATION]
+        message_events = [e for e in actual_output if e[0] == AssistantEventType.MESSAGE]
 
         # Two conversation events: initial + title update
         self.assertEqual(len(conversation_events), 2)
@@ -651,8 +651,8 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True, agent_mode=AgentMode.SQL)
 
         # Separate conversation events from message events
-        conversation_events = [e for e in actual_output if e[0] == "conversation"]
-        message_events = [e for e in actual_output if e[0] == "message"]
+        conversation_events = [e for e in actual_output if e[0] == AssistantEventType.CONVERSATION]
+        message_events = [e for e in actual_output if e[0] == AssistantEventType.MESSAGE]
 
         # Two conversation events: initial + title update
         self.assertEqual(len(conversation_events), 2)
