@@ -191,7 +191,13 @@ class FunnelDWValidator:
         """
         errors: dict[str, Any] = {}
 
-        # 1. Validate required fields for each DW step
+        # Check if there are any DW steps
+        has_dw_steps = any(isinstance(step, ExperimentDataWarehouseNode) for step in metric.series)
+
+        # If no DW steps, no validation needed
+        if not has_dw_steps:
+            return
+
         # Block DW funnels entirely until implementation is complete
         # This prevents valid DW configurations from hitting NotImplementedError at query time
         errors["not_implemented"] = (

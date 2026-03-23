@@ -13,6 +13,7 @@ independently of schema validation.
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock
 
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import EventsNode, ExperimentDataWarehouseNode
@@ -48,68 +49,35 @@ class TestFunnelDWValidator(BaseTest):
 
         assert errors == []
 
-    def test_validate_required_fields_missing_table_name(self):
-        """Missing table_name produces clear error."""
-        node = ExperimentDataWarehouseNode(
-            table_name="",  # Missing
-            timestamp_field="purchase_date",
-            data_warehouse_join_key="user_id",
-            events_join_key="properties.$user_id",
-        )
+    @parameterized.expand(
+        [
+            ("table_name", "", 2, "table_name is required", None),
+            ("timestamp_field", "", 3, "timestamp_field is required", "time-based filtering"),
+            ("data_warehouse_join_key", "", 1, "data_warehouse_join_key is required", "user_id"),
+            ("events_join_key", "", 2, "events_join_key is required", "properties.$user_id"),
+        ]
+    )
+    def test_validate_required_fields_missing_single_field(
+        self, missing_field, field_value, step_index, error_keyword, additional_check
+    ):
+        """Missing required field produces clear error."""
+        # Build node with all fields valid except the one being tested
+        fields = {
+            "table_name": "revenue_table",
+            "timestamp_field": "purchase_date",
+            "data_warehouse_join_key": "user_id",
+            "events_join_key": "properties.$user_id",
+        }
+        fields[missing_field] = field_value
+        node = ExperimentDataWarehouseNode(**fields)
 
-        errors = FunnelDWValidator.validate_required_fields(node, step_index=2)
+        errors = FunnelDWValidator.validate_required_fields(node, step_index=step_index)
 
-        assert len(errors) == 1
-        assert "Step 2" in errors[0]
-        assert "table_name is required" in errors[0]
-
-    def test_validate_required_fields_missing_timestamp_field(self):
-        """Missing timestamp_field produces clear error."""
-        node = ExperimentDataWarehouseNode(
-            table_name="revenue_table",
-            timestamp_field="",  # Missing
-            data_warehouse_join_key="user_id",
-            events_join_key="properties.$user_id",
-        )
-
-        errors = FunnelDWValidator.validate_required_fields(node, step_index=3)
-
-        assert len(errors) == 1
-        assert "Step 3" in errors[0]
-        assert "timestamp_field is required" in errors[0]
-        assert "time-based filtering" in errors[0]
-
-    def test_validate_required_fields_missing_dw_join_key(self):
-        """Missing data_warehouse_join_key produces clear error."""
-        node = ExperimentDataWarehouseNode(
-            table_name="revenue_table",
-            timestamp_field="purchase_date",
-            data_warehouse_join_key="",  # Missing
-            events_join_key="properties.$user_id",
-        )
-
-        errors = FunnelDWValidator.validate_required_fields(node, step_index=1)
-
-        assert len(errors) == 1
-        assert "Step 1" in errors[0]
-        assert "data_warehouse_join_key is required" in errors[0]
-        assert "user_id" in errors[0]  # Example in error message
-
-    def test_validate_required_fields_missing_events_join_key(self):
-        """Missing events_join_key produces clear error."""
-        node = ExperimentDataWarehouseNode(
-            table_name="revenue_table",
-            timestamp_field="purchase_date",
-            data_warehouse_join_key="user_id",
-            events_join_key="",  # Missing
-        )
-
-        errors = FunnelDWValidator.validate_required_fields(node, step_index=2)
-
-        assert len(errors) == 1
-        assert "Step 2" in errors[0]
-        assert "events_join_key is required" in errors[0]
-        assert "properties.$user_id" in errors[0]  # Example in error message
+        self.assertEqual(len(errors), 1)
+        self.assertIn(f"Step {step_index}", errors[0])
+        self.assertIn(error_keyword, errors[0])
+        if additional_check:
+            self.assertIn(additional_check, errors[0])
 
     def test_validate_required_fields_multiple_missing(self):
         """Multiple missing fields produces multiple errors."""
@@ -380,7 +348,7 @@ class TestFunnelDWValidator(BaseTest):
         assert error is None
 
     def test_validate_funnel_metric_all_valid(self):
-        """Valid funnel metric passes all validations."""
+        """DW funnel metrics are blocked until implementation is complete."""
         metric = create_mock_metric(
             series=[
                 EventsNode(event="pageview"),
@@ -393,11 +361,17 @@ class TestFunnelDWValidator(BaseTest):
             ]
         )
 
-        # Should not raise
-        FunnelDWValidator.validate_funnel_metric(metric)
+        # Should raise not_implemented error
+        with self.assertRaises(ValidationError) as context:
+            FunnelDWValidator.validate_funnel_metric(metric)
+
+        error_detail = context.exception.detail
+        assert isinstance(error_detail, dict)
+        self.assertIn("not_implemented", error_detail)
+        self.assertIn("not yet supported", str(error_detail["not_implemented"]))
 
     def test_validate_funnel_metric_missing_fields_raises(self):
-        """Missing required fields raises ValidationError."""
+        """DW funnels are blocked regardless of configuration."""
         metric = create_mock_metric(
             series=[
                 ExperimentDataWarehouseNode(
@@ -413,11 +387,10 @@ class TestFunnelDWValidator(BaseTest):
             FunnelDWValidator.validate_funnel_metric(metric)
 
         error_detail = context.exception.detail
-        assert "datawarehouse_configuration" in error_detail
-        assert "help" in error_detail
+        self.assertIn("not_implemented", error_detail)
 
     def test_validate_funnel_metric_join_key_mismatch_raises(self):
-        """Join key mismatch raises ValidationError."""
+        """DW funnels are blocked regardless of join key configuration."""
         metric = create_mock_metric(
             series=[
                 ExperimentDataWarehouseNode(
@@ -439,10 +412,10 @@ class TestFunnelDWValidator(BaseTest):
             FunnelDWValidator.validate_funnel_metric(metric)
 
         error_detail = context.exception.detail
-        assert "join_key_mismatch" in error_detail
+        self.assertIn("not_implemented", error_detail)
 
     def test_validate_funnel_metric_complexity_limit_raises(self):
-        """Exceeding complexity limits raises ValidationError."""
+        """DW funnels are blocked regardless of complexity."""
         metric = create_mock_metric(
             series=[
                 ExperimentDataWarehouseNode(
@@ -470,10 +443,10 @@ class TestFunnelDWValidator(BaseTest):
             FunnelDWValidator.validate_funnel_metric(metric)
 
         error_detail = context.exception.detail
-        assert "complexity_limit" in error_detail
+        self.assertIn("not_implemented", error_detail)
 
     def test_validate_funnel_metric_multiple_errors(self):
-        """Multiple validation failures all reported in single error."""
+        """DW funnels are blocked with a single not_implemented error."""
         metric = create_mock_metric(
             series=[
                 ExperimentDataWarehouseNode(
@@ -495,9 +468,7 @@ class TestFunnelDWValidator(BaseTest):
             FunnelDWValidator.validate_funnel_metric(metric)
 
         error_detail = context.exception.detail
-        # Should have both types of errors
-        assert "datawarehouse_configuration" in error_detail  # Field error
-        assert "join_key_mismatch" in error_detail  # Consistency error
+        self.assertIn("not_implemented", error_detail)
 
     def test_validate_funnel_metric_events_only_passes(self):
         """Events-only funnel requires no DW validation."""
