@@ -51,7 +51,9 @@ export const funnelDataWarehouseStepDefinitionPopoverLogic = kea<funnelDataWareh
         actions: [definitionPopoverLogic, ['setLocalDefinition']],
     })),
     actions(() => ({
-        setActiveFieldKey: (activeFieldKey: FunnelFieldKey) => ({ activeFieldKey }),
+        setActiveFieldKey: (activeFieldKey: FunnelFieldKey) => ({
+            activeFieldKey,
+        }),
         selectTable: true,
     })),
     selectors({
@@ -96,7 +98,7 @@ export const funnelDataWarehouseStepDefinitionPopoverLogic = kea<funnelDataWareh
                 dataWarehousePopoverFields.find((f) => f.key === activeFieldKey),
         ],
         scopedLocalDefinition: [
-            (s, p) => [s.definition, s.localDefinition, p.table, p.selectedItemMeta],
+            (s, p) => [s.definition, s.localDefinition, p.table, () => p.selectedItemMeta],
             (definition, localDefinition, table, selectedItemMeta) =>
                 definition.name === table.name
                     ? localDefinition
