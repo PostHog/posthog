@@ -145,6 +145,7 @@ pub async fn fetch_and_filter(
 
     let flags = flag_result.flag_list.flags;
     let evaluation_metadata = flag_result.flag_list.evaluation_metadata;
+    let cohorts = flag_result.flag_list.cohorts;
 
     // Build the filtered-out set: user-disabled, deleted, survey filter, runtime/tag mismatches.
     // This is the single source of truth for "should this flag be skipped during evaluation."
@@ -182,6 +183,7 @@ pub async fn fetch_and_filter(
         flags,
         filtered_out_flag_ids,
         evaluation_metadata,
+        cohorts,
     })
 }
 

@@ -269,6 +269,11 @@ pub struct FeatureFlagMatcher {
     /// Whether to enable realtime cohort evaluation.
     /// When false, realtime cohorts are treated as non-members.
     enable_realtime_cohort_evaluation: bool,
+    /// Cohort definitions preloaded from the flags hypercache.
+    /// When present, scoped to only the cohorts referenced by flags (including transitive deps),
+    /// so the matcher skips the CohortCacheManager PG query entirely.
+    /// `None` means no preloaded data (PG fallback or old cache) — use CohortCacheManager.
+    preloaded_cohorts: Option<Vec<Cohort>>,
 }
 
 /// Lightweight snapshot of a flag's identity fields, saved before moving
@@ -317,6 +322,7 @@ impl FeatureFlagMatcher {
             skip_writes: false,
             filtered_out_flag_ids: HashSet::new(),
             enable_realtime_cohort_evaluation: false,
+            preloaded_cohorts: None,
         }
     }
 
@@ -388,6 +394,7 @@ impl FeatureFlagMatcher {
         };
 
         self.filtered_out_flag_ids = feature_flags.filtered_out_flag_ids;
+        self.preloaded_cohorts = feature_flags.cohorts;
 
         // Extract global stats before potential consuming filter call
         let error_count = precomputed.error_count;
@@ -1803,8 +1810,20 @@ impl FeatureFlagMatcher {
         &mut self,
         flags: &[&FeatureFlag],
     ) -> Result<(), FlagError> {
-        // Get cohorts first since we need the IDs
-        let cohorts = self.cohort_cache.get_cohorts(self.team_id).await?;
+        // Use preloaded cohorts from the flags cache when available (already scoped
+        // to only referenced cohorts). Fall back to CohortCacheManager which fetches
+        // ALL cohorts for the team.
+        let cohorts = match self.preloaded_cohorts.take() {
+            Some(preloaded) => {
+                tracing::debug!(
+                    "Using {} preloaded cohorts for team {}",
+                    preloaded.len(),
+                    self.team_id,
+                );
+                preloaded
+            }
+            None => self.cohort_cache.get_cohorts(self.team_id).await?,
+        };
         self.flag_evaluation_state.set_cohorts(cohorts.clone());
 
         // Get static cohort IDs
