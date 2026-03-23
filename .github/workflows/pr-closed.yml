@@ -25,6 +25,7 @@ jobs:
         name: Disable feature flags canary
         if: contains(github.event.pull_request.labels.*.name, 'canary-flags')
         runs-on: ubuntu-24.04
+        timeout-minutes: 5
         steps:
             - name: Get deployer token
               id: deployer

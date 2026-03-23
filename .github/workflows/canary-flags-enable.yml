@@ -54,6 +54,7 @@ jobs:
             github.event.issue.pull_request &&
             startsWith(github.event.comment.body, '/pr-canary')
         runs-on: ubuntu-24.04
+        timeout-minutes: 5
         permissions:
             pull-requests: write
             issues: write
@@ -271,6 +272,7 @@ jobs:
                 (needs.handle_comment.result == 'success' && needs.handle_comment.outputs.should_build == 'true')
             )
         runs-on: depot-ubuntu-22.04
+        timeout-minutes: 30
         permissions:
             id-token: write
             contents: read
