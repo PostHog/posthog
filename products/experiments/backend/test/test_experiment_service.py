@@ -1360,20 +1360,22 @@ class TestExperimentService(APIBaseTest):
 
         assert "already archived" in str(ctx.exception)
 
-    def test_archive_experiment_not_ended_raises(self):
+    @parameterized.expand(
+        [
+            ("draft", True),
+            ("running", False),
+        ]
+    )
+    def test_archive_experiment_not_ended_raises(self, _name: str, is_draft: bool):
         service = self._service()
+        experiment = self._create_launchable_experiment(
+            name=f"Archive {_name}", feature_flag_key=f"archive-{_name}-flag"
+        )
+        if not is_draft:
+            service.launch_experiment(experiment)
 
-        # Draft experiment (never launched)
-        draft = self._create_launchable_experiment(name="Draft Archive", feature_flag_key="draft-archive-flag")
         with self.assertRaises(ValidationError) as ctx:
-            service.archive_experiment(draft)
-        assert "must be ended" in str(ctx.exception)
-
-        # Running experiment (launched but not ended)
-        running = self._create_launchable_experiment(name="Running Archive", feature_flag_key="running-archive-flag")
-        service.launch_experiment(running)
-        with self.assertRaises(ValidationError) as ctx:
-            service.archive_experiment(running)
+            service.archive_experiment(experiment)
         assert "must be ended" in str(ctx.exception)
 
     # ------------------------------------------------------------------
