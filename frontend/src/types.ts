@@ -5528,6 +5528,7 @@ export interface ExternalDataSourceSyncSchema {
     append_available: boolean
     supports_webhooks: boolean
     description?: string | null
+    should_sync_default: boolean
 }
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {

@@ -254,9 +254,19 @@ def get_incremental_fields() -> dict[str, list[tuple[str, IncrementalFieldType]]
 
 
 class GoogleAdsTable(Table[GoogleAdsColumn]):
-    def __init__(self, *args, requires_filter: bool, primary_key: list[str], **kwargs):
+    def __init__(
+        self,
+        *args,
+        requires_filter: bool,
+        primary_key: list[str],
+        should_sync_default: bool,
+        description: str | None,
+        **kwargs,
+    ):
         self.requires_filter = requires_filter
         self.primary_key = [pkey.replace(".", "_") for pkey in primary_key]
+        self.should_sync_default = should_sync_default
+        self.description = description
         super().__init__(*args, **kwargs)
 
 
@@ -291,6 +301,9 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int) -> TableSchema
         requires_filter = resource_contents.get("filter_field_names", None) is not None
         primary_key = typing.cast(list[str], resource_contents.get("primary_key", []))
 
+        should_sync_default = resource_contents.get("should_sync_default", True)
+        description = resource_contents.get("description", None)
+
         columns = []
 
         for field_name in field_names:
@@ -321,6 +334,8 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int) -> TableSchema
             primary_key=primary_key,
             columns=columns,
             parents=None,
+            should_sync_default=should_sync_default,
+            description=description,
         )
         table_schemas[table_alias] = table
 

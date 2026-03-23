@@ -846,6 +846,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "rows": schema.row_count,
                 "supports_webhooks": schema.supports_webhooks,
                 "description": schema.description,
+                "should_sync_default": schema.should_sync_default,
             }
             for schema in schemas
         ]

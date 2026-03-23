@@ -636,6 +636,8 @@ RESOURCE_SCHEMAS = {
             "segments.date",
         ],
         "filter_field_names": [("segments.date", IncrementalFieldType.Date)],
+        "should_sync_default": False,
+        "description": "This can load 100's of millions of rows for active campaigns. We don't recommend enabling this table unless if you know you need it.",
         "field_names": [
             "geographic_view.country_criterion_id",
             "geographic_view.location_type",
