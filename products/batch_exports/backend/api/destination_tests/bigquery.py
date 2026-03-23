@@ -130,8 +130,13 @@ class BigQueryVerifyServiceAccountOwnershipTestStep(DestinationTestStep):
 
     def _is_configured(self) -> bool:
         """Ensure required configuration parameters are set."""
-        if self.project_id is None or self.organization_id is None:
+        if self.project_id is None:
             return False
+
+        if self.integration is not None and not self.integration.has_key() and self.organization_id is None:
+            # Only when we actually need to verify ownership is organization_id required
+            return False
+
         return True
 
     async def _run_step(self) -> DestinationTestStepResult:
