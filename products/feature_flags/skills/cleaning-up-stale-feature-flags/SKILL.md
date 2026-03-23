@@ -27,34 +27,7 @@ Disabled flags (`active: false`) are not considered stale — they were intentio
 
 ### 1. List stale flags
 
-Use the `feature-flag-get-all` tool with the search parameter to find flags, or query via HogQL for a comprehensive view.
-
-**Option A: Use the `feature-flag-get-all` MCP tool (simpler, recommended first)**
-
-Call `feature-flag-get-all` to list all flags. The response includes `last_called_at`, `active`, `created_at`, and `status` fields. Look for flags where `status` is `stale`.
-
-**Option B: Use the `execute_sql` MCP tool (more powerful, for detailed analysis)**
-
-Query the `feature_flags` system table for a richer view:
-
-```sql
-SELECT
-    id,
-    key,
-    name,
-    active,
-    created_at,
-    updated_at,
-    last_called_at,
-    created_by_id
-FROM system.feature_flags
-WHERE deleted = false
-  AND active = true
-ORDER BY last_called_at ASC NULLS FIRST
-LIMIT 100
-```
-
-Flags at the top of this list (null or oldest `last_called_at`) are the best candidates.
+Call `feature-flag-get-all` with `active: "STALE"`. This returns all stale flags in a single request — PostHog handles the staleness detection server-side using the criteria described above.
 
 ### 2. Assess each candidate
 
@@ -151,9 +124,8 @@ Present the full cleanup prompt in a copyable format so the user can paste it di
 User: "Can you help me clean up our stale feature flags?"
 
 Agent steps:
-1. Call feature-flag-get-all to list all flags
-2. Identify flags with status "stale" or where last_called_at is >30 days ago
-3. For each stale flag, call feature-flag-get-definition to check experiment_set and dependencies
+1. Call feature-flag-get-all with active: "STALE" to get all stale flags in one request
+2. For each stale flag, call feature-flag-get-definition to check experiment_set and dependencies
 4. Present findings:
 
    "I found 7 stale feature flags in your project:
@@ -206,8 +178,8 @@ Agent steps:
 
 ## Related tools
 
-- `feature-flag-get-all`: List and search feature flags
+- `feature-flag-get-all`: List and search feature flags (supports `active: "STALE"` filter)
 - `feature-flag-get-definition`: Get full flag details including experiment associations
+- `feature-flags-status-retrieve`: Get the status and reason for a single flag
 - `update-feature-flag`: Disable a flag by setting `active: false`
 - `delete-feature-flag`: Soft-delete a flag
-- `execute_sql`: Query the feature_flags system table via HogQL for advanced analysis
