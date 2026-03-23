@@ -1,4 +1,5 @@
 import structlog
+import posthoganalytics
 from rest_framework import serializers, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -19,6 +20,7 @@ from products.marketing_analytics.backend.hogql_queries.adapters.base import Ext
 from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
 from products.marketing_analytics.backend.hogql_queries.adapters.self_managed import SelfManagedAdapter
 from products.marketing_analytics.backend.hogql_queries.utils import map_url_to_provider
+from products.marketing_analytics.backend.services.utm_audit import run_utm_audit
 
 logger = structlog.get_logger(__name__)
 
@@ -28,9 +30,79 @@ class TestMappingSerializer(serializers.Serializer):
     source_map = serializers.DictField(child=serializers.CharField(allow_null=True, allow_blank=True))
 
 
+class UtmAuditSerializer(serializers.Serializer):
+    date_from = serializers.CharField(required=False, default="-30d", help_text="Start date for the audit period")
+    date_to = serializers.CharField(
+        required=False, default=None, allow_null=True, help_text="End date for the audit period"
+    )
+
+
 class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "INTERNAL"
     permission_classes = [IsAuthenticated]
+
+    @action(methods=["GET"], detail=False, url_path="utm_audit")
+    def utm_audit(self, request: Request, *args, **kwargs) -> Response:
+        if not posthoganalytics.feature_enabled(
+            "marketing-analytics-utm-audit",
+            str(request.user.distinct_id),  # type: ignore[union-attr]
+            groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
+            group_properties={
+                "organization": {"id": str(self.team.organization_id)},
+                "project": {"id": str(self.team.id)},
+            },
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        ):
+            return Response(
+                {"detail": "UTM audit feature is not enabled"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = UtmAuditSerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        date_from = serializer.validated_data["date_from"]
+        date_to = serializer.validated_data["date_to"]
+
+        try:
+            audit_response = run_utm_audit(self.team, date_from=date_from, date_to=date_to)
+
+            return Response(
+                {
+                    "total_campaigns": audit_response.total_campaigns,
+                    "campaigns_with_issues": audit_response.campaigns_with_issues,
+                    "campaigns_without_issues": audit_response.campaigns_without_issues,
+                    "total_spend_at_risk": audit_response.total_spend_at_risk,
+                    "results": [
+                        {
+                            "campaign_name": r.campaign_name,
+                            "campaign_id": r.campaign_id,
+                            "source_name": r.source_name,
+                            "source_type": r.source_type,
+                            "spend": r.spend,
+                            "clicks": r.clicks,
+                            "impressions": r.impressions,
+                            "has_utm_events": r.has_utm_events,
+                            "event_count": r.event_count,
+                            "issues": [
+                                {
+                                    "field": issue.field,
+                                    "severity": issue.severity,
+                                    "message": issue.message,
+                                }
+                                for issue in r.issues
+                            ],
+                        }
+                        for r in audit_response.results
+                    ],
+                }
+            )
+        except Exception as e:
+            logger.exception("UTM audit failed", error=str(e))
+            return Response(
+                {"detail": "Failed to run UTM audit. Check server logs for details."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
     @action(methods=["POST"], detail=False, url_path="test_mapping")
     def test_mapping(self, request: Request, *args, **kwargs) -> Response:
