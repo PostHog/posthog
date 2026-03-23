@@ -181,7 +181,7 @@ function resolveResponseType(operation: OpenApiOperation, knownTypes: Set<string
         if (schema.type === 'array' && items && '$ref' in items && items.$ref) {
             const schemaName = (items.$ref as string).replace('#/components/schemas/', '')
             if (knownTypes.has(schemaName)) {
-                return `Schemas.${schemaName}`
+                return `Schemas.${schemaName}[]`
             }
         }
     }

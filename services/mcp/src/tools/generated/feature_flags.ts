@@ -203,13 +203,13 @@ const FeatureFlagsDependentFlagsRetrieveSchema = FeatureFlagsDependentFlagsListP
 
 const featureFlagsDependentFlagsRetrieve = (): ToolBase<
     typeof FeatureFlagsDependentFlagsRetrieveSchema,
-    Schemas.DependentFlag
+    Schemas.DependentFlag[]
 > => ({
     name: 'feature-flags-dependent-flags-retrieve',
     schema: FeatureFlagsDependentFlagsRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof FeatureFlagsDependentFlagsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.DependentFlag>({
+        const result = await context.api.request<Schemas.DependentFlag[]>({
             method: 'GET',
             path: `/api/projects/${projectId}/feature_flags/${params.id}/dependent_flags/`,
         })

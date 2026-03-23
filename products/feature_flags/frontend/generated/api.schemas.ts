@@ -12,13 +12,27 @@ export interface CopyFlagsRequestApi {
     feature_flag_key: string
     /** Source project ID to copy the flag from */
     from_project: number
-    /** List of target project IDs to copy the flag to */
+    /**
+     * List of target project IDs to copy the flag to
+     * @maxItems 50
+     */
     target_project_ids: number[]
     /** Whether to also copy scheduled changes for this flag */
     copy_schedule?: boolean
 }
 
-export type CopyFlagsResponseApiSuccessItem = { [key: string]: unknown }
+export interface CopyFlagsSuccessItemApi {
+    /** ID of the created feature flag */
+    id: number
+    /** Key of the feature flag */
+    key: string
+    /** Name of the feature flag */
+    name: string
+    /** Whether the flag is active */
+    active: boolean
+    /** Team ID the flag was copied to */
+    team_id: number
+}
 
 export interface CopyFlagsResultApi {
     /** Project ID (present on failure) */
@@ -29,7 +43,7 @@ export interface CopyFlagsResultApi {
 
 export interface CopyFlagsResponseApi {
     /** List of successfully copied flags */
-    success: CopyFlagsResponseApiSuccessItem[]
+    success: CopyFlagsSuccessItemApi[]
     /** List of failed copy attempts */
     failed: CopyFlagsResultApi[]
 }

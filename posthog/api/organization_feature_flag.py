@@ -24,6 +24,7 @@ class CopyFlagsRequestSerializer(serializers.Serializer):
     target_project_ids = serializers.ListField(
         child=serializers.IntegerField(),
         required=True,
+        max_length=50,
         help_text="List of target project IDs to copy the flag to",
     )
     copy_schedule = serializers.BooleanField(
@@ -38,8 +39,16 @@ class CopyFlagsResultSerializer(serializers.Serializer):
     error_message = serializers.CharField(required=False, help_text="Error message (present on failure)")
 
 
+class CopyFlagsSuccessItemSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="ID of the created feature flag")
+    key = serializers.CharField(help_text="Key of the feature flag")
+    name = serializers.CharField(help_text="Name of the feature flag")
+    active = serializers.BooleanField(help_text="Whether the flag is active")
+    team_id = serializers.IntegerField(help_text="Team ID the flag was copied to")
+
+
 class CopyFlagsResponseSerializer(serializers.Serializer):
-    success = serializers.ListField(child=serializers.DictField(), help_text="List of successfully copied flags")
+    success = CopyFlagsSuccessItemSerializer(many=True, help_text="List of successfully copied flags")
     failed = CopyFlagsResultSerializer(many=True, help_text="List of failed copy attempts")
 
 

@@ -12,12 +12,17 @@ export const FeatureFlagsCopyFlagsCreateParams = /* @__PURE__ */ zod.object({
     organization_id: zod.string(),
 })
 
+export const featureFlagsCopyFlagsCreateBodyTargetProjectIdsMax = 50
+
 export const featureFlagsCopyFlagsCreateBodyCopyScheduleDefault = false
 
 export const FeatureFlagsCopyFlagsCreateBody = /* @__PURE__ */ zod.object({
     feature_flag_key: zod.string().describe('Key of the feature flag to copy'),
     from_project: zod.number().describe('Source project ID to copy the flag from'),
-    target_project_ids: zod.array(zod.number()).describe('List of target project IDs to copy the flag to'),
+    target_project_ids: zod
+        .array(zod.number())
+        .max(featureFlagsCopyFlagsCreateBodyTargetProjectIdsMax)
+        .describe('List of target project IDs to copy the flag to'),
     copy_schedule: zod
         .boolean()
         .default(featureFlagsCopyFlagsCreateBodyCopyScheduleDefault)

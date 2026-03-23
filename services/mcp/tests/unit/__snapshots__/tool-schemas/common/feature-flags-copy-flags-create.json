@@ -19,6 +19,7 @@
             "items": {
                 "type": "number"
             },
+            "maxItems": 50,
             "type": "array"
         }
     },
