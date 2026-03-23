@@ -4480,25 +4480,27 @@ class TestPostgresPrinter(BaseTest):
         printed = self._select("SELECT 1 FROM events AS e (event_alias, ts_alias)")
         self.assertIn("AS e (event_alias, ts_alias)", printed)
 
-    def test_pivot_prints_basic(self):
-        self.assertEqual(
-            self._select("SELECT 1 FROM events PIVOT (count() FOR event IN ('a', 'b'))"),
-            "SELECT 1 FROM events PIVOT (count() FOR events.event IN ('a', 'b')) LIMIT 50000",
-        )
-
-    def test_pivot_prints_multiple_columns(self):
-        self.assertEqual(
-            self._select(
-                "SELECT 1 FROM events PIVOT (count() FOR event IN ('a') distinct_id IN (1, 2) GROUP BY timestamp)"
+    @parameterized.expand(
+        [
+            (
+                "basic",
+                "SELECT 1 FROM events PIVOT (count() FOR event IN ('a', 'b'))",
+                "SELECT 1 FROM events PIVOT (count() FOR events.event IN ('a', 'b')) LIMIT 50000",
             ),
-            "SELECT 1 FROM events PIVOT (count() FOR events.event IN ('a') events.distinct_id IN (1, 2) GROUP BY events.timestamp) LIMIT 50000",
-        )
-
-    def test_pivot_join_prints(self):
-        self.assertEqual(
-            self._select("SELECT 1 FROM events JOIN events AS e2 ON 1 PIVOT (count() FOR events.event IN ('a'))"),
-            "SELECT 1 FROM events JOIN events AS e2 ON 1 PIVOT (count() FOR events.event IN ('a')) LIMIT 50000",
-        )
+            (
+                "multiple_columns",
+                "SELECT 1 FROM events PIVOT (count() FOR event IN ('a') distinct_id IN (1, 2) GROUP BY timestamp)",
+                "SELECT 1 FROM events PIVOT (count() FOR events.event IN ('a') events.distinct_id IN (1, 2) GROUP BY events.timestamp) LIMIT 50000",
+            ),
+            (
+                "join",
+                "SELECT 1 FROM events JOIN events AS e2 ON 1 PIVOT (count() FOR events.event IN ('a'))",
+                "SELECT 1 FROM events JOIN events AS e2 ON 1 PIVOT (count() FOR events.event IN ('a')) LIMIT 50000",
+            ),
+        ]
+    )
+    def test_pivot_prints(self, _name: str, query: str, expected: str):
+        self.assertEqual(self._select(query), expected)
 
     def test_limit_percent_basic(self):
         printed = self._select("SELECT 1 FROM events LIMIT 10 %")
@@ -4535,11 +4537,17 @@ class TestPostgresPrinter(BaseTest):
         printed = self._select(f"SELECT {expr}")
         self.assertIn(expected, printed)
 
-    def test_function_call_order_by_prints(self):
-        self.assertEqual(
-            self._select("SELECT sum(event ORDER BY timestamp DESC) FROM events"),
-            "SELECT sum(events.event ORDER BY events.timestamp DESC) FROM events LIMIT 50000",
-        )
+    @parameterized.expand(
+        [
+            (
+                "sum_desc",
+                "SELECT sum(event ORDER BY timestamp DESC) FROM events",
+                "SELECT sum(events.event ORDER BY events.timestamp DESC) FROM events LIMIT 50000",
+            ),
+        ]
+    )
+    def test_function_call_order_by_prints(self, _name: str, query: str, expected: str):
+        self.assertEqual(self._select(query), expected)
 
     @parameterized.expand(
         [

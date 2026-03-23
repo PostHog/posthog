@@ -447,14 +447,6 @@ class Resolver(CloningVisitor):
                 base_field_names = set(base_type.resolve_database_table(self.context).get_asterisk().keys())
                 for name in base_field_names:
                     columns[name] = ast.UnknownType()
-
-            def _extract_pivot_field(expr: ast.Expr) -> ast.Field | None:
-                if isinstance(expr, ast.Field):
-                    return expr
-                if isinstance(expr, ast.Alias) and isinstance(expr.expr, ast.Field):
-                    return expr.expr
-                return None
-
             allowed_prefixes: set[str] = set()
             if isinstance(temp_join, ast.JoinExpr):
                 if temp_join.alias is not None:
