@@ -19,7 +19,7 @@ export async function resolveOutputs<O extends string>(
     registry: KafkaProducerRegistry,
     definitions: Record<O, OutputDefinition>
 ): Promise<IngestionOutputs<O>> {
-    const resolved = {} as Record<O, IngestionOutputConfig>
+    const promises: Promise<{ outputName: O; config: IngestionOutputConfig }>[] = []
 
     for (const outputName in definitions) {
         const definition = definitions[outputName]
@@ -27,9 +27,22 @@ export async function resolveOutputs<O extends string>(
         const producerNameOverride = process.env[`INGESTION_OUTPUT_${envKey}_PRODUCER`]
         const producerName = producerNameOverride ?? definition.defaultProducerName
 
-        const producer = await registry.getProducer(producerName)
-        resolved[outputName] = { topic: definition.topic, producer }
+        // getProducer throws if the producer is not found, so all keys of O
+        // are guaranteed to be present in the result or the call fails.
+        promises.push(
+            registry.getProducer(producerName).then((producer) => ({
+                outputName,
+                config: { topic: definition.topic, producer },
+            }))
+        )
     }
 
-    return new IngestionOutputs<O>(resolved)
+    const results = await Promise.all(promises)
+    const resolved: Record<string, IngestionOutputConfig> = {}
+    for (const { outputName, config } of results) {
+        resolved[outputName] = config
+    }
+
+    // Safe cast: every key in Record<O, ...> has been resolved above.
+    return new IngestionOutputs<O>(resolved as Record<O, IngestionOutputConfig>)
 }
