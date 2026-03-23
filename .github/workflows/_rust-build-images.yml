@@ -218,6 +218,10 @@ jobs:
                       found=1
                       name="${dir##*/digest-}"
                       digest=$(cat "$dir/digest.txt")
+                      if [ -z "$digest" ]; then
+                          echo "::error::Empty digest for $name (file: $dir/digest.txt)"
+                          exit 1
+                      fi
                       digests=$(echo "$digests" | jq -c --arg k "$name" --arg v "$digest" '. + {($k): $v}')
                   done
                   if [ "$found" -eq 0 ]; then
