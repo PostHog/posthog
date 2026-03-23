@@ -485,8 +485,8 @@ DETECTOR_MIN_SAMPLES: dict[DetectorType, int] = {
     DetectorType.PCA: 10,
 }
 
-# Default window size per calculation interval, matching frontend defaults.
-# These are used when no explicit window is set in the detector config.
+# Fallback window size used when no explicit window is set in the detector config
+# (e.g. alerts saved before this field was introduced).
 DETECTOR_DEFAULT_WINDOW = 30
 
 
