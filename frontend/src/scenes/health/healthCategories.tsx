@@ -98,11 +98,8 @@ export const KIND_LABELS: Record<HealthIssueKind, string> = {
     reverse_proxy: 'No reverse proxy',
     web_vitals: 'No web vitals',
     ingestion_lag: 'Ingestion lag',
-<<<<<<< HEAD
     external_data_failure: 'External data failures',
-=======
     ingestion_warning: 'Ingestion warning',
->>>>>>> master
     sdk_outdated: 'SDK outdated',
     materialized_view_failure: 'Materialized view failure',
 }
