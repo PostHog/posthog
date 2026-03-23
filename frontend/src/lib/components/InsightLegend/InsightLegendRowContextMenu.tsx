@@ -1,0 +1,62 @@
+import { ReactNode } from 'react'
+
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import {
+    ContextMenu,
+    ContextMenuContent,
+    ContextMenuGroup,
+    ContextMenuItem,
+    ContextMenuSeparator,
+    ContextMenuTrigger,
+} from 'lib/ui/ContextMenu/ContextMenu'
+
+export type InsightLegendRowContextMenuProps = {
+    children: ReactNode
+    areAllSeriesVisible: boolean
+    showLegendIsolateSeriesItem: boolean
+    isOnlyThisVisible: boolean
+    onToggleOtherSeries: () => void
+    onToggleAllSeries: () => void
+}
+
+export function InsightLegendRowContextMenu({
+    children,
+    areAllSeriesVisible,
+    showLegendIsolateSeriesItem,
+    isOnlyThisVisible,
+    onToggleOtherSeries,
+    onToggleAllSeries,
+}: InsightLegendRowContextMenuProps): JSX.Element {
+    return (
+        <ContextMenu>
+            <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+            <ContextMenuContent className="max-w-[300px] click-outside-block">
+                <ContextMenuGroup>
+                    {showLegendIsolateSeriesItem && (
+                        <ContextMenuItem asChild>
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={onToggleOtherSeries}
+                                data-attr="insight-legend-hide-other-series"
+                            >
+                                {isOnlyThisVisible ? 'Show all series' : 'Hide other series'}
+                            </ButtonPrimitive>
+                        </ContextMenuItem>
+                    )}
+                    {showLegendIsolateSeriesItem && !isOnlyThisVisible && <ContextMenuSeparator />}
+                    {!isOnlyThisVisible && (
+                        <ContextMenuItem asChild>
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={onToggleAllSeries}
+                                data-attr="insight-legend-toggle-all-series"
+                            >
+                                {areAllSeriesVisible ? 'Hide all series' : 'Show all series'}
+                            </ButtonPrimitive>
+                        </ContextMenuItem>
+                    )}
+                </ContextMenuGroup>
+            </ContextMenuContent>
+        </ContextMenu>
+    )
+}

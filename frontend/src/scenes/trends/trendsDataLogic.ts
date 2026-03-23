@@ -5,6 +5,7 @@ import { dayjs } from 'lib/dayjs'
 import { isMultiSeriesFormula } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
@@ -71,6 +72,8 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
 
     connect((props: InsightLogicProps) => ({
         values: [
+            insightLogic(props),
+            ['editingDisabledReason'],
             insightVizDataLogic(props),
             [
                 'querySource',
@@ -119,6 +122,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
         toggleResultHidden: (dataset: IndexedTrendResult) => ({ dataset }),
         toggleAllResultsHidden: (datasets: IndexedTrendResult[], hidden: boolean) => ({ datasets, hidden }),
+        toggleOtherSeriesHidden: (dataset: IndexedTrendResult) => ({ dataset }),
         setHoveredDatasetIndex: (index: number | null) => ({ index }),
     }),
 
@@ -486,6 +490,40 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 }
             },
         ],
+
+        areAllSeriesVisible: [
+            (s) => [s.indexedResults, s.getTrendsHidden],
+            (indexedResults, getTrendsHidden): boolean => indexedResults.every((d) => !getTrendsHidden(d)),
+        ],
+
+        showLegendIsolateSeriesItem: [
+            (s) => [s.indexedResults, s.getTrendsHidden],
+            (indexedResults, getTrendsHidden): boolean =>
+                indexedResults.length === 0 || !indexedResults.every((d) => getTrendsHidden(d)),
+        ],
+
+        legendSeriesIsolationMenuEligible: [
+            (s) => [s.editingDisabledReason, s.indexedResults],
+            (editingDisabledReason, indexedResults): boolean => !editingDisabledReason && indexedResults.length > 1,
+        ],
+
+        getIsOnlyVisibleSeriesInLegend: [
+            (s) => [s.indexedResults, s.resultCustomizationBy, s.getTrendsHidden],
+            (indexedResults, resultCustomizationBy, getTrendsHidden) => {
+                return (dataset: IndexedTrendResult): boolean => {
+                    if (indexedResults.length < 2) {
+                        return false
+                    }
+                    const itemKey = getTrendResultCustomizationKey(resultCustomizationBy, dataset)
+                    if (getTrendsHidden(dataset)) {
+                        return false
+                    }
+                    return indexedResults
+                        .filter((r) => getTrendResultCustomizationKey(resultCustomizationBy, r) !== itemKey)
+                        .every((r) => getTrendsHidden(r))
+                }
+            },
+        ],
     })),
 
     listeners(({ actions, values }) => ({
@@ -508,20 +546,64 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             } as Partial<TrendsFilter>)
         },
         toggleAllResultsHidden: ({ datasets, hidden }) => {
-            const resultCustomizations = datasets.reduce(
-                (acc, dataset) => {
-                    const resultCustomizationKey = getTrendResultCustomizationKey(values.resultCustomizationBy, dataset)
-                    acc[resultCustomizationKey] = {
-                        assignmentBy: values.resultCustomizationBy,
-                        hidden: hidden,
-                    }
-                    return acc
-                },
-                {} as Record<string, any>
-            )
+            const resultCustomizations: Record<string, any> = { ...values.resultCustomizations }
+            for (const dataset of datasets) {
+                const resultCustomizationKey = getTrendResultCustomizationKey(values.resultCustomizationBy, dataset)
+                const existing = getTrendResultCustomization(
+                    values.resultCustomizationBy,
+                    dataset,
+                    values.resultCustomizations
+                )
+                resultCustomizations[resultCustomizationKey] = {
+                    ...existing,
+                    assignmentBy: values.resultCustomizationBy,
+                    hidden: hidden,
+                }
+            }
 
             actions.updateInsightFilter({
                 resultCustomizations,
+            } as Partial<TrendsFilter>)
+        },
+        toggleOtherSeriesHidden: ({ dataset }) => {
+            const { indexedResults, resultCustomizationBy, resultCustomizations, getTrendsHidden } = values
+            if (indexedResults.length < 2) {
+                return
+            }
+
+            const clickedKey = getTrendResultCustomizationKey(resultCustomizationBy, dataset)
+            const others = indexedResults.filter(
+                (d) => getTrendResultCustomizationKey(resultCustomizationBy, d) !== clickedKey
+            )
+            const isSoloMode = others.length > 0 && !getTrendsHidden(dataset) && others.every((d) => getTrendsHidden(d))
+
+            const next: Record<string, any> = { ...resultCustomizations }
+
+            if (isSoloMode) {
+                for (const r of indexedResults) {
+                    const key = getTrendResultCustomizationKey(resultCustomizationBy, r)
+                    const existing = getTrendResultCustomization(resultCustomizationBy, r, resultCustomizations)
+                    next[key] = {
+                        ...existing,
+                        assignmentBy: values.resultCustomizationBy,
+                        hidden: false,
+                    }
+                }
+            } else {
+                for (const r of indexedResults) {
+                    const key = getTrendResultCustomizationKey(resultCustomizationBy, r)
+                    const existing = getTrendResultCustomization(resultCustomizationBy, r, resultCustomizations)
+                    const isClicked = key === clickedKey
+                    next[key] = {
+                        ...existing,
+                        assignmentBy: values.resultCustomizationBy,
+                        hidden: !isClicked,
+                    }
+                }
+            }
+
+            actions.updateInsightFilter({
+                resultCustomizations: next,
             } as Partial<TrendsFilter>)
         },
     })),
