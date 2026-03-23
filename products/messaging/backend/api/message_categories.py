@@ -7,7 +7,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.messaging.backend.models.message_category import MessageCategory
-from products.workflows.backend.services.customerio_import_service import CustomerIOImportService
+from products.messaging.backend.services.customerio_import_service import CustomerIOImportService
 
 
 class MessageCategorySerializer(serializers.ModelSerializer):

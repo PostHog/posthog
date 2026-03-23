@@ -414,7 +414,6 @@ path = "products.workflows"
 depends_on = [
     "ee",
     "posthog",
-    "products.messaging",
 ]
 layer = "non_isolated"
 

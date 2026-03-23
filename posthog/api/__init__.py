@@ -76,6 +76,9 @@ from products.llm_analytics.backend.api import (
     ScoreDefinitionViewSet,
     TraceReviewViewSet,
 )
+from products.messaging.backend.api.message_categories import MessageCategoryViewSet
+from products.messaging.backend.api.message_preferences import MessagePreferencesViewSet
+from products.messaging.backend.api.message_templates import MessageTemplatesViewSet
 from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.posthog_ai.backend.api import MCPToolsViewSet
 from products.product_tours.backend.api import ProductTourViewSet
@@ -86,7 +89,6 @@ from products.visual_review.backend.presentation.views import (
     RepoViewSet as VisualReviewRepoViewSet,
     RunViewSet as VisualReviewRunViewSet,
 )
-from products.workflows.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
 
 from ee.api.session_summaries import SessionGroupSummaryViewSet
 from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, vercel_resource
