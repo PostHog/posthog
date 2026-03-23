@@ -171,7 +171,10 @@ async fn test_background_task_processes_pending_sync() {
 
     // 500 + 1 = 501, threshold is 1000 => allowed
     poll_assert!("expected Allowed after sync (501/1000)", {
-        matches!(limiter.check_limit("sync_ent", 0, None).await, EvalResult::Allowed)
+        matches!(
+            limiter.check_limit("sync_ent", 0, None).await,
+            EvalResult::Allowed
+        )
     });
 }
 
@@ -295,14 +298,20 @@ async fn test_decay_drift_over_sync_interval() {
     let _ = limiter.check_limit("drift", 0, None).await;
 
     poll_assert!("should be Allowed after initial sync at 50% capacity", {
-        matches!(limiter.check_limit("drift", 0, None).await, EvalResult::Allowed)
+        matches!(
+            limiter.check_limit("drift", 0, None).await,
+            EvalResult::Allowed
+        )
     });
 
     // Wait for one sync_interval then verify re-sync still allows
     tokio::time::sleep(config.sync_interval).await;
 
     poll_assert!("should be Allowed after re-sync at 50% capacity", {
-        matches!(limiter.check_limit("drift", 0, None).await, EvalResult::Allowed)
+        matches!(
+            limiter.check_limit("drift", 0, None).await,
+            EvalResult::Allowed
+        )
     });
 }
 
@@ -334,9 +343,15 @@ async fn test_limiter_correctly_limits_at_threshold() {
         "First access (cache miss) should be Allowed"
     );
 
-    poll_assert!("should be Limited after sync reveals count over threshold", {
-        matches!(limiter.check_limit("over", 1, None).await, EvalResult::Limited(_))
-    });
+    poll_assert!(
+        "should be Limited after sync reveals count over threshold",
+        {
+            matches!(
+                limiter.check_limit("over", 1, None).await,
+                EvalResult::Limited(_)
+            )
+        }
+    );
 }
 
 #[tokio::test]
@@ -366,7 +381,10 @@ async fn test_custom_key_high_threshold_sync_and_limit() {
     let _ = limiter.check_custom_limit(&key, 0, None).await;
 
     poll_assert!("custom key at 50k/100k should be Allowed", {
-        matches!(limiter.check_custom_limit(&key, 1, None).await, EvalResult::Allowed)
+        matches!(
+            limiter.check_custom_limit(&key, 1, None).await,
+            EvalResult::Allowed
+        )
     });
 
     redis
@@ -379,6 +397,9 @@ async fn test_custom_key_high_threshold_sync_and_limit() {
 
     poll_assert!("custom key at 150k/100k should be Limited after sync", {
         let _ = limiter.check_custom_limit(&key, 0, None).await;
-        matches!(limiter.check_custom_limit(&key, 1, None).await, EvalResult::Limited(_))
+        matches!(
+            limiter.check_custom_limit(&key, 1, None).await,
+            EvalResult::Limited(_)
+        )
     });
 }
