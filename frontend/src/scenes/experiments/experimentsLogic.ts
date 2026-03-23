@@ -16,7 +16,6 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import {
     ActivityScope,
     Breadcrumb,
@@ -302,7 +301,6 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 archiveExperiment: async (id: number) => {
                     await api.create(`api/projects/${values.currentProjectId}/experiments/${id}/archive`)
                     lemonToast.info('Experiment archived')
-                    refreshTreeItem('experiment', String(id))
                     return {
                         ...values.experiments,
                         results: values.experiments.results.filter((experiment) => experiment.id !== id),
