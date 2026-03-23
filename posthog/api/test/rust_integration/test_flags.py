@@ -7,9 +7,17 @@ No Django test framework. Each test:
 3. Calls Rust /flags endpoint and asserts on the result
 """
 
+import os
 from typing import Any
 
+import pytest
+
 from conftest import DjangoAPI, TestDB, TestEnv, evaluate_flags
+
+pytestmark = pytest.mark.skipif(
+    os.environ.get("SKIP_RUST_INTEGRATION_TESTS", "1") == "1",
+    reason="Set SKIP_RUST_INTEGRATION_TESTS=0 to run",
+)
 
 
 def _cohort_filters(*and_groups: list[dict[str, Any]]) -> dict[str, Any]:

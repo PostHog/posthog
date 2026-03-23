@@ -33,11 +33,6 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "postgres://posthog:posthog@localh
 # Falls back to the main DB for local dev where everything is in one database.
 PERSONS_DATABASE_URL = os.environ.get("PERSONS_DATABASE_URL", DATABASE_URL)
 
-pytestmark = pytest.mark.skipif(
-    os.environ.get("SKIP_RUST_INTEGRATION_TESTS", "1") == "1",
-    reason="Set SKIP_RUST_INTEGRATION_TESTS=0 to run",
-)
-
 
 @dataclass
 class TestEnv:
