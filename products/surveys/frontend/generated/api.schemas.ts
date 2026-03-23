@@ -371,6 +371,19 @@ export interface PaginatedSurveyListApi {
 }
 
 /**
+ * * `once` - once
+ * `recurring` - recurring
+ * `always` - always
+ */
+export type ScheduleEnumApi = (typeof ScheduleEnumApi)[keyof typeof ScheduleEnumApi]
+
+export const ScheduleEnumApi = {
+    Once: 'once',
+    Recurring: 'recurring',
+    Always: 'always',
+} as const
+
+/**
  * * `cohort` - cohort
  * `person` - person
  * `group` - group
@@ -786,26 +799,493 @@ export interface FeatureFlagFiltersSchemaApi {
     super_groups?: FeatureFlagFiltersSchemaApiSuperGroupsItem[]
 }
 
+/**
+ * * `open` - open
+ */
+export type SurveyOpenQuestionSchemaTypeEnumApi =
+    (typeof SurveyOpenQuestionSchemaTypeEnumApi)[keyof typeof SurveyOpenQuestionSchemaTypeEnumApi]
+
+export const SurveyOpenQuestionSchemaTypeEnumApi = {
+    Open: 'open',
+} as const
+
+/**
+ * * `text` - text
+ * `html` - html
+ */
+export type DescriptionContentTypeEnumApi =
+    (typeof DescriptionContentTypeEnumApi)[keyof typeof DescriptionContentTypeEnumApi]
+
+export const DescriptionContentTypeEnumApi = {
+    Text: 'text',
+    Html: 'html',
+} as const
+
+export interface SurveyOpenQuestionSchemaApi {
+    type: SurveyOpenQuestionSchemaTypeEnumApi
+    /** Question text shown to respondents. */
+    question: string
+    /** Optional helper text. */
+    description?: string
+    /** Format for the description field.
+
+* `text` - text
+* `html` - html */
+    descriptionContentType?: DescriptionContentTypeEnumApi
+    /** Whether respondents may skip this question. */
+    optional?: boolean
+    /** Custom button label. */
+    buttonText?: string
+}
+
+/**
+ * * `link` - link
+ */
+export type SurveyLinkQuestionSchemaTypeEnumApi =
+    (typeof SurveyLinkQuestionSchemaTypeEnumApi)[keyof typeof SurveyLinkQuestionSchemaTypeEnumApi]
+
+export const SurveyLinkQuestionSchemaTypeEnumApi = {
+    Link: 'link',
+} as const
+
+export interface SurveyLinkQuestionSchemaApi {
+    type: SurveyLinkQuestionSchemaTypeEnumApi
+    /** Question text shown to respondents. */
+    question: string
+    /** Optional helper text. */
+    description?: string
+    /** Format for the description field.
+
+* `text` - text
+* `html` - html */
+    descriptionContentType?: DescriptionContentTypeEnumApi
+    /** Whether respondents may skip this question. */
+    optional?: boolean
+    /** Custom button label. */
+    buttonText?: string
+    /** HTTPS or mailto URL for link questions. */
+    link: string
+}
+
+/**
+ * * `rating` - rating
+ */
+export type SurveyRatingQuestionSchemaTypeEnumApi =
+    (typeof SurveyRatingQuestionSchemaTypeEnumApi)[keyof typeof SurveyRatingQuestionSchemaTypeEnumApi]
+
+export const SurveyRatingQuestionSchemaTypeEnumApi = {
+    Rating: 'rating',
+} as const
+
+/**
+ * * `number` - number
+ * `emoji` - emoji
+ */
+export type SurveyRatingQuestionSchemaDisplayEnumApi =
+    (typeof SurveyRatingQuestionSchemaDisplayEnumApi)[keyof typeof SurveyRatingQuestionSchemaDisplayEnumApi]
+
+export const SurveyRatingQuestionSchemaDisplayEnumApi = {
+    Number: 'number',
+    Emoji: 'emoji',
+} as const
+
+/**
+ * * `next_question` - next_question
+ */
+export type SurveyNextQuestionBranchingTypeEnumApi =
+    (typeof SurveyNextQuestionBranchingTypeEnumApi)[keyof typeof SurveyNextQuestionBranchingTypeEnumApi]
+
+export const SurveyNextQuestionBranchingTypeEnumApi = {
+    NextQuestion: 'next_question',
+} as const
+
+export interface SurveyNextQuestionBranchingApi {
+    /** Continue to the next question in sequence.
+
+* `next_question` - next_question */
+    type: SurveyNextQuestionBranchingTypeEnumApi
+}
+
+/**
+ * * `end` - end
+ */
+export type SurveyEndBranchingTypeEnumApi =
+    (typeof SurveyEndBranchingTypeEnumApi)[keyof typeof SurveyEndBranchingTypeEnumApi]
+
+export const SurveyEndBranchingTypeEnumApi = {
+    End: 'end',
+} as const
+
+export interface SurveyEndBranchingApi {
+    /** End the survey.
+
+* `end` - end */
+    type: SurveyEndBranchingTypeEnumApi
+}
+
+/**
+ * * `specific_question` - specific_question
+ */
+export type SurveySpecificQuestionBranchingTypeEnumApi =
+    (typeof SurveySpecificQuestionBranchingTypeEnumApi)[keyof typeof SurveySpecificQuestionBranchingTypeEnumApi]
+
+export const SurveySpecificQuestionBranchingTypeEnumApi = {
+    SpecificQuestion: 'specific_question',
+} as const
+
+export interface SurveySpecificQuestionBranchingApi {
+    /** Jump to a specific question index.
+
+* `specific_question` - specific_question */
+    type: SurveySpecificQuestionBranchingTypeEnumApi
+    /**
+     * 0-based index of the next question.
+     * @minimum 0
+     */
+    index: number
+}
+
+/**
+ * * `response_based` - response_based
+ */
+export type SurveyResponseBasedBranchingTypeEnumApi =
+    (typeof SurveyResponseBasedBranchingTypeEnumApi)[keyof typeof SurveyResponseBasedBranchingTypeEnumApi]
+
+export const SurveyResponseBasedBranchingTypeEnumApi = {
+    ResponseBased: 'response_based',
+} as const
+
+/**
+ * Response-based branching map. Values can be a question index or 'end'.
+ */
+export type SurveyResponseBasedBranchingApiResponseValues = { [key: string]: number | 'end' }
+
+export interface SurveyResponseBasedBranchingApi {
+    /** Branch based on the selected or entered response.
+
+* `response_based` - response_based */
+    type: SurveyResponseBasedBranchingTypeEnumApi
+    /** Response-based branching map. Values can be a question index or 'end'. */
+    responseValues: SurveyResponseBasedBranchingApiResponseValues
+}
+
+export type SurveyBranchingSchemaApi =
+    | SurveyNextQuestionBranchingApi
+    | SurveyEndBranchingApi
+    | SurveySpecificQuestionBranchingApi
+    | SurveyResponseBasedBranchingApi
+
+export interface SurveyRatingQuestionSchemaApi {
+    type: SurveyRatingQuestionSchemaTypeEnumApi
+    /** Question text shown to respondents. */
+    question: string
+    /** Optional helper text. */
+    description?: string
+    /** Format for the description field.
+
+* `text` - text
+* `html` - html */
+    descriptionContentType?: DescriptionContentTypeEnumApi
+    /** Whether respondents may skip this question. */
+    optional?: boolean
+    /** Custom button label. */
+    buttonText?: string
+    /** Display format: 'number' shows numeric scale, 'emoji' shows emoji scale.
+
+* `number` - number
+* `emoji` - emoji */
+    display?: SurveyRatingQuestionSchemaDisplayEnumApi
+    /**
+     * Rating scale can be one of 3, 5, or 7
+     * @minimum 1
+     */
+    scale?: number
+    /** Label for the lowest rating (e.g., 'Very Poor') */
+    lowerBoundLabel?: string
+    /** Label for the highest rating (e.g., 'Excellent') */
+    upperBoundLabel?: string
+    branching?: SurveyBranchingSchemaApi | null
+}
+
+/**
+ * * `single_choice` - single_choice
+ */
+export type SurveySingleChoiceQuestionSchemaTypeEnumApi =
+    (typeof SurveySingleChoiceQuestionSchemaTypeEnumApi)[keyof typeof SurveySingleChoiceQuestionSchemaTypeEnumApi]
+
+export const SurveySingleChoiceQuestionSchemaTypeEnumApi = {
+    SingleChoice: 'single_choice',
+} as const
+
+export interface SurveySingleChoiceQuestionSchemaApi {
+    type: SurveySingleChoiceQuestionSchemaTypeEnumApi
+    /** Question text shown to respondents. */
+    question: string
+    /** Optional helper text. */
+    description?: string
+    /** Format for the description field.
+
+* `text` - text
+* `html` - html */
+    descriptionContentType?: DescriptionContentTypeEnumApi
+    /** Whether respondents may skip this question. */
+    optional?: boolean
+    /** Custom button label. */
+    buttonText?: string
+    /**
+     * Array of choice options. Choice indices (0, 1, 2, ...) are used for branching logic.
+     * @minItems 2
+     * @maxItems 20
+     */
+    choices: string[]
+    /** Whether to randomize the order of choices for each respondent. */
+    shuffleOptions?: boolean
+    /** Whether the final option should be an open-text choice (for example, 'Other'). */
+    hasOpenChoice?: boolean
+    branching?: SurveyBranchingSchemaApi | null
+}
+
+/**
+ * * `multiple_choice` - multiple_choice
+ */
+export type SurveyMultipleChoiceQuestionSchemaTypeEnumApi =
+    (typeof SurveyMultipleChoiceQuestionSchemaTypeEnumApi)[keyof typeof SurveyMultipleChoiceQuestionSchemaTypeEnumApi]
+
+export const SurveyMultipleChoiceQuestionSchemaTypeEnumApi = {
+    MultipleChoice: 'multiple_choice',
+} as const
+
+export interface SurveyMultipleChoiceQuestionSchemaApi {
+    type: SurveyMultipleChoiceQuestionSchemaTypeEnumApi
+    /** Question text shown to respondents. */
+    question: string
+    /** Optional helper text. */
+    description?: string
+    /** Format for the description field.
+
+* `text` - text
+* `html` - html */
+    descriptionContentType?: DescriptionContentTypeEnumApi
+    /** Whether respondents may skip this question. */
+    optional?: boolean
+    /** Custom button label. */
+    buttonText?: string
+    /**
+     * Array of choice options. Multiple selections allowed. No branching logic supported.
+     * @minItems 2
+     * @maxItems 20
+     */
+    choices: string[]
+    /** Whether to randomize the order of choices for each respondent. */
+    shuffleOptions?: boolean
+    /** Whether the final option should be an open-text choice (for example, 'Other'). */
+    hasOpenChoice?: boolean
+}
+
+export type SurveyQuestionInputSchemaApi =
+    | SurveyOpenQuestionSchemaApi
+    | SurveyLinkQuestionSchemaApi
+    | SurveyRatingQuestionSchemaApi
+    | SurveySingleChoiceQuestionSchemaApi
+    | SurveyMultipleChoiceQuestionSchemaApi
+
+/**
+ * * `regex` - regex
+ * `not_regex` - not_regex
+ * `exact` - exact
+ * `is_not` - is_not
+ * `icontains` - icontains
+ * `not_icontains` - not_icontains
+ */
+export type UrlMatchTypeEnumApi = (typeof UrlMatchTypeEnumApi)[keyof typeof UrlMatchTypeEnumApi]
+
+export const UrlMatchTypeEnumApi = {
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+} as const
+
+export interface SurveyConditionEventValueSchemaApi {
+    /** Event name that triggers the survey. */
+    name: string
+}
+
+export interface SurveyEventsConditionSchemaApi {
+    /** Whether to show the survey every time one of the events is triggered (true), or just once (false). */
+    repeatedActivation?: boolean
+    /** Array of event names that trigger the survey. */
+    values?: SurveyConditionEventValueSchemaApi[]
+}
+
+/**
+ * * `Desktop` - Desktop
+ * `Mobile` - Mobile
+ * `Tablet` - Tablet
+ */
+export type DeviceTypesEnumApi = (typeof DeviceTypesEnumApi)[keyof typeof DeviceTypesEnumApi]
+
+export const DeviceTypesEnumApi = {
+    Desktop: 'Desktop',
+    Mobile: 'Mobile',
+    Tablet: 'Tablet',
+} as const
+
+/**
+ * * `regex` - regex
+ * `not_regex` - not_regex
+ * `exact` - exact
+ * `is_not` - is_not
+ * `icontains` - icontains
+ * `not_icontains` - not_icontains
+ */
+export type DeviceTypesMatchTypeEnumApi = (typeof DeviceTypesMatchTypeEnumApi)[keyof typeof DeviceTypesMatchTypeEnumApi]
+
+export const DeviceTypesMatchTypeEnumApi = {
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+} as const
+
+export interface SurveyConditionsSchemaApi {
+    url?: string
+    selector?: string
+    /**
+     * Don't show this survey to users who saw any survey in the last x days.
+     * @minimum 0
+     */
+    seenSurveyWaitPeriodInDays?: number
+    /** URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain).
+
+* `regex` - regex
+* `not_regex` - not_regex
+* `exact` - exact
+* `is_not` - is_not
+* `icontains` - icontains
+* `not_icontains` - not_icontains */
+    urlMatchType?: UrlMatchTypeEnumApi
+    events?: SurveyEventsConditionSchemaApi
+    /** Device types that should match for this survey to be shown. */
+    deviceTypes?: DeviceTypesEnumApi[]
+    /** URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain).
+
+* `regex` - regex
+* `not_regex` - not_regex
+* `exact` - exact
+* `is_not` - is_not
+* `icontains` - icontains
+* `not_icontains` - not_icontains */
+    deviceTypesMatchType?: DeviceTypesMatchTypeEnumApi
+    /** The variant of the feature flag linked to this survey. */
+    linkedFlagVariant?: string
+}
+
+/**
+ * * `html` - html
+ * `text` - text
+ */
+export type ThankYouMessageDescriptionContentTypeEnumApi =
+    (typeof ThankYouMessageDescriptionContentTypeEnumApi)[keyof typeof ThankYouMessageDescriptionContentTypeEnumApi]
+
+export const ThankYouMessageDescriptionContentTypeEnumApi = {
+    Html: 'html',
+    Text: 'text',
+} as const
+
+/**
+ * * `button` - button
+ * `tab` - tab
+ * `selector` - selector
+ */
+export type WidgetTypeEnumApi = (typeof WidgetTypeEnumApi)[keyof typeof WidgetTypeEnumApi]
+
+export const WidgetTypeEnumApi = {
+    Button: 'button',
+    Tab: 'tab',
+    Selector: 'selector',
+} as const
+
+export interface SurveyAppearanceSchemaApi {
+    backgroundColor?: string
+    submitButtonColor?: string
+    textColor?: string
+    submitButtonText?: string
+    submitButtonTextColor?: string
+    descriptionTextColor?: string
+    ratingButtonColor?: string
+    ratingButtonActiveColor?: string
+    ratingButtonHoverColor?: string
+    whiteLabel?: boolean
+    autoDisappear?: boolean
+    displayThankYouMessage?: boolean
+    thankYouMessageHeader?: string
+    thankYouMessageDescription?: string
+    thankYouMessageDescriptionContentType?: ThankYouMessageDescriptionContentTypeEnumApi
+    thankYouMessageCloseButtonText?: string
+    borderColor?: string
+    placeholder?: string
+    shuffleQuestions?: boolean
+    surveyPopupDelaySeconds?: number
+    widgetType?: WidgetTypeEnumApi
+    widgetSelector?: string
+    widgetLabel?: string
+    widgetColor?: string
+    fontFamily?: string
+    maxWidth?: string
+    zIndex?: string
+    disabledButtonOpacity?: string
+    boxPadding?: string
+}
+
 export interface SurveySerializerCreateUpdateOnlySchemaApi {
     readonly id: string
-    /** @maxLength 400 */
+    /**
+     * Survey name.
+     * @minLength 1
+     * @maxLength 400
+     */
     name: string
+    /** Survey description. */
     description?: string
+    /** Survey type.
+
+* `popover` - popover
+* `widget` - widget
+* `external_survey` - external survey
+* `api` - api */
     type: SurveyTypeApi
-    /** @nullable */
-    schedule?: string | null
+    /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)
+
+* `once` - once
+* `recurring` - recurring
+* `always` - always */
+    schedule?: ScheduleEnumApi | NullEnumApi | null
     readonly linked_flag: MinimalFeatureFlagApi
-    /** @nullable */
+    /**
+     * The feature flag linked to this survey.
+     * @nullable
+     */
     linked_flag_id?: number | null
     /** @nullable */
     linked_insight_id?: number | null
+    /** An existing targeting flag to use for this survey. */
     targeting_flag_id?: number
     readonly targeting_flag: MinimalFeatureFlagApi
     readonly internal_targeting_flag: MinimalFeatureFlagApi
+    /** Target specific users based on their properties. Example: {groups: [{properties: [{key: 'email', value: ['@company.com'], operator: 'icontains'}], rollout_percentage: 100}]} */
     targeting_flag_filters?: FeatureFlagFiltersSchemaApi | null
-    /** @nullable */
+    /**
+     * Set to true to completely remove all targeting filters from the survey, making it visible to all users (subject to other display conditions like URL matching).
+     * @nullable
+     */
     remove_targeting_flag?: boolean | null
     /**
+   * 
         The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
 
         Basic (open-ended question)
@@ -916,32 +1396,44 @@ export interface SurveySerializerCreateUpdateOnlySchemaApi {
             }
         }
         ```
-         */
-    questions?: unknown | null
-    conditions?: unknown | null
-    appearance?: unknown | null
+        
+   * @nullable
+   */
+    questions?: SurveyQuestionInputSchemaApi[] | null
+    /** Display and targeting conditions for the survey. */
+    conditions?: SurveyConditionsSchemaApi | null
+    /** Survey appearance customization. */
+    appearance?: SurveyAppearanceSchemaApi | null
     readonly created_at: string
     readonly created_by: UserBasicApi
-    /** @nullable */
+    /**
+     * Setting this will launch the survey immediately. Don't add a start_date unless explicitly requested to do so.
+     * @nullable
+     */
     start_date?: string | null
-    /** @nullable */
+    /**
+     * When the survey stopped being shown to users. Setting this will complete the survey.
+     * @nullable
+     */
     end_date?: string | null
+    /** Archive state for the survey. */
     archived?: boolean
     /**
-     * @minimum 0
-     * @maximum 2147483647
+     * The maximum number of responses before automatically stopping the survey.
      * @nullable
      */
     responses_limit?: number | null
     /**
-     * @minimum 0
+     * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule.
+     * @minimum 1
      * @maximum 500
      * @nullable
      */
     iteration_count?: number | null
     /**
-     * @minimum 0
-     * @maximum 2147483647
+     * For a recurring schedule, this field specifies the interval in days between each survey instance shown to the user, used alongside iteration_count for precise scheduling.
+     * @minimum 1
+     * @maximum 365
      * @nullable
      */
     iteration_frequency_days?: number | null
@@ -971,7 +1463,10 @@ export interface SurveySerializerCreateUpdateOnlySchemaApi {
      */
     response_sampling_limit?: number | null
     response_sampling_daily_limits?: unknown | null
-    /** @nullable */
+    /**
+     * When at least one question is answered, the response is stored (true). The response is stored when all questions are answered (false).
+     * @nullable
+     */
     enable_partial_responses?: boolean | null
     /** @nullable */
     enable_iframe_embedding?: boolean | null
@@ -1176,24 +1671,48 @@ export interface SurveySerializerCreateUpdateOnlyApi {
 
 export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
     readonly id?: string
-    /** @maxLength 400 */
+    /**
+     * Survey name.
+     * @minLength 1
+     * @maxLength 400
+     */
     name?: string
+    /** Survey description. */
     description?: string
+    /** Survey type.
+
+* `popover` - popover
+* `widget` - widget
+* `external_survey` - external survey
+* `api` - api */
     type?: SurveyTypeApi
-    /** @nullable */
-    schedule?: string | null
+    /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)
+
+* `once` - once
+* `recurring` - recurring
+* `always` - always */
+    schedule?: ScheduleEnumApi | NullEnumApi | null
     readonly linked_flag?: MinimalFeatureFlagApi
-    /** @nullable */
+    /**
+     * The feature flag linked to this survey.
+     * @nullable
+     */
     linked_flag_id?: number | null
     /** @nullable */
     linked_insight_id?: number | null
+    /** An existing targeting flag to use for this survey. */
     targeting_flag_id?: number
     readonly targeting_flag?: MinimalFeatureFlagApi
     readonly internal_targeting_flag?: MinimalFeatureFlagApi
+    /** Target specific users based on their properties. Example: {groups: [{properties: [{key: 'email', value: ['@company.com'], operator: 'icontains'}], rollout_percentage: 100}]} */
     targeting_flag_filters?: FeatureFlagFiltersSchemaApi | null
-    /** @nullable */
+    /**
+     * Set to true to completely remove all targeting filters from the survey, making it visible to all users (subject to other display conditions like URL matching).
+     * @nullable
+     */
     remove_targeting_flag?: boolean | null
     /**
+   * 
         The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
 
         Basic (open-ended question)
@@ -1304,32 +1823,44 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
             }
         }
         ```
-         */
-    questions?: unknown | null
-    conditions?: unknown | null
-    appearance?: unknown | null
+        
+   * @nullable
+   */
+    questions?: SurveyQuestionInputSchemaApi[] | null
+    /** Display and targeting conditions for the survey. */
+    conditions?: SurveyConditionsSchemaApi | null
+    /** Survey appearance customization. */
+    appearance?: SurveyAppearanceSchemaApi | null
     readonly created_at?: string
     readonly created_by?: UserBasicApi
-    /** @nullable */
+    /**
+     * Setting this will launch the survey immediately. Don't add a start_date unless explicitly requested to do so.
+     * @nullable
+     */
     start_date?: string | null
-    /** @nullable */
+    /**
+     * When the survey stopped being shown to users. Setting this will complete the survey.
+     * @nullable
+     */
     end_date?: string | null
+    /** Archive state for the survey. */
     archived?: boolean
     /**
-     * @minimum 0
-     * @maximum 2147483647
+     * The maximum number of responses before automatically stopping the survey.
      * @nullable
      */
     responses_limit?: number | null
     /**
-     * @minimum 0
+     * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule.
+     * @minimum 1
      * @maximum 500
      * @nullable
      */
     iteration_count?: number | null
     /**
-     * @minimum 0
-     * @maximum 2147483647
+     * For a recurring schedule, this field specifies the interval in days between each survey instance shown to the user, used alongside iteration_count for precise scheduling.
+     * @minimum 1
+     * @maximum 365
      * @nullable
      */
     iteration_frequency_days?: number | null
@@ -1359,7 +1890,10 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
      */
     response_sampling_limit?: number | null
     response_sampling_daily_limits?: unknown | null
-    /** @nullable */
+    /**
+     * When at least one question is answered, the response is stored (true). The response is stored when all questions are answered (false).
+     * @nullable
+     */
     enable_partial_responses?: boolean | null
     /** @nullable */
     enable_iframe_embedding?: boolean | null
@@ -1382,4 +1916,26 @@ export type SurveysListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type SurveysStatsRetrieve2Params = {
+    /**
+     * Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
+     */
+    date_from?: string
+    /**
+     * Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+     */
+    date_to?: string
+}
+
+export type SurveysStatsRetrieveParams = {
+    /**
+     * Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
+     */
+    date_from?: string
+    /**
+     * Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+     */
+    date_to?: string
 }

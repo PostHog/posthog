@@ -10,8 +10,12 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     ActivityLogPaginatedResponseApi,
+    CopyFlagsRequestApi,
+    CopyFlagsResponseApi,
+    DependentFlagApi,
     FeatureFlagApi,
     FeatureFlagCreateRequestSchemaApi,
+    FeatureFlagStatusResponseApi,
     FeatureFlagsActivityRetrieve2Params,
     FeatureFlagsActivityRetrieveParams,
     FeatureFlagsEvaluationReasonsRetrieveParams,
@@ -22,6 +26,8 @@ import type {
     MyFlagsResponseApi,
     PaginatedFeatureFlagListApi,
     PatchedFeatureFlagPartialUpdateRequestSchemaApi,
+    UserBlastRadiusRequestApi,
+    UserBlastRadiusResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -60,10 +66,16 @@ export const getFeatureFlagsCopyFlagsCreateUrl = (organizationId: string) => {
     return `/api/organizations/${organizationId}/feature_flags/copy_flags/`
 }
 
-export const featureFlagsCopyFlagsCreate = async (organizationId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsCopyFlagsCreateUrl(organizationId), {
+export const featureFlagsCopyFlagsCreate = async (
+    organizationId: string,
+    copyFlagsRequestApi: CopyFlagsRequestApi,
+    options?: RequestInit
+): Promise<CopyFlagsResponseApi> => {
+    return apiMutator<CopyFlagsResponseApi>(getFeatureFlagsCopyFlagsCreateUrl(organizationId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(copyFlagsRequestApi),
     })
 }
 
@@ -287,16 +299,16 @@ export const featureFlagsDashboardCreate = async (
 /**
  * Get other active flags that depend on this flag.
  */
-export const getFeatureFlagsDependentFlagsRetrieveUrl = (projectId: string, id: number) => {
+export const getFeatureFlagsDependentFlagsListUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/dependent_flags/`
 }
 
-export const featureFlagsDependentFlagsRetrieve = async (
+export const featureFlagsDependentFlagsList = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsDependentFlagsRetrieveUrl(projectId, id), {
+): Promise<DependentFlagApi[]> => {
+    return apiMutator<DependentFlagApi[]>(getFeatureFlagsDependentFlagsListUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -358,8 +370,8 @@ export const featureFlagsStatusRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsStatusRetrieveUrl(projectId, id), {
+): Promise<FeatureFlagStatusResponseApi> => {
+    return apiMutator<FeatureFlagStatusResponseApi>(getFeatureFlagsStatusRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -576,13 +588,13 @@ export const getFeatureFlagsUserBlastRadiusCreateUrl = (projectId: string) => {
 
 export const featureFlagsUserBlastRadiusCreate = async (
     projectId: string,
-    featureFlagApi: NonReadonly<FeatureFlagApi>,
+    userBlastRadiusRequestApi: UserBlastRadiusRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsUserBlastRadiusCreateUrl(projectId), {
+): Promise<UserBlastRadiusResponseApi> => {
+    return apiMutator<UserBlastRadiusResponseApi>(getFeatureFlagsUserBlastRadiusCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlagApi),
+        body: JSON.stringify(userBlastRadiusRequestApi),
     })
 }

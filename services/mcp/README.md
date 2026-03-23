@@ -258,24 +258,49 @@ For simpler queries, you can use shorter prompts:
 
 ### Feature Filtering
 
-You can limit which tools are available by adding query parameters to the MCP URL:
+You can limit which tools are available by adding query parameters to the MCP URL. If no features are specified, all tools are available. When features are specified, only tools matching those features are exposed.
 
 ```text
-https://mcp.posthog.com/mcp?features=flags,workspace
+https://mcp.posthog.com/mcp?features=flags,workspace,dashboards
 ```
 
 Available features:
 
-- `workspace` - Organization and project management
-- `error-tracking` - [Error monitoring and debugging](https://posthog.com/docs/errors)
-- `dashboards` - [Dashboard creation and management](https://posthog.com/docs/product-analytics/dashboards)
-- `insights` - [Analytics insights and SQL queries](https://posthog.com/docs/product-analytics/insights)
-- `experiments` - [A/B testing experiments](https://posthog.com/docs/experiments)
-- `flags` - [Feature flag management](https://posthog.com/docs/feature-flags)
-- `llm-analytics` - [LLM usage and cost tracking](https://posthog.com/docs/llm-analytics)
-- `docs` - PostHog documentation search
+| Feature                  | Description                                                                                               |
+| ------------------------ | --------------------------------------------------------------------------------------------------------- |
+| `workspace`              | Organization and project management                                                                       |
+| `actions`                | [Action definitions](https://posthog.com/docs/data/actions)                                               |
+| `activity_logs`          | Activity log viewing                                                                                      |
+| `alerts`                 | [Alert management](https://posthog.com/docs/product-analytics/alerts)                                     |
+| `annotations`            | [Annotation management](https://posthog.com/docs/product-analytics/annotations)                           |
+| `cohorts`                | [Cohort management](https://posthog.com/docs/data/cohorts)                                                |
+| `dashboards`             | [Dashboard creation and management](https://posthog.com/docs/product-analytics/dashboards)                |
+| `data_schema`            | Data schema exploration                                                                                   |
+| `data_warehouse`         | [Data warehouse management](https://posthog.com/docs/data-warehouse)                                      |
+| `debug`                  | Debug and diagnostic tools                                                                                |
+| `docs`                   | PostHog documentation search                                                                              |
+| `early_access_features`  | [Early access feature management](https://posthog.com/docs/feature-flags/early-access-feature-management) |
+| `error_tracking`         | [Error monitoring and debugging](https://posthog.com/docs/error-tracking)                                 |
+| `events`                 | Event and property definitions                                                                            |
+| `experiments`            | [A/B testing experiments](https://posthog.com/docs/experiments)                                           |
+| `flags`                  | [Feature flag management](https://posthog.com/docs/feature-flags)                                         |
+| `hog_functions`          | [CDP function management](https://posthog.com/docs/cdp)                                                   |
+| `hog_function_templates` | CDP function template browsing                                                                            |
+| `insights`               | [Analytics insights](https://posthog.com/docs/product-analytics/insights)                                 |
+| `llm_analytics`          | [LLM analytics evaluations](https://posthog.com/docs/ai-engineering)                                      |
+| `prompts`                | [LLM prompt management](https://posthog.com/docs/ai-engineering)                                          |
+| `logs`                   | [Log querying](https://posthog.com/docs/ai-engineering/observability)                                     |
+| `notebooks`              | [Notebook management](https://posthog.com/docs/notebooks)                                                 |
+| `persons`                | [Person and group management](https://posthog.com/docs/data/persons)                                      |
+| `reverse_proxy`          | Reverse proxy record management                                                                           |
+| `search`                 | Entity search across the project                                                                          |
+| `sql`                    | SQL query execution                                                                                       |
+| `surveys`                | [Survey management](https://posthog.com/docs/surveys)                                                     |
+| `workflows`              | [Workflow management](https://posthog.com/docs/cdp)                                                       |
 
-To view which tools are available per feature, see our [documentation](https://posthog.com/docs/model-context-protocol) or alternatively check out `schema/tool-definitions.json`,
+> **Note:** Hyphens and underscores are treated as equivalent in feature names (e.g., `error-tracking` and `error_tracking` both work).
+
+To view which tools are available per feature, see our [documentation](https://posthog.com/docs/model-context-protocol) or check `schema/tool-definitions-all.json`.
 
 ### Data processing
 

@@ -1,11 +1,12 @@
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { ErrorTrackingSpikeEvent } from 'lib/components/Errors/types'
 import { dateStringToDayJs } from 'lib/utils'
 
 import { DateRange, ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
 
-import { SparklineData } from '../components/SparklineChart/SparklineChart'
+import type { SparklineData } from '../components/VolumeSparkline/types'
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { ERROR_TRACKING_DETAILS_RESOLUTION } from '../utils'
 
@@ -63,6 +64,26 @@ export function useSparklineData(
 }
 
 export function useSparklineDataIssueScene(): SparklineData {
-    const { aggregations, dateRange } = useValues(errorTrackingIssueSceneLogic)
-    return useSparklineData(aggregations, ERROR_TRACKING_DETAILS_RESOLUTION, dateRange)
+    const { aggregations, dateRange, spikeEvents } = useValues(errorTrackingIssueSceneLogic)
+    const data = useSparklineData(aggregations, ERROR_TRACKING_DETAILS_RESOLUTION, dateRange)
+    return useMemo(() => applyVolumeSpikeHighlights(data, spikeEvents), [data, spikeEvents])
+}
+
+export function applyVolumeSpikeHighlights(
+    data: SparklineData,
+    spikeEvents: ErrorTrackingSpikeEvent[],
+    spikeStripeColor = 'var(--brand-yellow)'
+): SparklineData {
+    if (spikeEvents.length === 0 || data.length < 2) {
+        return data
+    }
+
+    const binSizeMs = data[1].date.getTime() - data[0].date.getTime()
+    const spikeTimestamps = spikeEvents.map((s) => new Date(s.detected_at).getTime())
+
+    return data.map((datum) => {
+        const datumTime = datum.date.getTime()
+        const hasSpikeInBin = spikeTimestamps.some((st) => st >= datumTime && st < datumTime + binSizeMs)
+        return hasSpikeInBin ? { ...datum, color: spikeStripeColor, animated: true } : datum
+    })
 }

@@ -215,6 +215,16 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
 
     objects: UserManager = UserManager()
 
+    # Snapshot of is_active at load time, used by signal handlers to detect changes.
+    # Set in from_db(); not a model field.
+    _original_is_active: bool
+
+    @classmethod
+    def from_db(cls, db, field_names, values):
+        instance = super().from_db(db, field_names, values)
+        instance._original_is_active = instance.is_active
+        return instance
+
     @property
     def is_superuser(self) -> bool:
         return self.is_staff

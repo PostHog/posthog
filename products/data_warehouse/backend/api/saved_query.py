@@ -140,6 +140,8 @@ class DataWarehouseSavedQueryMinimalSerializer(DataWarehouseSavedQuerySerializer
             "latest_error",
             "is_materialized",
             "origin",
+            "is_test",
+            "expires_at",
         ]
         read_only_fields = fields
 
@@ -184,6 +186,8 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
             "soft_update",
             "is_materialized",
             "origin",
+            "is_test",
+            "expires_at",
         ]
         read_only_fields = [
             "id",
@@ -197,6 +201,7 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
             "latest_history_id",
             "is_materialized",
             "origin",
+            "expires_at",
         ]
         extra_kwargs = {
             "soft_update": {"write_only": True},
@@ -460,6 +465,11 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
                 raise exceptions.ValidationError(detail=f"Unexpected {err.__class__.__name__}")
 
         return query
+
+    def validate_is_test(self, is_test):
+        if is_test and not self.context["request"].user.is_staff:
+            raise serializers.ValidationError("Only staff users can create test views.")
+        return is_test
 
     def validate_name(self, name):
         # if it's an upsert, we don't want to validate the name

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { FeatureFlagsCreateBody, FeatureFlagsListQueryParams } from '@/generated/feature_flags/api'
-import { CreateSurveyInputSchema } from '@/schema/surveys'
+import { SurveysCreateBody } from '@/generated/surveys/api'
 
 describe('Feature flag filter schemas', () => {
     it('should accept valid feature flag filters from OpenAPI schema', () => {
@@ -88,8 +88,9 @@ describe('Feature flag filter schemas', () => {
     })
 
     it('should use feature flag filters schema for survey targeting filters', () => {
-        const result = CreateSurveyInputSchema.safeParse({
+        const result = SurveysCreateBody.safeParse({
             name: 'Survey with targeting filters',
+            type: 'popover',
             questions: [{ type: 'open', question: 'How was your experience?' }],
             targeting_flag_filters: {
                 groups: [
