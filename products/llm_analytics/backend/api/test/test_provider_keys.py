@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from rest_framework import status
 
-from posthog.models import Organization, Project, Team, User
+from posthog.models import Organization, OrganizationMembership, Project, Team, User
 
 from products.llm_analytics.backend.models.evaluation_config import EvaluationConfig
 from products.llm_analytics.backend.models.evaluations import Evaluation
@@ -36,6 +36,11 @@ def _setup_team():
 
 
 class TestLLMProviderKeyViewSet(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
     def test_unauthenticated_user_cannot_access_provider_keys(self):
         self.client.logout()
         response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/provider_keys/")
@@ -397,6 +402,11 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
 
 
 class TestLLMProviderKeyValidationViewSet(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
     def test_unauthenticated_user_cannot_validate(self):
         self.client.logout()
         response = self.client.post(
@@ -463,6 +473,11 @@ class TestLLMProviderKeyValidationViewSet(APIBaseTest):
 
 
 class TestLLMProviderKeyDependentConfigs(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
     def test_dependent_configs_returns_evaluations_using_key(self):
         key = LLMProviderKey.objects.create(
             team=self.team,

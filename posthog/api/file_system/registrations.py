@@ -387,7 +387,7 @@ def register_core_file_system_types() -> None:
 
     register_file_system_type(
         "link",
-        "posthog",
+        "links",
         "Link",
         allow_restore=False,
         undo_message="Create a new link with the same details.",

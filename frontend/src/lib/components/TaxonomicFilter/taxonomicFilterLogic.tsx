@@ -1193,6 +1193,30 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     filtered.splice(suggestedIndex + 1, 0, TaxonomicFilterGroupType.RecentFilters)
                 }
 
+                // Promote PageviewUrls, Screens, EmailAddresses to top positions
+                // (after SuggestedFilters/RecentFilters if present)
+                const shortcutGroups: TaxonomicFilterGroupType[] = [
+                    TaxonomicFilterGroupType.PageviewUrls,
+                    TaxonomicFilterGroupType.Screens,
+                    TaxonomicFilterGroupType.EmailAddresses,
+                ]
+
+                const toInsert: TaxonomicFilterGroupType[] = []
+                for (const groupType of shortcutGroups) {
+                    const idx = filtered.indexOf(groupType)
+                    if (idx !== -1) {
+                        filtered.splice(idx, 1)
+                        toInsert.push(groupType)
+                    }
+                }
+
+                if (toInsert.length > 0) {
+                    const recentsIdx = filtered.indexOf(TaxonomicFilterGroupType.RecentFilters)
+                    const suggestedIdx = filtered.indexOf(TaxonomicFilterGroupType.SuggestedFilters)
+                    const insertAt = recentsIdx !== -1 ? recentsIdx + 1 : suggestedIdx !== -1 ? suggestedIdx + 1 : 0
+                    filtered.splice(insertAt, 0, ...toInsert)
+                }
+
                 return filtered
             },
         ],

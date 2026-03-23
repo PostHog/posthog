@@ -180,6 +180,7 @@ jobs:
     detect-snapshot-mode:
         name: Detect snapshot mode
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
         outputs:
@@ -603,6 +604,7 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   CHANGED_FILES: ${{ needs.changes.outputs.migrations_files }}
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: |
                   # If no migration files changed, exit
                   if [ -z "$CHANGED_FILES" ]; then
@@ -610,8 +612,16 @@ jobs:
                     exit 0
                   fi
 
+                  if [ -z "$BASE_SHA" ]; then
+                    echo "::warning::BASE_SHA is empty — all changed migrations will be treated as new"
+                  else
+                    # Ensure the base commit is available for comparison
+                    git fetch --no-tags --prune --depth=1 origin "$BASE_SHA" || echo "::warning::Could not fetch base SHA $BASE_SHA — all changed migrations will be shown as new"
+                  fi
+
                   # Initialize comment body for SQL changes
                   COMMENT_BODY="## Migration SQL Changes\n\nHey 👋, we've detected some migrations on this PR. Here's the SQL output for each migration, make sure they make sense:\n\n"
+                  HAS_NEW_MIGRATIONS=false
 
                   # Process each changed migration file (excluding Rust migrations)
                   for file in $CHANGED_FILES; do
@@ -629,7 +639,15 @@ jobs:
                       else
                         app_name=$(echo $file | sed -E 's|^([^/]+/)*([^/]+)/migrations/.*|\2|')
                       fi
-                        echo "Checking migration $migration_number for app $app_name"
+
+                      # Only show SQL for new migrations, not modifications to existing ones
+                      if git cat-file -e "$BASE_SHA:$file" 2>/dev/null; then
+                        echo "Skipping $file (already exists on base branch)"
+                        continue
+                      fi
+
+                      HAS_NEW_MIGRATIONS=true
+                      echo "Checking migration $migration_number for app $app_name"
 
                       # Get SQL output
                       SQL_OUTPUT=$(python manage.py sqlmigrate $app_name $migration_number)
@@ -639,13 +657,26 @@ jobs:
                     fi
                   done
 
-                  # Get existing comments
+                  # Get existing comments (needed for both update and cleanup)
                   COMMENTS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
                     -H "Accept: application/vnd.github.v3+json" \
                     "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments")
 
                   # Extract comment ID if exists
                   SQL_COMMENT_ID=$(echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## Migration SQL Changes")) | .id' | head -1)
+
+                  # If no new migrations, clean up any stale comment and exit
+                  if [ "$HAS_NEW_MIGRATIONS" = false ]; then
+                    echo "No new migrations to show (all changed files already exist on base branch)"
+                    if [ -n "$SQL_COMMENT_ID" ]; then
+                      echo "Deleting stale SQL comment $SQL_COMMENT_ID"
+                      curl -X DELETE \
+                        -H "Authorization: token $GITHUB_TOKEN" \
+                        -H "Accept: application/vnd.github.v3+json" \
+                        "https://api.github.com/repos/${{ github.repository }}/issues/comments/$SQL_COMMENT_ID"
+                    fi
+                    exit 0
+                  fi
 
                   # Add timestamp and commit SHA to SQL changes
                   TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
@@ -897,6 +928,7 @@ jobs:
         needs: [changes, get_clickhouse_versions]
         if: needs.changes.outputs.backend == 'true'
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         outputs:
             include: ${{ steps.build.outputs.include }}
         steps:
@@ -1355,6 +1387,7 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         outputs:
             # Oldest supported version for main Django tests (JSON array for matrix)
             oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
@@ -1424,6 +1457,7 @@ jobs:
         # Run even if some matrix jobs failed (to commit snapshots from passing jobs)
         if: ${{ always() && needs.detect-snapshot-mode.outputs.mode == 'update' && needs.changes.outputs.backend == 'true' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         permissions:
             contents: write
             pull-requests: write
@@ -1491,6 +1525,7 @@ jobs:
         needs: [django, check-migrations, async-migrations, turbo-discover, turbo-tests, handle-snapshots, repo-checks]
         name: Django Tests Pass
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - name: Check matrix outcome
@@ -1555,6 +1590,7 @@ jobs:
              needs.turbo-discover.outputs.run_legacy == 'true' ||
              (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
         runs-on: depot-ubuntu-latest
+        timeout-minutes: 30
         steps:
             - name: 'Checkout repo'
               uses: actions/checkout@v6
@@ -1649,6 +1685,7 @@ jobs:
         name: Calculate running time
         needs: [django_tests, async-migrations]
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
             always() && github.actor != 'dependabot[bot]' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||

@@ -1,0 +1,64 @@
+# Rust service images built by CI.
+#
+# This is the single source of truth for which images get built.
+# Both production (rust-docker-build.yml) and smoke-test
+# (rust-smoke-test-build.yml) workflows read this file via the
+# shared build workflow (_rust-build-images.yml).
+#
+# To add a new service: append an entry here. The deploy matrix in
+# rust-docker-build.yml must also be updated for production deploys.
+- image: capture
+  dockerfile: ./rust/Dockerfile
+  project: kshskj225r
+
+- image: sqlx-migrate
+  dockerfile: ./rust/Dockerfile.sqlx-migrate
+  project: jmsz6gms8g
+
+- image: cyclotron-janitor
+  dockerfile: ./rust/Dockerfile
+  project: r4zm8vtlbw
+
+- image: property-defs-rs
+  dockerfile: ./rust/Dockerfile
+  project: vznmbshh6q
+
+- image: cymbal
+  dockerfile: ./rust/Dockerfile
+  project: 8dq0xkk0ck
+
+- image: embedding-worker
+  dockerfile: ./rust/Dockerfile
+  project: 8dq0xkk0ck
+
+- image: feature-flags
+  dockerfile: ./rust/Dockerfile
+  project: vglf58qgzw
+
+- image: batch-import-worker
+  dockerfile: ./rust/Dockerfile
+  project: 4ppc15q4bv
+
+- image: capture-logs
+  dockerfile: ./rust/Dockerfile
+  project: c1bwj4j4qg
+
+- image: kafka-deduplicator
+  dockerfile: ./rust/Dockerfile
+  project: vznmbshh6q
+
+- image: personhog-leader
+  dockerfile: ./rust/Dockerfile
+  project: g0kjbvxgqx
+
+- image: personhog-replica
+  dockerfile: ./rust/Dockerfile
+  project: vq4lxdfdv2
+
+- image: personhog-router
+  dockerfile: ./rust/Dockerfile
+  project: wqvvpmzgbk
+
+- image: kafka-assigner
+  dockerfile: ./rust/Dockerfile
+  project: 6kjc85bwm7

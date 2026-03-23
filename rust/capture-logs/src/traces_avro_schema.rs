@@ -129,6 +129,11 @@ pub const TRACES_AVRO_SCHEMA: &str = r#"
     "name": "status_code",
     "type": ["null", "int"],
     "doc": "Status code: 0=UNSET, 1=OK, 2=ERROR."
+    },
+    {
+    "name": "status_message",
+    "type": ["null", "string"],
+    "doc": "Status message"
     }
 ]
 }"#;

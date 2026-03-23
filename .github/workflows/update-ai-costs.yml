@@ -13,6 +13,7 @@ permissions:
 jobs:
     update-ai-costs:
         runs-on: ubuntu-latest
+        timeout-minutes: 5
 
         steps:
             - name: Get app token

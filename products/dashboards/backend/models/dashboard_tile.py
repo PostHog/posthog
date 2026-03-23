@@ -3,7 +3,6 @@ from django.db import models
 from django.db.models import Q, QuerySet, UniqueConstraint
 from django.utils import timezone
 
-from posthog.models.insight import generate_insight_filters_hash
 from posthog.models.utils import UUIDModel, build_unique_relationship_check
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -127,6 +126,8 @@ class DashboardTile(models.Model):
         if self.insight is not None:
             has_no_filters_hash = self.filters_hash is None
             if has_no_filters_hash and self.insight.filters != {}:
+                from posthog.models.insight import generate_insight_filters_hash
+
                 self.filters_hash = generate_insight_filters_hash(self.insight, self.dashboard)
 
                 if "update_fields" in kwargs:

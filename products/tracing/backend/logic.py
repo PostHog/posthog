@@ -5,209 +5,237 @@ Validation, calculations, business rules, ORM queries.
 Called by facade/api.py.
 """
 
-import uuid
-import random
+import json
+import base64
 import datetime as dt
-from collections import Counter
+from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo
+
+from posthog.schema import (
+    CachedTraceSpansQueryResponse,
+    HogQLFilters,
+    IntervalType,
+    TraceSpansQuery,
+    TraceSpansQueryResponse,
+)
+
+from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
+
+from posthog.clickhouse.client.connection import Workload
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.filters.mixins.utils import cached_property
+
+if TYPE_CHECKING:
+    from posthog.models import User
 
 
-def _random_uuid(rng: random.Random) -> str:
-    return uuid.UUID(int=rng.getrandbits(128), version=4).hex
+class TraceSpansQueryRunner(AnalyticsQueryRunner[TraceSpansQueryResponse]):
+    query: TraceSpansQuery
+    cached_response: CachedTraceSpansQueryResponse
+    paginator: HogQLHasMorePaginator
 
+    def __init__(self, query, *args, **kwargs):
+        super().__init__(query, *args, **kwargs)
 
-def _span(
-    rng: random.Random,
-    trace_id: str,
-    span_id: str,
-    parent_span_id: str,
-    name: str,
-    kind: int,
-    service_name: str,
-    status_code: int,
-    start: dt.datetime,
-    duration_ms: float,
-) -> dict:
-    duration_nano = int(duration_ms * 1_000_000)
-    return {
-        "uuid": _random_uuid(rng),
-        "trace_id": trace_id,
-        "span_id": span_id,
-        "parent_span_id": parent_span_id,
-        "name": name,
-        "kind": kind,
-        "service_name": service_name,
-        "status_code": status_code,
-        "timestamp": start.isoformat(),
-        "end_time": (start + dt.timedelta(milliseconds=duration_ms)).isoformat(),
-        "duration_nano": duration_nano,
-    }
+        self.paginator = HogQLHasMorePaginator.from_limit_context(
+            limit_context=LimitContext.QUERY,
+            limit=self.query.limit if self.query.limit else None,
+            offset=self.query.offset,
+        )
 
+        self.modifiers.convertToProjectTimezone = False
 
-# Each trace template is a list of (offset_ms, duration_ms, name, kind, service, status_code) tuples.
-# The first entry is the root span (parent_span_id=""), subsequent entries are children.
-# Children reference their parent by index in the template.
-_TRACE_TEMPLATES: list[dict] = [
-    {
-        "name": "POST /api/checkout",
-        "spans": [
-            # (offset_ms, duration_ms, name, kind, service, status, parent_idx)
-            (0, 320, "POST /api/checkout", 2, "api-gateway", 1, None),
-            (2, 18, "authenticate", 3, "auth-service", 1, 0),
-            (4, 3, "redis.get token", 3, "redis", 1, 1),
-            (22, 45, "validate_cart", 3, "cart-service", 1, 0),
-            (25, 12, "SELECT cart_items", 3, "postgres", 1, 3),
-            (40, 5, "redis.get pricing", 3, "redis", 1, 3),
-            (70, 35, "check_inventory", 3, "inventory-service", 1, 0),
-            (73, 28, "SELECT stock WHERE sku IN (...)", 3, "postgres", 1, 6),
-            (110, 180, "charge_payment", 3, "payment-service", 1, 0),
-            (115, 155, "POST stripe.com/v1/charges", 3, "stripe-client", 1, 8),
-            (275, 12, "INSERT payment_records", 3, "postgres", 1, 8),
-            (295, 20, "send_confirmation", 3, "notification-service", 1, 0),
-            (298, 8, "kafka.produce email.send", 4, "kafka", 1, 11),
-        ],
-    },
-    {
-        "name": "GET /api/products",
-        "spans": [
-            (0, 8, "GET /api/products", 2, "api-gateway", 1, None),
-            (1, 2, "redis.get products:featured", 3, "redis", 1, 0),
-        ],
-    },
-    {
-        "name": "POST /api/search",
-        "spans": [
-            (0, 850, "POST /api/search", 2, "api-gateway", 1, None),
-            (3, 840, "execute_search", 3, "search-service", 1, 0),
-            (5, 502, "elasticsearch.query", 3, "elasticsearch", 2, 1),
-            (510, 200, "elasticsearch.query (retry)", 3, "elasticsearch", 1, 1),
-            (715, 120, "rank_results", 3, "ranking-service", 1, 1),
-            (720, 95, "ml.predict relevance_scores", 1, "ml-model", 1, 4),
-        ],
-    },
-    {
-        "name": "kafka.consume order.created",
-        "spans": [
-            (0, 150, "kafka.consume order.created", 5, "order-processor", 1, None),
-            (2, 145, "process_order", 1, "order-processor", 1, 0),
-            (5, 15, "SELECT order_details", 3, "postgres", 1, 1),
-            (25, 10, "UPDATE orders SET status='processing'", 3, "postgres", 1, 1),
-            (40, 95, "s3.putObject invoice.pdf", 3, "s3", 1, 1),
-        ],
-    },
-    {
-        "name": "GET /api/user/profile",
-        "spans": [
-            (0, 45, "GET /api/user/profile", 2, "api-gateway", 2, None),
-            (3, 40, "get_user_profile", 3, "user-service", 2, 0),
-            (5, 35, "SELECT users WHERE id = $1", 3, "postgres", 2, 1),
-        ],
-    },
-    {
-        "name": "GET /api/dashboard",
-        "spans": [
-            (0, 120, "GET /api/dashboard", 2, "api-gateway", 1, None),
-            (2, 25, "redis.get session", 3, "redis", 1, 0),
-            (30, 80, "fetch_widgets", 3, "dashboard-service", 1, 0),
-            (35, 60, "SELECT dashboards JOIN widgets", 3, "postgres", 1, 2),
-            (100, 15, "redis.set cache", 3, "redis", 1, 0),
-        ],
-    },
-    {
-        "name": "POST /api/events",
-        "spans": [
-            (0, 25, "POST /api/events", 2, "api-gateway", 1, None),
-            (2, 8, "validate_event", 1, "ingestion-service", 1, 0),
-            (12, 10, "kafka.produce events", 4, "kafka", 1, 0),
-        ],
-    },
-    {
-        "name": "GET /api/feature-flags",
-        "spans": [
-            (0, 15, "GET /api/feature-flags", 2, "api-gateway", 1, None),
-            (1, 5, "redis.get flags:project_123", 3, "redis", 1, 0),
-            (7, 6, "evaluate_flags", 1, "feature-flag-service", 1, 0),
-        ],
-    },
-]
+    def validate_query_runner_access(self, user: "User") -> bool:
+        from posthog.rbac.user_access_control import UserAccessControlError
 
+        raise UserAccessControlError("tracing", "viewer")
 
-def _instantiate_trace(rng: random.Random, template: dict, start: dt.datetime) -> list[dict]:
-    """Create a trace from a template at the given start time."""
-    trace_id = _random_uuid(rng)
-    span_ids = [_random_uuid(rng)[:16] for _ in template["spans"]]
-    spans: list[dict] = []
+    def _calculate(self) -> TraceSpansQueryResponse:
+        response = self.paginator.execute_hogql_query(
+            query_type="TraceSpansQuery",
+            query=self.to_query(),
+            modifiers=self.modifiers,
+            team=self.team,
+            workload=Workload.LOGS,
+            timings=self.timings,
+            limit_context=self.limit_context,
+            filters=HogQLFilters(dateRange=self.query.dateRange),
+            settings=self.settings,
+        )
+        results = []
+        for result in response.results:
+            results.append(
+                {
+                    "uuid": result[0],
+                    "trace_id": result[1],
+                    "span_id": result[2],
+                    "parent_span_id": result[3],
+                    "name": result[4],
+                    "kind": result[5],
+                    "service_name": result[6],
+                    "status_code": result[7],
+                    "timestamp": result[8].replace(tzinfo=ZoneInfo("UTC")),
+                    "end_time": result[9].replace(tzinfo=ZoneInfo("UTC")),
+                    "duration_nano": result[10],
+                }
+            )
 
-    for i, (offset_ms, duration_ms, name, kind, service, status_code, parent_idx) in enumerate(template["spans"]):
-        parent_span_id = span_ids[parent_idx] if parent_idx is not None else ""
-        spans.append(
-            _span(
-                rng,
-                trace_id=trace_id,
-                span_id=span_ids[i],
-                parent_span_id=parent_span_id,
-                name=name,
-                kind=kind,
-                service_name=service,
-                status_code=status_code,
-                start=start + dt.timedelta(milliseconds=offset_ms),
-                duration_ms=duration_ms,
+        return TraceSpansQueryResponse(results=results, **self.paginator.response_params())
+
+    def run(self, *args, **kwargs) -> TraceSpansQueryResponse | CachedTraceSpansQueryResponse:
+        response = super().run(*args, **kwargs)
+        assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
+        return response
+
+    def to_query(self) -> ast.SelectQuery:
+        order_dir = "ASC" if self.query.orderBy == "earliest" else "DESC"
+
+        query = self.paginator.paginate(
+            parse_select(
+                """
+            SELECT
+                uuid,
+                hex(tryBase64Decode(trace_id)),
+                hex(tryBase64Decode(span_id)),
+                hex(tryBase64Decode(parent_span_id)),
+                name,
+                kind,
+                service_name,
+                status_code,
+                timestamp,
+                end_time,
+                duration_nano
+            FROM posthog.trace_spans
+            WHERE {where}
+        """,
+                placeholders={
+                    "where": self.where(),
+                },
+            )
+        )
+        assert isinstance(query, ast.SelectQuery)
+        query.order_by = [
+            parse_order_expr(f"end_time {order_dir}"),
+            parse_order_expr(f"uuid {order_dir}"),
+        ]
+        return query
+
+    def where(self) -> ast.Expr:
+        exprs: list[ast.Expr] = []
+
+        exprs.append(
+            parse_expr(
+                "toStartOfDay(time_bucket) >= toStartOfDay({date_from}) and toStartOfDay(time_bucket) <= toStartOfDay({date_to})",
+                placeholders={
+                    **self.query_date_range.to_placeholders(),
+                },
             )
         )
 
-    return spans
+        exprs.append(ast.Placeholder(expr=ast.Field(chain=["filters"])))
 
+        if self.query.rootSpans:
+            exprs.append(
+                parse_expr(
+                    "is_root_span = true",
+                )
+            )
 
-def generate_fixture_spans(*, limit: int | None = None) -> list[dict]:
-    """Generate realistic fixture spans spread across the last 24 hours.
+        if self.query.serviceNames:
+            exprs.append(
+                parse_expr(
+                    "service_name IN {serviceNames}",
+                    placeholders={
+                        "serviceNames": ast.Tuple(exprs=[ast.Constant(value=str(sn)) for sn in self.query.serviceNames])
+                    },
+                )
+            )
 
-    Produces ~500 traces (~2500 spans) with diurnal traffic patterns:
-    more traffic during business hours, less at night.
-    """
-    rng = random.Random(42)  # deterministic so IDs are stable across requests
-    # Pin to the start of the current hour so trace IDs stay consistent
-    now = dt.datetime.now(tz=dt.UTC).replace(minute=0, second=0, microsecond=0)
-    spans: list[dict] = []
+        if self.query.statusCodes:
+            exprs.append(
+                parse_expr(
+                    "status_code IN {statusCodes}",
+                    placeholders={
+                        "statusCodes": ast.Tuple(exprs=[ast.Constant(value=int(sc)) for sc in self.query.statusCodes])
+                    },
+                )
+            )
 
-    # Generate traces spread across the last 24 hours (most recent first)
-    for minutes_ago in range(1, 1441):
-        hour = (now - dt.timedelta(minutes=minutes_ago)).hour
+        if self.query.searchTerm:
+            exprs.append(
+                parse_expr(
+                    "name ILIKE {searchTerm}",
+                    placeholders={
+                        "searchTerm": ast.Constant(value=f"%{self.query.searchTerm}%"),
+                    },
+                )
+            )
 
-        # Diurnal pattern: more traffic 8am-8pm, quieter at night
-        if 8 <= hour <= 20:
-            traces_this_minute = rng.choices([0, 1, 2, 3], weights=[20, 40, 30, 10])[0]
-        else:
-            traces_this_minute = rng.choices([0, 1], weights=[70, 30])[0]
+        if self.query.traceId:
+            exprs.append(
+                parse_expr(
+                    "trace_id = base64Encode(unhex({traceId}))",
+                    placeholders={
+                        "traceId": ast.Constant(value=self.query.traceId),
+                    },
+                )
+            )
 
-        for _ in range(traces_this_minute):
-            template = rng.choice(_TRACE_TEMPLATES)
-            offset_seconds = rng.uniform(0, 60)
-            trace_start = now - dt.timedelta(minutes=minutes_ago) + dt.timedelta(seconds=offset_seconds)
-            spans.extend(_instantiate_trace(rng, template, trace_start))
+        if self.query.after:
+            try:
+                cursor = json.loads(base64.b64decode(self.query.after).decode("utf-8"))
+                cursor_ts = dt.datetime.fromisoformat(cursor["timestamp"])
+                cursor_uuid = cursor["uuid"]
+            except (KeyError, ValueError, json.JSONDecodeError) as e:
+                raise ValueError(f"Invalid cursor format: {e}")
 
-    spans.sort(key=lambda s: s["timestamp"], reverse=True)
-    if limit is not None:
-        spans = spans[:limit]
-    return spans
+            op = ">" if self.query.orderBy == "earliest" else "<"
+            ts_op = ">=" if self.query.orderBy == "earliest" else "<="
 
+            exprs.append(
+                parse_expr(
+                    f"time_bucket {ts_op} toStartOfDay({{cursor_ts}})",
+                    placeholders={"cursor_ts": ast.Constant(value=cursor_ts)},
+                )
+            )
+            exprs.append(
+                parse_expr(
+                    f"timestamp {ts_op} {{cursor_ts}}",
+                    placeholders={"cursor_ts": ast.Constant(value=cursor_ts)},
+                )
+            )
+            exprs.append(
+                parse_expr(
+                    f"(timestamp, uuid) {op} ({{cursor_ts}}, {{cursor_uuid}})",
+                    placeholders={
+                        "cursor_ts": ast.Constant(value=cursor_ts),
+                        "cursor_uuid": ast.Constant(value=cursor_uuid),
+                    },
+                )
+            )
 
-def get_fixture_trace_spans(trace_id: str) -> list[dict]:
-    """Return all spans belonging to a specific trace."""
-    all_spans = generate_fixture_spans()
-    return [s for s in all_spans if s["trace_id"] == trace_id]
+        return ast.And(exprs=exprs)
 
+    @cached_property
+    def query_date_range(self) -> QueryDateRange:
+        return QueryDateRange(
+            date_range=self.query.dateRange,
+            team=self.team,
+            interval=IntervalType.MINUTE,
+            interval_count=2,
+            now=dt.datetime.now(),
+        )
 
-def generate_fixture_sparkline(spans: list[dict]) -> list[dict]:
-    """Aggregate fixture spans into sparkline buckets by service."""
-    bucket_minutes = 15
-    counts: Counter[tuple[str, str]] = Counter()
-
-    for span in spans:
-        ts = dt.datetime.fromisoformat(span["timestamp"])
-        bucket = ts.replace(second=0, microsecond=0, minute=(ts.minute // bucket_minutes) * bucket_minutes)
-        counts[(bucket.isoformat(), span["service_name"])] += 1
-
-    results: list[dict] = []
-    for (time, service), count in sorted(counts.items()):
-        results.append({"time": time, "service": service, "count": count})
-
-    return results
+    @cached_property
+    def settings(self):
+        return HogQLGlobalSettings(
+            allow_experimental_object_type=False,
+            allow_experimental_join_condition=False,
+            transform_null_in=False,
+            max_bytes_to_read=None,
+            read_overflow_mode=None,
+        )
