@@ -161,6 +161,7 @@ def get_rows(
             include_custom_props=include_custom_props,
             logger=logger,
         )
+        expected_properties = props_str.split(",") if props_str else []
 
     headers = _get_headers(api_key)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
@@ -217,11 +218,8 @@ def get_rows(
 
         for result in results:
             row = _flatten_result(result)
-            # Backfill missing properties with None so PyArrow preserves the columns
             if expected_properties:
-                for prop in expected_properties:
-                    if prop not in row:
-                        row[prop] = None
+                _backfill_missing_properties(row, expected_properties)
             batcher.batch(row)
 
             if batcher.should_yield():

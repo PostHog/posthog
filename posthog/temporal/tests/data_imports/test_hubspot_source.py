@@ -27,13 +27,13 @@ import urllib.parse
 
 import pytest
 from unittest.mock import MagicMock, patch
-from unittest.mock import MagicMock, patch
 
 import structlog
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.hubspot.hubspot import (
     PROPERTY_LENGTH_LIMIT,
+    _backfill_missing_properties,
     _flatten_result,
     _get_properties_str,
     get_rows,
