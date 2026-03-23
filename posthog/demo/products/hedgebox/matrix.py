@@ -4,7 +4,7 @@ import datetime as dt
 from collections.abc import Callable
 from dataclasses import dataclass
 from io import StringIO
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, cast
 from urllib.parse import urlparse, urlunparse
 
 from django.conf import settings
@@ -1563,8 +1563,9 @@ class HedgeboxMatrix(Matrix):
             raise ValueError("Demo data warehouse tables require a completed simulation.")
 
         rows: list[tuple[Any, ...]] = []
+        people = cast(list[HedgeboxPerson], self.people)
 
-        for person in sorted(self.people, key=lambda current_person: current_person.in_product_id):
+        for person in sorted(people, key=lambda current_person: current_person.in_product_id):
             if not hasattr(person, "properties_at_now"):
                 person.take_snapshot_at_now()
 

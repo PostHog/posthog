@@ -1,6 +1,7 @@
 import uuid
 import datetime as dt
 from types import SimpleNamespace
+from typing import Any, cast
 
 from unittest.mock import MagicMock, patch
 
@@ -185,8 +186,8 @@ class TestHedgeboxMatrixDemoWarehouseTables(SimpleTestCase):
         self, mock_filter, mock_create, _mock_write
     ):
         matrix = HedgeboxMatrix(seed="warehouse-test", n_clusters=0)
-        team = SimpleNamespace(pk=1)
-        user = SimpleNamespace()
+        team = cast(Any, SimpleNamespace(pk=1))
+        user = cast(Any, SimpleNamespace())
         credential = object()
 
         mock_filter.return_value.first.return_value = None
@@ -207,8 +208,8 @@ class TestHedgeboxMatrixDemoWarehouseTables(SimpleTestCase):
     @patch("posthog.demo.products.hedgebox.matrix.DataWarehouseTable.objects.filter")
     def test_upsert_demo_data_warehouse_table_sets_csv_double_quotes_on_update(self, mock_filter, _mock_write):
         matrix = HedgeboxMatrix(seed="warehouse-test", n_clusters=0)
-        team = SimpleNamespace(pk=1)
-        user = SimpleNamespace()
+        team = cast(Any, SimpleNamespace(pk=1))
+        user = cast(Any, SimpleNamespace())
         credential = object()
         existing_table = SimpleNamespace(
             external_data_source=None,
