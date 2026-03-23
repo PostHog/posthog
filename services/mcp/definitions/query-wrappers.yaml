@@ -98,6 +98,24 @@ wrappers:
             - modifiers
             - samplingFactor
 
+    query-lifecycle:
+        schema_ref: AssistantLifecycleQuery
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        mcp_version: 2
+        title: Run a lifecycle query
+        description_file: ./prompts/query-lifecycle.md
+        ui_resource_uri: ui://posthog/query-results.html
+        exclude_properties:
+            - response
+            - modifiers
+            - samplingFactor
+
     query-traces-list:
         schema_ref: TracesQuery
         enabled: true
