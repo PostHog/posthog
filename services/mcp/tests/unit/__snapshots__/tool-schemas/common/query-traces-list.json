@@ -52,6 +52,11 @@
             "minimum": -9007199254740991,
             "type": "integer"
         },
+        "kind": {
+            "const": "TracesQuery",
+            "default": "TracesQuery",
+            "type": "string"
+        },
         "limit": {
             "maximum": 9007199254740991,
             "minimum": -9007199254740991,
@@ -120,6 +125,7 @@
                             },
                             "type": {
                                 "const": "event",
+                                "default": "event",
                                 "description": "Event properties",
                                 "type": "string"
                             },
@@ -160,7 +166,7 @@
                                 ]
                             }
                         },
-                        "required": ["key", "type"],
+                        "required": ["key"],
                         "type": "object"
                     },
                     {
@@ -212,6 +218,7 @@
                             },
                             "type": {
                                 "const": "person",
+                                "default": "person",
                                 "description": "Person properties",
                                 "type": "string"
                             },
@@ -252,7 +259,7 @@
                                 ]
                             }
                         },
-                        "required": ["key", "operator", "type"],
+                        "required": ["key", "operator"],
                         "type": "object"
                     },
                     {
@@ -305,6 +312,7 @@
                             },
                             "type": {
                                 "const": "element",
+                                "default": "element",
                                 "type": "string"
                             },
                             "value": {
@@ -344,7 +352,7 @@
                                 ]
                             }
                         },
-                        "required": ["key", "operator", "type"],
+                        "required": ["key", "operator"],
                         "type": "object"
                     },
                     {
@@ -396,6 +404,7 @@
                             },
                             "type": {
                                 "const": "event_metadata",
+                                "default": "event_metadata",
                                 "type": "string"
                             },
                             "value": {
@@ -435,7 +444,7 @@
                                 ]
                             }
                         },
-                        "required": ["key", "operator", "type"],
+                        "required": ["key", "operator"],
                         "type": "object"
                     },
                     {
@@ -487,6 +496,7 @@
                             },
                             "type": {
                                 "const": "session",
+                                "default": "session",
                                 "type": "string"
                             },
                             "value": {
@@ -526,7 +536,7 @@
                                 ]
                             }
                         },
-                        "required": ["key", "operator", "type"],
+                        "required": ["key", "operator"],
                         "type": "object"
                     },
                     {
@@ -536,6 +546,7 @@
                             },
                             "key": {
                                 "const": "id",
+                                "default": "id",
                                 "type": "string"
                             },
                             "label": {
@@ -583,6 +594,7 @@
                             },
                             "type": {
                                 "const": "cohort",
+                                "default": "cohort",
                                 "type": "string"
                             },
                             "value": {
@@ -591,7 +603,7 @@
                                 "type": "integer"
                             }
                         },
-                        "required": ["key", "type", "value"],
+                        "required": ["value"],
                         "type": "object"
                     },
                     {
@@ -660,6 +672,7 @@
                             },
                             "type": {
                                 "const": "recording",
+                                "default": "recording",
                                 "type": "string"
                             },
                             "value": {
@@ -699,7 +712,7 @@
                                 ]
                             }
                         },
-                        "required": ["key", "operator", "type"],
+                        "required": ["key", "operator"],
                         "type": "object"
                     },
                     {
@@ -751,6 +764,7 @@
                             },
                             "type": {
                                 "const": "log_entry",
+                                "default": "log_entry",
                                 "type": "string"
                             },
                             "value": {
@@ -790,7 +804,7 @@
                                 ]
                             }
                         },
-                        "required": ["key", "operator", "type"],
+                        "required": ["key", "operator"],
                         "type": "object"
                     },
                     {
@@ -858,6 +872,7 @@
                             },
                             "type": {
                                 "const": "group",
+                                "default": "group",
                                 "type": "string"
                             },
                             "value": {
@@ -897,7 +912,7 @@
                                 ]
                             }
                         },
-                        "required": ["key", "operator", "type"],
+                        "required": ["key", "operator"],
                         "type": "object"
                     },
                     {
@@ -949,6 +964,7 @@
                             },
                             "type": {
                                 "const": "feature",
+                                "default": "feature",
                                 "description": "Event property with \"$feature/\" prepended",
                                 "type": "string"
                             },
@@ -989,7 +1005,7 @@
                                 ]
                             }
                         },
-                        "required": ["key", "operator", "type"],
+                        "required": ["key", "operator"],
                         "type": "object"
                     },
                     {
@@ -1003,11 +1019,13 @@
                             },
                             "operator": {
                                 "const": "flag_evaluates_to",
+                                "default": "flag_evaluates_to",
                                 "description": "Only flag_evaluates_to operator is allowed for flag dependencies",
                                 "type": "string"
                             },
                             "type": {
                                 "const": "flag",
+                                "default": "flag",
                                 "description": "Feature flag dependency",
                                 "type": "string"
                             },
@@ -1023,7 +1041,7 @@
                                 "description": "The value can be true, false, or a variant name"
                             }
                         },
-                        "required": ["key", "operator", "type", "value"],
+                        "required": ["key", "value"],
                         "type": "object"
                     },
                     {
@@ -1036,6 +1054,7 @@
                             },
                             "type": {
                                 "const": "hogql",
+                                "default": "hogql",
                                 "type": "string"
                             },
                             "value": {
@@ -1075,13 +1094,14 @@
                                 ]
                             }
                         },
-                        "required": ["key", "type"],
+                        "required": ["key"],
                         "type": "object"
                     },
                     {
                         "properties": {
                             "type": {
                                 "const": "empty",
+                                "default": "empty",
                                 "type": "string"
                             }
                         },
@@ -1136,6 +1156,7 @@
                             },
                             "type": {
                                 "const": "data_warehouse",
+                                "default": "data_warehouse",
                                 "type": "string"
                             },
                             "value": {
@@ -1175,7 +1196,7 @@
                                 ]
                             }
                         },
-                        "required": ["key", "operator", "type"],
+                        "required": ["key", "operator"],
                         "type": "object"
                     },
                     {
@@ -1227,6 +1248,7 @@
                             },
                             "type": {
                                 "const": "data_warehouse_person_property",
+                                "default": "data_warehouse_person_property",
                                 "type": "string"
                             },
                             "value": {
@@ -1266,7 +1288,7 @@
                                 ]
                             }
                         },
-                        "required": ["key", "operator", "type"],
+                        "required": ["key", "operator"],
                         "type": "object"
                     },
                     {
@@ -1318,6 +1340,7 @@
                             },
                             "type": {
                                 "const": "error_tracking_issue",
+                                "default": "error_tracking_issue",
                                 "type": "string"
                             },
                             "value": {
@@ -1357,7 +1380,7 @@
                                 ]
                             }
                         },
-                        "required": ["key", "operator", "type"],
+                        "required": ["key", "operator"],
                         "type": "object"
                     },
                     {
@@ -1500,6 +1523,7 @@
                             },
                             "type": {
                                 "const": "revenue_analytics",
+                                "default": "revenue_analytics",
                                 "type": "string"
                             },
                             "value": {
@@ -1539,7 +1563,7 @@
                                 ]
                             }
                         },
-                        "required": ["key", "operator", "type"],
+                        "required": ["key", "operator"],
                         "type": "object"
                     }
                 ]

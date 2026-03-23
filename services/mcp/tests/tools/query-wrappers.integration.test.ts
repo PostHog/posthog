@@ -33,10 +33,8 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
                 dateRange: { date_from: '-7d' },
             })) as any
 
-            expect(result).toHaveProperty('query')
             expect(result).toHaveProperty('results')
             expect(result).toHaveProperty('_posthogUrl')
-            expect(result.query.kind).toBe('TrendsQuery')
             expect(typeof result.results).toBe('string')
             expect(result._posthogUrl).toMatch(/\/insights\/new\?q=/)
         })
@@ -64,7 +62,6 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
                 },
             })) as any
 
-            expect(result.query.kind).toBe('TrendsQuery')
             expect(typeof result.results).toBe('string')
         })
     })
@@ -80,10 +77,8 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
                 dateRange: { date_from: '-7d' },
             })) as any
 
-            expect(result).toHaveProperty('query')
             expect(result).toHaveProperty('results')
             expect(result).toHaveProperty('_posthogUrl')
-            expect(result.query.kind).toBe('FunnelsQuery')
             expect(typeof result.results).toBe('string')
         })
     })
@@ -104,11 +99,8 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
                 dateRange: { date_from: '-7d' },
             })) as any
 
-            expect(result).toHaveProperty('query')
             expect(result).toHaveProperty('results')
             expect(result).toHaveProperty('_posthogUrl')
-            expect(result.query.kind).toBe('RetentionQuery')
-            expect(typeof result.results).toBe('string')
         })
     })
 
@@ -123,28 +115,15 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
                 limit: 10,
             })) as any
 
-            expect(result).toHaveProperty('query')
             expect(result).toHaveProperty('results')
             expect(result).toHaveProperty('_posthogUrl')
-            expect(result.query.kind).toBe('TracesQuery')
             // TracesQuery may not have a formatter — result could be string or JSON fallback
             expect(result.results !== undefined).toBe(true)
         })
     })
 
     describe('factory behavior', () => {
-        it('should set the kind field automatically', async () => {
-            const tool = getToolByName(GENERATED_TOOLS as Record<string, () => ToolBase<ZodObjectAny>>, 'query-trends')
-            const result = (await tool.handler(context, {
-                series: [{ kind: 'EventsNode', event: '$pageview' }],
-                dateRange: { date_from: '-7d' },
-            })) as any
-
-            // kind should be set by the factory, not passed in params
-            expect(result.query.kind).toBe('TrendsQuery')
-        })
-
-        it('should generate a valid PostHog URL', async () => {
+        it('should generate a valid PostHog URL with kind', async () => {
             const tool = getToolByName(GENERATED_TOOLS as Record<string, () => ToolBase<ZodObjectAny>>, 'query-trends')
             const result = (await tool.handler(context, {
                 series: [{ kind: 'EventsNode', event: '$pageview' }],

@@ -6,7 +6,7 @@ import type { ZodObjectAny } from '@/tools/types'
 
 // --- Shared Zod schemas generated from schema.json ---
 
-const integer = z.number().int()
+const integer = z.coerce.number().int()
 
 const AssistantGroupMultipleBreakdownFilter = z.object({
     group_type_index: z
@@ -14,7 +14,7 @@ const AssistantGroupMultipleBreakdownFilter = z.object({
         .describe('Index of the group type from the group mapping.')
         .optional(),
     property: z.string().describe('Property name from the plan to break down by.'),
-    type: z.literal('group'),
+    type: z.literal('group').default('group'),
 })
 
 const AssistantEventMultipleBreakdownFilterType = z.enum([
@@ -43,7 +43,7 @@ const AssistantTrendsBreakdownFilter = z.object({
 })
 
 const CompareFilter = z.object({
-    compare: z
+    compare: z.coerce
         .boolean()
         .describe('Whether to compare the current date range to a previous date range.')
         .default(false)
@@ -109,7 +109,7 @@ const AssistantGenericPropertyFilter = z.union([
         key: z.string().describe('Use one of the properties the user has provided in the plan.'),
         operator: AssistantNumericValuePropertyFilterOperator,
         type: AssistantGenericPropertyFilterType,
-        value: z.number(),
+        value: z.coerce.number(),
     }),
     z.object({
         key: z.string().describe('Use one of the properties the user has provided in the plan.'),
@@ -145,7 +145,7 @@ const AssistantGroupPropertyFilter = z.union([
         operator: AssistantStringOrBooleanValuePropertyFilterOperator.describe(
             '`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern.'
         ),
-        type: z.literal('group'),
+        type: z.literal('group').default('group'),
         value: z
             .string()
             .describe(
@@ -156,8 +156,8 @@ const AssistantGroupPropertyFilter = z.union([
         group_type_index: integer.describe('Index of the group type from the group mapping.'),
         key: z.string().describe('Use one of the properties the user has provided in the plan.'),
         operator: AssistantNumericValuePropertyFilterOperator,
-        type: z.literal('group'),
-        value: z.number(),
+        type: z.literal('group').default('group'),
+        value: z.coerce.number(),
     }),
     z.object({
         group_type_index: integer.describe('Index of the group type from the group mapping.'),
@@ -165,7 +165,7 @@ const AssistantGroupPropertyFilter = z.union([
         operator: AssistantArrayPropertyFilterOperator.describe(
             '`exact` - exact match of any of the values. `is_not` - does not match any of the values.'
         ),
-        type: z.literal('group'),
+        type: z.literal('group').default('group'),
         value: z
             .array(z.string())
             .describe(
@@ -176,7 +176,7 @@ const AssistantGroupPropertyFilter = z.union([
         group_type_index: integer.describe('Index of the group type from the group mapping.'),
         key: z.string().describe('Use one of the properties the user has provided in the plan.'),
         operator: AssistantDateTimePropertyFilterOperator,
-        type: z.literal('group'),
+        type: z.literal('group').default('group'),
         value: z.string().describe('Value must be a date in ISO 8601 format.'),
     }),
     z.object({
@@ -185,7 +185,7 @@ const AssistantGroupPropertyFilter = z.union([
         operator: AssistantSetPropertyFilterOperator.describe(
             "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected."
         ),
-        type: z.literal('group'),
+        type: z.literal('group').default('group'),
     }),
 ])
 
@@ -248,31 +248,31 @@ const MathType = z.union([
 const AssistantTrendsEventsNode = z.object({
     custom_name: z.string().optional(),
     event: z.string().nullable().describe('The event or `null` for all events.').optional(),
-    kind: z.literal('EventsNode'),
+    kind: z.literal('EventsNode').default('EventsNode'),
     math: MathType.optional(),
     math_group_type_index: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).optional(),
-    math_multiplier: z.number().optional(),
+    math_multiplier: z.coerce.number().optional(),
     math_property: z.string().optional(),
     math_property_type: z.string().optional(),
     name: z.string().optional(),
-    optionalInFunnel: z.boolean().optional(),
+    optionalInFunnel: z.coerce.boolean().optional(),
     properties: z.array(AssistantPropertyFilter).optional(),
-    version: z.number().describe('version of the node, used for schema migrations').optional(),
+    version: z.coerce.number().describe('version of the node, used for schema migrations').optional(),
 })
 
 const AssistantTrendsActionsNode = z.object({
     custom_name: z.string().optional(),
     id: integer,
-    kind: z.literal('ActionsNode'),
+    kind: z.literal('ActionsNode').default('ActionsNode'),
     math: MathType.optional(),
     math_group_type_index: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).optional(),
-    math_multiplier: z.number().optional(),
+    math_multiplier: z.coerce.number().optional(),
     math_property: z.string().optional(),
     math_property_type: z.string().optional(),
     name: z.string().describe('Action name from the plan.'),
-    optionalInFunnel: z.boolean().optional(),
+    optionalInFunnel: z.coerce.boolean().optional(),
     properties: z.array(AssistantPropertyFilter).optional(),
-    version: z.number().describe('version of the node, used for schema migrations').optional(),
+    version: z.coerce.number().describe('version of the node, used for schema migrations').optional(),
 })
 
 const AggregationAxisFormat = z.enum([
@@ -303,7 +303,7 @@ const AssistantTrendsFilter = z.object({
             'Custom prefix to add to the aggregation axis, e.g., `$` for USD dollars. You may need to add a space after prefix.'
         )
         .optional(),
-    decimalPlaces: z
+    decimalPlaces: z.coerce
         .number()
         .describe(
             'Number of decimal places to show. Do not add this unless you are sure that values will have a decimal point.'
@@ -337,17 +337,21 @@ const AssistantTrendsFilter = z.object({
             'If the math aggregation is more complex or not listed above, use custom formulas to perform mathematical operations like calculating percentages or metrics. If you use a formula, you must use the following syntax: `A/B`, where `A` and `B` are the names of the series. You can combine math aggregations and formulas. When using a formula, you must:\n- Identify and specify **all** events and actions needed to solve the formula.\n- Carefully review the list of available events and actions to find appropriate entities for each part of the formula.\n- Ensure that you find events and actions corresponding to both the numerator and denominator in ratio calculations. Examples of using math formulas:\n- If you want to calculate the percentage of users who have completed onboarding, you need to find and use events or actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users).'
         )
         .optional(),
-    showLegend: z
+    showLegend: z.coerce
         .boolean()
         .describe('Whether to show the legend describing series and breakdowns.')
         .default(false)
         .optional(),
-    showPercentStackView: z
+    showPercentStackView: z.coerce
         .boolean()
         .describe('Whether to show a percentage of each series. Use only with')
         .default(false)
         .optional(),
-    showValuesOnSeries: z.boolean().describe('Whether to show a value on each data point.').default(false).optional(),
+    showValuesOnSeries: z.coerce
+        .boolean()
+        .describe('Whether to show a value on each data point.')
+        .default(false)
+        .optional(),
     yAxisScaleType: z.enum(['log10', 'linear']).describe('Whether to scale the y-axis.').default('linear').optional(),
 })
 
@@ -357,7 +361,7 @@ const AssistantTrendsQuery = z.object({
     ).optional(),
     compareFilter: CompareFilter.describe('Compare to date range').optional(),
     dateRange: AssistantDateRangeFilter.describe('Date range for the query').optional(),
-    filterTestAccounts: z
+    filterTestAccounts: z.coerce
         .boolean()
         .describe('Exclude internal and test users by applying the respective filters')
         .default(false)
@@ -365,6 +369,7 @@ const AssistantTrendsQuery = z.object({
     interval: IntervalType.describe('Granularity of the response. Can be one of `hour`, `day`, `week` or `month`')
         .default('day')
         .optional(),
+    kind: z.literal('TrendsQuery').default('TrendsQuery'),
     properties: z.array(AssistantPropertyFilter).describe('Property filters for all series').default([]).optional(),
     series: z
         .array(z.union([AssistantTrendsEventsNode, AssistantTrendsActionsNode]))
@@ -392,7 +397,7 @@ const AssistantFunnelsExclusionEventsNode = z.object({
     event: z.string(),
     funnelFromStep: integer,
     funnelToStep: integer,
-    kind: z.literal('EventsNode'),
+    kind: z.literal('EventsNode').default('EventsNode'),
 })
 
 const StepOrderValue = z.enum(['strict', 'unordered', 'ordered'])
@@ -406,7 +411,7 @@ const FunnelConversionWindowTimeUnit = z.enum(['second', 'minute', 'hour', 'day'
 const FunnelLayout = z.enum(['horizontal', 'vertical'])
 
 const AssistantFunnelsFilter = z.object({
-    binCount: z
+    binCount: z.coerce
         .number()
         .int()
         .describe(
@@ -461,23 +466,23 @@ const AssistantFunnelsMath = z.enum(['first_time_for_user', 'first_time_for_user
 const AssistantFunnelsEventsNode = z.object({
     custom_name: z.string().describe('Optional custom name for the event if it is needed to be renamed.').optional(),
     event: z.string().describe('Name of the event.'),
-    kind: z.literal('EventsNode'),
+    kind: z.literal('EventsNode').default('EventsNode'),
     math: AssistantFunnelsMath.describe(
         'Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.'
     ).optional(),
     properties: z.array(AssistantPropertyFilter).optional(),
-    version: z.number().describe('version of the node, used for schema migrations').optional(),
+    version: z.coerce.number().describe('version of the node, used for schema migrations').optional(),
 })
 
 const AssistantFunnelsActionsNode = z.object({
-    id: z.number().describe('Action ID from the plan.'),
-    kind: z.literal('ActionsNode'),
+    id: z.coerce.number().describe('Action ID from the plan.'),
+    kind: z.literal('ActionsNode').default('ActionsNode'),
     math: AssistantFunnelsMath.describe(
         'Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.'
     ).optional(),
     name: z.string().describe('Action name from the plan.'),
     properties: z.array(AssistantPropertyFilter).optional(),
-    version: z.number().describe('version of the node, used for schema migrations').optional(),
+    version: z.coerce.number().describe('version of the node, used for schema migrations').optional(),
 })
 
 const AssistantFunnelsNode = z.union([AssistantFunnelsEventsNode, AssistantFunnelsActionsNode])
@@ -492,7 +497,7 @@ const AssistantFunnelsQuery = z.object({
         'A breakdown is used to segment data by a single property value. They divide all defined funnel series into multiple subseries based on the values of the property. Include a breakdown **only when it is essential to directly answer the user’s question**. You must not add a breakdown if the question can be addressed without additional segmentation. When using breakdowns, you must:\n- **Identify the property group** and name for a breakdown.\n- **Provide the property name** for a breakdown.\n- **Validate that the property value accurately reflects the intended criteria**. Examples of using a breakdown:\n- page views to sign up funnel by country: you need to find a property such as `$geoip_country_code` and set it as a breakdown.\n- conversion rate of users who have completed onboarding after signing up by an organization: you need to find a property such as `organization name` and set it as a breakdown.'
     ).optional(),
     dateRange: AssistantDateRangeFilter.describe('Date range for the query').optional(),
-    filterTestAccounts: z
+    filterTestAccounts: z.coerce
         .boolean()
         .describe('Exclude internal and test users by applying the respective filters')
         .default(false)
@@ -501,6 +506,7 @@ const AssistantFunnelsQuery = z.object({
     interval: IntervalType.describe(
         'Granularity of the response. Can be one of `hour`, `day`, `week` or `month`'
     ).optional(),
+    kind: z.literal('FunnelsQuery').default('FunnelsQuery'),
     properties: z.array(AssistantPropertyFilter).describe('Property filters for all series').default([]).optional(),
     series: z
         .array(AssistantFunnelsNode)
@@ -515,20 +521,20 @@ const AssistantRetentionEventsNode = z.object({
     custom_name: z.string().describe('Custom name for the event if it is needed to be renamed.').optional(),
     name: z.string().describe('Event name from the plan.'),
     properties: z.array(AssistantPropertyFilter).describe('Property filters for the event.').optional(),
-    type: z.literal('events'),
+    type: z.literal('events').default('events'),
 })
 
 const AssistantRetentionActionsNode = z.object({
-    id: z.number().describe('Action ID from the plan.'),
+    id: z.coerce.number().describe('Action ID from the plan.'),
     name: z.string().describe('Action name from the plan.'),
     properties: z.array(AssistantPropertyFilter).describe('Property filters for the action.').optional(),
-    type: z.literal('actions'),
+    type: z.literal('actions').default('actions'),
 })
 
 const AssistantRetentionEntity = z.union([AssistantRetentionEventsNode, AssistantRetentionActionsNode])
 
 const AssistantRetentionFilter = z.object({
-    cumulative: z
+    cumulative: z.coerce
         .boolean()
         .describe(
             'Whether retention should be rolling (aka unbounded, cumulative). Rolling retention means that a user coming back in period 5 makes them count towards all the previous periods.'
@@ -562,11 +568,12 @@ const AssistantRetentionFilter = z.object({
 
 const AssistantRetentionQuery = z.object({
     dateRange: AssistantDateRangeFilter.describe('Date range for the query').optional(),
-    filterTestAccounts: z
+    filterTestAccounts: z.coerce
         .boolean()
         .describe('Exclude internal and test users by applying the respective filters')
         .default(false)
         .optional(),
+    kind: z.literal('RetentionQuery').default('RetentionQuery'),
     properties: z.array(AssistantPropertyFilter).describe('Property filters for all series').default([]).optional(),
     retentionFilter: AssistantRetentionFilter.describe('Properties specific to the retention insight'),
 })
@@ -574,7 +581,7 @@ const AssistantRetentionQuery = z.object({
 const DateRange = z.object({
     date_from: z.string().nullable().optional(),
     date_to: z.string().nullable().optional(),
-    explicitDate: z
+    explicitDate: z.coerce
         .boolean()
         .nullable()
         .describe(
@@ -621,7 +628,7 @@ const PropertyOperator = z.enum([
     'not_icontains_multi',
 ])
 
-const PropertyFilterBaseValue = z.union([z.string(), z.number(), z.boolean()])
+const PropertyFilterBaseValue = z.union([z.string(), z.coerce.number(), z.coerce.boolean()])
 
 const PropertyFilterValue = z.union([PropertyFilterBaseValue, z.array(PropertyFilterBaseValue), z.null()])
 
@@ -629,7 +636,7 @@ const EventPropertyFilter = z.object({
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator.default('exact'),
-    type: z.literal('event').describe('Event properties'),
+    type: z.literal('event').describe('Event properties').default('event'),
     value: PropertyFilterValue.optional(),
 })
 
@@ -637,7 +644,7 @@ const PersonPropertyFilter = z.object({
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
-    type: z.literal('person').describe('Person properties'),
+    type: z.literal('person').describe('Person properties').default('person'),
     value: PropertyFilterValue.optional(),
 })
 
@@ -645,7 +652,7 @@ const ElementPropertyFilter = z.object({
     key: z.enum(['tag_name', 'text', 'href', 'selector']),
     label: z.string().optional(),
     operator: PropertyOperator,
-    type: z.literal('element'),
+    type: z.literal('element').default('element'),
     value: PropertyFilterValue.optional(),
 })
 
@@ -653,7 +660,7 @@ const EventMetadataPropertyFilter = z.object({
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
-    type: z.literal('event_metadata'),
+    type: z.literal('event_metadata').default('event_metadata'),
     value: PropertyFilterValue.optional(),
 })
 
@@ -661,17 +668,17 @@ const SessionPropertyFilter = z.object({
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
-    type: z.literal('session'),
+    type: z.literal('session').default('session'),
     value: PropertyFilterValue.optional(),
 })
 
 const CohortPropertyFilter = z.object({
     cohort_name: z.string().optional(),
-    key: z.literal('id'),
+    key: z.literal('id').default('id'),
     label: z.string().optional(),
     operator: PropertyOperator.default('in'),
-    type: z.literal('cohort'),
-    value: z.number().int(),
+    type: z.literal('cohort').default('cohort'),
+    value: z.coerce.number().int(),
 })
 
 const DurationType = z.enum(['duration', 'active_seconds', 'inactive_seconds'])
@@ -680,7 +687,7 @@ const RecordingPropertyFilter = z.object({
     key: z.union([DurationType, z.literal('snapshot_source'), z.literal('visited_page'), z.literal('comment_text')]),
     label: z.string().optional(),
     operator: PropertyOperator,
-    type: z.literal('recording'),
+    type: z.literal('recording').default('recording'),
     value: PropertyFilterValue.optional(),
 })
 
@@ -688,17 +695,17 @@ const LogEntryPropertyFilter = z.object({
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
-    type: z.literal('log_entry'),
+    type: z.literal('log_entry').default('log_entry'),
     value: PropertyFilterValue.optional(),
 })
 
 const GroupPropertyFilter = z.object({
     group_key_names: z.object({}).optional(),
-    group_type_index: z.union([z.number().int(), z.null()]).optional(),
+    group_type_index: z.union([z.coerce.number().int(), z.null()]).optional(),
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
-    type: z.literal('group'),
+    type: z.literal('group').default('group'),
     value: PropertyFilterValue.optional(),
 })
 
@@ -706,7 +713,7 @@ const FeaturePropertyFilter = z.object({
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
-    type: z.literal('feature').describe('Event property with "$feature/" prepended'),
+    type: z.literal('feature').describe('Event property with "$feature/" prepended').default('feature'),
     value: PropertyFilterValue.optional(),
 })
 
@@ -715,27 +722,28 @@ const FlagPropertyFilter = z.object({
     label: z.string().optional(),
     operator: z
         .literal('flag_evaluates_to')
-        .describe('Only flag_evaluates_to operator is allowed for flag dependencies'),
-    type: z.literal('flag').describe('Feature flag dependency'),
-    value: z.union([z.boolean(), z.string()]).describe('The value can be true, false, or a variant name'),
+        .describe('Only flag_evaluates_to operator is allowed for flag dependencies')
+        .default('flag_evaluates_to'),
+    type: z.literal('flag').describe('Feature flag dependency').default('flag'),
+    value: z.union([z.coerce.boolean(), z.string()]).describe('The value can be true, false, or a variant name'),
 })
 
 const HogQLPropertyFilter = z.object({
     key: z.string(),
     label: z.string().optional(),
-    type: z.literal('hogql'),
+    type: z.literal('hogql').default('hogql'),
     value: PropertyFilterValue.optional(),
 })
 
 const EmptyPropertyFilter = z.object({
-    type: z.literal('empty').optional(),
+    type: z.literal('empty').default('empty').optional(),
 })
 
 const DataWarehousePropertyFilter = z.object({
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
-    type: z.literal('data_warehouse'),
+    type: z.literal('data_warehouse').default('data_warehouse'),
     value: PropertyFilterValue.optional(),
 })
 
@@ -743,7 +751,7 @@ const DataWarehousePersonPropertyFilter = z.object({
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
-    type: z.literal('data_warehouse_person_property'),
+    type: z.literal('data_warehouse_person_property').default('data_warehouse_person_property'),
     value: PropertyFilterValue.optional(),
 })
 
@@ -751,7 +759,7 @@ const ErrorTrackingIssueFilter = z.object({
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
-    type: z.literal('error_tracking_issue'),
+    type: z.literal('error_tracking_issue').default('error_tracking_issue'),
     value: PropertyFilterValue.optional(),
 })
 
@@ -769,7 +777,7 @@ const RevenueAnalyticsPropertyFilter = z.object({
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
-    type: z.literal('revenue_analytics'),
+    type: z.literal('revenue_analytics').default('revenue_analytics'),
     value: PropertyFilterValue.optional(),
 })
 
@@ -796,15 +804,16 @@ const AnyPropertyFilter = z.union([
 
 const TracesQuery = z.object({
     dateRange: DateRange.optional(),
-    filterSupportTraces: z.boolean().optional(),
-    filterTestAccounts: z.boolean().optional(),
+    filterSupportTraces: z.coerce.boolean().optional(),
+    filterTestAccounts: z.coerce.boolean().optional(),
     groupKey: z.string().optional(),
     groupTypeIndex: integer.optional(),
+    kind: z.literal('TracesQuery').default('TracesQuery'),
     limit: integer.optional(),
     offset: integer.optional(),
     personId: z.string().describe('Person who performed the event').optional(),
     properties: z.array(AnyPropertyFilter).describe('Properties configurable in the interface').optional(),
-    randomOrder: z
+    randomOrder: z.coerce
         .boolean()
         .describe(
             'Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias.'

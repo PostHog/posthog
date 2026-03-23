@@ -172,9 +172,9 @@ function schemaToZod(schema: JsonSchema, ctx: ConvertContext): string {
         return `z.array(${itemSchema})`
     }
 
-    // integer special ref
+    // integer special ref — use coerce for MCP client compatibility (some clients send numbers as strings)
     if (schema.type === 'integer') {
-        return 'z.number().int()'
+        return 'z.coerce.number().int()'
     }
 
     // primitives
@@ -186,16 +186,17 @@ function schemaToZod(schema: JsonSchema, ctx: ConvertContext): string {
     return 'z.unknown()'
 }
 
+/** Use z.coerce for numbers/booleans — some MCP clients send primitives as strings */
 function primitiveToZod(type: string): string {
     switch (type) {
         case 'string':
             return 'z.string()'
         case 'number':
-            return 'z.number()'
+            return 'z.coerce.number()'
         case 'integer':
-            return 'z.number().int()'
+            return 'z.coerce.number().int()'
         case 'boolean':
-            return 'z.boolean()'
+            return 'z.coerce.boolean()'
         case 'null':
             return 'z.null()'
         default:
@@ -226,9 +227,11 @@ function objectToZod(schema: JsonSchema, ctx: ConvertContext): string {
             zodType = `${zodType}.describe('${escaped}')`
         }
 
-        // Add .default() if there's a default value
+        // Add .default() if there's a default value or a const (const properties auto-fill)
         if (propSchema.default !== undefined) {
             zodType = `${zodType}.default(${JSON.stringify(propSchema.default)})`
+        } else if (propSchema.const !== undefined) {
+            zodType = `${zodType}.default(${JSON.stringify(propSchema.const)})`
         }
 
         // Make optional if not required

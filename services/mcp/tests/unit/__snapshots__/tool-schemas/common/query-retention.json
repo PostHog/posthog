@@ -42,6 +42,11 @@
             "description": "Exclude internal and test users by applying the respective filters",
             "type": "boolean"
         },
+        "kind": {
+            "const": "RetentionQuery",
+            "default": "RetentionQuery",
+            "type": "string"
+        },
         "properties": {
             "default": [],
             "description": "Property filters for all series",
@@ -183,6 +188,7 @@
                                     },
                                     "type": {
                                         "const": "group",
+                                        "default": "group",
                                         "type": "string"
                                     },
                                     "value": {
@@ -190,7 +196,7 @@
                                         "type": "string"
                                     }
                                 },
-                                "required": ["group_type_index", "key", "operator", "type", "value"],
+                                "required": ["group_type_index", "key", "operator", "value"],
                                 "type": "object"
                             },
                             {
@@ -211,13 +217,14 @@
                                     },
                                     "type": {
                                         "const": "group",
+                                        "default": "group",
                                         "type": "string"
                                     },
                                     "value": {
                                         "type": "number"
                                     }
                                 },
-                                "required": ["group_type_index", "key", "operator", "type", "value"],
+                                "required": ["group_type_index", "key", "operator", "value"],
                                 "type": "object"
                             },
                             {
@@ -239,6 +246,7 @@
                                     },
                                     "type": {
                                         "const": "group",
+                                        "default": "group",
                                         "type": "string"
                                     },
                                     "value": {
@@ -249,7 +257,7 @@
                                         "type": "array"
                                     }
                                 },
-                                "required": ["group_type_index", "key", "operator", "type", "value"],
+                                "required": ["group_type_index", "key", "operator", "value"],
                                 "type": "object"
                             },
                             {
@@ -270,6 +278,7 @@
                                     },
                                     "type": {
                                         "const": "group",
+                                        "default": "group",
                                         "type": "string"
                                     },
                                     "value": {
@@ -277,7 +286,7 @@
                                         "type": "string"
                                     }
                                 },
-                                "required": ["group_type_index", "key", "operator", "type", "value"],
+                                "required": ["group_type_index", "key", "operator", "value"],
                                 "type": "object"
                             },
                             {
@@ -299,10 +308,11 @@
                                     },
                                     "type": {
                                         "const": "group",
+                                        "default": "group",
                                         "type": "string"
                                     }
                                 },
-                                "required": ["group_type_index", "key", "operator", "type"],
+                                "required": ["group_type_index", "key", "operator"],
                                 "type": "object"
                             }
                         ]
@@ -509,6 +519,7 @@
                                                             },
                                                             "type": {
                                                                 "const": "group",
+                                                                "default": "group",
                                                                 "type": "string"
                                                             },
                                                             "value": {
@@ -516,13 +527,7 @@
                                                                 "type": "string"
                                                             }
                                                         },
-                                                        "required": [
-                                                            "group_type_index",
-                                                            "key",
-                                                            "operator",
-                                                            "type",
-                                                            "value"
-                                                        ],
+                                                        "required": ["group_type_index", "key", "operator", "value"],
                                                         "type": "object"
                                                     },
                                                     {
@@ -543,19 +548,14 @@
                                                             },
                                                             "type": {
                                                                 "const": "group",
+                                                                "default": "group",
                                                                 "type": "string"
                                                             },
                                                             "value": {
                                                                 "type": "number"
                                                             }
                                                         },
-                                                        "required": [
-                                                            "group_type_index",
-                                                            "key",
-                                                            "operator",
-                                                            "type",
-                                                            "value"
-                                                        ],
+                                                        "required": ["group_type_index", "key", "operator", "value"],
                                                         "type": "object"
                                                     },
                                                     {
@@ -577,6 +577,7 @@
                                                             },
                                                             "type": {
                                                                 "const": "group",
+                                                                "default": "group",
                                                                 "type": "string"
                                                             },
                                                             "value": {
@@ -587,13 +588,7 @@
                                                                 "type": "array"
                                                             }
                                                         },
-                                                        "required": [
-                                                            "group_type_index",
-                                                            "key",
-                                                            "operator",
-                                                            "type",
-                                                            "value"
-                                                        ],
+                                                        "required": ["group_type_index", "key", "operator", "value"],
                                                         "type": "object"
                                                     },
                                                     {
@@ -618,6 +613,7 @@
                                                             },
                                                             "type": {
                                                                 "const": "group",
+                                                                "default": "group",
                                                                 "type": "string"
                                                             },
                                                             "value": {
@@ -625,13 +621,7 @@
                                                                 "type": "string"
                                                             }
                                                         },
-                                                        "required": [
-                                                            "group_type_index",
-                                                            "key",
-                                                            "operator",
-                                                            "type",
-                                                            "value"
-                                                        ],
+                                                        "required": ["group_type_index", "key", "operator", "value"],
                                                         "type": "object"
                                                     },
                                                     {
@@ -653,10 +643,11 @@
                                                             },
                                                             "type": {
                                                                 "const": "group",
+                                                                "default": "group",
                                                                 "type": "string"
                                                             }
                                                         },
-                                                        "required": ["group_type_index", "key", "operator", "type"],
+                                                        "required": ["group_type_index", "key", "operator"],
                                                         "type": "object"
                                                     }
                                                 ]
@@ -667,10 +658,11 @@
                                 },
                                 "type": {
                                     "const": "events",
+                                    "default": "events",
                                     "type": "string"
                                 }
                             },
-                            "required": ["name", "type"],
+                            "required": ["name"],
                             "type": "object"
                         },
                         {
@@ -841,6 +833,7 @@
                                                             },
                                                             "type": {
                                                                 "const": "group",
+                                                                "default": "group",
                                                                 "type": "string"
                                                             },
                                                             "value": {
@@ -848,13 +841,7 @@
                                                                 "type": "string"
                                                             }
                                                         },
-                                                        "required": [
-                                                            "group_type_index",
-                                                            "key",
-                                                            "operator",
-                                                            "type",
-                                                            "value"
-                                                        ],
+                                                        "required": ["group_type_index", "key", "operator", "value"],
                                                         "type": "object"
                                                     },
                                                     {
@@ -875,19 +862,14 @@
                                                             },
                                                             "type": {
                                                                 "const": "group",
+                                                                "default": "group",
                                                                 "type": "string"
                                                             },
                                                             "value": {
                                                                 "type": "number"
                                                             }
                                                         },
-                                                        "required": [
-                                                            "group_type_index",
-                                                            "key",
-                                                            "operator",
-                                                            "type",
-                                                            "value"
-                                                        ],
+                                                        "required": ["group_type_index", "key", "operator", "value"],
                                                         "type": "object"
                                                     },
                                                     {
@@ -909,6 +891,7 @@
                                                             },
                                                             "type": {
                                                                 "const": "group",
+                                                                "default": "group",
                                                                 "type": "string"
                                                             },
                                                             "value": {
@@ -919,13 +902,7 @@
                                                                 "type": "array"
                                                             }
                                                         },
-                                                        "required": [
-                                                            "group_type_index",
-                                                            "key",
-                                                            "operator",
-                                                            "type",
-                                                            "value"
-                                                        ],
+                                                        "required": ["group_type_index", "key", "operator", "value"],
                                                         "type": "object"
                                                     },
                                                     {
@@ -950,6 +927,7 @@
                                                             },
                                                             "type": {
                                                                 "const": "group",
+                                                                "default": "group",
                                                                 "type": "string"
                                                             },
                                                             "value": {
@@ -957,13 +935,7 @@
                                                                 "type": "string"
                                                             }
                                                         },
-                                                        "required": [
-                                                            "group_type_index",
-                                                            "key",
-                                                            "operator",
-                                                            "type",
-                                                            "value"
-                                                        ],
+                                                        "required": ["group_type_index", "key", "operator", "value"],
                                                         "type": "object"
                                                     },
                                                     {
@@ -985,10 +957,11 @@
                                                             },
                                                             "type": {
                                                                 "const": "group",
+                                                                "default": "group",
                                                                 "type": "string"
                                                             }
                                                         },
-                                                        "required": ["group_type_index", "key", "operator", "type"],
+                                                        "required": ["group_type_index", "key", "operator"],
                                                         "type": "object"
                                                     }
                                                 ]
@@ -999,10 +972,11 @@
                                 },
                                 "type": {
                                     "const": "actions",
+                                    "default": "actions",
                                     "type": "string"
                                 }
                             },
-                            "required": ["id", "name", "type"],
+                            "required": ["id", "name"],
                             "type": "object"
                         }
                     ],
@@ -1178,6 +1152,7 @@
                                                             },
                                                             "type": {
                                                                 "const": "group",
+                                                                "default": "group",
                                                                 "type": "string"
                                                             },
                                                             "value": {
@@ -1185,13 +1160,7 @@
                                                                 "type": "string"
                                                             }
                                                         },
-                                                        "required": [
-                                                            "group_type_index",
-                                                            "key",
-                                                            "operator",
-                                                            "type",
-                                                            "value"
-                                                        ],
+                                                        "required": ["group_type_index", "key", "operator", "value"],
                                                         "type": "object"
                                                     },
                                                     {
@@ -1212,19 +1181,14 @@
                                                             },
                                                             "type": {
                                                                 "const": "group",
+                                                                "default": "group",
                                                                 "type": "string"
                                                             },
                                                             "value": {
                                                                 "type": "number"
                                                             }
                                                         },
-                                                        "required": [
-                                                            "group_type_index",
-                                                            "key",
-                                                            "operator",
-                                                            "type",
-                                                            "value"
-                                                        ],
+                                                        "required": ["group_type_index", "key", "operator", "value"],
                                                         "type": "object"
                                                     },
                                                     {
@@ -1246,6 +1210,7 @@
                                                             },
                                                             "type": {
                                                                 "const": "group",
+                                                                "default": "group",
                                                                 "type": "string"
                                                             },
                                                             "value": {
@@ -1256,13 +1221,7 @@
                                                                 "type": "array"
                                                             }
                                                         },
-                                                        "required": [
-                                                            "group_type_index",
-                                                            "key",
-                                                            "operator",
-                                                            "type",
-                                                            "value"
-                                                        ],
+                                                        "required": ["group_type_index", "key", "operator", "value"],
                                                         "type": "object"
                                                     },
                                                     {
@@ -1287,6 +1246,7 @@
                                                             },
                                                             "type": {
                                                                 "const": "group",
+                                                                "default": "group",
                                                                 "type": "string"
                                                             },
                                                             "value": {
@@ -1294,13 +1254,7 @@
                                                                 "type": "string"
                                                             }
                                                         },
-                                                        "required": [
-                                                            "group_type_index",
-                                                            "key",
-                                                            "operator",
-                                                            "type",
-                                                            "value"
-                                                        ],
+                                                        "required": ["group_type_index", "key", "operator", "value"],
                                                         "type": "object"
                                                     },
                                                     {
@@ -1322,10 +1276,11 @@
                                                             },
                                                             "type": {
                                                                 "const": "group",
+                                                                "default": "group",
                                                                 "type": "string"
                                                             }
                                                         },
-                                                        "required": ["group_type_index", "key", "operator", "type"],
+                                                        "required": ["group_type_index", "key", "operator"],
                                                         "type": "object"
                                                     }
                                                 ]
@@ -1336,10 +1291,11 @@
                                 },
                                 "type": {
                                     "const": "events",
+                                    "default": "events",
                                     "type": "string"
                                 }
                             },
-                            "required": ["name", "type"],
+                            "required": ["name"],
                             "type": "object"
                         },
                         {
@@ -1510,6 +1466,7 @@
                                                             },
                                                             "type": {
                                                                 "const": "group",
+                                                                "default": "group",
                                                                 "type": "string"
                                                             },
                                                             "value": {
@@ -1517,13 +1474,7 @@
                                                                 "type": "string"
                                                             }
                                                         },
-                                                        "required": [
-                                                            "group_type_index",
-                                                            "key",
-                                                            "operator",
-                                                            "type",
-                                                            "value"
-                                                        ],
+                                                        "required": ["group_type_index", "key", "operator", "value"],
                                                         "type": "object"
                                                     },
                                                     {
@@ -1544,19 +1495,14 @@
                                                             },
                                                             "type": {
                                                                 "const": "group",
+                                                                "default": "group",
                                                                 "type": "string"
                                                             },
                                                             "value": {
                                                                 "type": "number"
                                                             }
                                                         },
-                                                        "required": [
-                                                            "group_type_index",
-                                                            "key",
-                                                            "operator",
-                                                            "type",
-                                                            "value"
-                                                        ],
+                                                        "required": ["group_type_index", "key", "operator", "value"],
                                                         "type": "object"
                                                     },
                                                     {
@@ -1578,6 +1524,7 @@
                                                             },
                                                             "type": {
                                                                 "const": "group",
+                                                                "default": "group",
                                                                 "type": "string"
                                                             },
                                                             "value": {
@@ -1588,13 +1535,7 @@
                                                                 "type": "array"
                                                             }
                                                         },
-                                                        "required": [
-                                                            "group_type_index",
-                                                            "key",
-                                                            "operator",
-                                                            "type",
-                                                            "value"
-                                                        ],
+                                                        "required": ["group_type_index", "key", "operator", "value"],
                                                         "type": "object"
                                                     },
                                                     {
@@ -1619,6 +1560,7 @@
                                                             },
                                                             "type": {
                                                                 "const": "group",
+                                                                "default": "group",
                                                                 "type": "string"
                                                             },
                                                             "value": {
@@ -1626,13 +1568,7 @@
                                                                 "type": "string"
                                                             }
                                                         },
-                                                        "required": [
-                                                            "group_type_index",
-                                                            "key",
-                                                            "operator",
-                                                            "type",
-                                                            "value"
-                                                        ],
+                                                        "required": ["group_type_index", "key", "operator", "value"],
                                                         "type": "object"
                                                     },
                                                     {
@@ -1654,10 +1590,11 @@
                                                             },
                                                             "type": {
                                                                 "const": "group",
+                                                                "default": "group",
                                                                 "type": "string"
                                                             }
                                                         },
-                                                        "required": ["group_type_index", "key", "operator", "type"],
+                                                        "required": ["group_type_index", "key", "operator"],
                                                         "type": "object"
                                                     }
                                                 ]
@@ -1668,10 +1605,11 @@
                                 },
                                 "type": {
                                     "const": "actions",
+                                    "default": "actions",
                                     "type": "string"
                                 }
                             },
-                            "required": ["id", "name", "type"],
+                            "required": ["id", "name"],
                             "type": "object"
                         }
                     ],

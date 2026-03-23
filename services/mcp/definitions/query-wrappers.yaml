@@ -27,7 +27,6 @@ wrappers:
             to discover available properties for filters and breakdowns.
         ui_resource_uri: ui://posthog/query-results.html
         exclude_properties:
-            - kind
             - response
             - modifiers
             - samplingFactor
@@ -50,7 +49,6 @@ wrappers:
             steps. Use 'event-definitions-list' to discover available events.
         ui_resource_uri: ui://posthog/query-results.html
         exclude_properties:
-            - kind
             - response
             - modifiers
             - samplingFactor
@@ -72,7 +70,6 @@ wrappers:
             stickiness by cohort. Use 'event-definitions-list' to discover available events.
         ui_resource_uri: ui://posthog/query-results.html
         exclude_properties:
-            - kind
             - response
             - modifiers
             - samplingFactor
@@ -93,7 +90,6 @@ wrappers:
             with their events, latency, token usage, and other metadata.
             Use dateRange, properties, and limit to filter results.
         exclude_properties:
-            - kind
             - response
             - modifiers
             - showColumnConfigurator
