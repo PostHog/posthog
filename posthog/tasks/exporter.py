@@ -1,4 +1,3 @@
-import threading
 from time import perf_counter
 from typing import Optional
 
@@ -10,7 +9,7 @@ from prometheus_client import Counter, Histogram
 from posthog.event_usage import EventSource, groups
 from posthog.models import ExportedAsset
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
-from posthog.tasks.exports.failure_handler import USER_QUERY_ERRORS, ExportCancelled, classify_failure_type
+from posthog.tasks.exports.failure_handler import USER_QUERY_ERRORS, classify_failure_type
 from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
@@ -80,7 +79,6 @@ def export_asset_direct(
     exported_asset: ExportedAsset,
     limit: Optional[int] = None,  # For CSV/XLSX: max row count
     max_height_pixels: Optional[int] = None,  # For images: max screenshot height in pixels
-    cancellation_event: Optional[threading.Event] = None,  # For async callers to signal cancellation
     source: Optional[EventSource] = None,  # EventSource value to tag queries with (e.g. "subscription")
 ) -> None:
     from posthog.tasks.exports import csv_exporter, image_exporter
@@ -112,29 +110,13 @@ def export_asset_direct(
         groups=groups(team.organization, team),
     )
 
-    def _check_cancelled() -> None:
-        if cancellation_event and cancellation_event.is_set():
-            logger.info(
-                "export_asset.cancelled",
-                exported_asset_id=exported_asset.id,
-                team_id=team.id,
-            )
-            raise ExportCancelled("Export was cancelled due to timeout")
-
     export_source = source or EventSource.EXPORT
 
-    def _do_export() -> None:
-        _check_cancelled()
+    try:
         if exported_asset.export_format in (ExportedAsset.ExportFormat.CSV, ExportedAsset.ExportFormat.XLSX):
             csv_exporter.export_tabular(exported_asset, limit=limit, source=export_source)
         else:
             image_exporter.export_image(exported_asset, max_height_pixels=max_height_pixels, source=export_source)
-
-    try:
-        _do_export()
-
-        # Check if we were cancelled while exporting - if so, don't save success state
-        _check_cancelled()
 
         EXPORT_SUCCEEDED_COUNTER.labels(type=exported_asset.export_format).inc()
         logger.info(
