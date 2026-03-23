@@ -132,7 +132,7 @@ jobs:
             - name: Start Rust flags service
               working-directory: rust
               run: |
-                  ./target/debug/feature-flags &
+                  ./target/debug/feature-flags > /tmp/rust-flags.log 2>&1 &
                   RUST_FLAGS_PID=$!
                   echo "RUST_FLAGS_PID=$RUST_FLAGS_PID" >> $GITHUB_ENV
                   # Wait for service to be ready, checking the process is still alive
@@ -164,6 +164,7 @@ jobs:
                   # fresh cohort data. Without this, tests that create new cohorts
                   # after the first cache load would see stale definitions.
                   CACHE_TTL_SECONDS: '0'
+                  RUST_BACKTRACE: '1'
 
             - name: Start Django API server
               run: |
@@ -201,6 +202,12 @@ jobs:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
                   PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog_persons'
                   PERSONS_DB_WRITER_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog_persons'
+
+            - name: Dump Rust flags service logs
+              if: failure()
+              run: |
+                  echo "=== Rust flags service logs ==="
+                  cat /tmp/rust-flags.log || echo "No log file found"
 
             - name: Stop services
               if: always()
