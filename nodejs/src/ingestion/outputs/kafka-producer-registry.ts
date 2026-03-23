@@ -1,6 +1,20 @@
+import { ProducerGlobalConfig } from 'node-rdkafka'
+
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { logger } from '../../utils/logger'
 import { AllowedConfigKey, getProducerConfig } from './kafka-producer-config'
+
+const SENSITIVE_KEYS = new Set([
+    'sasl.password',
+    'sasl.oauthbearer.client.secret',
+    'ssl.key.password',
+    'ssl.key.pem',
+    'ssl.certificate.pem',
+])
+
+function redactConfig(config: ProducerGlobalConfig): Record<string, unknown> {
+    return Object.fromEntries(Object.entries(config).map(([k, v]) => [k, SENSITIVE_KEYS.has(k) ? '***' : v]))
+}
 
 /**
  * Typed producer registry that creates and caches Kafka producers by name.
@@ -39,7 +53,7 @@ export class KafkaProducerRegistry<P extends string> {
 
     private async createProducer(name: P): Promise<KafkaProducerWrapper> {
         const config = getProducerConfig(this.configMaps[name])
-        logger.info('📝', `Creating producer "${name}"`, { config })
+        logger.info('📝', `Creating producer "${name}"`, { config: redactConfig(config) })
         return KafkaProducerWrapper.createWithConfig(this.kafkaClientRack, config)
     }
 
