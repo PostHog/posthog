@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import psycopg
+from psycopg import sql as psql
 from psycopg.conninfo import make_conninfo
 
 from posthog.ducklake.common import get_duckgres_config, sanitize_ducklake_identifier
@@ -108,12 +109,12 @@ def execute_ducklake_create_table(team_id: int, sql: str, schema_name: str, tabl
     """
     safe_schema = sanitize_ducklake_identifier(schema_name, default_prefix="shadow")
     safe_table = sanitize_ducklake_identifier(table_name, default_prefix="model")
-    qualified = f"{safe_schema}.{safe_table}"
+    qualified = psql.Identifier(safe_schema, safe_table)
     conninfo = _make_duckgres_conninfo(team_id)
     with psycopg.connect(conninfo) as conn:
         conn.execute("SET search_path TO 'posthog'")
         with conn.cursor() as cur:
-            cur.execute("CREATE SCHEMA IF NOT EXISTS %s", (safe_schema,))
+            cur.execute(psql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(psql.Identifier(safe_schema)))
             # capture previous table size before replacing
             cur.execute(
                 "SELECT file_size_bytes FROM posthog.table_info() WHERE schema_name = %s AND table_name = %s",
@@ -121,11 +122,11 @@ def execute_ducklake_create_table(team_id: int, sql: str, schema_name: str, tabl
             )
             prev_row = cur.fetchone()
             prev_file_size_bytes = int(prev_row[0]) if prev_row and prev_row[0] else 0
-            cur.execute("CREATE OR REPLACE TABLE %s AS %s", (qualified, sql))
+            cur.execute(psql.SQL("CREATE OR REPLACE TABLE {} AS {}").format(qualified, sql))
     with psycopg.connect(conninfo) as conn:
         conn.execute("SET search_path TO 'posthog'")
         with conn.cursor() as cur:
-            cur.execute("SELECT count(*) FROM %s", (qualified,))
+            cur.execute(psql.SQL("SELECT count(*) FROM {}").format(qualified))
             row = cur.fetchone()
             row_count = int(row[0]) if row else 0
             cur.execute(
