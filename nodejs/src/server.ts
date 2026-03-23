@@ -42,8 +42,11 @@ import {
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
 import { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { ErrorTrackingConsumer } from './ingestion/error-tracking/error-tracking-consumer'
+import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT, HEATMAPS_OUTPUT } from './ingestion/event-processing/ingestion-outputs'
 import { IngestionConsumer, IngestionConsumerDeps } from './ingestion/ingestion-consumer'
 import { IngestionTestingConsumer } from './ingestion/ingestion-testing-consumer'
+import { resolveOutputs } from './ingestion/kafka/output-resolver'
+import { KafkaProducerRegistry } from './ingestion/kafka/producer-registry'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { onShutdown } from './lifecycle'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
@@ -86,6 +89,7 @@ export class PluginServer {
     // Infrastructure resources (tracked for shutdown cleanup)
     private kafkaProducer?: KafkaProducerWrapper
     private kafkaMetricsProducer?: KafkaProducerWrapper
+    private ingestionProducerRegistry?: KafkaProducerRegistry
     private postgres?: PostgresRouter
     private redisPool?: RedisPool
     private posthogRedisPool?: RedisPool
@@ -209,6 +213,20 @@ export class PluginServer {
 
             const serviceLoaders: (() => Promise<PluginServerService>)[] = []
 
+            // Resolve ingestion outputs — producer creation blocks until the broker
+            // is reachable (rdkafka retries indefinitely), so the server will hang
+            // here if a broker is down and the pod never becomes healthy.
+            if (needsIngestion) {
+                this.ingestionProducerRegistry = new KafkaProducerRegistry(this.config.KAFKA_CLIENT_RACK)
+            }
+            const ingestionOutputs = this.ingestionProducerRegistry
+                ? await resolveOutputs(this.ingestionProducerRegistry, {
+                      [EVENTS_OUTPUT]: { topic: this.config.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC },
+                      [AI_EVENTS_OUTPUT]: { topic: this.config.CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC },
+                      [HEATMAPS_OUTPUT]: { topic: this.config.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC },
+                  })
+                : undefined
+
             if (capabilities.ingestionV2Combined) {
                 // NOTE: This is for single process deployments like local dev and hobby - it runs all possible consumers
                 // in a single process. In production these are each separate Deployments of the standard ingestion consumer
@@ -217,6 +235,7 @@ export class PluginServer {
                     redisPool: this.redisPool!,
                     kafkaProducer: this.kafkaProducer!,
                     kafkaMetricsProducer: this.kafkaMetricsProducer!,
+                    outputs: ingestionOutputs!,
                     teamManager,
                     groupTypeManager: ingestionServices!.groupTypeManager,
                     groupRepository: ingestionCdpServices!.groupRepository,
@@ -256,6 +275,7 @@ export class PluginServer {
                     redisPool: this.redisPool!,
                     kafkaProducer: this.kafkaProducer!,
                     kafkaMetricsProducer: this.kafkaMetricsProducer!,
+                    outputs: ingestionOutputs!,
                     teamManager,
                     groupTypeManager: ingestionServices!.groupTypeManager,
                     groupRepository: ingestionCdpServices!.groupRepository,
@@ -730,6 +750,7 @@ export class PluginServer {
 
         logger.info('💤', ' Shutting down infrastructure...')
         await Promise.allSettled([
+            this.ingestionProducerRegistry?.disconnectAll(),
             this.kafkaProducer?.disconnect(),
             this.kafkaMetricsProducer?.disconnect(),
             this.redisPool?.drain(),

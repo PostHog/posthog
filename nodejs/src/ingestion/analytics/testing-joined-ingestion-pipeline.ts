@@ -95,6 +95,7 @@ export function createTestingJoinedIngestionPipeline<
 
     const perEventConfig: TestingPerDistinctIdPipelineConfig = {
         outputs,
+        kafkaProducer,
         groupId,
     }
 

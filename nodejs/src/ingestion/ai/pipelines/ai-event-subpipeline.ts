@@ -116,6 +116,7 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
             topHog(
                 createEmitEventStep({
                     outputs,
+                    kafkaProducer,
                     groupId,
                 }),
                 [

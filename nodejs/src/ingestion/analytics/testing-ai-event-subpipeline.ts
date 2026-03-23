@@ -2,6 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { PluginEvent } from '~/plugin-scaffold'
 
+import { KafkaProducerWrapper } from '../../kafka/producer'
 import { EventHeaders, Team } from '../../types'
 import { createProcessAiEventStep } from '../ai/pipelines/steps/process-ai-event-step'
 import { createCreateEventStep } from '../event-processing/create-event-step'
@@ -21,6 +22,7 @@ export interface TestingAiEventSubpipelineInput {
 
 export interface TestingAiEventSubpipelineConfig {
     outputs: IngestionOutputs<EventOutput>
+    kafkaProducer: KafkaProducerWrapper
     groupId: string
 }
 
@@ -28,7 +30,7 @@ export function createTestingAiEventSubpipeline<TInput extends TestingAiEventSub
     builder: StartPipelineBuilder<TInput, TContext>,
     config: TestingAiEventSubpipelineConfig
 ): PipelineBuilder<TInput, void, TContext> {
-    const { outputs, groupId } = config
+    const { outputs, kafkaProducer, groupId } = config
 
     // Compared to ai-event-subpipeline.ts:
     // CHANGED: createNormalizeProcessPersonFlagStep → createDisablePersonProcessingWithFakePersonStep
@@ -44,5 +46,5 @@ export function createTestingAiEventSubpipeline<TInput extends TestingAiEventSub
         .pipe(createProcessAiEventStep())
         .pipe(createPrepareEventStep())
         .pipe(createCreateEventStep(EVENTS_OUTPUT))
-        .pipe(createEmitEventStep({ outputs, groupId }))
+        .pipe(createEmitEventStep({ outputs, kafkaProducer, groupId }))
 }

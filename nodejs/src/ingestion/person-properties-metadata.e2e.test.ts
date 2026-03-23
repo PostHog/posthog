@@ -13,6 +13,7 @@ import { v4 } from 'uuid'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { resetKafka } from '~/tests/helpers/kafka'
 
+import { createTestIngestionOutputs } from '../../tests/helpers/ingestion-outputs'
 import { createUserTeamAndOrganization, fetchPostgresPersons, resetTestDatabase } from '../../tests/helpers/sql'
 import { createHogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { Hub, PipelineEvent, PluginsServerConfig, ProjectId, Team } from '../types'
@@ -178,6 +179,7 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
                 ...hub,
                 kafkaMetricsProducer: hub.kafkaProducer,
                 hogTransformer: createHogTransformerService(hub, hub),
+                outputs: createTestIngestionOutputs(hub.kafkaProducer),
             })
             ingester['kafkaConsumer'] = {
                 connect: jest.fn(),

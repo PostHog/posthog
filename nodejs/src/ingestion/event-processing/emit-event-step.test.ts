@@ -78,6 +78,7 @@ describe('emit-event-step', () => {
 
         config = {
             outputs,
+            kafkaProducer: mockKafkaProducer,
             groupId: 'test-group-id',
         }
 
@@ -208,7 +209,11 @@ describe('emit-event-step', () => {
                     producer: mockKafkaProducer,
                 },
             })
-            const step = createEmitEventStep({ outputs: customOutputs, groupId: 'test-group-id' })
+            const step = createEmitEventStep({
+                outputs: customOutputs,
+                kafkaProducer: mockKafkaProducer,
+                groupId: 'test-group-id',
+            })
             const input = createInput()
 
             await step(input)

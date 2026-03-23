@@ -27,13 +27,16 @@ import { KafkaConfigTarget, getKafkaConfigFromEnv } from './config'
 
 export type MessageKey = Exclude<RdKafkaMessageKey, undefined>
 
+export type MessageWithoutTopic = {
+    value: string | Buffer | null
+    key?: MessageKey
+    headers?: Record<string, string>
+    topic?: never
+}
+
 export type TopicMessage = {
     topic: string
-    messages: {
-        value: string | Buffer | null
-        key?: MessageKey
-        headers?: Record<string, string>
-    }[]
+    messages: MessageWithoutTopic[]
 }
 
 export class KafkaProducerWrapper {

@@ -37,10 +37,8 @@ import {
 } from './analytics'
 import { IngestionConsumerConfig } from './config'
 import { CookielessManager } from './cookieless/cookieless-manager'
-import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT, HEATMAPS_OUTPUT } from './event-processing/ingestion-outputs'
+import { AiEventOutput, EventOutput, HeatmapsOutput, IngestionOutputs } from './event-processing/ingestion-outputs'
 import { parseSplitAiEventsConfig } from './event-processing/split-ai-events-step'
-import { resolveOutputs } from './kafka/output-resolver'
-import { KafkaProducerRegistry } from './kafka/producer-registry'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
 import { createContext } from './pipelines/helpers'
@@ -59,6 +57,7 @@ export interface IngestionConsumerDeps {
     redisPool: RedisPool
     kafkaProducer: KafkaProducerWrapper
     kafkaMetricsProducer: KafkaProducerWrapper
+    outputs: IngestionOutputs<EventOutput | AiEventOutput | HeatmapsOutput>
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     groupRepository: GroupRepository
@@ -86,7 +85,6 @@ export class IngestionConsumer {
     protected kafkaProducer?: KafkaProducerWrapper
     protected kafkaOverflowProducer?: KafkaProducerWrapper
     public hogTransformer: HogTransformerService
-    private producerRegistry?: KafkaProducerRegistry
     private overflowRedirectService?: OverflowRedirectService
     private overflowLaneTTLRefreshService?: OverflowRedirectService
     private tokenDistinctIdsToDrop: string[] = []
@@ -222,24 +220,16 @@ export class IngestionConsumer {
 
         this.topHog.start()
 
-        // Initialize outputs via the producer registry and output resolver.
-        // Producer creation blocks until the broker is reachable (rdkafka retries
-        // indefinitely), so start() will hang if a broker is down — the pod never
-        // becomes healthy and Kubernetes will eventually kill it.
-        // After startup, ongoing producer health can be monitored via
-        // INGESTION_OUTPUTS_PRODUCER_HEALTHCHECK=true.
-        this.producerRegistry = new KafkaProducerRegistry(this.config.KAFKA_CLIENT_RACK)
-        const outputs = await resolveOutputs(this.producerRegistry, {
-            [EVENTS_OUTPUT]: {
-                topic: this.config.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-            },
-            [AI_EVENTS_OUTPUT]: {
-                topic: this.config.CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC,
-            },
-            [HEATMAPS_OUTPUT]: {
-                topic: this.config.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-            },
-        })
+        const outputs = this.deps.outputs
+
+        // Optionally verify all output topics exist on their brokers.
+        // Enable with INGESTION_OUTPUTS_VERIFY_TOPICS=true in production.
+        if (process.env.INGESTION_OUTPUTS_VERIFY_TOPICS === 'true') {
+            const topicFailures = await outputs.checkTopics()
+            if (topicFailures.length > 0) {
+                throw new Error(`Output topic verification failed for: ${topicFailures.join(', ')}`)
+            }
+        }
 
         const joinedPipelineConfig: JoinedIngestionPipelineConfig = {
             eventSchemaEnforcementEnabled: this.config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
@@ -307,8 +297,6 @@ export class IngestionConsumer {
         logger.info('🔁', `${this.name} - stopping tophog`)
         await this.topHog.stop()
         // NOTE: Don't disconnect kafkaProducer here as it's shared from deps and managed by the server
-        logger.info('🔁', `${this.name} - stopping producer registry`)
-        await this.producerRegistry?.disconnectAll()
         logger.info('🔁', `${this.name} - stopping kafka overflow producer`)
         await this.kafkaOverflowProducer?.disconnect()
         logger.info('🔁', `${this.name} - stopping hog transformer`)
@@ -326,8 +314,8 @@ export class IngestionConsumer {
             return consumerHealth
         }
 
-        if (process.env.INGESTION_OUTPUTS_PRODUCER_HEALTHCHECK === 'true' && this.producerRegistry) {
-            const failures = await this.producerRegistry.checkAllConnections()
+        if (process.env.INGESTION_OUTPUTS_PRODUCER_HEALTHCHECK === 'true') {
+            const failures = await this.deps.outputs.checkHealth()
             if (failures.length > 0) {
                 return new HealthCheckResultError('Kafka producer(s) unhealthy', { failedProducers: failures })
             }

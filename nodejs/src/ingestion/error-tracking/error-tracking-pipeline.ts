@@ -199,6 +199,7 @@ export function createErrorTrackingPipeline(
                                                 topHogWrapper(
                                                     createEmitEventStep({
                                                         outputs,
+                                                        kafkaProducer,
                                                         groupId,
                                                     }),
                                                     [

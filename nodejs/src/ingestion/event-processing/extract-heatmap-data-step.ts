@@ -39,15 +39,14 @@ export function createExtractHeatmapDataStep<TInput extends ExtractHeatmapDataSt
             warnings.push(...extractWarnings)
 
             if (heatmapEvents.length > 0) {
-                const { topic, producer } = outputs.resolve(HEATMAPS_OUTPUT)
                 acks.push(
-                    producer.queueMessages({
-                        topic,
-                        messages: heatmapEvents.map((rawEvent) => ({
+                    outputs.queueMessages(
+                        HEATMAPS_OUTPUT,
+                        heatmapEvents.map((rawEvent) => ({
                             key: eventUuid,
                             value: JSON.stringify(rawEvent),
-                        })),
-                    })
+                        }))
+                    )
                 )
             }
         } catch (e) {

@@ -2,6 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { PluginEvent } from '~/plugin-scaffold'
 
+import { KafkaProducerWrapper } from '../../kafka/producer'
 import { EventHeaders, Team } from '../../types'
 import { createCreateEventStep } from '../event-processing/create-event-step'
 import { createDisablePersonProcessingWithFakePersonStep } from '../event-processing/disable-person-processing-with-fake-person-step'
@@ -21,6 +22,7 @@ export interface TestingEventSubpipelineInput {
 
 export interface TestingEventSubpipelineConfig {
     outputs: IngestionOutputs<EventOutput | HeatmapsOutput>
+    kafkaProducer: KafkaProducerWrapper
     groupId: string
 }
 
@@ -28,7 +30,7 @@ export function createTestingEventSubpipeline<TInput extends TestingEventSubpipe
     builder: StartPipelineBuilder<TInput, TContext>,
     config: TestingEventSubpipelineConfig
 ): PipelineBuilder<TInput, void, TContext> {
-    const { outputs, groupId } = config
+    const { outputs, kafkaProducer, groupId } = config
 
     // Compared to event-subpipeline.ts:
     // CHANGED: createNormalizeProcessPersonFlagStep → createDisablePersonProcessingWithFakePersonStep
@@ -47,6 +49,7 @@ export function createTestingEventSubpipeline<TInput extends TestingEventSubpipe
         .pipe(
             createEmitEventStep({
                 outputs,
+                kafkaProducer,
                 groupId,
             })
         )

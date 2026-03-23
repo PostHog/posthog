@@ -52,19 +52,6 @@ export class KafkaProducerRegistry {
         return producer
     }
 
-    /** Check that all producers can reach their brokers. Returns the names of any that fail. */
-    async checkAllConnections(timeoutMs = 5000): Promise<string[]> {
-        const failures: string[] = []
-        for (const [name, producer] of this.producers) {
-            try {
-                await producer.checkConnection(timeoutMs)
-            } catch {
-                failures.push(name)
-            }
-        }
-        return failures
-    }
-
     /** Flush and disconnect all producers. */
     async disconnectAll(): Promise<void> {
         const entries = Array.from(this.producers.entries())

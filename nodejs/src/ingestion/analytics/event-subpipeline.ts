@@ -112,6 +112,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
             topHog(
                 createEmitEventStep({
                     outputs,
+                    kafkaProducer,
                     groupId,
                 }),
                 [

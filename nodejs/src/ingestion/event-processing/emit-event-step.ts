@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { ingestionLagGauge, ingestionLagHistogram } from '../../common/metrics'
+import { KafkaProducerWrapper } from '../../kafka/producer'
 import { EventHeaders, ProcessedEvent, RawKafkaEvent, TimestampFormat } from '../../types'
 import { MessageSizeTooLarge } from '../../utils/db/error'
 import { safeClickhouseString } from '../../utils/db/utils'
@@ -19,6 +20,7 @@ export interface EventToEmit<O extends string> {
 
 export interface EmitEventStepConfig<O extends string> {
     outputs: IngestionOutputs<O>
+    kafkaProducer: KafkaProducerWrapper
     groupId: string
 }
 
@@ -46,15 +48,13 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
         const sideEffects: Promise<void>[] = []
 
         for (const { event, output } of eventsToEmit) {
-            const { topic, producer } = outputs.resolve(output)
             const serialized = serializeEvent(event)
 
             // TODO: It's not great that we put the produce outcome in side effects, we should probably await it here
             //       but it might slow the pipeline down. Historically, it has always been like that.
             //       We should investigate this later.
-            const emitPromise = producer
-                .produce({
-                    topic,
+            const emitPromise = outputs
+                .produce(output, {
                     key: serialized.uuid,
                     value: Buffer.from(JSON.stringify(serialized)),
                     headers: { productTrack: productTrackHeader(event) },
@@ -69,10 +69,15 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
                     // Some messages end up significantly larger than the original
                     // after plugin processing, person & group enrichment, etc.
                     if (error instanceof MessageSizeTooLarge) {
-                        await captureIngestionWarning(producer, serialized.team_id, 'message_size_too_large', {
-                            eventUuid: serialized.uuid,
-                            distinctId: serialized.distinct_id,
-                        })
+                        await captureIngestionWarning(
+                            config.kafkaProducer,
+                            serialized.team_id,
+                            'message_size_too_large',
+                            {
+                                eventUuid: serialized.uuid,
+                                distinctId: serialized.distinct_id,
+                            }
+                        )
                     } else {
                         throw error
                     }
