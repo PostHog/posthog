@@ -67,4 +67,18 @@ describe('tableViewLogic - getQueryFromView', () => {
         expect(result.events).toEqual(['pageview', 'click'])
         expect(result.properties).toHaveLength(0)
     })
+
+    it('keeps filters without an operator in properties', () => {
+        const view: ColumnConfigurationApi = {
+            id: '1',
+            context_key: 'test',
+            filters: [
+                { key: 'something_else', value: 'value' } as any
+            ]
+        } as any
+
+        const result = getQueryFromView(baseQuery, view) as any
+        expect(result.properties).toHaveLength(1)
+        expect(result.properties[0].key).toEqual('something_else')
+    })
 })
