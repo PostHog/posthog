@@ -172,7 +172,7 @@ func renderSidebarRow(icon, name string, iconColor color.Color, selected bool, c
 	}
 
 	barBg := cpuBarColor(cpuPct)
-	nameW := innerW - 2 // 1 padding + 1 icon
+	nameW := max(innerW-2, 0) // 1 padding + 1 icon
 
 	// Pick background for each segment based on whether it falls within the bar
 	bgFor := func(col int) color.Color {

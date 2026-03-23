@@ -332,6 +332,7 @@ func (p *Process) Start(send func(tea.Msg)) error {
 		// (process was restarted) or if an explicit Stop() was called
 		if p.cmd == cmd && p.status != StatusStopped {
 			p.status = st
+			p.metrics = nil
 			code := cmd.ProcessState.ExitCode()
 			p.exitCode = &code
 		}
@@ -421,6 +422,7 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 		// (process was restarted) or if an explicit Stop() was called
 		if p.cmd == cmd && p.status != StatusStopped {
 			p.status = st
+			p.metrics = nil
 			code := cmd.ProcessState.ExitCode()
 			p.exitCode = &code
 		}
@@ -637,9 +639,9 @@ func (p *Process) killProcessGroup() {
 	}
 }
 
-// Sends SIGTERM to the process group and marks it as stopped.
-// Killing the process group (negative PID) ensures all descendants
-// (bash → tsx watch → node, etc.) are terminated, not just the shell.
+// Sends the configured stop signal (default SIGTERM) to the process group
+// and marks it as stopped. Killing the process group (negative PID) ensures
+// all descendants (bash → tsx watch → node, etc.) are terminated.
 func (p *Process) Stop() {
 	p.mu.Lock()
 	defer p.mu.Unlock()

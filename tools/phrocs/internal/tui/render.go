@@ -323,7 +323,11 @@ func (m Model) renderInfo() string {
 	// Config
 	lines = append(lines, "")
 	lines = append(lines, titleStyle.Render("  Config"))
-	lines = append(lines, row("  Command", p.Cfg.Shell))
+	if len(p.Cfg.Cmd) > 0 {
+		lines = append(lines, row("  Command", strings.Join(p.Cfg.Cmd, " ")))
+	} else {
+		lines = append(lines, row("  Command", p.Cfg.Shell))
+	}
 	if p.Cfg.ReadyPattern != "" {
 		lines = append(lines, row("  Ready pattern", p.Cfg.ReadyPattern))
 	}

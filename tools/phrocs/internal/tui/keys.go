@@ -10,26 +10,31 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// procViewerCmd returns an exec.Cmd for the best available process viewer
-// (htop > btop > top), filtered to the given root PID. Returns nil if none found.
+// procViewerCmd returns an exec.Cmd for the best available process viewer,
+// filtered to the given root PID where possible. Falls back to unfiltered
+// viewers when PID filtering isn't supported. Returns nil if none found.
+//
+// Priority: htop (PID-filtered) > btop (unfiltered) > top (PID-filtered).
 func procViewerCmd(pid int) *exec.Cmd {
 	pidStr := fmt.Sprintf("%d", pid)
 
-	// htop -t (tree view) -p PID shows the process and its descendants
+	// htop: tree view + PID filter on all platforms
 	if path, err := exec.LookPath("htop"); err == nil {
 		return exec.Command(path, "-t", "-p", pidStr)
 	}
 
-	// btop has no PID filter, but still useful to open
+	// btop: no PID filter support
 	if path, err := exec.LookPath("btop"); err == nil {
 		return exec.Command(path)
 	}
 
-	// macOS top: -pid PID
-	if runtime.GOOS == "darwin" {
-		if path, err := exec.LookPath("top"); err == nil {
+	// top: PID-filtered, syntax differs by OS
+	if path, err := exec.LookPath("top"); err == nil {
+		if runtime.GOOS == "darwin" {
 			return exec.Command(path, "-pid", pidStr)
 		}
+		// Linux top uses -p
+		return exec.Command(path, "-p", pidStr)
 	}
 
 	return nil
@@ -327,13 +332,15 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 		}
 
 	case key.Matches(msg, m.keys.LazyDocker):
-		args := []string{}
-		for _, f := range m.composeArgs.Files {
-			args = append(args, "-f", f)
+		if path, err := exec.LookPath("lazydocker"); err == nil {
+			args := []string{}
+			for _, f := range m.composeArgs.Files {
+				args = append(args, "-f", f)
+			}
+			m.dbg("lazydocker: %v", args)
+			c := exec.Command(path, args...)
+			return m, tea.ExecProcess(c, nil)
 		}
-		m.dbg("lazydocker: %v", args)
-		c := exec.Command("lazydocker", args...)
-		return m, tea.ExecProcess(c, nil)
 
 	default:
 		if m.focusedPane == focusOutput {

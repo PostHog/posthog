@@ -290,7 +290,7 @@ func (m Model) activeProc() *process.Process {
 	return m.services[m.servicesCursor]
 }
 
-// Rreturns the configured proc_list_width, or the default.
+// Returns the configured proc_list_width, or the default.
 func (m Model) effectiveSidebarWidth() int {
 	if m.procListWidth > 0 {
 		return m.procListWidth
