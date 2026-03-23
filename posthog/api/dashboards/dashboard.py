@@ -190,17 +190,12 @@ class TextSerializer(serializers.ModelSerializer):
         allow_null=True,
         error_messages={"max_length": "Text body cannot exceed 4000 characters"},
     )
+    dashboard_tiles = DashboardTileBasicSerializer(many=True, read_only=True)
 
     class Meta:
         model = Text
         fields = "__all__"
         read_only_fields = ["id", "created_by", "last_modified_by", "last_modified_at"]
-
-    def to_representation(self, instance: Text) -> dict[str, Any]:
-        representation = super().to_representation(instance)
-        tiles = DashboardTile.objects.filter(text_id=instance.id)
-        representation["dashboard_tiles"] = DashboardTileBasicSerializer(tiles, many=True).data
-        return representation
 
 
 class ButtonTileSerializer(serializers.ModelSerializer):
@@ -215,6 +210,7 @@ class ButtonTileSerializer(serializers.ModelSerializer):
         error_messages={"max_length": "Button text cannot exceed 200 characters"},
     )
     placement = serializers.ChoiceField(choices=["left", "right"], default="left")
+    dashboard_tiles = DashboardTileBasicSerializer(many=True, read_only=True)
 
     class Meta:
         model = ButtonTile
@@ -232,12 +228,6 @@ class ButtonTileSerializer(serializers.ModelSerializer):
             except Exception:
                 raise serializers.ValidationError("Must be a valid URL or a pathname starting with /")
         return value
-
-    def to_representation(self, instance: ButtonTile) -> dict[str, Any]:
-        representation = super().to_representation(instance)
-        tiles = DashboardTile.objects.filter(button_tile_id=instance.id)
-        representation["dashboard_tiles"] = DashboardTileBasicSerializer(tiles, many=True).data
-        return representation
 
 
 class DashboardTileSerializer(serializers.ModelSerializer):
@@ -1294,6 +1284,11 @@ class DashboardsViewSet(
         if from_dashboard_id == destination.pk:
             raise exceptions.ValidationError("Destination must be a different dashboard than the source.")
 
+        source_dashboard = get_object_or_404(Dashboard, id=from_dashboard_id, team__project_id=self.team.project_id)
+        user_access_control = UserAccessControl(user=cast(User, request.user), team=self.team)
+        if not user_access_control.check_access_level_for_object(source_dashboard, "viewer"):
+            raise exceptions.PermissionDenied("You don't have permission to view the source dashboard.")
+
         tile = get_object_or_404(
             DashboardTile,
             dashboard_id=from_dashboard_id,
@@ -1302,8 +1297,6 @@ class DashboardsViewSet(
         )
         if tile.insight is None and tile.text is None:
             raise exceptions.ValidationError("Only insight and text tiles can be copied between dashboards.")
-
-        user_access_control = UserAccessControl(user=cast(User, request.user), team=self.team)
 
         if tile.insight is not None:
             if not user_access_control.check_access_level_for_object(tile.insight, "viewer"):
@@ -1316,7 +1309,8 @@ class DashboardsViewSet(
                 raise exceptions.ValidationError("This text card is already on the destination dashboard.")
 
         try:
-            tile.copy_to_dashboard(destination)
+            with transaction.atomic():
+                tile.copy_to_dashboard(destination)
         except DjangoValidationError:
             logger.warning("validation_error_while_copying_dashboard_tile", exc_info=True)
             raise exceptions.ValidationError("Unable to copy tile due to invalid data.")
