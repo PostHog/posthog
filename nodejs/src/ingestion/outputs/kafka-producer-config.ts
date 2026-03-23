@@ -19,6 +19,7 @@ const producerConfigSchema = z.object({
     'linger.ms': z.coerce.number().default(20),
     'batch.size': z.coerce.number().default(8 * 1024 * 1024),
     'queue.buffering.max.messages': z.coerce.number().default(100_000),
+    'queue.buffering.max.kbytes': z.coerce.number().optional(),
     'enable.ssl.certificate.verification': z
         .enum(['true', 'false'])
         .transform((v) => v === 'true')
@@ -28,7 +29,12 @@ const producerConfigSchema = z.object({
         .enum(['true', 'false'])
         .transform((v) => v === 'true')
         .default('true'),
+    'message.max.bytes': z.coerce.number().optional(),
+    'batch.num.messages': z.coerce.number().optional(),
+    'sticky.partitioning.linger.ms': z.coerce.number().optional(),
+    'topic.metadata.refresh.interval.ms': z.coerce.number().optional(),
     'metadata.max.age.ms': z.coerce.number().default(30000),
+    'message.send.max.retries': z.coerce.number().optional(),
     'retry.backoff.ms': z.coerce.number().default(500),
     'socket.timeout.ms': z.coerce.number().default(30000),
     'max.in.flight.requests.per.connection': z.coerce.number().default(5),
