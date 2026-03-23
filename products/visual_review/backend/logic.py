@@ -24,10 +24,11 @@ from .storage import ArtifactStorage
 
 logger = structlog.get_logger(__name__)
 
-# Database alias for transactional writes — must match the route in db_routing.yaml.
-# Falls back to "default" when the product database isn't configured (e.g. tests, CI).
-_PRODUCT_DB_ALIAS = "visual_review_db_writer"
-WRITER_DB = _PRODUCT_DB_ALIAS if _PRODUCT_DB_ALIAS in settings.DATABASES else "default"
+# Derive the writer alias from the app label — must match db_routing.yaml.
+# Falls back to "default" when the product database isn't configured.
+_APP_LABEL = "visual_review"
+_WRITER_ALIAS = f"{_APP_LABEL}_db_writer"
+WRITER_DB = _WRITER_ALIAS if _WRITER_ALIAS in settings.DATABASES else "default"
 
 
 class RepoNotFoundError(Exception):

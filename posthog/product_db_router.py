@@ -19,7 +19,9 @@ class ProductDBRouter:
         configured_routes = routes if routes is not None else get_product_db_routes()
         self.routes = tuple(route for route in configured_routes if f"{route.database}_db_writer" in settings.DATABASES)
         self._product_db_aliases = frozenset(
-            alias for route in self.routes for alias in (f"{route.database}_db_writer", f"{route.database}_db_reader")
+            alias
+            for route in self.routes
+            for alias in (f"{route.database}_db_writer", f"{route.database}_db_reader", f"{route.database}_db_direct")
         )
 
     def db_for_read(self, model, **hints):

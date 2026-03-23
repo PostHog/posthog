@@ -218,12 +218,17 @@ for route in product_routes:
         DATABASES[writer_alias]["DISABLE_SERVER_SIDE_CURSORS"] = True
         DATABASES[reader_alias]["DISABLE_SERVER_SIDE_CURSORS"] = True
 
-    # Direct connection for migrations (bypasses PgBouncer)
+    # Direct connection for migrations (bypasses PgBouncer). Only registered
+    # when the env var is explicitly set — in dev/test there's no PgBouncer,
+    # so migrations use the writer alias directly.
     direct_env = f"PRODUCT_DB_{db.upper()}_DIRECT_URL"
-    direct_url = os.getenv(direct_env, writer_url)
-    direct_alias = f"{db}_db_direct"
-    DATABASES[direct_alias] = dj_database_url.parse(direct_url, conn_max_age=0)
-    DATABASES[direct_alias].setdefault("OPTIONS", {})["connect_timeout"] = 10
+    direct_url = os.getenv(direct_env)
+    if direct_url:
+        direct_alias = f"{db}_db_direct"
+        DATABASES[direct_alias] = dj_database_url.parse(direct_url, conn_max_age=0)
+        DATABASES[direct_alias].setdefault("OPTIONS", {})["connect_timeout"] = 10
+        if DISABLE_SERVER_SIDE_CURSORS:
+            DATABASES[direct_alias]["DISABLE_SERVER_SIDE_CURSORS"] = True
 
     configured_product_databases.add(db)
 
