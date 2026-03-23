@@ -224,6 +224,23 @@ func (p *Process) Snapshot() Snapshot {
 	return snap
 }
 
+// buildEnv constructs the environment for the child process.
+func (p *Process) buildEnv() []string {
+	env := os.Environ()
+	for k, v := range p.Cfg.Env {
+		env = append(env, fmt.Sprintf("%s=%s", k, v))
+	}
+	return env
+}
+
+// buildCmd creates the exec.Cmd from either the shell or cmd config.
+func (p *Process) buildCmd() *exec.Cmd {
+	if len(p.Cfg.Cmd) > 0 {
+		return exec.Command(p.Cfg.Cmd[0], p.Cfg.Cmd[1:]...)
+	}
+	return exec.Command("bash", "-c", p.Cfg.Shell)
+}
+
 // It's safe to call Start concurrently as running process is a no-op
 func (p *Process) Start(send func(tea.Msg)) error {
 	p.mu.Lock()
@@ -242,12 +259,8 @@ func (p *Process) Start(send func(tea.Msg)) error {
 	p.ready = p.readyPattern == nil
 	p.mu.Unlock()
 
-	env := os.Environ()
-	for k, v := range p.Cfg.Env {
-		env = append(env, fmt.Sprintf("%s=%s", k, v))
-	}
-
-	cmd := exec.Command("bash", "-c", p.Cfg.Shell)
+	env := p.buildEnv()
+	cmd := p.buildCmd()
 	cmd.Env = env
 	// Give child its own process group so Stop() can kill the entire tree,
 	// preventing zombie tsx/node/vite processes when phrocs exits.
@@ -579,10 +592,24 @@ func collectProcessTree(ps *gops.Process) []*gops.Process {
 	return all
 }
 
-// killProcessGroup sends SIGTERM to the process group. Must be called with
-// p.mu held. Falls back to signaling the direct child if the group kill fails.
-// Also walks the process tree to terminate descendants that escaped the group
-// (e.g. pnpm/node processes spawned with a detached process group).
+// stopSignal returns the syscall signal to use when stopping the process,
+// based on the stop config. Defaults to SIGTERM.
+func (p *Process) stopSignal() syscall.Signal {
+	switch p.Cfg.Stop {
+	case "SIGINT":
+		return syscall.SIGINT
+	case "SIGKILL", "hard-kill":
+		return syscall.SIGKILL
+	default:
+		return syscall.SIGTERM
+	}
+}
+
+// killProcessGroup sends the configured stop signal to the process group.
+// Must be called with p.mu held. Falls back to signaling the direct child
+// if the group kill fails. Also walks the process tree to terminate
+// descendants that escaped the group (e.g. pnpm/node processes spawned
+// with a detached process group).
 func (p *Process) killProcessGroup() {
 	if p.cmd == nil || p.cmd.Process == nil {
 		return
@@ -592,15 +619,17 @@ func (p *Process) killProcessGroup() {
 	if p.cmd.ProcessState != nil && p.cmd.ProcessState.Exited() {
 		return
 	}
+
+	sig := p.stopSignal()
 	pid := p.cmd.Process.Pid
-	if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil {
-		_ = p.cmd.Process.Signal(syscall.SIGTERM)
+	if err := syscall.Kill(-pid, sig); err != nil {
+		_ = p.cmd.Process.Signal(sig)
 	}
 	// Walk the full process tree to catch any descendants that escaped the
 	// process group (e.g. pnpm spawns node as a detached child).
 	if ps, err := gops.NewProcess(int32(pid)); err == nil {
 		for _, proc := range collectProcessTree(ps) {
-			_ = proc.SendSignal(syscall.SIGTERM)
+			_ = proc.SendSignal(sig)
 		}
 	}
 }

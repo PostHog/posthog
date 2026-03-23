@@ -9,25 +9,26 @@ import (
 	"github.com/posthog/posthog/phrocs/internal/process"
 )
 
-// testManager creates a Manager with the named stub processes (no autostart).
-func testManager(names ...string) *process.Manager {
+// testConfig creates a Config with the named stub processes (no autostart).
+func testConfig(names ...string) *config.Config {
 	f := false
 	procs := make(map[string]config.ProcConfig, len(names))
 	for _, n := range names {
 		procs[n] = config.ProcConfig{Shell: "true", Autostart: &f}
 	}
-	return process.NewManager(&config.Config{
+	return &config.Config{
 		Procs:            procs,
 		MouseScrollSpeed: 3,
 		Scrollback:       1000,
-	})
+	}
 }
 
 // readyModel returns a model that has processed a WindowSizeMsg and is ready.
 func readyModel(t *testing.T, names ...string) Model {
 	t.Helper()
-	mgr := testManager(names...)
-	m := New(mgr, 3, nil)
+	cfg := testConfig(names...)
+	mgr := process.NewManager(cfg)
+	m := New(mgr, cfg, nil)
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	return next.(Model)
 }
@@ -35,14 +36,15 @@ func readyModel(t *testing.T, names ...string) Model {
 func readyDockerModel(t *testing.T) Model {
 	t.Helper()
 	f := false
-	mgr := process.NewManager(&config.Config{
+	cfg := &config.Config{
 		Procs: map[string]config.ProcConfig{
 			"docker": {Shell: "docker compose -f docker-compose.dev.yml up", Autostart: &f},
 		},
 		MouseScrollSpeed: 3,
 		Scrollback:       1000,
-	})
-	m := New(mgr, 3, nil)
+	}
+	mgr := process.NewManager(cfg)
+	m := New(mgr, cfg, nil)
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	dockerModel := next.(Model)
 	dockerModel.containers = []docker.DockerContainer{{Service: "web"}}
@@ -67,8 +69,9 @@ func update(m Model, msg tea.Msg) Model {
 // ── New() initial state ───────────────────────────────────────────────────────
 
 func TestNew_initialState(t *testing.T) {
-	mgr := testManager("backend", "frontend")
-	m := New(mgr, 3, nil)
+	cfg := testConfig("backend", "frontend")
+	mgr := process.NewManager(cfg)
+	m := New(mgr, cfg, nil)
 	if m.ready {
 		t.Error("model should not be ready before WindowSizeMsg")
 	}
@@ -87,8 +90,9 @@ func TestNew_initialState(t *testing.T) {
 }
 
 func TestUpdate_windowSizeSetsReady(t *testing.T) {
-	mgr := testManager("backend")
-	m := New(mgr, 3, nil)
+	cfg := testConfig("backend")
+	mgr := process.NewManager(cfg)
+	m := New(mgr, cfg, nil)
 	m = update(m, tea.WindowSizeMsg{Width: 120, Height: 40})
 	if !m.ready {
 		t.Error("model should be ready after WindowSizeMsg")
@@ -416,12 +420,13 @@ func TestSearch_incrementalUpdate(t *testing.T) {
 func TestSearch_eviction(t *testing.T) {
 	// Use a tiny scrollback (3 lines) so eviction happens quickly.
 	f := false
-	mgr := process.NewManager(&config.Config{
+	cfg := &config.Config{
 		Procs:            map[string]config.ProcConfig{"svc": {Shell: "true", Autostart: &f}},
 		MouseScrollSpeed: 3,
 		Scrollback:       3,
-	})
-	m := New(mgr, 3, nil)
+	}
+	mgr := process.NewManager(cfg)
+	m := New(mgr, cfg, nil)
 	m = update(m, tea.WindowSizeMsg{Width: 120, Height: 40})
 	p, _ := mgr.Get("svc")
 

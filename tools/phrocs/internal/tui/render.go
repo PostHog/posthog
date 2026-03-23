@@ -56,7 +56,7 @@ func (m Model) renderSidebar() string {
 	h := m.sidebarHeight()
 
 	// Usable column width inside the border
-	innerW := sidebarWidth - 1
+	innerW := m.effectiveSidebarWidth() - 1
 
 	// Determine the vertical slice of the services list to render based
 	// on the current cursor position and servicesOffset
@@ -93,10 +93,7 @@ func (m Model) renderSidebar() string {
 }
 
 func (m Model) sidebarHeight() int {
-	fh := footerHeightShort
-	if m.showHelp {
-		fh = footerHeightFull
-	}
+	fh := m.footerHeight()
 	h := m.height - headerHeight - fh
 	return max(h, 1)
 }
@@ -205,6 +202,9 @@ func (m Model) renderFooter() string {
 		return footerStyle.Width(m.width - 2).Render(
 			lipgloss.NewStyle().Foreground(colorYellow).Render(matchInfo),
 		)
+	}
+	if m.hideHelp {
+		return ""
 	}
 	var content string
 	if m.showHelp {
