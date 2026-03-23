@@ -16,6 +16,7 @@ describe('resolveOutputs', () => {
 
     function createMockProducer(): KafkaProducerWrapper {
         return {
+            checkConnection: jest.fn().mockResolvedValue(undefined),
             checkTopicExists: jest.fn().mockResolvedValue(undefined),
         } as unknown as KafkaProducerWrapper
     }
@@ -85,7 +86,99 @@ describe('resolveOutputs', () => {
         expect(registry.getProducer).toHaveBeenCalledWith('CUSTOM')
     })
 
-    it('verifies topics exist after resolving', async () => {
+    it('always verifies broker connectivity', async () => {
+        const registry = createMockRegistry()
+
+        await resolveOutputs(registry, {
+            events: { topic: 'clickhouse_events' },
+        })
+
+        const producer = (await registry.getProducer(undefined)) as jest.Mocked<KafkaProducerWrapper>
+        expect(producer.checkConnection).toHaveBeenCalledTimes(1)
+    })
+
+    it('checks connectivity once per unique producer', async () => {
+        const mskProducer = createMockProducer()
+        const wsProducer = createMockProducer()
+
+        const registry = {
+            getProducer: jest.fn(async (name: string | undefined) => {
+                if (name === 'MSK') {
+                    return Promise.resolve(mskProducer)
+                }
+                if (name === 'WARPSTREAM') {
+                    return Promise.resolve(wsProducer)
+                }
+                throw new Error(`Unknown producer: ${name}`)
+            }),
+            disconnectAll: jest.fn(),
+        } as unknown as KafkaProducerRegistry
+
+        await resolveOutputs(registry, {
+            events: { topic: 'events', defaultProducerName: 'MSK' },
+            ai_events: { topic: 'ai_events', defaultProducerName: 'MSK' },
+            heatmaps: { topic: 'heatmaps', defaultProducerName: 'WARPSTREAM' },
+        })
+
+        expect(mskProducer.checkConnection).toHaveBeenCalledTimes(1)
+        expect(wsProducer.checkConnection).toHaveBeenCalledTimes(1)
+    })
+
+    it('throws if broker is unreachable', async () => {
+        const registry = createMockRegistry()
+        const producer = await registry.getProducer(undefined)
+        ;(producer.checkConnection as jest.Mock).mockRejectedValue(new Error('Connection refused'))
+
+        await expect(
+            resolveOutputs(registry, {
+                events: { topic: 'clickhouse_events' },
+            })
+        ).rejects.toThrow('Connection refused')
+    })
+
+    it('throws if one of multiple brokers is unreachable', async () => {
+        const mskProducer = createMockProducer()
+        const wsProducer = createMockProducer()
+        ;(wsProducer.checkConnection as jest.Mock).mockRejectedValue(new Error('WARPSTREAM broker unreachable'))
+
+        const registry = {
+            getProducer: jest.fn(async (name: string | undefined) => {
+                if (name === 'MSK') {
+                    return Promise.resolve(mskProducer)
+                }
+                if (name === 'WARPSTREAM') {
+                    return Promise.resolve(wsProducer)
+                }
+                throw new Error(`Unknown producer: ${name}`)
+            }),
+            disconnectAll: jest.fn(),
+        } as unknown as KafkaProducerRegistry
+
+        await expect(
+            resolveOutputs(registry, {
+                events: { topic: 'events', defaultProducerName: 'MSK' },
+                heatmaps: { topic: 'heatmaps', defaultProducerName: 'WARPSTREAM' },
+            })
+        ).rejects.toThrow('WARPSTREAM broker unreachable')
+
+        // MSK succeeded before WARPSTREAM failed
+        expect(mskProducer.checkConnection).toHaveBeenCalledTimes(1)
+        expect(wsProducer.checkConnection).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not verify topics by default', async () => {
+        const registry = createMockRegistry()
+
+        await resolveOutputs(registry, {
+            events: { topic: 'clickhouse_events' },
+        })
+
+        const producer = (await registry.getProducer(undefined)) as jest.Mocked<KafkaProducerWrapper>
+        expect(producer.checkTopicExists).not.toHaveBeenCalled()
+    })
+
+    it('verifies topics when INGESTION_OUTPUTS_VERIFY_TOPICS is set', async () => {
+        process.env.INGESTION_OUTPUTS_VERIFY_TOPICS = 'true'
         const registry = createMockRegistry()
 
         await resolveOutputs(registry, {
@@ -99,6 +192,7 @@ describe('resolveOutputs', () => {
     })
 
     it('skips verification for empty topics', async () => {
+        process.env.INGESTION_OUTPUTS_VERIFY_TOPICS = 'true'
         const registry = createMockRegistry()
 
         await resolveOutputs(registry, {
@@ -112,6 +206,7 @@ describe('resolveOutputs', () => {
     })
 
     it('throws if topic does not exist', async () => {
+        process.env.INGESTION_OUTPUTS_VERIFY_TOPICS = 'true'
         const registry = createMockRegistry()
         const producer = await registry.getProducer(undefined)
         ;(producer.checkTopicExists as jest.Mock).mockRejectedValue(new Error('Topic "bad_topic" not found'))
@@ -124,6 +219,7 @@ describe('resolveOutputs', () => {
     })
 
     it('checks same topic separately on different producers', async () => {
+        process.env.INGESTION_OUTPUTS_VERIFY_TOPICS = 'true'
         const mskProducer = createMockProducer()
         const wsProducer = createMockProducer()
         ;(wsProducer.checkTopicExists as jest.Mock).mockRejectedValue(
@@ -156,6 +252,7 @@ describe('resolveOutputs', () => {
     })
 
     it('deduplicates checks for same producer and topic', async () => {
+        process.env.INGESTION_OUTPUTS_VERIFY_TOPICS = 'true'
         const registry = createMockRegistry()
 
         await resolveOutputs(registry, {

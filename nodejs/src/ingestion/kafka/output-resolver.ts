@@ -16,8 +16,10 @@ export interface OutputDefinition {
  *
  * Falls back to defaultProducerName from the definition (undefined = default producer).
  *
- * After resolving, verifies that each producer can reach its broker
- * and that each non-empty topic exists. Throws on failure.
+ * After resolving, verifies that each producer can reach its broker (always).
+ * When INGESTION_OUTPUTS_VERIFY_TOPICS=true, also verifies that each
+ * non-empty topic exists. Throws on failure — callers should await this
+ * during startup so the process crashes before becoming healthy.
  */
 export async function resolveOutputs<O extends string>(
     registry: KafkaProducerRegistry,
@@ -35,24 +37,38 @@ export async function resolveOutputs<O extends string>(
         resolved[outputName] = { topic: definition.topic, producer }
     }
 
-    // Verify all topics exist (skip empty topics like redirect)
-    const checked = new Map<IngestionOutputConfig['producer'], Set<string>>()
+    // Verify each producer can reach its broker
+    const checkedProducers = new Set<IngestionOutputConfig['producer']>()
     for (const outputName in resolved) {
         const config = resolved[outputName]
-        if (!config.topic) {
+        if (checkedProducers.has(config.producer)) {
             continue
         }
+        checkedProducers.add(config.producer)
 
-        // Avoid checking the same producer+topic combination twice
-        const producerChecked = checked.get(config.producer) ?? new Set()
-        if (producerChecked.has(config.topic)) {
-            continue
+        logger.info('🔍', `Verifying broker connectivity for output "${outputName}"`)
+        await config.producer.checkConnection()
+    }
+
+    // Optionally verify all topics exist (skip empty topics like redirect)
+    if (process.env.INGESTION_OUTPUTS_VERIFY_TOPICS === 'true') {
+        const checkedTopics = new Map<IngestionOutputConfig['producer'], Set<string>>()
+        for (const outputName in resolved) {
+            const config = resolved[outputName]
+            if (!config.topic) {
+                continue
+            }
+
+            const producerChecked = checkedTopics.get(config.producer) ?? new Set()
+            if (producerChecked.has(config.topic)) {
+                continue
+            }
+            producerChecked.add(config.topic)
+            checkedTopics.set(config.producer, producerChecked)
+
+            logger.info('🔍', `Verifying output "${outputName}" topic "${config.topic}"`)
+            await config.producer.checkTopicExists(config.topic)
         }
-        producerChecked.add(config.topic)
-        checked.set(config.producer, producerChecked)
-
-        logger.info('🔍', `Verifying output "${outputName}" topic "${config.topic}"`)
-        await config.producer.checkTopicExists(config.topic)
     }
 
     return new IngestionOutputs<O>(resolved)

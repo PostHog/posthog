@@ -217,7 +217,20 @@ export class KafkaProducerWrapper {
         )
     }
 
-    /** Check that the producer can reach the broker and the topic exists. */
+    /** Check that the producer can reach the broker. */
+    public async checkConnection(timeoutMs = 10000): Promise<void> {
+        await new Promise<Metadata>((resolve, reject) =>
+            this.producer.getMetadata({ timeout: timeoutMs }, (error, data) => {
+                if (error) {
+                    reject(error)
+                } else {
+                    resolve(data)
+                }
+            })
+        )
+    }
+
+    /** Check that a topic exists on the broker. */
     public async checkTopicExists(topic: string, timeoutMs = 10000): Promise<void> {
         const metadata = await new Promise<Metadata>((resolve, reject) =>
             this.producer.getMetadata({ topic, timeout: timeoutMs }, (error, data) => {

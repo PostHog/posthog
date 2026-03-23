@@ -216,7 +216,12 @@ export class IngestionConsumer {
 
         this.topHog.start()
 
-        // Initialize outputs via the producer registry and output resolver
+        // Initialize outputs via the producer registry and output resolver.
+        // Producer creation blocks until the broker is reachable (rdkafka retries
+        // indefinitely), so start() will hang if a broker is down — the pod never
+        // becomes healthy and Kubernetes will eventually kill it.
+        // TODO: add producer health to the ongoing isHealthy() check so Kubernetes
+        // can detect mid-flight producer disconnections.
         this.producerRegistry = new KafkaProducerRegistry(this.config.KAFKA_CLIENT_RACK)
         const outputs = await resolveOutputs(this.producerRegistry, {
             [EVENTS_OUTPUT]: {
