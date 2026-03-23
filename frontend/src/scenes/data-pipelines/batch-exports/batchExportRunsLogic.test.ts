@@ -8,7 +8,7 @@ import { initKeaTests } from '~/test/init'
 import { BatchExportConfiguration, RawBatchExportRun } from '~/types'
 
 import { batchExportBackfillModalLogic } from './batchExportBackfillModalLogic'
-import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
+import { batchExportConfigFormLogic } from './batchExportConfigFormLogic'
 import { batchExportRunsLogic } from './batchExportRunsLogic'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
@@ -87,7 +87,7 @@ describe('batchExportRunsLogic', () => {
         })
         initKeaTests()
         await expectLogic(teamLogic).toFinishAllListeners()
-        const configLogic = batchExportConfigurationLogic({ id: MOCK_BATCH_EXPORT_ID, service: null })
+        const configLogic = batchExportConfigFormLogic({ id: MOCK_BATCH_EXPORT_ID, service: null })
         configLogic.mount()
         await expectLogic(configLogic).toFinishAllListeners()
         const modalLogic = batchExportBackfillModalLogic({ id: MOCK_BATCH_EXPORT_ID })

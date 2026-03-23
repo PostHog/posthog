@@ -12,7 +12,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { BatchExportConfiguration } from '~/types'
 
 import type { batchExportBackfillModalLogicType } from './batchExportBackfillModalLogicType'
-import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
+import { batchExportConfigFormLogic } from './batchExportConfigFormLogic'
 import { dayOptions } from './utils'
 
 export interface BatchExportBackfillModalLogicProps {
@@ -121,7 +121,7 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
     path((key) => ['scenes', 'pipeline', 'batchExportBackfillModalLogic', key]),
     connect((props: BatchExportBackfillModalLogicProps) => ({
         values: [
-            batchExportConfigurationLogic({
+            batchExportConfigFormLogic({
                 id: props.id,
                 service: null,
             }),

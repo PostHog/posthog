@@ -7,7 +7,7 @@ The batch exports frontend code currently lives in `frontend/src/scenes/data-pip
 ### Kea logic tests
 
 ```sh
-pnpm --filter=@posthog/frontend jest batchExportConfigurationLogic --no-coverage
+pnpm --filter=@posthog/frontend jest batchExportConfigFormLogic --no-coverage
 ```
 
 Covers: default configuration per service, required field validation, S3 bucket name validation, create/update flows, and API loading.

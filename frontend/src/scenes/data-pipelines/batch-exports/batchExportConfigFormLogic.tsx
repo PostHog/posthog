@@ -20,7 +20,7 @@ import {
     BatchExportService,
 } from '~/types'
 
-import type { batchExportConfigurationLogicType } from './batchExportConfigurationLogicType'
+import type { batchExportConfigFormLogicType } from './batchExportConfigFormLogicType'
 import { humanizeBatchExportName } from './utils'
 
 // Bucket naming rules (supports both S3 and GCS):
@@ -67,7 +67,7 @@ function validateAzureContainerName(name: string): string | undefined {
     return undefined
 }
 
-export interface BatchExportConfigurationLogicProps {
+export interface BatchExportConfigFormLogicProps {
     service: BatchExportService['type'] | null
     id: string | null
 }
@@ -625,15 +625,15 @@ const sessionsTable: DatabaseSchemaBatchExportTable = {
     },
 }
 
-export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicType>([
-    props({ id: null, service: null } as BatchExportConfigurationLogicProps),
-    key(({ service, id }: BatchExportConfigurationLogicProps) => {
+export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
+    props({ id: null, service: null } as BatchExportConfigFormLogicProps),
+    key(({ service, id }: BatchExportConfigFormLogicProps) => {
         if (id) {
             return `ID:${id}`
         }
         return `NEW:${service}`
     }),
-    path((key) => ['scenes', 'data-pipelines', 'batch-exports', 'batchExportConfigurationLogic', key]),
+    path((key) => ['scenes', 'data-pipelines', 'batch-exports', 'batchExportConfigFormLogic', key]),
     connect(() => ({
         values: [
             teamLogic,

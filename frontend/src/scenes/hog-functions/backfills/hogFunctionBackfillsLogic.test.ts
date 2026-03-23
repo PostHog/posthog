@@ -23,8 +23,8 @@ jest.mock('lib/utils/product-intents', () => ({
 const MOCK_BATCH_EXPORT_ID = 'batch-export-from-hog-function'
 
 describe('hogFunctionBackfillsLogic', () => {
-    describe('batchExportBackfillsLogic mounting without batchExportConfigurationLogic', () => {
-        it('fails when batchExportBackfillsLogic is mounted without pre-mounting batchExportConfigurationLogic', async () => {
+    describe('batchExportBackfillsLogic mounting without batchExportConfigFormLogic', () => {
+        it('fails when batchExportBackfillsLogic is mounted without pre-mounting batchExportConfigFormLogic', async () => {
             // oxlint-disable-next-line react-hooks/rules-of-hooks -- useMocks is not a React hook
             useMocks({
                 get: {
@@ -49,8 +49,8 @@ describe('hogFunctionBackfillsLogic', () => {
             await expectLogic(teamLogic).toFinishAllListeners()
 
             // This reproduces the error seen in HogFunctionBackfills:
-            // batchExportBackfillsLogic connects to batchExportConfigurationLogic,
-            // but batchExportConfigurationLogic hasn't been mounted by any parent BindLogic.
+            // batchExportBackfillsLogic connects to batchExportConfigFormLogic,
+            // but batchExportConfigFormLogic hasn't been mounted by any parent BindLogic.
             // In the BatchExportScene this works because BindLogic mounts it first.
             //
             // The error is thrown during the kea build/mount chain. We catch it
@@ -64,7 +64,7 @@ describe('hogFunctionBackfillsLogic', () => {
             }
 
             expect(caughtError).not.toBeNull()
-            expect(caughtError!.message).toMatch(/Can not find path.*batchExportConfigurationLogic/)
+            expect(caughtError!.message).toMatch(/Can not find path.*batchExportConfigFormLogic/)
         })
     })
 })

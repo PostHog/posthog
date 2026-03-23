@@ -10,7 +10,7 @@ import { BatchExportBackfill, RawBatchExportBackfill } from '~/types'
 
 import { batchExportBackfillModalLogic } from './batchExportBackfillModalLogic'
 import type { batchExportBackfillsLogicType } from './batchExportBackfillsLogicType'
-import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
+import { batchExportConfigFormLogic } from './batchExportConfigFormLogic'
 
 export interface BatchExportBackfillsLogicProps {
     id: string
@@ -24,7 +24,7 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
         values: [
             teamLogic(),
             ['currentTeamId'],
-            batchExportConfigurationLogic({
+            batchExportConfigFormLogic({
                 id: props.id,
                 service: null,
             }),
