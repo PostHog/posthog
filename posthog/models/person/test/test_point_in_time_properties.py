@@ -239,7 +239,7 @@ class TestGetPersonAndDistinctIdsForIdentifierPersonhog(SimpleTestCase):
             fake.add_person(
                 team_id=1,
                 person_id=42,
-                uuid="test-uuid",
+                uuid="00000000-0000-0000-0000-000000000042",
                 properties={"email": "test@example.com"},
                 distinct_ids=["d1", "d2"],
             )
@@ -247,7 +247,7 @@ class TestGetPersonAndDistinctIdsForIdentifierPersonhog(SimpleTestCase):
             person, dids = get_person_and_distinct_ids_for_identifier(1, distinct_id="d1")
 
             assert person is not None
-            assert str(person.uuid) == "test-uuid"
+            assert str(person.uuid) == "00000000-0000-0000-0000-000000000042"
             assert person.properties == {"email": "test@example.com"}
             assert set(dids) == {"d1", "d2"}
             fake.assert_called("get_person_by_distinct_id")
@@ -258,15 +258,17 @@ class TestGetPersonAndDistinctIdsForIdentifierPersonhog(SimpleTestCase):
             fake.add_person(
                 team_id=1,
                 person_id=42,
-                uuid="test-uuid",
+                uuid="00000000-0000-0000-0000-000000000042",
                 properties={"name": "Test"},
                 distinct_ids=["d1"],
             )
 
-            person, dids = get_person_and_distinct_ids_for_identifier(1, person_id="test-uuid")
+            person, dids = get_person_and_distinct_ids_for_identifier(
+                1, person_id="00000000-0000-0000-0000-000000000042"
+            )
 
             assert person is not None
-            assert str(person.uuid) == "test-uuid"
+            assert str(person.uuid) == "00000000-0000-0000-0000-000000000042"
             assert dids == ["d1"]
             fake.assert_called("get_person_by_uuid")
             fake.assert_called("get_distinct_ids_for_person")
@@ -284,7 +286,7 @@ class TestGetPersonAndDistinctIdsForIdentifierPersonhog(SimpleTestCase):
             fake.add_person(
                 team_id=1,
                 person_id=42,
-                uuid="test-uuid",
+                uuid="00000000-0000-0000-0000-000000000042",
                 distinct_ids=["a", "b", "c"],
             )
 
@@ -298,7 +300,7 @@ class TestGetPersonAndDistinctIdsForIdentifierPersonhog(SimpleTestCase):
             fake.add_person(
                 team_id=2,
                 person_id=42,
-                uuid="test-uuid",
+                uuid="00000000-0000-0000-0000-000000000042",
                 distinct_ids=["d1"],
             )
 
