@@ -30255,99 +30255,10 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type EnvironmentsQueryCreateParams = {
-    format?: EnvironmentsQueryCreateFormat;
-    };
-
-    export type EnvironmentsQueryCreateFormat = typeof EnvironmentsQueryCreateFormat[keyof typeof EnvironmentsQueryCreateFormat];
-
-
-    export const EnvironmentsQueryCreateFormat = {
-      Json: 'json',
-      Md: 'md',
-    } as const;
-
-    export type EnvironmentsQueryRetrieveParams = {
-    format?: EnvironmentsQueryRetrieveFormat;
-    };
-
-    export type EnvironmentsQueryRetrieveFormat = typeof EnvironmentsQueryRetrieveFormat[keyof typeof EnvironmentsQueryRetrieveFormat];
-
-
-    export const EnvironmentsQueryRetrieveFormat = {
-      Json: 'json',
-      Md: 'md',
-    } as const;
-
-    export type EnvironmentsQueryDestroyParams = {
-    format?: EnvironmentsQueryDestroyFormat;
-    };
-
-    export type EnvironmentsQueryDestroyFormat = typeof EnvironmentsQueryDestroyFormat[keyof typeof EnvironmentsQueryDestroyFormat];
-
-
-    export const EnvironmentsQueryDestroyFormat = {
-      Json: 'json',
-      Md: 'md',
-    } as const;
-
-    export type EnvironmentsQueryLogRetrieveParams = {
-    format?: EnvironmentsQueryLogRetrieveFormat;
-    };
-
-    export type EnvironmentsQueryLogRetrieveFormat = typeof EnvironmentsQueryLogRetrieveFormat[keyof typeof EnvironmentsQueryLogRetrieveFormat];
-
-
-    export const EnvironmentsQueryLogRetrieveFormat = {
-      Json: 'json',
-      Md: 'md',
-    } as const;
-
     /**
      * Unspecified response body
      */
-    export type EnvironmentsQueryLogRetrieve200One = {[key: string]: unknown};
-
-    /**
-     * Unspecified response body
-     */
-    export type EnvironmentsQueryLogRetrieve200Two = {[key: string]: unknown};
-
-    export type EnvironmentsQueryCheckAuthForAsyncCreateParams = {
-    format?: EnvironmentsQueryCheckAuthForAsyncCreateFormat;
-    };
-
-    export type EnvironmentsQueryCheckAuthForAsyncCreateFormat = typeof EnvironmentsQueryCheckAuthForAsyncCreateFormat[keyof typeof EnvironmentsQueryCheckAuthForAsyncCreateFormat];
-
-
-    export const EnvironmentsQueryCheckAuthForAsyncCreateFormat = {
-      Json: 'json',
-      Md: 'md',
-    } as const;
-
-    export type EnvironmentsQueryDraftSqlRetrieveParams = {
-    format?: EnvironmentsQueryDraftSqlRetrieveFormat;
-    };
-
-    export type EnvironmentsQueryDraftSqlRetrieveFormat = typeof EnvironmentsQueryDraftSqlRetrieveFormat[keyof typeof EnvironmentsQueryDraftSqlRetrieveFormat];
-
-
-    export const EnvironmentsQueryDraftSqlRetrieveFormat = {
-      Json: 'json',
-      Md: 'md',
-    } as const;
-
-    export type EnvironmentsQueryUpgradeCreateParams = {
-    format?: EnvironmentsQueryUpgradeCreateFormat;
-    };
-
-    export type EnvironmentsQueryUpgradeCreateFormat = typeof EnvironmentsQueryUpgradeCreateFormat[keyof typeof EnvironmentsQueryUpgradeCreateFormat];
-
-
-    export const EnvironmentsQueryUpgradeCreateFormat = {
-      Json: 'json',
-      Md: 'md',
-    } as const;
+    export type EnvironmentsQueryLogRetrieve200 = {[key: string]: unknown};
 
     export type EnvironmentsSavedListParams = {
     /**
@@ -33359,99 +33270,10 @@ export namespace Schemas {
       Session: 'session',
     } as const;
 
-    export type QueryCreateParams = {
-    format?: QueryCreateFormat;
-    };
-
-    export type QueryCreateFormat = typeof QueryCreateFormat[keyof typeof QueryCreateFormat];
-
-
-    export const QueryCreateFormat = {
-      Json: 'json',
-      Md: 'md',
-    } as const;
-
-    export type QueryRetrieveParams = {
-    format?: QueryRetrieveFormat;
-    };
-
-    export type QueryRetrieveFormat = typeof QueryRetrieveFormat[keyof typeof QueryRetrieveFormat];
-
-
-    export const QueryRetrieveFormat = {
-      Json: 'json',
-      Md: 'md',
-    } as const;
-
-    export type QueryDestroyParams = {
-    format?: QueryDestroyFormat;
-    };
-
-    export type QueryDestroyFormat = typeof QueryDestroyFormat[keyof typeof QueryDestroyFormat];
-
-
-    export const QueryDestroyFormat = {
-      Json: 'json',
-      Md: 'md',
-    } as const;
-
-    export type QueryLogRetrieveParams = {
-    format?: QueryLogRetrieveFormat;
-    };
-
-    export type QueryLogRetrieveFormat = typeof QueryLogRetrieveFormat[keyof typeof QueryLogRetrieveFormat];
-
-
-    export const QueryLogRetrieveFormat = {
-      Json: 'json',
-      Md: 'md',
-    } as const;
-
     /**
      * Unspecified response body
      */
-    export type QueryLogRetrieve200One = {[key: string]: unknown};
-
-    /**
-     * Unspecified response body
-     */
-    export type QueryLogRetrieve200Two = {[key: string]: unknown};
-
-    export type QueryCheckAuthForAsyncCreateParams = {
-    format?: QueryCheckAuthForAsyncCreateFormat;
-    };
-
-    export type QueryCheckAuthForAsyncCreateFormat = typeof QueryCheckAuthForAsyncCreateFormat[keyof typeof QueryCheckAuthForAsyncCreateFormat];
-
-
-    export const QueryCheckAuthForAsyncCreateFormat = {
-      Json: 'json',
-      Md: 'md',
-    } as const;
-
-    export type QueryDraftSqlRetrieveParams = {
-    format?: QueryDraftSqlRetrieveFormat;
-    };
-
-    export type QueryDraftSqlRetrieveFormat = typeof QueryDraftSqlRetrieveFormat[keyof typeof QueryDraftSqlRetrieveFormat];
-
-
-    export const QueryDraftSqlRetrieveFormat = {
-      Json: 'json',
-      Md: 'md',
-    } as const;
-
-    export type QueryUpgradeCreateParams = {
-    format?: QueryUpgradeCreateFormat;
-    };
-
-    export type QueryUpgradeCreateFormat = typeof QueryUpgradeCreateFormat[keyof typeof QueryUpgradeCreateFormat];
-
-
-    export const QueryUpgradeCreateFormat = {
-      Json: 'json',
-      Md: 'md',
-    } as const;
+    export type QueryLogRetrieve200 = {[key: string]: unknown};
 
     export type QueryTabStateListParams = {
     /**
