@@ -9,8 +9,9 @@ from asgiref.sync import sync_to_async
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.errors import CHQueryErrorS3Error
 from posthog.hogql.errors import QueryError
+
+from posthog.errors import CHQueryErrorS3Error
 from posthog.models.exported_asset import ExportedAsset
 from posthog.slo.types import SloOutcome
 from posthog.temporal.exports.activities import emit_export_outcome, export_asset_activity

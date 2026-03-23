@@ -11,8 +11,8 @@ from temporalio.exceptions import ActivityError, ApplicationError
 from posthog.event_usage import EventSource
 from posthog.slo.types import SloOutcome
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.exports.retry_policy import EXPORT_RETRY_POLICY
 from posthog.temporal.exports.activities import emit_export_outcome, export_asset_activity
+from posthog.temporal.exports.retry_policy import EXPORT_RETRY_POLICY
 from posthog.temporal.exports.types import EmitExportOutcomeInput, ExportAssetActivityInputs, ExportError
 
 
