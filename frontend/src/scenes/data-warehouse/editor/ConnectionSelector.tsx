@@ -17,9 +17,10 @@ const sourceIcon = (src: string): JSX.Element => (
 )
 
 export function ConnectionSelector(): JSX.Element | null {
-    const { sourceQuery } = useValues(sqlEditorLogic)
-    const { connectionSelectOptions, connectionSelectorValue, isDirectQueryEnabled } =
-        useValues(connectionSelectorLogic)
+    const { sourceQuery, selectedConnectionId } = useValues(sqlEditorLogic)
+    const { connectionSelectOptions, connectionSelectorValue, isDirectQueryEnabled } = useValues(
+        connectionSelectorLogic({ selectedConnectionId })
+    )
     const { setSourceQuery, syncUrlWithQuery } = useActions(sqlEditorLogic)
     // Strip the legacy top-level connectionId so source.connectionId stays canonical.
     const { connectionId: _legacyConnectionId, ...sourceQueryWithoutLegacyConnectionId } =

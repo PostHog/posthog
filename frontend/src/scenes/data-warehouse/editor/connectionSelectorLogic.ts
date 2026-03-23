@@ -1,4 +1,5 @@
-import { afterMount, connect, kea, loaders, path, selectors, subscriptions } from 'kea'
+import { afterMount, connect, kea, path, props, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -10,12 +11,14 @@ import IconPostHog from 'public/posthog-icon.svg'
 import IconDuckDB from 'public/services/duckdb.svg'
 import IconPostgres from 'public/services/postgres.png'
 
-import { sqlEditorLogic } from './sqlEditorLogic'
-
 export const POSTHOG_WAREHOUSE = '__posthog_warehouse__'
 export const LOADING_CONNECTIONS = '__loading_connections__'
 export const ADD_POSTGRES_DIRECT_CONNECTION = '__add_postgres_direct_connection__'
 export const CONFIGURE_SOURCES = '__configure_sources__'
+
+interface ConnectionSelectorLogicProps {
+    selectedConnectionId?: string
+}
 
 export interface ConnectionSelectOption {
     value: string
@@ -34,8 +37,9 @@ function getConnectionEngine(source: Pick<ExternalDataSourceConnectionOption, 'e
 
 export const connectionSelectorLogic = kea([
     path(['scenes', 'data-warehouse', 'editor', 'connectionSelectorLogic']),
+    props({ selectedConnectionId: undefined } as ConnectionSelectorLogicProps),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], sqlEditorLogic, ['selectedConnectionId']],
+        values: [featureFlagLogic, ['featureFlags']],
     })),
     loaders(() => ({
         connectionOptions: [
@@ -99,7 +103,7 @@ export const connectionSelectorLogic = kea([
             },
         ],
         connectionSelectorValue: [
-            (s) => [s.connectionOptions, s.connectionOptionsLoading, s.selectedConnectionId],
+            (s) => [s.connectionOptions, s.connectionOptionsLoading, (_, props) => props.selectedConnectionId],
             (
                 connectionOptions: ExternalDataSourceConnectionOption[] | null,
                 connectionOptionsLoading: boolean,
@@ -125,11 +129,4 @@ export const connectionSelectorLogic = kea([
             actions.loadConnectionOptions()
         }
     }),
-    subscriptions(({ actions, values }) => ({
-        isDirectQueryEnabled: (isDirectQueryEnabled: boolean) => {
-            if (isDirectQueryEnabled && values.connectionOptions === null && !values.connectionOptionsLoading) {
-                actions.loadConnectionOptions()
-            }
-        },
-    })),
 ])
