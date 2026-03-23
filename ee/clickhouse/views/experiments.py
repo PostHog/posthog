@@ -304,6 +304,24 @@ class EnterpriseExperimentsViewSet(
         launched_experiment = service.launch_experiment(experiment, request=request)
         return Response(ExperimentSerializer(launched_experiment, context=self.get_serializer_context()).data)
 
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def archive(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Archive an ended experiment.
+
+        Hides the experiment from the default list view. The experiment can be
+        restored at any time by updating archived=false. Returns 400 if the
+        experiment is already archived or has not ended yet.
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        archived_experiment = service.archive_experiment(experiment)
+        return Response(ExperimentSerializer(archived_experiment, context=self.get_serializer_context()).data)
+
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def duplicate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         source_experiment: Experiment = self.get_object()

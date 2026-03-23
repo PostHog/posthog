@@ -36,9 +36,13 @@ tools:
             idempotent: true
         title: Get alert
         description: >
-            Get a specific alert by ID. Returns the full alert configuration including the last 5 check results,
+            Get a specific alert by ID. Returns the full alert configuration including check results,
             threshold settings, detector_config (for anomaly detection alerts), and subscribed users. Check results
             include anomaly_scores, triggered_points, and triggered_dates for detector-based alerts.
+            By default returns the last 5 checks. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d')
+            to get checks within a time window, and checks_limit to control the maximum returned (default 5, max 500).
+            When date filters are provided without checks_limit, up to 500 checks are returned.
+            Check history is retained for 14 days.
         mcp_version: 1
     alert-create:
         operation: alerts_create

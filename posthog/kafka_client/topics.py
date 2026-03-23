@@ -46,6 +46,7 @@ KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT = f"{KAFKA_PREFIX}clickhouse_error_tracki
 KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS = (
     f"{KAFKA_PREFIX}clickhouse_error_tracking_issue_fingerprint_embeddings{SUFFIX}"
 )
+KAFKA_ERROR_TRACKING_EVENTS_TEST = f"{KAFKA_PREFIX}clickhouse_error_tracking_events_test{SUFFIX}"
 
 KAFKA_DOCUMENT_EMBEDDINGS_TOPIC = f"{KAFKA_PREFIX}clickhouse_document_embeddings{SUFFIX}"
 KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC = f"{KAFKA_PREFIX}document_embeddings_input{SUFFIX}"

@@ -485,6 +485,48 @@ DETECTOR_MIN_SAMPLES: dict[DetectorType, int] = {
     DetectorType.PCA: 10,
 }
 
+# Fallback window size used when no explicit window is set in the detector config
+# (e.g. alerts saved before this field was introduced).
+DETECTOR_DEFAULT_WINDOW = 30
+
+
+def _compute_min_samples_for_detector(detector_config: dict[str, Any]) -> int:
+    """Compute the number of historical data points needed for a detector.
+
+    Uses the configured ``window`` (falling back to a default) plus headroom
+    for preprocessing (lags, diffs).  The result is floored by the
+    per-detector ``DETECTOR_MIN_SAMPLES`` guard so we never train on fewer
+    points than the algorithm requires.
+    """
+    detector_type_str = detector_config.get("type", "zscore")
+
+    if detector_type_str == "ensemble":
+        sub_detectors = detector_config.get("detectors", [])
+        return max(
+            (_compute_min_samples_for_detector(d) for d in sub_detectors),
+            default=31,
+        )
+
+    detector_type = DetectorType(detector_type_str)
+    guard = DETECTOR_MIN_SAMPLES.get(detector_type, 10)
+
+    # Threshold detector doesn't need a training window
+    if detector_type == DetectorType.THRESHOLD:
+        return guard
+
+    # Use the configured window, falling back to the default
+    window = detector_config.get("window") or DETECTOR_DEFAULT_WINDOW
+
+    # Account for preprocessing that consumes usable data points
+    preprocessing = detector_config.get("preprocessing") or {}
+    lags_n = preprocessing.get("lags_n") or 0
+    diffs_n = preprocessing.get("diffs_n") or 0
+
+    samples_needed = window + 1 + lags_n + diffs_n
+
+    # Never go below the per-detector minimum guard
+    return max(samples_needed, guard)
+
 
 def check_trends_alert_with_detector(
     alert: AlertConfiguration, insight: Insight, query: TrendsQuery, detector_config: dict[str, Any]
@@ -510,19 +552,8 @@ def check_trends_alert_with_detector(
     )
     detector_type_str = detector_config.get("type", "zscore")
 
-    # Calculate minimum samples needed for this detector
-    if detector_type_str == "ensemble":
-        # For ensemble, use the max window across all sub-detectors
-        sub_detectors = detector_config.get("detectors", [])
-        min_samples = max((d.get("window", 30) + 1 for d in sub_detectors), default=31)
-    else:
-        detector_type = DetectorType(detector_type_str)
-        min_samples = DETECTOR_MIN_SAMPLES.get(detector_type, 31)
-        window = detector_config.get("window", 30)
-        if detector_type in (DetectorType.ZSCORE, DetectorType.MAD):
-            min_samples = max(min_samples, window + 1)
-
-    # Calculate date range to fetch enough data
+    # Calculate date range to fetch enough historical data for this detector
+    min_samples = _compute_min_samples_for_detector(detector_config)
     filters_override = _date_range_override_for_detector(query, min_samples)
 
     is_non_time_series = _is_non_time_series_trend(query)
@@ -643,16 +674,8 @@ def simulate_detector_on_insight(
 
     detector_type_str = detector_config.get("type", "zscore")
 
-    # Calculate minimum samples needed
-    if detector_type_str == "ensemble":
-        sub_detectors = detector_config.get("detectors", [])
-        min_samples = max((d.get("window", 30) + 1 for d in sub_detectors), default=31)
-    else:
-        detector_type = DetectorType(detector_type_str)
-        min_samples = DETECTOR_MIN_SAMPLES.get(detector_type, 31)
-        window = detector_config.get("window", 30)
-        if detector_type in (DetectorType.ZSCORE, DetectorType.MAD):
-            min_samples = max(min_samples, window + 1)
+    # Calculate minimum samples needed (same logic as the actual alert check)
+    min_samples = _compute_min_samples_for_detector(detector_config)
 
     # Fetch enough historical data
     is_non_time_series = _is_non_time_series_trend(trends_query)
