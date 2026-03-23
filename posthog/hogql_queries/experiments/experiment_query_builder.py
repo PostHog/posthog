@@ -468,26 +468,7 @@ class ExperimentQueryBuilder:
             placeholders["metric_events_team_id"] = ast.Constant(value=self.team.id)
             placeholders["metric_events_date_from"] = self.date_range_query.date_from_as_hogql()
             placeholders["metric_events_date_to"] = self.date_range_query.date_to_as_hogql()
-        # Add placeholders for step expressions and DW filters (if DW steps present)
-        if has_dw_steps:
-            step_builder = FunnelStepBuilder(self.metric.series, self.team)
 
-            # Add step filter expressions for event/action steps
-            for i, step_source in enumerate(self.metric.series):
-                step_index = i + 1
-
-                if isinstance(step_source, ExperimentDataWarehouseNode):
-                    # Add DW filter placeholder
-                    dw_filter = data_warehouse_node_to_filter(self.team, step_source)
-                    placeholders[f"dw_step_{step_index}_filter"] = dw_filter
-                else:
-                    # Add event/action step filter expression
-                    step_filter = step_builder._build_step_filter(step_source)
-                    step_expr = ast.Call(
-                        name="if",
-                        args=[step_filter, ast.Constant(value=1), ast.Constant(value=0)],
-                    )
-                    placeholders[f"step_{step_index}_expr"] = step_expr
 
         query = parse_select(
             f"""
@@ -2033,7 +2014,7 @@ class ExperimentQueryBuilder:
 
         # Build base SELECT fields
         select_fields: list[ast.Expr] = [
-            ast.Alias(alias="entity_id", expr=parse_expr(self.entity_key)),
+            ast.Alias(alias="entity_id", expr=ast.Call(name="toString", args=[parse_expr(self.entity_key)])),
             ast.Alias(alias="variant", expr=self._build_variant_property()),
             ast.Alias(alias="timestamp", expr=ast.Field(chain=["timestamp"])),
             ast.Alias(alias="uuid", expr=ast.Field(chain=["uuid"])),
@@ -2057,6 +2038,12 @@ class ExperimentQueryBuilder:
         )
         select_fields.append(step_0)
 
+        # Build step filters once, reuse for both SELECT and WHERE
+        step_filters: dict[int, ast.Expr] = {}
+        for i, step_source in enumerate(self.metric.series):
+            if not isinstance(step_source, ExperimentDataWarehouseNode):
+                step_filters[i + 1] = step_builder._build_step_filter(step_source)
+
         # step_1, step_2, ...: event/action steps or DW steps
         for i, step_source in enumerate(self.metric.series):
             step_index = i + 1  # +1 because step_0 is exposure
@@ -2069,12 +2056,11 @@ class ExperimentQueryBuilder:
                 )
             else:
                 # Event or action step: if(step_filter, 1, 0)
-                step_filter = step_builder._build_step_filter(step_source)
                 step_col = ast.Alias(
                     alias=f"step_{step_index}",
                     expr=ast.Call(
                         name="if",
-                        args=[step_filter, ast.Constant(value=1), ast.Constant(value=0)],
+                        args=[step_filters[step_index], ast.Constant(value=1), ast.Constant(value=0)],
                     ),
                 )
 
@@ -2082,11 +2068,7 @@ class ExperimentQueryBuilder:
 
         # Build WHERE clause - matches exposure OR any event/action step
         # (DW steps will be queried separately)
-        event_action_filters = []
-        for step_source in self.metric.series:
-            if not isinstance(step_source, ExperimentDataWarehouseNode):
-                step_filter = step_builder._build_step_filter(step_source)
-                event_action_filters.append(step_filter)
+        event_action_filters = list(step_filters.values())
 
         where: ast.Expr
         if event_action_filters:
