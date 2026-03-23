@@ -77,6 +77,12 @@ def _build_initial_url(path: str, associations: list[str], properties: str, limi
     return f"{BASE_URL.rstrip('/')}{path}?{'&'.join(parts)}"
 
 
+def _backfill_missing_properties(row: dict[str, Any], expected_properties: list[str]) -> None:
+    """HubSpot omits properties with null values; PyArrow drops absent columns during schema inference."""
+    for prop in expected_properties:
+        row.setdefault(prop, None)
+
+
 def _flatten_result(result: dict[str, Any]) -> dict[str, Any]:
     """Flatten a HubSpot CRM API result into a flat dict.
 

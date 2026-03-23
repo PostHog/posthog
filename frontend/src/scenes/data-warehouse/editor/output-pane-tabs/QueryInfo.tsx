@@ -60,8 +60,8 @@ const OPTIONS = [
         label: ' No resync',
     },
     {
-        value: '5min' as DataWarehouseSyncInterval,
-        label: ' Resync every 5 mins',
+        value: '15min' as DataWarehouseSyncInterval,
+        label: ' Resync every 15 mins',
     },
     {
         value: '30min' as DataWarehouseSyncInterval,
@@ -114,17 +114,17 @@ function getMaterializationDisabledReasons(
 }
 
 export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
-    const { sourceTableItems } = useValues(infoTabLogic({ tabId }))
     const { editingView, upstream, upstreamViewMode } = useValues(sqlEditorLogic)
+    const infoLogic = infoTabLogic({ tabId, viewId: editingView?.id })
+    const { sourceTableItems } = useValues(infoLogic)
     const { runDataWarehouseSavedQuery, saveAsView, setUpstreamViewMode } = useActions(sqlEditorLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const isLineageDependencyViewEnabled = featureFlags[FEATURE_FLAGS.LINEAGE_DEPENDENCY_VIEW]
 
-    const { dataModelingJobs, dataModelingJobsLoading, hasMoreJobsToLoad, startingMaterialization } = useValues(
-        infoTabLogic({ tabId })
-    )
-    const { loadOlderDataModelingJobs, setStartingMaterialization } = useActions(infoTabLogic({ tabId }))
+    const { dataModelingJobs, dataModelingJobsLoading, hasMoreJobsToLoad, startingMaterialization } =
+        useValues(infoLogic)
+    const { loadOlderDataModelingJobs, setStartingMaterialization } = useActions(infoLogic)
 
     const { dataWarehouseSavedQueryMapById, updatingDataWarehouseSavedQuery, initialDataWarehouseSavedQueryLoading } =
         useValues(dataWarehouseViewsLogic)

@@ -196,7 +196,7 @@ describe('surveysLogic', () => {
                     '/api/projects/:team/surveys/responses_count': () => [200, {}],
                 },
                 patch: {
-                    '/api/environments/@current/add_product_intent/': async (req) => {
+                    '/api/environments/:team_id/add_product_intent/': async (req) => {
                         const data = await req.json()
                         capturedIntentRequests.push(data)
                         return [200, {}]

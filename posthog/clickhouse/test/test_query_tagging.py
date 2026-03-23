@@ -1,16 +1,24 @@
+import json
 import uuid
 import asyncio
 
 import pytest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 from pydantic import ValidationError
 
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import (
+    _PROJECT_ROOT_PREFIX,
+    _SOURCE_SKIP_PREFIXES,
     Product,
     QueryTags,
     TemporalTags,
     clear_tag,
     create_base_tags,
+    get_caller_source,
     get_query_tag_value,
     get_query_tags,
     reset_query_tags,
@@ -260,3 +268,69 @@ async def test_async_tasks_have_isolated_tags_with_clear_tag():
     # Task B cleared team_id, should still have user_id
     assert results["task_b"]["team_id"] is None
     assert results["task_b"]["user_id"] == 50
+
+
+def test_get_caller_source_returns_this_file():
+    source_file, source_line = get_caller_source()
+    assert source_file == "posthog/clickhouse/test/test_query_tagging.py"
+    assert source_line is not None
+
+
+def test_get_caller_source_skips_infrastructure():
+    for prefix in _SOURCE_SKIP_PREFIXES:
+        assert prefix.startswith(_PROJECT_ROOT_PREFIX)
+
+
+def test_source_file_excluded_from_json_when_none():
+    qt = QueryTags(git_commit="test", container_hostname="test", service_name="test")
+    data = qt.to_json()
+    assert "source_file" not in data
+    assert "source_line" not in data
+
+
+def test_source_file_included_in_json_when_set():
+    qt = QueryTags(
+        source_file="posthog/api/query.py",
+        source_line=42,
+        git_commit="test",
+        container_hostname="test",
+        service_name="test",
+    )
+    data = qt.to_json()
+    assert '"source_file":"posthog/api/query.py"' in data
+    assert '"source_line":42' in data
+
+
+class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
+    def _get_log_comment(self, marker: str) -> dict:
+        sync_execute("SYSTEM FLUSH LOGS")
+        rows = sync_execute(
+            "SELECT log_comment FROM system.query_log "
+            "WHERE query LIKE %(marker)s AND type = 'QueryFinish' "
+            "ORDER BY event_time DESC LIMIT 1",
+            {"marker": f"%{marker}%"},
+        )
+        assert rows, f"No query log entry found containing marker {marker}"
+        return json.loads(rows[0][0])
+
+    def test_sync_execute_populates_source_tags(self):
+        marker = str(uuid.uuid4())
+        reset_query_tags()
+        tag_queries(kind="request", id="test")
+        sync_execute(f"SELECT '{marker}'")  # noqa: S608
+
+        comment = self._get_log_comment(marker)
+
+        assert comment["source_file"] == "posthog/clickhouse/test/test_query_tagging.py"
+        assert comment["source_line"] > 0
+
+    def test_execute_hogql_query_populates_source_tags(self):
+        marker = str(uuid.uuid4())
+        reset_query_tags()
+        tag_queries(kind="request", id="test")
+        execute_hogql_query(f"SELECT '{marker}'", team=self.team, query_type="HogQLQuery")  # noqa: S608
+
+        comment = self._get_log_comment(marker)
+
+        assert comment["source_file"] == "posthog/clickhouse/test/test_query_tagging.py"
+        assert comment["source_line"] > 0

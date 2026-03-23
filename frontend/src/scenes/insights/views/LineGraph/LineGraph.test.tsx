@@ -55,6 +55,84 @@ const compareMock: MockResponse = {
 describe('LineGraph', () => {
     afterEach(cleanup)
 
+    describe('Incomplete current day', () => {
+        beforeEach(() => {
+            // Set "now" to midday on the last day of the default test data (Mon-Fri, Jun 10-14 2024)
+            jest.useFakeTimers({ advanceTimers: true })
+            jest.setSystemTime(new Date('2024-06-14T12:00:00Z'))
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it('renders the last data point with a dashed line when it falls on the current day', async () => {
+            renderInsightPage({
+                query: buildTrendsQuery(),
+            })
+
+            const chart = await waitForChart()
+            const dataset = chart.config.data?.datasets?.[0]
+            const borderDashFn = (dataset as any)?.segment?.borderDash
+
+            expect(typeof borderDashFn).toBe('function')
+
+            // Thu (index 3) is in the past — should be solid (no dash)
+            expect(borderDashFn({ p1DataIndex: 3 })).toBeUndefined()
+
+            // Fri (index 4) is "today" — should be dashed
+            expect(borderDashFn({ p1DataIndex: 4 })).toEqual([10, 10])
+        })
+
+        it('does not render dashed lines when all data is from past days', async () => {
+            // Move "now" to the day after the data range
+            jest.setSystemTime(new Date('2024-06-15T12:00:00Z'))
+
+            renderInsightPage({
+                query: buildTrendsQuery(),
+            })
+
+            const chart = await waitForChart()
+            const dataset = chart.config.data?.datasets?.[0]
+            const borderDashFn = (dataset as any)?.segment?.borderDash
+
+            // No incomplete points — borderDash should not be a function
+            expect(borderDashFn).toBeUndefined()
+        })
+
+        it('excludes incomplete day from trend line regression', async () => {
+            renderInsightPage({
+                query: buildTrendsQuery({
+                    trendsFilter: { showTrendLines: true },
+                }),
+            })
+
+            const chart = await waitForChart()
+            const dataset = chart.config.data?.datasets?.[0] as any
+
+            // The trendline config should exclude the incomplete last point
+            expect(dataset.trendlineLinear).toBeTruthy()
+            expect(dataset.trendlineLinear.trendoffset).toBe(-1)
+        })
+
+        it('does not set trendoffset when all data is complete', async () => {
+            jest.setSystemTime(new Date('2024-06-15T12:00:00Z'))
+
+            renderInsightPage({
+                query: buildTrendsQuery({
+                    trendsFilter: { showTrendLines: true },
+                }),
+            })
+
+            const chart = await waitForChart()
+            const dataset = chart.config.data?.datasets?.[0] as any
+
+            // No incomplete points — trendoffset should be 0
+            expect(dataset.trendlineLinear).toBeTruthy()
+            expect(dataset.trendlineLinear.trendoffset).toBe(0)
+        })
+    })
+
     describe('Compare to previous', () => {
         it('uses current period dates on x-axis for unstacked bar chart with compare', async () => {
             renderInsightPage({

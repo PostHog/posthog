@@ -286,11 +286,6 @@ services:
         environment:
             - LISTEN_PORT=2080
 
-    echo_server:
-        extends:
-            file: docker-compose.base.yml
-            service: echo_server
-
     feature-flags:
         extends:
             file: docker-compose.base.yml

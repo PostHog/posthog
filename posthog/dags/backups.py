@@ -9,14 +9,22 @@ from django.conf import settings
 
 import dagster
 import pydantic
+import botocore.exceptions
 from clickhouse_driver import Client
 from dagster_aws.s3 import S3Resource
 
 from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.dags.common import JobOwners, check_for_concurrent_runs
+from posthog.dags.common.resources import BackupsClickhouseClusterResource
+
+BACKUP_RESOURCE_DEFS = {
+    "cluster": BackupsClickhouseClusterResource(),
+    "s3": S3Resource.configure_at_launch(),
+}
 
 NO_SHARD_PATH = "noshard"
+MAX_WAIT_TRIES = 420  # ~14 hours at 2min intervals — full sharded_events backups can take 8-12 hours
 
 SHARDED_TABLES = [
     "sharded_events",
@@ -51,6 +59,8 @@ NON_SHARDED_TABLES = [
     "pg_embeddings",
     "plugin_log_entries",
 ]
+
+LOGS_TABLES = ["logs34"]
 
 
 @dataclass
@@ -188,6 +198,16 @@ class Backup:
                 event_time_microseconds=event_time_microseconds,
             )
 
+    def has_lock_file(self, s3_client, bucket: str) -> bool:
+        """Check if this backup has a .lock file indicating an incomplete/crashed backup."""
+        try:
+            s3_client.head_object(Bucket=bucket, Key=f"{self.path}/.lock")
+            return True
+        except botocore.exceptions.ClientError as e:
+            if e.response["Error"]["Code"] == "404":
+                return False
+            raise
+
     def is_done(self, client: Client) -> bool:
         # We query the processes table to check if the backup is in progress,
         # because the backup_log table could not be updated (for example, if the server is restarted)
@@ -321,6 +341,7 @@ def get_latest_successful_backup(
     config: BackupConfig,
     latest_backups: list[Backup],
     cluster: dagster.ResourceParam[ClickhouseCluster],
+    s3: S3Resource,
 ) -> Optional[Backup]:
     """
     Checks the latest succesful backup to use it as a base backup.
@@ -339,11 +360,25 @@ def get_latest_successful_backup(
     context.log.info(f"Find latest successful created backup")
     for latest_backup in latest_backups:
         context.log.info(f"Checking status of backup: {latest_backup.path}")
-        most_recent_status = get_most_recent_status(map_hosts(latest_backup.status).result().values())
-        if most_recent_status and not most_recent_status.created():
+
+        if settings.CLICKHOUSE_BACKUPS_BUCKET and latest_backup.has_lock_file(
+            s3.get_client(), settings.CLICKHOUSE_BACKUPS_BUCKET
+        ):
             context.log.warning(
-                f"Backup {latest_backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}. Checking next backup."
+                f"Backup {latest_backup.path} has a .lock file indicating it crashed mid-write. Skipping."
             )
+            continue
+
+        most_recent_status = get_most_recent_status(map_hosts(latest_backup.status).result().values())
+        if most_recent_status is None:
+            context.log.warning(f"Backup {latest_backup.path} has no status in backup_log. Skipping as unconfirmed.")
+            continue
+        elif not most_recent_status.created():
+            context.log.warning(
+                f"Backup {latest_backup.path} finished with an unexpected status: "
+                f"{most_recent_status.status} on the host {most_recent_status.hostname}. Checking next backup."
+            )
+            continue
         else:
             context.log.info(
                 f"Backup {latest_backup.path} finished successfully. Using it as the base backup for the new backup."
@@ -430,6 +465,11 @@ def wait_for_backup(
     if backup:
         while not done:
             tries += 1
+            if tries > MAX_WAIT_TRIES:
+                raise dagster.Failure(
+                    description=f"Backup {backup.path} did not complete after {MAX_WAIT_TRIES} attempts (~14 hours). "
+                    f"Check system.backup_log and system.processes on the offline node for shard {backup.shard}."
+                )
             map_hosts(backup.wait).result().values()
             most_recent_status = get_most_recent_status(map_hosts(backup.status).result().values())
             if most_recent_status and most_recent_status.creating() and tries < 3:
@@ -443,6 +483,16 @@ def wait_for_backup(
             elif most_recent_status and not most_recent_status.created():
                 raise ValueError(
                     f"Backup {backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}."
+                )
+            elif most_recent_status is None and tries >= 3:
+                raise dagster.Failure(
+                    description=f"Backup {backup.path} process finished but no status found in system.backup_log after {tries} attempts. "
+                    f"The backup may have crashed without logging. Check the offline node for shard {backup.shard}."
+                )
+            elif most_recent_status is None:
+                context.log.warning(
+                    f"No status yet for {backup.path} in system.backup_log, attempt {tries}/3. "
+                    f"Waiting for ClickHouse to flush logs..."
                 )
 
     context.add_output_metadata(
@@ -501,22 +551,28 @@ def cleanup_old_backups(
     # Delete everything older than the latest successful full backup.
     backups_to_delete = [b for b in sorted_backups if b.date < latest_full.date]
 
-    # Also delete any failed backups that are newer than latest_full (e.g. failed incrementals).
+    # Also delete any failed or locked backups that are newer than latest_full (e.g. failed incrementals).
     # The current backup is excluded — wait_for_backup already confirmed it succeeded.
+    s3_client = s3.get_client()
     for b in sorted_backups:
         if b.date <= latest_full.date:
+            continue
+        if settings.CLICKHOUSE_BACKUPS_BUCKET and b.has_lock_file(s3_client, settings.CLICKHOUSE_BACKUPS_BUCKET):
+            context.log.warning(f"Found locked (crashed) backup {b.path}, marking for deletion.")
+            if b not in backups_to_delete:
+                backups_to_delete.append(b)
             continue
         b_status = get_most_recent_status(map_hosts(b.status).result().values())
         if b_status is not None and not b_status.created():
             context.log.info(f"Marking failed backup {b.path} (status: {b_status.status}) for deletion.")
-            backups_to_delete.append(b)
+            if b not in backups_to_delete:
+                backups_to_delete.append(b)
 
     if not backups_to_delete:
         context.log.info("No old backups to delete.")
         context.add_output_metadata({"deleted_backups": dagster.MetadataValue.int(0)})
         return
 
-    s3_client = s3.get_client()
     for old_backup in backups_to_delete:
         context.log.info(f"Deleting backup {old_backup.path}.")
         paginator = s3_client.get_paginator("list_objects_v2")
@@ -539,6 +595,7 @@ def cleanup_old_backups(
 
 @dagster.job(
     executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 2}),
+    resource_defs=BACKUP_RESOURCE_DEFS,
 )
 def sharded_backup():
     """
@@ -562,6 +619,7 @@ def sharded_backup():
 
 @dagster.job(
     executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 8}),
+    resource_defs=BACKUP_RESOURCE_DEFS,
 )
 def non_sharded_backup():
     """
@@ -603,7 +661,11 @@ def prepare_run_config(config: BackupConfig) -> dagster.RunConfig:
 
 
 def run_backup_request(
-    table: str, incremental: bool, context: dagster.ScheduleEvaluationContext
+    table: str,
+    incremental: bool,
+    context: dagster.ScheduleEvaluationContext,
+    owner: JobOwners = JobOwners.TEAM_CLICKHOUSE,
+    workload: Workload = Workload.OFFLINE,
 ) -> Optional[dagster.RunRequest]:
     skip_reason = check_for_concurrent_runs(
         context,
@@ -620,6 +682,7 @@ def run_backup_request(
         database=settings.CLICKHOUSE_DATABASE,
         table=table,
         incremental=incremental,
+        workload=workload,
     )
 
     return dagster.RunRequest(
@@ -628,7 +691,7 @@ def run_backup_request(
         tags={
             "backup_type": "incremental" if incremental else "full",
             "table": table,
-            "owner": JobOwners.TEAM_CLICKHOUSE.value,
+            "owner": owner.value,
         },
     )
 
@@ -683,5 +746,36 @@ def incremental_non_sharded_backup_schedule(context: dagster.ScheduleEvaluationC
     """Launch an incremental backup for non-sharded tables"""
     for table in NON_SHARDED_TABLES:
         request = run_backup_request(table, incremental=True, context=context)
+        if request:
+            yield request
+
+
+@dagster.schedule(
+    job=non_sharded_backup,
+    cron_schedule=settings.CLICKHOUSE_FULL_BACKUP_SCHEDULE,
+    should_execute=lambda context: 1 <= context.scheduled_execution_time.day <= 7,
+    default_status=dagster.DefaultScheduleStatus.RUNNING,
+)
+def full_logs_backup_schedule(context: dagster.ScheduleEvaluationContext):
+    """Launch a full backup for logs tables"""
+    for table in LOGS_TABLES:
+        request = run_backup_request(
+            table, incremental=False, context=context, owner=JobOwners.TEAM_LOGS, workload=Workload.DEFAULT
+        )
+        if request:
+            yield request
+
+
+@dagster.schedule(
+    job=non_sharded_backup,
+    cron_schedule=settings.CLICKHOUSE_INCREMENTAL_BACKUP_SCHEDULE,
+    default_status=dagster.DefaultScheduleStatus.RUNNING,
+)
+def incremental_logs_backup_schedule(context: dagster.ScheduleEvaluationContext):
+    """Launch an incremental backup for logs tables"""
+    for table in LOGS_TABLES:
+        request = run_backup_request(
+            table, incremental=True, context=context, owner=JobOwners.TEAM_LOGS, workload=Workload.DEFAULT
+        )
         if request:
             yield request

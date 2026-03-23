@@ -1,0 +1,109 @@
+name: Build rust smoke test images
+
+# Builds Docker images for Rust services from PR branches labeled 'smoke_test'.
+# This is a build-only workflow — no deployment. Use it to get feature branch
+# images into ghcr.io for pre-merge smoke testing in staging/production.
+#
+# Usage:
+#   Build all images: add the 'smoke_test' label to your PR
+#   Build specific images: add 'smoke_test:capture', 'smoke_test:cymbal', etc.
+#   Manual trigger: Actions tab -> workflow_dispatch -> enter image names
+#
+# Image list: .github/rust-images.yml
+# Build steps: .github/workflows/_rust-build-images.yml
+
+on:
+    workflow_dispatch:
+        inputs:
+            images:
+                description: 'Comma-separated image names to build (empty = all)'
+                type: string
+                default: ''
+    pull_request:
+        types: [labeled, synchronize]
+        paths:
+            - 'rust/**'
+            - 'proto/**'
+            - '.github/workflows/rust-smoke-test-build.yml'
+            - '.github/workflows/_rust-build-images.yml'
+            - '.github/rust-images.yml'
+
+concurrency:
+    group: rust-smoke-test-${{ github.event.pull_request.number || github.run_id }}
+    cancel-in-progress: true
+
+jobs:
+    authorize:
+        name: authorize smoke test
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: |
+            github.event_name == 'workflow_dispatch' ||
+            (contains(github.event.pull_request.labels.*.name, 'smoke_test') &&
+             github.event.pull_request.head.repo.full_name == github.repository) ||
+            contains(toJson(github.event.pull_request.labels.*.name), 'smoke_test:')
+        permissions:
+            contents: read
+        steps:
+            - name: Verify PR author is a PostHog org member
+              if: |
+                  github.event_name != 'workflow_dispatch' &&
+                  github.event.pull_request.author_association != 'OWNER' &&
+                  github.event.pull_request.author_association != 'MEMBER'
+              env:
+                  AUTHOR: ${{ github.event.pull_request.user.login }}
+                  ASSOCIATION: ${{ github.event.pull_request.author_association }}
+              run: |
+                  echo "::error::PR author ($AUTHOR) has association '$ASSOCIATION' — smoke test builds are restricted to org members"
+                  exit 1
+
+    resolve-filter:
+        name: resolve image filter
+        runs-on: ubuntu-latest
+        timeout-minutes: 2
+        permissions: {}
+        outputs:
+            filter: ${{ steps.parse.outputs.filter }}
+        steps:
+            - name: Parse image filter
+              id: parse
+              env:
+                  EVENT_NAME: ${{ github.event_name }}
+                  DISPATCH_IMAGES: ${{ github.event.inputs.images }}
+                  PR_LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
+              run: |
+                  if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+                      echo "filter=$DISPATCH_IMAGES" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+
+                  filter=""
+                  for label in $(echo "$PR_LABELS" | jq -r '.[]'); do
+                      case "$label" in
+                          smoke_test:*)
+                              img="${label#smoke_test:}"
+                              filter="${filter:+$filter,}$img"
+                              ;;
+                      esac
+                  done
+                  echo "filter=$filter" >> "$GITHUB_OUTPUT"
+
+    build-images:
+        needs: [authorize, resolve-filter]
+        timeout-minutes: 35
+        uses: ./.github/workflows/_rust-build-images.yml
+        with:
+            image-filter: ${{ needs.resolve-filter.outputs.filter }}
+            tag-rules: |
+                type=ref,event=pr
+                type=sha
+                type=raw,value=${{ github.head_ref || github.ref_name }}
+            checkout-ref: ${{ github.event.pull_request.head.sha || github.sha }}
+            timeout-minutes: 30
+            event-name: posthog-rust-smoke-test-image-build
+            extra-failure-props: '"pr": "${{ github.event.pull_request.number }}"'
+        secrets: inherit
+        permissions:
+            id-token: write
+            contents: read
+            packages: write

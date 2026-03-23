@@ -16,9 +16,11 @@ type TimeBoundaryProps = {
     time: Dayjs | null | undefined
     loading: boolean
     updateDateRange: (dateRange: DateRange) => DateRange
+    /** Custom suffix to replace "ago" in relative time display. e.g. suffix="old" renders "5 hours old" */
+    suffix?: string
 }
 
-export function TimeBoundary({ time, loading, label, updateDateRange }: TimeBoundaryProps): JSX.Element {
+export function TimeBoundary({ time, loading, label, updateDateRange, suffix }: TimeBoundaryProps): JSX.Element {
     const { dateRange } = useValues(issueFiltersLogic)
     const { setDateRange } = useActions(issueFiltersLogic)
     const onClick = useCallback(
@@ -43,6 +45,7 @@ export function TimeBoundary({ time, loading, label, updateDateRange }: TimeBoun
                             time={time as Dayjs}
                             className="border-dotted border-b text-xs text-muted"
                             title={label}
+                            suffix={suffix}
                         />
                     </span>
                 ))

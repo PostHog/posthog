@@ -31,7 +31,7 @@ def filter_snowflake_incremental_fields(
             results.append((column_name, IncrementalFieldType.Date, nullable))
         elif type == "datetime":
             results.append((column_name, IncrementalFieldType.DateTime, nullable))
-        elif type == "numeric":
+        elif type in ("number", "numeric"):
             results.append((column_name, IncrementalFieldType.Numeric, nullable))
 
     return results

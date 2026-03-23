@@ -8,7 +8,6 @@ use futures::future::join_all;
 use metrics::gauge;
 use tokio::sync::RwLock;
 use tokio::time::interval;
-use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 use crate::config::CaptureMode;
@@ -185,7 +184,7 @@ impl EventRestrictionService {
         &self,
         create_repository: F,
         refresh_interval: Duration,
-        cancel_token: CancellationToken,
+        shutdown_handle: lifecycle::Handle,
     ) where
         F: Fn() -> Fut,
         Fut: std::future::Future<
@@ -198,7 +197,7 @@ impl EventRestrictionService {
 
         loop {
             tokio::select! {
-                _ = cancel_token.cancelled() => {
+                _ = shutdown_handle.shutdown_recv() => {
                     info!(pipeline = %pipeline_str, "Event restrictions refresh task shutting down");
                     break;
                 }
@@ -328,6 +327,19 @@ mod tests {
     use crate::event_restrictions::repository::RestrictionEntry;
     use crate::event_restrictions::types::RestrictionScope;
     use common_redis::CustomRedisError;
+    use tokio_util::sync::CancellationToken;
+
+    fn test_lifecycle() -> (CancellationToken, lifecycle::Handle) {
+        let shutdown_token = CancellationToken::new();
+        let mut manager = lifecycle::Manager::builder("test")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .with_shutdown_token(shutdown_token.clone())
+            .build();
+        let handle = manager.register("event-restrictions", lifecycle::ComponentOptions::new());
+        let _monitor = manager.monitor_background();
+        (shutdown_token, handle)
+    }
 
     fn make_entry(token: &str, pipelines: Vec<&str>) -> RestrictionEntry {
         RestrictionEntry {
@@ -654,8 +666,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_refresh_task_loads_restrictions() {
-        let cancel = CancellationToken::new();
-        let cancel_clone = cancel.clone();
+        let (shutdown_token, lifecycle_handle) = test_lifecycle();
+        let shutdown_token_clone = shutdown_token.clone();
 
         let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
         let service_clone = service.clone();
@@ -664,9 +676,9 @@ mod tests {
             service_clone
                 .start_refresh_task(
                     move || {
-                        let cancel = cancel_clone.clone();
+                        let st = shutdown_token_clone.clone();
                         async move {
-                            cancel.cancel();
+                            st.cancel();
                             let repo = MockRestrictionsRepository::new();
                             repo.set_entries(
                                 RestrictionType::DropEvent,
@@ -678,7 +690,7 @@ mod tests {
                         }
                     },
                     Duration::from_millis(5),
-                    cancel,
+                    lifecycle_handle,
                 )
                 .await;
         });
@@ -695,8 +707,8 @@ mod tests {
     #[tokio::test]
     async fn test_refresh_task_retries_connection_while_fail_open() {
         let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
-        let cancel = CancellationToken::new();
-        let cancel_clone = cancel.clone();
+        let (shutdown_token, lifecycle_handle) = test_lifecycle();
+        let shutdown_token_clone = shutdown_token.clone();
         let attempt_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
         let count_clone = attempt_count.clone();
 
@@ -706,16 +718,16 @@ mod tests {
                 .start_refresh_task(
                     move || {
                         let n = count_clone.fetch_add(1, Ordering::SeqCst);
-                        let cancel = cancel_clone.clone();
+                        let st = shutdown_token_clone.clone();
                         async move {
                             if n >= 2 {
-                                cancel.cancel();
+                                st.cancel();
                             }
                             Err(CustomRedisError::Timeout)
                         }
                     },
                     Duration::from_millis(5),
-                    cancel,
+                    lifecycle_handle,
                 )
                 .await;
         });
@@ -732,8 +744,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_refresh_task_reconnects_after_refresh_failure() {
-        let cancel = CancellationToken::new();
-        let cancel_clone = cancel.clone();
+        let (shutdown_token, lifecycle_handle) = test_lifecycle();
+        let shutdown_token_clone = shutdown_token.clone();
         let connect_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
         let count_clone = connect_count.clone();
 
@@ -745,12 +757,12 @@ mod tests {
                 .start_refresh_task(
                     move || {
                         let n = count_clone.fetch_add(1, Ordering::SeqCst);
-                        let cancel = cancel_clone.clone();
+                        let st = shutdown_token_clone.clone();
                         async move {
                             // First connection succeeds but repo returns all errors,
                             // second connection triggers shutdown so we can assert.
                             if n >= 1 {
-                                cancel.cancel();
+                                st.cancel();
                             }
                             let repo = MockRestrictionsRepository::new();
                             for rt in RestrictionType::all() {
@@ -761,7 +773,7 @@ mod tests {
                         }
                     },
                     Duration::from_millis(5),
-                    cancel,
+                    lifecycle_handle,
                 )
                 .await;
         });
@@ -779,8 +791,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_refresh_task_fail_open_then_recover() {
-        let cancel = CancellationToken::new();
-        let cancel_clone = cancel.clone();
+        let (shutdown_token, lifecycle_handle) = test_lifecycle();
+        let shutdown_token_clone = shutdown_token.clone();
         let attempt_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
         let count_clone = attempt_count.clone();
 
@@ -792,14 +804,14 @@ mod tests {
                 .start_refresh_task(
                     move || {
                         let n = count_clone.fetch_add(1, Ordering::SeqCst);
-                        let cancel = cancel_clone.clone();
+                        let st = shutdown_token_clone.clone();
                         async move {
                             if n < 2 {
                                 // First two attempts fail (simulating Redis down)
                                 return Err(CustomRedisError::Timeout);
                             }
                             // Third attempt succeeds with restrictions
-                            cancel.cancel();
+                            st.cancel();
                             let repo = MockRestrictionsRepository::new();
                             repo.set_entries(
                                 RestrictionType::ForceOverflow,
@@ -811,7 +823,7 @@ mod tests {
                         }
                     },
                     Duration::from_millis(5),
-                    cancel,
+                    lifecycle_handle,
                 )
                 .await;
         });

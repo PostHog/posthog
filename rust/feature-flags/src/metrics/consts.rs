@@ -1,3 +1,10 @@
+// Group type cache metrics
+pub const GROUP_TYPE_CACHE_HIT_COUNTER: &str = "flags_group_type_cache_hit_total";
+pub const GROUP_TYPE_CACHE_MISS_COUNTER: &str = "flags_group_type_cache_miss_total";
+pub const GROUP_TYPE_CACHE_ENTRIES_GAUGE: &str = "flags_group_type_cache_entries";
+pub const DB_GROUP_TYPE_READS_COUNTER: &str = "flags_db_group_type_reads_total";
+pub const DB_GROUP_TYPE_ERRORS_COUNTER: &str = "flags_db_group_type_errors_total";
+
 // Flag evaluation counters
 pub const FLAG_EVALUATION_ERROR_COUNTER: &str = "flags_flag_evaluation_error_total";
 pub const FLAG_HASH_KEY_WRITES_COUNTER: &str = "flags_flag_hash_key_writes_total";
@@ -39,6 +46,9 @@ pub const FLAG_DEFINITION_QUERY_TIME: &str = "flags_definition_query_time";
 pub const FLAG_PERSON_PROCESSING_TIME: &str = "flags_person_processing_time";
 pub const FLAG_COHORT_QUERY_TIME: &str = "flags_cohort_query_time";
 pub const FLAG_COHORT_PROCESSING_TIME: &str = "flags_cohort_processing_time";
+pub const FLAG_REALTIME_COHORT_QUERY_TIME: &str = "flags_realtime_cohort_query_time";
+pub const FLAG_REALTIME_COHORT_QUERY_ERROR_COUNTER: &str =
+    "flags_realtime_cohort_query_error_total";
 pub const FLAG_GROUP_QUERY_TIME: &str = "flags_group_query_time";
 pub const FLAG_GROUP_PROCESSING_TIME: &str = "flags_group_processing_time";
 pub const FLAG_DB_CONNECTION_TIME: &str = "flags_db_connection_time";
@@ -90,6 +100,14 @@ pub const FLAG_ACQUIRE_TIMEOUT_COUNTER: &str = "flags_acquire_timeout_total";
 
 // Error classification
 pub const FLAG_DATABASE_ERROR_COUNTER: &str = "flags_database_error_total";
+
+// Dependency graph build path
+// Labels: path (FLAG_DEPENDENCY_GRAPH_PATH_PRECOMPUTED or FLAG_DEPENDENCY_GRAPH_PATH_GRAPH)
+pub const FLAG_DEPENDENCY_GRAPH_BUILD_COUNTER: &str = "flags_dependency_graph_build_total";
+pub const FLAG_DEPENDENCY_GRAPH_BUILD_TIME: &str = "flags_dependency_graph_build_ms";
+pub const FLAG_DEPENDENCY_GRAPH_PATH_PRECOMPUTED: &str = "precomputed";
+pub const FLAG_DEPENDENCY_GRAPH_PATH_GRAPH: &str = "graph";
+pub const FLAG_MISSING_REQUESTED_FLAG_KEY: &str = "missing_requested_flag_key";
 
 // Tombstone metric for tracking "impossible" failures that should never happen in production
 // Different failure types are tracked via the "failure_type" label

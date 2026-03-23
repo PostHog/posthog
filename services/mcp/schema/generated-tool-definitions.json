@@ -90,7 +90,7 @@
         }
     },
     "alerts-list": {
-        "description": "List all insight alerts in the project. Returns alerts with their current state, threshold configuration, and timing information. Supports filtering by insight ID via query parameter.",
+        "description": "List all insight alerts in the project. Returns alerts with their current state, threshold or detector configuration, timing information, and firing check history. Supports filtering by insight ID via query parameter. Alerts can use either threshold-based conditions (absolute_value, relative_increase, relative_decrease) or anomaly detection via detector_config (zscore, mad, iqr, isolation_forest, knn, etc.).",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "List alerts",
@@ -105,7 +105,7 @@
         }
     },
     "alert-get": {
-        "description": "Get a specific alert by ID. Returns the full alert configuration including the last 5 check results, threshold settings, and subscribed users.",
+        "description": "Get a specific alert by ID. Returns the full alert configuration including the last 5 check results, threshold settings, detector_config (for anomaly detection alerts), and subscribed users. Check results include anomaly_scores, triggered_points, and triggered_dates for detector-based alerts.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Get alert",
@@ -120,7 +120,7 @@
         }
     },
     "alert-create": {
-        "description": "Create a new alert on an insight. Alerts monitor insight values and notify subscribed users when thresholds are breached. Requires an insight ID, at least one subscribed user, and a threshold configuration. The alert condition determines how the value is evaluated (absolute_value, relative_increase, or relative_decrease).",
+        "description": "Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold configuration with bounds. For anomaly detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. Requires an insight ID and at least one subscribed user.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Create alert",
@@ -135,7 +135,7 @@
         }
     },
     "alert-update": {
-        "description": "Update an existing alert by ID. Can update name, threshold, condition, config, subscribed users, enabled state, calculation interval, and weekend skipping. To snooze an alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.",
+        "description": "Update an existing alert by ID. Can update name, threshold, condition, config, detector_config, subscribed users, enabled state, calculation interval, and weekend skipping. Set detector_config to switch to anomaly detection, or set it to null to switch back to threshold mode. To snooze an alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Update alert",
@@ -162,6 +162,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "alert-simulate": {
+        "description": "Run an anomaly detector on an insight's historical data without creating any alert or check records. Use this to preview how a detector configuration would perform before saving it as an alert. Requires an insight ID and a detector_config object with a type (zscore, mad, iqr, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca, or ensemble). Optionally specify date_from (e.g. '-48h', '-30d') to control how far back to simulate, and series_index to pick which series to analyze. Returns data values, anomaly scores per point, triggered indices and dates, and for ensemble detectors, per-sub-detector score breakdowns.",
+        "category": "Alerts",
+        "feature": "alerts",
+        "summary": "Simulate detector on insight",
+        "title": "Simulate detector on insight",
+        "required_scopes": ["alert:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "annotations-list": {
@@ -689,6 +704,81 @@
             "readOnlyHint": true
         }
     },
+    "early-access-feature-list": {
+        "description": "List early access features in the current project. Returns name, stage, description, linked feature flag, and creation date for each feature.",
+        "category": "Early access features",
+        "feature": "early_access_features",
+        "summary": "List early access features",
+        "title": "List early access features",
+        "required_scopes": ["early_access_feature:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "early-access-feature-create": {
+        "description": "Create a new early access feature. A feature flag is automatically created unless feature_flag_id is provided. Stage determines whether opted-in users get the feature enabled.",
+        "category": "Early access features",
+        "feature": "early_access_features",
+        "summary": "Create early access feature",
+        "title": "Create early access feature",
+        "required_scopes": ["early_access_feature:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "early-access-feature-retrieve": {
+        "description": "Get a single early access feature by ID. Returns full details including the linked feature flag configuration.",
+        "category": "Early access features",
+        "feature": "early_access_features",
+        "summary": "Get early access feature",
+        "title": "Get early access feature",
+        "required_scopes": ["early_access_feature:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "early-access-feature-partial-update": {
+        "description": "Update an early access feature by ID. Changing the stage automatically updates the linked feature flag's enrollment conditions.",
+        "category": "Early access features",
+        "feature": "early_access_features",
+        "summary": "Update early access feature",
+        "title": "Update early access feature",
+        "required_scopes": ["early_access_feature:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "early-access-feature-destroy": {
+        "description": "Delete an early access feature by ID. Clears enrollment conditions from the linked feature flag but does not delete the flag itself.",
+        "category": "Early access features",
+        "feature": "early_access_features",
+        "summary": "Delete early access feature",
+        "title": "Delete early access feature",
+        "required_scopes": ["early_access_feature:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "error-tracking-issues-list": {
         "description": "List all error tracking issues in the project. Returns issues with status, volume, first/last seen timestamps, and assignee info.",
         "category": "Error tracking",
@@ -809,6 +899,186 @@
             "readOnlyHint": false
         }
     },
+    "notebooks-list": {
+        "description": "List all notebooks in the project. Supports filtering by search term, created_by, last_modified_by, date_from, date_to, and contains. Returns title, short_id, and creation/modification metadata.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "List notebooks",
+        "title": "List notebooks",
+        "required_scopes": ["notebook:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "notebooks-create": {
+        "description": "Create a new notebook. Provide a title and content. Content is a JSON object representing the notebook's rich text document structure (ProseMirror-based). Returns the created notebook with its short_id.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Create notebook",
+        "title": "Create notebook",
+        "required_scopes": ["notebook:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "notebooks-retrieve": {
+        "description": "Get a specific notebook by its short_id. Returns the full notebook including title, content, version, and creation/modification metadata.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Get notebook",
+        "title": "Get notebook",
+        "required_scopes": ["notebook:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "notebooks-partial-update": {
+        "description": "Update an existing notebook by short_id. Can update title, content, and deleted status. IMPORTANT: when updating the content field, you must provide the current version number for optimistic concurrency control. Retrieve the notebook first to get the latest version.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Update notebook",
+        "title": "Update notebook",
+        "required_scopes": ["notebook:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "notebooks-destroy": {
+        "description": "Delete a notebook by short_id. The notebook will be soft-deleted and no longer appear in lists.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Delete notebook",
+        "title": "Delete notebook",
+        "required_scopes": ["notebook:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "persons-list": {
+        "description": "List persons in the current project. Supports search by email (full text) or distinct ID (exact match), and filtering by email or distinct_id query parameters. Returns paginated results with person properties and distinct IDs.",
+        "category": "Persons",
+        "feature": "persons",
+        "summary": "List persons",
+        "title": "List persons",
+        "required_scopes": ["person:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "persons-retrieve": {
+        "description": "Retrieve a single person by numeric ID or UUID. Returns the person's properties, distinct IDs, and metadata.",
+        "category": "Persons",
+        "feature": "persons",
+        "summary": "Get person",
+        "title": "Get person",
+        "required_scopes": ["person:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "persons-property-delete": {
+        "description": "Remove a single property from a person by key. The property is deleted asynchronously via the event pipeline ($unset).",
+        "category": "Persons",
+        "feature": "persons",
+        "summary": "Delete person property",
+        "title": "Delete person property",
+        "required_scopes": ["person:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "persons-property-set": {
+        "description": "Set a single property on a person. The property is updated asynchronously via the event pipeline ($set). Returns 202 Accepted.",
+        "category": "Persons",
+        "feature": "persons",
+        "summary": "Set person property",
+        "title": "Set person property",
+        "required_scopes": ["person:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "persons-bulk-delete": {
+        "description": "Delete up to 1000 persons by PostHog person UUIDs or distinct IDs. Optionally delete associated events and recordings. Pass either `ids` (person UUIDs) or `distinct_ids`. Returns 202 Accepted. This operation is irreversible.",
+        "category": "Persons",
+        "feature": "persons",
+        "summary": "Bulk delete persons",
+        "title": "Bulk delete persons",
+        "required_scopes": ["person:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "persons-cohorts-retrieve": {
+        "description": "Get all cohorts that a specific person belongs to. Requires the person_id query parameter.",
+        "category": "Persons",
+        "feature": "persons",
+        "summary": "Get person cohorts",
+        "title": "Get person cohorts",
+        "required_scopes": ["person:read", "cohort:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "persons-values-retrieve": {
+        "description": "Get distinct values for a person property key. Useful for discovering what values exist for properties like 'plan', 'role', or 'company'. Provide the property key and optionally a search value to filter results.",
+        "category": "Persons",
+        "feature": "persons",
+        "summary": "Get person property values",
+        "title": "Get person property values",
+        "required_scopes": ["person:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "prompt-list": {
         "description": "List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt summaries.",
         "category": "Prompts",
@@ -865,6 +1135,21 @@
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "prompt-duplicate": {
+        "description": "Duplicate an existing LLM prompt under a new name. Copies the latest version's content to create a new prompt at version 1. Useful for forking a prompt or as a way to rename since names are immutable after creation.",
+        "category": "Prompts",
+        "feature": "prompts",
+        "summary": "Duplicate prompt",
+        "title": "Duplicate prompt",
+        "required_scopes": ["llm_prompt:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
         }
@@ -942,6 +1227,111 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "surveys-get-all": {
+        "description": "Get all surveys in the project with optional filtering. Can filter by search term or use pagination.",
+        "category": "Surveys",
+        "feature": "surveys",
+        "summary": "Get all surveys in the project with optional filtering.",
+        "title": "Get all surveys in the project with optional filtering.",
+        "required_scopes": ["survey:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "survey-get": {
+        "description": "Get a specific survey by ID. Returns the survey configuration including questions, targeting, and scheduling details.",
+        "category": "Surveys",
+        "feature": "surveys",
+        "summary": "Get a specific survey by ID.",
+        "title": "Get a specific survey by ID.",
+        "required_scopes": ["survey:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "survey-create": {
+        "description": "Creates a new survey in the project. Surveys can be popover or API-based and support various question types including open-ended, multiple choice, rating, and link questions. Once created, you should ask the user if they want to add the survey to their application code.",
+        "category": "Surveys",
+        "feature": "surveys",
+        "summary": "Creates a new survey in the project.",
+        "title": "Creates a new survey in the project.",
+        "required_scopes": ["survey:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "survey-update": {
+        "description": "Update an existing survey by ID. Can update name, description, questions, scheduling, and other survey properties.",
+        "category": "Surveys",
+        "feature": "surveys",
+        "summary": "Update an existing survey by ID.",
+        "title": "Update an existing survey by ID.",
+        "required_scopes": ["survey:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "survey-delete": {
+        "description": "Delete a survey by ID (soft delete - marks as archived).",
+        "category": "Surveys",
+        "feature": "surveys",
+        "summary": "Delete a survey by ID.",
+        "title": "Delete a survey by ID.",
+        "required_scopes": ["survey:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "survey-stats": {
+        "description": "Get response statistics for a specific survey. Includes detailed event counts (shown, dismissed, sent), unique respondents, conversion rates, and timing data. Supports optional date filtering.",
+        "category": "Surveys",
+        "feature": "surveys",
+        "summary": "Get response statistics for a specific survey.",
+        "title": "Get response statistics for a specific survey.",
+        "required_scopes": ["survey:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "surveys-global-stats": {
+        "description": "Get aggregated response statistics across all surveys in the project. Includes event counts (shown, dismissed, sent), unique respondents, conversion rates, and timing data. Supports optional date filtering.",
+        "category": "Surveys",
+        "feature": "surveys",
+        "summary": "Get aggregated response statistics across all surveys.",
+        "title": "Get aggregated response statistics across all surveys.",
+        "required_scopes": ["survey:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "workflows-list": {

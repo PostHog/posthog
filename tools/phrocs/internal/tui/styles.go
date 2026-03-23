@@ -4,37 +4,41 @@ import (
 	"image/color"
 
 	"charm.land/lipgloss/v2"
+	sharedpalette "github.com/posthog/posthog/phrocs/internal/palette"
 	"github.com/posthog/posthog/phrocs/internal/process"
 )
 
 // Plain Unicode, no embedded ANSI so they can be safely composed
 // without resetting the enclosing background or foreground colour
 const (
-	iconCharRunning = "●"
-	iconCharPending = "◌"
-	iconCharStopped = "○"
-	iconCharDone    = "✓"
-	iconCharCrashed = "✗"
+	iconCharRunning = sharedpalette.IconRunning
+	iconCharPending = sharedpalette.IconPending
+	iconCharStopped = sharedpalette.IconStopped
+	iconCharDone    = sharedpalette.IconDone
+	iconCharCrashed = sharedpalette.IconCrashed
 )
 
 var (
-	colorYellow   = lipgloss.Color("#F7A501")
-	colorBlue     = lipgloss.Color("#1D4AFF")
-	colorGrey     = lipgloss.Color("#9BA1B2")
-	colorDarkGrey = lipgloss.Color("#3D3F43")
-	colorGreen    = lipgloss.Color("#2DCC5D")
-	colorRed      = lipgloss.Color("#F04438")
-	colorWhite    = lipgloss.Color("#FFFFFF")
-	colorBlack    = lipgloss.Color("#151515")
+	colorYellow   = sharedpalette.ColorYellow
+	colorBlue     = sharedpalette.ColorBlue
+	colorGrey     = sharedpalette.ColorGrey
+	colorDarkGrey = sharedpalette.ColorDarkGrey
+	colorGreen    = sharedpalette.ColorGreen
+	colorRed      = sharedpalette.ColorRed
+	colorWhite    = sharedpalette.ColorWhite
+	colorBlack    = sharedpalette.ColorBlack
 )
 
 // Outer width of the process list column (including border)
 const sidebarWidth = 24
 
+// Outer width of the container sidebar (including border)
+const containerSidebarWidth = 24
+
 const headerHeight = 1
 const footerHeightShort = 3
 const footerHeightFull = 5
-const horizontalBorderCount = 3
+const horizontalBorderCount = 4
 
 var (
 	// Header
@@ -132,6 +136,20 @@ func statusIconColor(s process.Status) color.Color {
 	default:
 		return colorYellow
 	}
+}
+
+// Renders a single sidebar row with icon, name, and selected/unselected styling.
+// Used by both the process sidebar and the container sidebar.
+func renderSidebarRow(icon, name string, iconColor color.Color, selected bool, innerW int) string {
+	if selected {
+		base := lipgloss.NewStyle().Background(colorDarkGrey).Bold(true)
+		iconSeg := base.PaddingLeft(1).Foreground(iconColor).Render(icon)
+		nameSeg := base.Foreground(colorWhite).Width(innerW - 2).Render(" " + name)
+		return iconSeg + nameSeg
+	}
+	iconSeg := lipgloss.NewStyle().PaddingLeft(1).Foreground(iconColor).Render(icon)
+	nameSeg := lipgloss.NewStyle().Foreground(colorGrey).Width(innerW - 2).Render(" " + name)
+	return iconSeg + nameSeg
 }
 
 func truncate(s string, maxLen int) string {

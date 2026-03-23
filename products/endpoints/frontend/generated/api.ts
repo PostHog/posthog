@@ -110,6 +110,24 @@ export const endpointsDestroy = async (projectId: string, name: string, options?
 }
 
 /**
+ * Preview the materialization transform for an endpoint. Shows what the query will look like after materialization, including range pair detection and bucket functions.
+ */
+export const getEndpointsMaterializationPreviewRetrieveUrl = (projectId: string, name: string) => {
+    return `/api/projects/${projectId}/endpoints/${name}/materialization_preview/`
+}
+
+export const endpointsMaterializationPreviewRetrieve = async (
+    projectId: string,
+    name: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getEndpointsMaterializationPreviewRetrieveUrl(projectId, name), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
  * Get materialization status for an endpoint. Supports ?version=N query param.
  */
 export const getEndpointsMaterializationStatusRetrieveUrl = (projectId: string, name: string) => {

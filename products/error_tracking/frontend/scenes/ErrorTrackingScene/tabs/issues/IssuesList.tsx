@@ -1,8 +1,10 @@
 import { BindLogic, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { humanFriendlyLargeNumber } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -18,9 +20,15 @@ import { InsightLogicProps } from '~/types'
 
 import { IssueActions } from 'products/error_tracking/frontend/components/IssueActions/IssueActions'
 import { IssueQueryOptions } from 'products/error_tracking/frontend/components/IssueQueryOptions/IssueQueryOptions'
-import { OccurrenceSparkline } from 'products/error_tracking/frontend/components/OccurrenceSparkline'
 import { IssueListTitleColumn, IssueListTitleHeader } from 'products/error_tracking/frontend/components/TableColumns'
-import { useSparklineData } from 'products/error_tracking/frontend/hooks/use-sparkline-data'
+import { errorTrackingVolumeSparklineLogic } from 'products/error_tracking/frontend/components/VolumeSparkline/errorTrackingVolumeSparklineLogic'
+import {
+    formatCompactVolumeHoverDate,
+    formatCompactVolumeHoverOccurrences,
+} from 'products/error_tracking/frontend/components/VolumeSparkline/formatCompactVolumeHover'
+import { VolumeSparkline } from 'products/error_tracking/frontend/components/VolumeSparkline/VolumeSparkline'
+import { applyVolumeSpikeHighlights, useSparklineData } from 'products/error_tracking/frontend/hooks/use-sparkline-data'
+import { batchSpikeEventsLogic } from 'products/error_tracking/frontend/logics/batchSpikeEventsLogic'
 import { bulkSelectLogic } from 'products/error_tracking/frontend/logics/bulkSelectLogic'
 import { issuesDataNodeLogic } from 'products/error_tracking/frontend/logics/issuesDataNodeLogic'
 import { errorTrackingSceneLogic } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/errorTrackingSceneLogic'
@@ -31,17 +39,47 @@ const VolumeColumn: QueryContextColumnComponent = (props) => {
     if (!record.aggregations) {
         throw new Error('No aggregations found')
     }
-    const data = useSparklineData(record.aggregations, ERROR_TRACKING_LISTING_RESOLUTION)
+    const sparklineKey = record.id ?? 'issue-unknown'
+    const baseData = useSparklineData(record.aggregations, ERROR_TRACKING_LISTING_RESOLUTION)
+    const { spikeEventsByIssueId } = useValues(batchSpikeEventsLogic)
+    const spikeEvents = record.id ? (spikeEventsByIssueId[record.id] ?? []) : []
+    const data = useMemo(() => applyVolumeSpikeHighlights(baseData, spikeEvents), [baseData, spikeEvents])
+
+    const { hoveredDatum, isBarHighlighted } = useValues(errorTrackingVolumeSparklineLogic({ sparklineKey }))
+
     return (
-        <div className="flex justify-end">
-            <OccurrenceSparkline className="h-8" data={data} displayXAxis={false} />
+        <div className="flex w-full min-w-0 justify-center">
+            <div className="flex w-56 max-w-full min-w-0 flex-col">
+                <div className="h-12 min-h-12 w-full">
+                    <VolumeSparkline
+                        className="h-full"
+                        data={data}
+                        layout="compact"
+                        xAxis="minimal"
+                        sparklineKey={sparklineKey}
+                    />
+                </div>
+                <div
+                    className={cn(
+                        'flex h-3 w-full items-center justify-between gap-1 px-px text-[9px] leading-none text-muted',
+                        isBarHighlighted ? 'opacity-100' : 'opacity-0'
+                    )}
+                >
+                    <span className="min-w-0 truncate">
+                        {hoveredDatum ? formatCompactVolumeHoverDate(hoveredDatum) : '\u00a0'}
+                    </span>
+                    <span className="min-w-0 shrink-0 text-right tabular-nums">
+                        {hoveredDatum ? formatCompactVolumeHoverOccurrences(hoveredDatum) : '\u00a0'}
+                    </span>
+                </div>
+            </div>
         </div>
     )
 }
 
 const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) => {
     return (
-        <div className="flex justify-between items-center min-w-64">
+        <div className="flex w-full min-w-0 justify-center items-center">
             <div>{columnName}</div>
         </div>
     )
@@ -76,16 +114,23 @@ const CountColumn = ({ record, columnName }: { record: unknown; columnName: stri
     )
 }
 
+const ISSUE_COUNT_COLUMN_WIDTH = 'clamp(4.75rem, 5vw, 5.5rem)'
+
 const defaultColumns: Record<string, QueryContextColumn> = {
     error: {
         width: '50%',
         render: TitleColumn,
         renderTitle: TitleHeader,
     },
-    occurrences: { align: 'center', render: CountColumn },
-    sessions: { align: 'center', render: CountColumn },
-    users: { align: 'center', render: CountColumn },
-    volume: { align: 'right', renderTitle: VolumeColumnHeader, render: VolumeColumn },
+    occurrences: { align: 'center', width: ISSUE_COUNT_COLUMN_WIDTH, render: CountColumn },
+    sessions: { align: 'center', width: ISSUE_COUNT_COLUMN_WIDTH, render: CountColumn },
+    users: { align: 'center', width: ISSUE_COUNT_COLUMN_WIDTH, render: CountColumn },
+    volume: {
+        align: 'center',
+        width: 'clamp(12rem, 20vw, 13rem)',
+        renderTitle: VolumeColumnHeader,
+        render: VolumeColumn,
+    },
 }
 
 export const useIssueQueryContext = (): QueryContext => {
