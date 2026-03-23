@@ -611,7 +611,7 @@ pub struct Config {
     #[envconfig(from = "TEAM_NEGATIVE_CACHE_CAPACITY", default = "10000")]
     pub team_negative_cache_capacity: u64,
 
-    #[envconfig(from = "TEAM_NEGATIVE_CACHE_TTL_SECONDS", default = "300")]
+    #[envconfig(from = "TEAM_NEGATIVE_CACHE_TTL_SECONDS", default = "30")]
     pub team_negative_cache_ttl_seconds: u64,
 
     // TTL for the Redis-backed per-token auth cache (positive hits).
@@ -833,7 +833,7 @@ impl Config {
             skip_writes: FlexBool(false),
             thread_pool_cores: 0,
             team_negative_cache_capacity: 10_000,
-            team_negative_cache_ttl_seconds: 300,
+            team_negative_cache_ttl_seconds: 30,
             skip_pg_team_fallback: FlexBool(false),
             service_mode: ServiceMode::All,
             auth_token_cache_ttl_seconds: 300,
