@@ -1,8 +1,7 @@
 import './AggregationColumn.scss'
 
-import { ReactNode } from 'react'
-
 import { useActions, useValues } from 'kea'
+import { ReactNode } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 import { LemonMenu, LemonMenuItem } from '@posthog/lemon-ui'
@@ -108,8 +107,7 @@ export function AggregationColumnItem({
             ? formatAggregationValue(
                   item.action?.math_property,
                   value,
-                  (value) =>
-                      formatAggregationAxisValue(trendsFilter as Partial<TrendsFilterType>, value, baseCurrency),
+                  (value) => formatAggregationAxisValue(trendsFilter as Partial<TrendsFilterType>, value, baseCurrency),
                   formatPropertyValueForDisplay
               )
             : 'Unknown'
