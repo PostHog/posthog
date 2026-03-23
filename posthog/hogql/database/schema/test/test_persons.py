@@ -10,8 +10,6 @@ from posthog.test.base import (
 )
 from unittest.mock import Mock, patch
 
-from django.test import override_settings
-
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -200,7 +198,6 @@ class TestPersonsV2LimitPushDown(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 2
 
     @snapshot_clickhouse_queries
-    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_v2_cohort_where_does_not_push_limit_down(self):
         """When there's an outer WHERE (e.g. a cohort filter), ORDER BY and LIMIT
         must not be pushed into the inner subquery. Otherwise the inner LIMIT

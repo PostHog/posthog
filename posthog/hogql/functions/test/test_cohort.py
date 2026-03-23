@@ -273,16 +273,16 @@ class TestInlineCohortSubquery(BaseTest):
 
     @parameterized.expand(
         [
-            ("subquery_off", InCohortVia.SUBQUERY, InlineCohortCalculation.OFF, 1),
-            ("subquery_always", InCohortVia.SUBQUERY, InlineCohortCalculation.ALWAYS, 1),
-            ("leftjoin_off", InCohortVia.LEFTJOIN, InlineCohortCalculation.OFF, 1),
-            ("leftjoin_always", InCohortVia.LEFTJOIN, InlineCohortCalculation.ALWAYS, 1),
-            ("conjoined_off", InCohortVia.LEFTJOIN_CONJOINED, InlineCohortCalculation.OFF, 1),
-            ("conjoined_always", InCohortVia.LEFTJOIN_CONJOINED, InlineCohortCalculation.ALWAYS, 1),
+            ("subquery_off", InCohortVia.SUBQUERY, InlineCohortCalculation.OFF),
+            ("subquery_always", InCohortVia.SUBQUERY, InlineCohortCalculation.ALWAYS),
+            ("leftjoin_off", InCohortVia.LEFTJOIN, InlineCohortCalculation.OFF),
+            ("leftjoin_always", InCohortVia.LEFTJOIN, InlineCohortCalculation.ALWAYS),
+            ("conjoined_off", InCohortVia.LEFTJOIN_CONJOINED, InlineCohortCalculation.OFF),
+            ("conjoined_always", InCohortVia.LEFTJOIN_CONJOINED, InlineCohortCalculation.ALWAYS),
         ]
     )
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
-    def test_inline_cohort_limit_not_pushed_to_inner_query(self, _name, cohort_via, inline_mode, expected_count):
+    def test_inline_cohort_limit_not_pushed_to_inner_query(self, _name, cohort_via, inline_mode):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         cohort_prop_value = f"cohort_match_{random_uuid}"
         # Create the cohort member FIRST (oldest created_at)
@@ -318,7 +318,7 @@ class TestInlineCohortSubquery(BaseTest):
             ),
             pretty=False,
         )
-        assert len(response.results or []) == expected_count, (
-            f"Expected {expected_count} cohort member(s) but got {len(response.results or [])}. "
+        assert len(response.results or []) == 1, (
+            f"Expected 1 cohort member but got {len(response.results or [])}. "
             f"The inner LIMIT is likely filtering out the cohort member before the cohort filter runs."
         )
