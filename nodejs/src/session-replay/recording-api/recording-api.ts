@@ -131,7 +131,9 @@ export class RecordingApi {
             request_timeout: 30_000,
             max_open_connections: 10,
             // Internal ClickHouse uses self-signed certs with a hostname mismatch
-            ...(this.config.CLICKHOUSE_SECURE ? { http_agent: new https.Agent({ rejectUnauthorized: false }) } : {}),
+            ...(this.config.CLICKHOUSE_SECURE
+                ? { http_agent: new https.Agent({ rejectUnauthorized: false, keepAlive: true, maxSockets: 10 }) }
+                : {}),
         })
 
         // Create the service layer
