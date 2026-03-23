@@ -73,6 +73,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
         hasLoadedWorkflows: [
             false as boolean,
             {
+                loadWorkflows: () => false,
                 loadWorkflowsSuccess: () => true,
             },
         ],
@@ -250,8 +251,8 @@ export const workflowsLogic = kea<workflowsLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        loadWorkflowsFailure: () => {
-            lemonToast.error('Failed to load workflows')
+        loadWorkflowsFailure: ({ error }) => {
+            lemonToast.error(`Failed to load workflows: ${error || 'Unknown error'}`)
         },
         deleteSelectedWorkflows: () => {
             const ids = Array.from(values.selectedArchivedWorkflowIds)
