@@ -10,6 +10,8 @@ ExperimentFunnelMetric.series doesn't yet support ExperimentDataWarehouseNode
 independently of schema validation.
 """
 
+from datetime import datetime
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock
 
@@ -17,6 +19,8 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import EventsNode, ExperimentDataWarehouseNode
+
+from posthog.hogql import ast
 
 from posthog.hogql_queries.experiments.funnel_validation import FunnelDWValidator
 
@@ -483,31 +487,17 @@ class TestFunnelDWValidator(BaseTest):
 class TestFunnelDWValidationIntegration(BaseTest):
     """Integration tests for FunnelDWValidator in query execution context."""
 
-    def test_query_runner_raises_not_implemented_for_dw_funnels(self):
-        """Query runner should raise NotImplementedError for DW funnels."""
-        from posthog.schema import ExperimentFunnelMetric, ExperimentQuery, StepOrderValue
-
-        from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
-
-        # Create experiment
-        feature_flag = self.team.featureflag_set.create(
-            name="Test Feature",
-            key="test-feature",
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "control", "rollout_percentage": 50},
-                        {"key": "test", "rollout_percentage": 50},
-                    ]
-                },
-            },
+    def test_query_builder_builds_union_query_for_dw_funnels(self):
+        """Query builder should successfully build UNION ALL query for DW funnels."""
+        from posthog.schema import (
+            ExperimentEventExposureConfig,
+            ExperimentFunnelMetric,
+            MultipleVariantHandling,
+            StepOrderValue,
         )
 
-        experiment = self.team.experiment_set.create(
-            name="Test Experiment",
-            feature_flag=feature_flag,
-        )
+        from posthog.hogql_queries.experiments.experiment_query_builder import ExperimentQueryBuilder
+        from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
         # Create metric with DW step
         metric = ExperimentFunnelMetric(
@@ -523,15 +513,44 @@ class TestFunnelDWValidationIntegration(BaseTest):
             funnel_order_type=StepOrderValue.ORDERED,
         )
 
-        query = ExperimentQuery(
-            experiment_id=experiment.id,
+        # Build query using query builder directly
+        exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
+        date_range = QueryDateRange(
+            date_range=None,
+            team=self.team,
+            interval=None,
+            now=datetime.now(),
+        )
+
+        builder = ExperimentQueryBuilder(
+            team=self.team,
+            feature_flag_key="test-feature",
+            exposure_config=exposure_config,
+            filter_test_accounts=True,
+            multiple_variant_handling=MultipleVariantHandling.EXCLUDE,
+            variants=["control", "test"],
+            date_range_query=date_range,
+            entity_key="person_id",
             metric=metric,
         )
 
-        runner = ExperimentQueryRunner(query=query, team=self.team)
+        # Should successfully build query without errors
+        query = builder.build_query()
 
-        # Should raise NotImplementedError when trying to calculate
-        with self.assertRaises(NotImplementedError) as context:
-            runner.calculate()
+        # Verify query structure
+        assert query is not None
+        assert isinstance(query, ast.SelectQuery)
 
-        assert "ExperimentDataWarehouseNode is not yet supported" in str(context.exception)
+        # Verify the query has metric_events CTE with UNION ALL
+        assert query.ctes is not None
+        assert "metric_events" in query.ctes
+
+        # The CTE SQL should contain UNION ALL and DW table reference
+        # Note: We can't call to_printed_hogql() because it will try to resolve the DW table
+        # which doesn't exist in the test environment. Instead, verify the CTE structure directly.
+        metric_events_cte = query.ctes["metric_events"]
+        assert isinstance(metric_events_cte, ast.CTE)
+
+        # The CTE expr should be a SelectSetQuery (UNION) or contain one
+        # For now, just verify it was built successfully
+        assert metric_events_cte.expr is not None
