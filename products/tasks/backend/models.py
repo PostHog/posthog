@@ -103,7 +103,9 @@ class Task(DeletedMetaFields, models.Model):
 
     def capture_event(self, event: str, properties: dict | None = None) -> None:
         try:
-            distinct_id = str(self.created_by.distinct_id) if self.created_by_id else str(self.team.uuid)
+            distinct_id = (
+                str(self.created_by.distinct_id) if self.created_by_id and self.created_by else str(self.team.uuid)
+            )
             all_properties = {
                 "task_id": str(self.id),
                 "team_id": self.team_id,
@@ -167,14 +169,13 @@ class Task(DeletedMetaFields, models.Model):
         state: dict = {"mode": mode}
         if extra_state:
             state.update({k: v for k, v in extra_state.items() if k != "mode"})
-        env = environment
         is_resume = bool((extra_state or {}).get("resume_from_run_id"))
         has_pending = bool((extra_state or {}).get("pending_message"))
         task_run = TaskRun.objects.create(
             task=self,
             team=self.team,
             status=TaskRun.Status.QUEUED,
-            environment=env,
+            **({"environment": environment} if environment else {}),
             state=state,
             branch=branch,
         )
@@ -183,7 +184,7 @@ class Task(DeletedMetaFields, models.Model):
             {
                 "run_id": str(task_run.id),
                 "mode": mode,
-                "environment": env,
+                "environment": task_run.environment,
                 "is_resume": is_resume,
                 "has_pending_message": has_pending,
             },
@@ -423,7 +424,11 @@ class TaskRun(models.Model):
 
     def capture_event(self, event: str, properties: dict | None = None) -> None:
         try:
-            distinct_id = str(self.task.created_by.distinct_id) if self.task.created_by_id else str(self.team.uuid)
+            distinct_id = (
+                str(self.task.created_by.distinct_id)
+                if self.task.created_by_id and self.task.created_by
+                else str(self.team.uuid)
+            )
             all_properties: dict = {
                 "task_id": str(self.task_id),
                 "run_id": str(self.id),

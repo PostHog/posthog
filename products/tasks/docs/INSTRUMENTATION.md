@@ -17,7 +17,7 @@ All events captured via `Task.capture_event()` automatically include:
 | `title` | `str` | Task title |
 | `description` | `str` | Task description (truncated to 500 chars) |
 | `origin_product` | `str` | Origin product enum value |
-| `repository` | `str` | Repository in `org/repo` format |
+| `repository` | `str?` | Repository in `org/repo` format (nullable) |
 
 ### TaskRun events
 
@@ -28,8 +28,8 @@ All events captured via `TaskRun.capture_event()` automatically include:
 | `task_id` | `str` | UUID of the task |
 | `run_id` | `str` | UUID of the run |
 | `team_id` | `int` | Team ID |
-| `repository` | `str` | Repository in `org/repo` format |
-| `environment` | `str` | `cloud` or `local` |
+| `repository` | `str?` | Repository in `org/repo` format (nullable) |
+| `environment` | `str` | `cloud` or `local` (defaults to `cloud`) |
 | `mode` | `str` | Execution mode (e.g. `background`) |
 
 ## Task Model Events
@@ -90,7 +90,7 @@ Tracked when `TaskRun.mark_failed()` is called. Additional properties:
 
 Source: `products/tasks/backend/temporal/process_task/workflow.py`
 
-These events are tracked via `_track_workflow_event()` which calls the `track_workflow_event` Temporal activity. All workflow events include `organization` group analytics and are enriched with Temporal context properties (see [Temporal Context](#temporal-context-enrichment)).
+These events are tracked via `_track_workflow_event()` which calls the `track_workflow_event` Temporal activity. All workflow events include `organization` and `project` group analytics and are enriched with Temporal context properties (see [Temporal Context](#temporal-context-enrichment)).
 
 ### `task_run_started`
 
