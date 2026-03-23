@@ -1,6 +1,8 @@
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.trophy.template_trophy import template as template_trophy
 
+from common.hogvm.python.utils import UncaughtHogVMException
+
 
 class TestTemplateTrophy(BaseHogFunctionTemplateTest):
     template = template_trophy
@@ -116,3 +118,9 @@ class TestTemplateTrophy(BaseHogFunctionTemplateTest):
             ("Request", "https://api.trophy.so/v1/metrics/test_metric/event", expected_payload),
             ("Response", 200, {}),
         ]
+
+    def test_raises_on_bad_status(self):
+        self.mock_fetch_response = lambda *args: {"status": 400, "body": {"error": "Bad request"}}  # type: ignore
+        with self.assertRaises(UncaughtHogVMException) as ctx:
+            self.run_function(inputs=self._default_inputs())
+        assert "Error from api.trophy.so (status 400)" in str(ctx.exception)
