@@ -955,6 +955,16 @@ class ClickHousePrinter(HogQLPrinter):
         return sql
 
     def _print_select_columns(self, columns):
+        def _alias_from_column_type(column: ast.Expr) -> str | None:
+            column_type = getattr(column, "type", None)
+            if isinstance(column_type, ast.FieldAliasType):
+                return column_type.alias
+            if isinstance(column_type, ast.FieldType):
+                return column_type.name
+            if isinstance(column_type, ast.ExpressionFieldType):
+                return column_type.name
+            return None
+
         # Gather all visible aliases, and/or the last hidden alias for each unique alias name.
         found_aliases: dict[str, ast.Alias] = {}
         for alias in reversed(columns):
@@ -982,14 +992,9 @@ class ClickHousePrinter(HogQLPrinter):
                     # Non-unique hidden alias. Skip.
                     dropped_hidden_alias = True
                     column = column.expr
-            else:
-                column_type = getattr(column, "type", None)
-                if isinstance(column_type, ast.FieldAliasType):
-                    printed_alias = column_type.alias
-                elif isinstance(column_type, ast.FieldType):
-                    printed_alias = column_type.name
-                elif isinstance(column_type, ast.ExpressionFieldType):
-                    printed_alias = column_type.name
+
+            if printed_alias is None:
+                printed_alias = _alias_from_column_type(column)
 
             if isinstance(column, ast.Call) and not dropped_hidden_alias:
                 with self.context.timings.measure("printer"):
