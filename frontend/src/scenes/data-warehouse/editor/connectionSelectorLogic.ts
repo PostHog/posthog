@@ -16,7 +16,7 @@ export const LOADING_CONNECTIONS = '__loading_connections__'
 export const ADD_POSTGRES_DIRECT_CONNECTION = '__add_postgres_direct_connection__'
 export const CONFIGURE_SOURCES = '__configure_sources__'
 
-interface ConnectionSelectorLogicProps {
+export interface ConnectionSelectorLogicProps {
     selectedConnectionId?: string
 }
 
