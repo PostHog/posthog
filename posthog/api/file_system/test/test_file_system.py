@@ -16,12 +16,12 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort import Cohort
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
-from posthog.models.link import Link
 from posthog.models.surveys.survey import Survey
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
+from products.links.backend.models import Link
 from products.notebooks.backend.models import Notebook
 
 from ee.models.rbac.access_control import AccessControl

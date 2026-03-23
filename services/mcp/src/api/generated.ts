@@ -4711,6 +4711,46 @@ export namespace Schemas {
       readonly last_value: number | null;
     }
 
+    export interface AlertSimulate {
+      /** Insight ID to simulate the detector on. */
+      insight: number;
+      /** Detector configuration to simulate. */
+      detector_config: DetectorConfig;
+      /** Zero-based index of the series to analyze. */
+      series_index?: number;
+      /**
+       * Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). If not provided, uses the detector's minimum required samples.
+       * @nullable
+       */
+      date_from?: string | null;
+    }
+
+    export type AlertSimulateResponseSubDetectorScoresItem = {[key: string]: unknown};
+
+    export interface AlertSimulateResponse {
+      /** Data values for each point. */
+      data: number[];
+      /** Date labels for each point. */
+      dates: string[];
+      /** Anomaly score for each point (null if insufficient data). */
+      scores: (number | null)[];
+      /** Indices of points flagged as anomalies. */
+      triggered_indices: number[];
+      /** Dates of points flagged as anomalies. */
+      triggered_dates: string[];
+      /**
+       * Interval of the trends query (hour, day, week, month).
+       * @nullable
+       */
+      interval: string | null;
+      /** Total number of data points analyzed. */
+      total_points: number;
+      /** Number of anomalies detected. */
+      anomaly_count: number;
+      /** Per-sub-detector scores for ensemble detectors. Each entry has 'type' and 'scores' fields. */
+      sub_detector_scores?: AlertSimulateResponseSubDetectorScoresItem[];
+    }
+
     /**
      * * `trace` - trace
     * `generation` - generation
@@ -8545,6 +8585,7 @@ export namespace Schemas {
       Salesforce: 'salesforce',
       Hubspot: 'hubspot',
       GooglePubsub: 'google-pubsub',
+      GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GoogleAds: 'google-ads',
       GoogleSheets: 'google-sheets',
@@ -11829,6 +11870,18 @@ export namespace Schemas {
       Frequentist: 'frequentist',
     } as const;
 
+    /**
+     * * `text` - text
+    * `html` - html
+     */
+    export type DescriptionContentTypeEnum = typeof DescriptionContentTypeEnum[keyof typeof DescriptionContentTypeEnum];
+
+
+    export const DescriptionContentTypeEnum = {
+      Text: 'text',
+      Html: 'html',
+    } as const;
+
     export interface DesktopRecording {
       readonly id: string;
       readonly team: number;
@@ -11891,15 +11944,37 @@ export namespace Schemas {
     }
 
     /**
-     * * `number` - number
-    * `sparkline` - sparkline
+     * * `Desktop` - Desktop
+    * `Mobile` - Mobile
+    * `Tablet` - Tablet
      */
-    export type DisplayEnum = typeof DisplayEnum[keyof typeof DisplayEnum];
+    export type DeviceTypesEnum = typeof DeviceTypesEnum[keyof typeof DeviceTypesEnum];
 
 
-    export const DisplayEnum = {
-      Number: 'number',
-      Sparkline: 'sparkline',
+    export const DeviceTypesEnum = {
+      Desktop: 'Desktop',
+      Mobile: 'Mobile',
+      Tablet: 'Tablet',
+    } as const;
+
+    /**
+     * * `regex` - regex
+    * `not_regex` - not_regex
+    * `exact` - exact
+    * `is_not` - is_not
+    * `icontains` - icontains
+    * `not_icontains` - not_icontains
+     */
+    export type DeviceTypesMatchTypeEnum = typeof DeviceTypesMatchTypeEnum[keyof typeof DeviceTypesMatchTypeEnum];
+
+
+    export const DeviceTypesMatchTypeEnum = {
+      Regex: 'regex',
+      NotRegex: 'not_regex',
+      Exact: 'exact',
+      IsNot: 'is_not',
+      Icontains: 'icontains',
+      NotIcontains: 'not_icontains',
     } as const;
 
     export type DistanceFunc = typeof DistanceFunc[keyof typeof DistanceFunc];
@@ -12111,9 +12186,21 @@ export namespace Schemas {
        * @maxLength 200
        */
       name: string;
+      /** A longer description of what this early access feature does, shown to users in the opt-in UI. */
       description?: string;
+      /** Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha/beta/general-availability) enables the feature flag for opted-in users.
+
+    * `draft` - draft
+    * `concept` - concept
+    * `alpha` - alpha
+    * `beta` - beta
+    * `general-availability` - general availability
+    * `archived` - archived */
       stage: StageEnum;
-      /** @maxLength 800 */
+      /**
+       * URL to external documentation for this feature. Shown to users in the opt-in UI.
+       * @maxLength 800
+       */
       documentation_url?: string;
       /** Feature flag payload for this early access feature */
       readonly payload: EarlyAccessFeaturePayload;
@@ -12127,12 +12214,26 @@ export namespace Schemas {
        * @maxLength 200
        */
       name: string;
+      /** A longer description of what this early access feature does, shown to users in the opt-in UI. */
       description?: string;
+      /** Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha/beta/general-availability) enables the feature flag for opted-in users.
+
+    * `draft` - draft
+    * `concept` - concept
+    * `alpha` - alpha
+    * `beta` - beta
+    * `general-availability` - general availability
+    * `archived` - archived */
       stage: StageEnum;
-      /** @maxLength 800 */
+      /**
+       * URL to external documentation for this feature. Shown to users in the opt-in UI.
+       * @maxLength 800
+       */
       documentation_url?: string;
+      /** Arbitrary JSON metadata associated with this feature. */
       payload?: unknown;
       readonly created_at: string;
+      /** Optional ID of an existing feature flag to link. If omitted, a new flag is auto-created from the feature name. The flag must not already be linked to another feature, must not be group-based, and must not be multivariate. */
       feature_flag_id?: number;
       readonly feature_flag: MinimalFeatureFlag;
       _create_in_folder?: string;
@@ -12800,6 +12901,22 @@ export namespace Schemas {
        * @nullable
        */
       version?: number | null;
+    }
+
+    export interface ErrorTrackingSpikeEventIssue {
+      readonly id: string;
+      /** @nullable */
+      readonly name: string | null;
+      /** @nullable */
+      readonly description: string | null;
+    }
+
+    export interface ErrorTrackingSpikeEvent {
+      readonly id: string;
+      readonly issue: ErrorTrackingSpikeEventIssue;
+      readonly detected_at: string;
+      readonly computed_baseline: number;
+      readonly current_bucket_value: number;
     }
 
     export interface ErrorTrackingStackFrame {
@@ -15007,6 +15124,18 @@ export namespace Schemas {
       Currency: 'currency',
     } as const;
 
+    /**
+     * * `number` - number
+    * `sparkline` - sparkline
+     */
+    export type GroupUsageMetricDisplayEnum = typeof GroupUsageMetricDisplayEnum[keyof typeof GroupUsageMetricDisplayEnum];
+
+
+    export const GroupUsageMetricDisplayEnum = {
+      Number: 'number',
+      Sparkline: 'sparkline',
+    } as const;
+
     export interface GroupUsageMetric {
       readonly id: string;
       /** @maxLength 255 */
@@ -15018,7 +15147,7 @@ export namespace Schemas {
        * @maximum 2147483647
        */
       interval?: number;
-      display?: DisplayEnum;
+      display?: GroupUsageMetricDisplayEnum;
       filters: unknown;
     }
 
@@ -16411,6 +16540,83 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type TraceSpansQueryKind = typeof TraceSpansQueryKind[keyof typeof TraceSpansQueryKind];
+
+
+    export const TraceSpansQueryKind = {
+      TraceSpansQuery: 'TraceSpansQuery',
+    } as const;
+
+    export interface TraceSpansQueryResponse {
+      /**
+       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+       * @nullable
+       */
+      error?: string | null;
+      /** @nullable */
+      hasMore?: boolean | null;
+      /**
+       * Generated HogQL query.
+       * @nullable
+       */
+      hogql?: string | null;
+      /** @nullable */
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /**
+       * Cursor for fetching the next page of results
+       * @nullable
+       */
+      nextCursor?: string | null;
+      /** @nullable */
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown;
+      /**
+       * Measured timings for different parts of the query generation process
+       * @nullable
+       */
+      timings?: QueryTiming[] | null;
+    }
+
+    export interface TraceSpansQuery {
+      /**
+       * Cursor for fetching the next page of results
+       * @nullable
+       */
+      after?: string | null;
+      dateRange: DateRange;
+      kind?: TraceSpansQueryKind;
+      /** @nullable */
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** @nullable */
+      offset?: number | null;
+      orderBy?: OrderBy3 | null;
+      response?: TraceSpansQueryResponse | null;
+      /** @nullable */
+      rootSpans?: boolean | null;
+      /** @nullable */
+      searchTerm?: string | null;
+      /** @nullable */
+      serviceNames?: string[] | null;
+      /** @nullable */
+      statusCodes?: number[] | null;
+      tags?: QueryLogTags | null;
+      /** @nullable */
+      traceId?: string | null;
+      /**
+       * version of the node, used for schema migrations
+       * @nullable
+       */
+      version?: number | null;
+    }
+
     export type RecordingsQueryKind = typeof RecordingsQueryKind[keyof typeof RecordingsQueryKind];
 
 
@@ -16452,6 +16658,7 @@ export namespace Schemas {
     * `google-cloud-storage` - Google Cloud Storage
     * `google-ads` - Google Ads
     * `google-sheets` - Google Sheets
+    * `google-cloud-service-account` - Google Cloud Service Account
     * `snapchat` - Snapchat
     * `linkedin-ads` - Linkedin Ads
     * `reddit-ads` - Reddit Ads
@@ -16472,10 +16679,10 @@ export namespace Schemas {
     * `jira` - Jira
     * `pinterest-ads` - Pinterest Ads
      */
-    export type KindBfbEnum = typeof KindBfbEnum[keyof typeof KindBfbEnum];
+    export type Kind8d6Enum = typeof Kind8d6Enum[keyof typeof Kind8d6Enum];
 
 
-    export const KindBfbEnum = {
+    export const Kind8d6Enum = {
       Slack: 'slack',
       SlackPosthogCode: 'slack-posthog-code',
       Salesforce: 'salesforce',
@@ -16484,6 +16691,7 @@ export namespace Schemas {
       GoogleCloudStorage: 'google-cloud-storage',
       GoogleAds: 'google-ads',
       GoogleSheets: 'google-sheets',
+      GoogleCloudServiceAccount: 'google-cloud-service-account',
       Snapchat: 'snapchat',
       LinkedinAds: 'linkedin-ads',
       RedditAds: 'reddit-ads',
@@ -16510,7 +16718,7 @@ export namespace Schemas {
      */
     export interface Integration {
       readonly id: number;
-      kind: KindBfbEnum;
+      kind: Kind8d6Enum;
       config?: unknown;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -16972,7 +17180,7 @@ export namespace Schemas {
       query: string;
       response?: HogQLMetadataResponse | null;
       /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
-      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebTrendsQuery | WebAnalyticsExternalSummaryQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
+      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebTrendsQuery | WebAnalyticsExternalSummaryQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
       tags?: QueryLogTags | null;
       /**
        * Variables to be subsituted into the query
@@ -17010,7 +17218,7 @@ export namespace Schemas {
       query: string;
       response?: HogQLAutocompleteResponse | null;
       /** Query in whose context to validate. */
-      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebTrendsQuery | WebAnalyticsExternalSummaryQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
+      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebTrendsQuery | WebAnalyticsExternalSummaryQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
       /** Start position of the editor word */
       startPosition: number;
       tags?: QueryLogTags | null;
@@ -17317,6 +17525,14 @@ export namespace Schemas {
       readonly latest_version: number;
       readonly version_count: number;
       readonly first_version_created_at: string;
+    }
+
+    export interface LLMPromptDuplicate {
+      /**
+       * Name for the duplicated prompt. Must be unique and use only letters, numbers, hyphens, and underscores.
+       * @maxLength 255
+       */
+      new_name: string;
     }
 
     export interface LLMPromptPublic {
@@ -18503,6 +18719,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ErrorTrackingRelease[];
+    }
+
+    export interface PaginatedErrorTrackingSpikeEventList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ErrorTrackingSpikeEvent[];
     }
 
     export interface PaginatedErrorTrackingStackFrameList {
@@ -21362,9 +21587,21 @@ export namespace Schemas {
        * @maxLength 200
        */
       name?: string;
+      /** A longer description of what this early access feature does, shown to users in the opt-in UI. */
       description?: string;
+      /** Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha/beta/general-availability) enables the feature flag for opted-in users.
+
+    * `draft` - draft
+    * `concept` - concept
+    * `alpha` - alpha
+    * `beta` - beta
+    * `general-availability` - general availability
+    * `archived` - archived */
       stage?: StageEnum;
-      /** @maxLength 800 */
+      /**
+       * URL to external documentation for this feature. Shown to users in the opt-in UI.
+       * @maxLength 800
+       */
       documentation_url?: string;
       /** Feature flag payload for this early access feature */
       readonly payload?: PatchedEarlyAccessFeaturePayload;
@@ -21899,7 +22136,7 @@ export namespace Schemas {
        * @maximum 2147483647
        */
       interval?: number;
-      display?: DisplayEnum;
+      display?: GroupUsageMetricDisplayEnum;
       filters?: unknown;
     }
 
@@ -22228,7 +22465,7 @@ export namespace Schemas {
      */
     export interface PatchedIntegration {
       readonly id?: number;
-      kind?: KindBfbEnum;
+      kind?: Kind8d6Enum;
       config?: unknown;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -22696,6 +22933,22 @@ export namespace Schemas {
     };
 
     /**
+     * * `30d` - 30 Days
+    * `90d` - 90 Days
+    * `1y` - 1 Year
+    * `5y` - 5 Years
+     */
+    export type SessionRecordingRetentionPeriodEnum = typeof SessionRecordingRetentionPeriodEnum[keyof typeof SessionRecordingRetentionPeriodEnum];
+
+
+    export const SessionRecordingRetentionPeriodEnum = {
+      '30d': '30d',
+      '90d': '90d',
+      '1y': '1y',
+      '5y': '5y',
+    } as const;
+
+    /**
      * * `0` - Sunday
     * `1` - Monday
      */
@@ -22781,6 +23034,20 @@ export namespace Schemas {
       session_recording_linked_flag?: unknown | null;
       session_recording_network_payload_capture_config?: unknown | null;
       session_recording_masking_config?: unknown | null;
+      /** @nullable */
+      session_recording_url_trigger_config?: (unknown | null)[] | null;
+      /** @nullable */
+      session_recording_url_blocklist_config?: (unknown | null)[] | null;
+      /** @nullable */
+      session_recording_event_trigger_config?: (string | null)[] | null;
+      /**
+       * @maxLength 24
+       * @nullable
+       */
+      session_recording_trigger_match_type_config?: string | null;
+      /** V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields. */
+      session_recording_trigger_groups?: unknown | null;
+      session_recording_retention_period?: SessionRecordingRetentionPeriodEnum;
       session_replay_config?: unknown | null;
       survey_config?: unknown | null;
       access_control?: boolean;
@@ -23013,7 +23280,7 @@ export namespace Schemas {
      */
     export interface SessionRecordingExternalReferenceIntegration {
       readonly id: number;
-      readonly kind: KindBfbEnum;
+      readonly kind: Kind8d6Enum;
       readonly display_name: string;
     }
 
@@ -23129,26 +23396,456 @@ export namespace Schemas {
       invite_message?: string | null;
     }
 
+    /**
+     * * `once` - once
+    * `recurring` - recurring
+    * `always` - always
+     */
+    export type ScheduleEnum = typeof ScheduleEnum[keyof typeof ScheduleEnum];
+
+
+    export const ScheduleEnum = {
+      Once: 'once',
+      Recurring: 'recurring',
+      Always: 'always',
+    } as const;
+
+    /**
+     * * `open` - open
+     */
+    export type SurveyOpenQuestionSchemaTypeEnum = typeof SurveyOpenQuestionSchemaTypeEnum[keyof typeof SurveyOpenQuestionSchemaTypeEnum];
+
+
+    export const SurveyOpenQuestionSchemaTypeEnum = {
+      Open: 'open',
+    } as const;
+
+    export interface SurveyOpenQuestionSchema {
+      type: SurveyOpenQuestionSchemaTypeEnum;
+      /** Question text shown to respondents. */
+      question: string;
+      /** Optional helper text. */
+      description?: string;
+      /** Format for the description field.
+
+    * `text` - text
+    * `html` - html */
+      descriptionContentType?: DescriptionContentTypeEnum;
+      /** Whether respondents may skip this question. */
+      optional?: boolean;
+      /** Custom button label. */
+      buttonText?: string;
+    }
+
+    /**
+     * * `link` - link
+     */
+    export type SurveyLinkQuestionSchemaTypeEnum = typeof SurveyLinkQuestionSchemaTypeEnum[keyof typeof SurveyLinkQuestionSchemaTypeEnum];
+
+
+    export const SurveyLinkQuestionSchemaTypeEnum = {
+      Link: 'link',
+    } as const;
+
+    export interface SurveyLinkQuestionSchema {
+      type: SurveyLinkQuestionSchemaTypeEnum;
+      /** Question text shown to respondents. */
+      question: string;
+      /** Optional helper text. */
+      description?: string;
+      /** Format for the description field.
+
+    * `text` - text
+    * `html` - html */
+      descriptionContentType?: DescriptionContentTypeEnum;
+      /** Whether respondents may skip this question. */
+      optional?: boolean;
+      /** Custom button label. */
+      buttonText?: string;
+      /** HTTPS or mailto URL for link questions. */
+      link: string;
+    }
+
+    /**
+     * * `rating` - rating
+     */
+    export type SurveyRatingQuestionSchemaTypeEnum = typeof SurveyRatingQuestionSchemaTypeEnum[keyof typeof SurveyRatingQuestionSchemaTypeEnum];
+
+
+    export const SurveyRatingQuestionSchemaTypeEnum = {
+      Rating: 'rating',
+    } as const;
+
+    /**
+     * * `number` - number
+    * `emoji` - emoji
+     */
+    export type SurveyRatingQuestionSchemaDisplayEnum = typeof SurveyRatingQuestionSchemaDisplayEnum[keyof typeof SurveyRatingQuestionSchemaDisplayEnum];
+
+
+    export const SurveyRatingQuestionSchemaDisplayEnum = {
+      Number: 'number',
+      Emoji: 'emoji',
+    } as const;
+
+    /**
+     * * `next_question` - next_question
+     */
+    export type SurveyNextQuestionBranchingTypeEnum = typeof SurveyNextQuestionBranchingTypeEnum[keyof typeof SurveyNextQuestionBranchingTypeEnum];
+
+
+    export const SurveyNextQuestionBranchingTypeEnum = {
+      NextQuestion: 'next_question',
+    } as const;
+
+    export interface SurveyNextQuestionBranching {
+      /** Continue to the next question in sequence.
+
+    * `next_question` - next_question */
+      type: SurveyNextQuestionBranchingTypeEnum;
+    }
+
+    /**
+     * * `end` - end
+     */
+    export type SurveyEndBranchingTypeEnum = typeof SurveyEndBranchingTypeEnum[keyof typeof SurveyEndBranchingTypeEnum];
+
+
+    export const SurveyEndBranchingTypeEnum = {
+      End: 'end',
+    } as const;
+
+    export interface SurveyEndBranching {
+      /** End the survey.
+
+    * `end` - end */
+      type: SurveyEndBranchingTypeEnum;
+    }
+
+    /**
+     * * `specific_question` - specific_question
+     */
+    export type SurveySpecificQuestionBranchingTypeEnum = typeof SurveySpecificQuestionBranchingTypeEnum[keyof typeof SurveySpecificQuestionBranchingTypeEnum];
+
+
+    export const SurveySpecificQuestionBranchingTypeEnum = {
+      SpecificQuestion: 'specific_question',
+    } as const;
+
+    export interface SurveySpecificQuestionBranching {
+      /** Jump to a specific question index.
+
+    * `specific_question` - specific_question */
+      type: SurveySpecificQuestionBranchingTypeEnum;
+      /**
+       * 0-based index of the next question.
+       * @minimum 0
+       */
+      index: number;
+    }
+
+    /**
+     * * `response_based` - response_based
+     */
+    export type SurveyResponseBasedBranchingTypeEnum = typeof SurveyResponseBasedBranchingTypeEnum[keyof typeof SurveyResponseBasedBranchingTypeEnum];
+
+
+    export const SurveyResponseBasedBranchingTypeEnum = {
+      ResponseBased: 'response_based',
+    } as const;
+
+    /**
+     * Response-based branching map. Values can be a question index or 'end'.
+     */
+    export type SurveyResponseBasedBranchingResponseValues = {[key: string]: number | 'end'};
+
+    export interface SurveyResponseBasedBranching {
+      /** Branch based on the selected or entered response.
+
+    * `response_based` - response_based */
+      type: SurveyResponseBasedBranchingTypeEnum;
+      /** Response-based branching map. Values can be a question index or 'end'. */
+      responseValues: SurveyResponseBasedBranchingResponseValues;
+    }
+
+    export type SurveyBranchingSchema = SurveyNextQuestionBranching | SurveyEndBranching | SurveySpecificQuestionBranching | SurveyResponseBasedBranching;
+
+    export interface SurveyRatingQuestionSchema {
+      type: SurveyRatingQuestionSchemaTypeEnum;
+      /** Question text shown to respondents. */
+      question: string;
+      /** Optional helper text. */
+      description?: string;
+      /** Format for the description field.
+
+    * `text` - text
+    * `html` - html */
+      descriptionContentType?: DescriptionContentTypeEnum;
+      /** Whether respondents may skip this question. */
+      optional?: boolean;
+      /** Custom button label. */
+      buttonText?: string;
+      /** Display format: 'number' shows numeric scale, 'emoji' shows emoji scale.
+
+    * `number` - number
+    * `emoji` - emoji */
+      display?: SurveyRatingQuestionSchemaDisplayEnum;
+      /**
+       * Rating scale can be one of 3, 5, or 7
+       * @minimum 1
+       */
+      scale?: number;
+      /** Label for the lowest rating (e.g., 'Very Poor') */
+      lowerBoundLabel?: string;
+      /** Label for the highest rating (e.g., 'Excellent') */
+      upperBoundLabel?: string;
+      branching?: SurveyBranchingSchema | null;
+    }
+
+    /**
+     * * `single_choice` - single_choice
+     */
+    export type SurveySingleChoiceQuestionSchemaTypeEnum = typeof SurveySingleChoiceQuestionSchemaTypeEnum[keyof typeof SurveySingleChoiceQuestionSchemaTypeEnum];
+
+
+    export const SurveySingleChoiceQuestionSchemaTypeEnum = {
+      SingleChoice: 'single_choice',
+    } as const;
+
+    export interface SurveySingleChoiceQuestionSchema {
+      type: SurveySingleChoiceQuestionSchemaTypeEnum;
+      /** Question text shown to respondents. */
+      question: string;
+      /** Optional helper text. */
+      description?: string;
+      /** Format for the description field.
+
+    * `text` - text
+    * `html` - html */
+      descriptionContentType?: DescriptionContentTypeEnum;
+      /** Whether respondents may skip this question. */
+      optional?: boolean;
+      /** Custom button label. */
+      buttonText?: string;
+      /**
+       * Array of choice options. Choice indices (0, 1, 2, ...) are used for branching logic.
+       * @minItems 2
+       * @maxItems 20
+       */
+      choices: string[];
+      /** Whether to randomize the order of choices for each respondent. */
+      shuffleOptions?: boolean;
+      /** Whether the final option should be an open-text choice (for example, 'Other'). */
+      hasOpenChoice?: boolean;
+      branching?: SurveyBranchingSchema | null;
+    }
+
+    /**
+     * * `multiple_choice` - multiple_choice
+     */
+    export type SurveyMultipleChoiceQuestionSchemaTypeEnum = typeof SurveyMultipleChoiceQuestionSchemaTypeEnum[keyof typeof SurveyMultipleChoiceQuestionSchemaTypeEnum];
+
+
+    export const SurveyMultipleChoiceQuestionSchemaTypeEnum = {
+      MultipleChoice: 'multiple_choice',
+    } as const;
+
+    export interface SurveyMultipleChoiceQuestionSchema {
+      type: SurveyMultipleChoiceQuestionSchemaTypeEnum;
+      /** Question text shown to respondents. */
+      question: string;
+      /** Optional helper text. */
+      description?: string;
+      /** Format for the description field.
+
+    * `text` - text
+    * `html` - html */
+      descriptionContentType?: DescriptionContentTypeEnum;
+      /** Whether respondents may skip this question. */
+      optional?: boolean;
+      /** Custom button label. */
+      buttonText?: string;
+      /**
+       * Array of choice options. Multiple selections allowed. No branching logic supported.
+       * @minItems 2
+       * @maxItems 20
+       */
+      choices: string[];
+      /** Whether to randomize the order of choices for each respondent. */
+      shuffleOptions?: boolean;
+      /** Whether the final option should be an open-text choice (for example, 'Other'). */
+      hasOpenChoice?: boolean;
+    }
+
+    export type SurveyQuestionInputSchema = SurveyOpenQuestionSchema | SurveyLinkQuestionSchema | SurveyRatingQuestionSchema | SurveySingleChoiceQuestionSchema | SurveyMultipleChoiceQuestionSchema;
+
+    /**
+     * * `regex` - regex
+    * `not_regex` - not_regex
+    * `exact` - exact
+    * `is_not` - is_not
+    * `icontains` - icontains
+    * `not_icontains` - not_icontains
+     */
+    export type UrlMatchTypeEnum = typeof UrlMatchTypeEnum[keyof typeof UrlMatchTypeEnum];
+
+
+    export const UrlMatchTypeEnum = {
+      Regex: 'regex',
+      NotRegex: 'not_regex',
+      Exact: 'exact',
+      IsNot: 'is_not',
+      Icontains: 'icontains',
+      NotIcontains: 'not_icontains',
+    } as const;
+
+    export interface SurveyConditionEventValueSchema {
+      /** Event name that triggers the survey. */
+      name: string;
+    }
+
+    export interface SurveyEventsConditionSchema {
+      /** Whether to show the survey every time one of the events is triggered (true), or just once (false). */
+      repeatedActivation?: boolean;
+      /** Array of event names that trigger the survey. */
+      values?: SurveyConditionEventValueSchema[];
+    }
+
+    export interface SurveyConditionsSchema {
+      url?: string;
+      selector?: string;
+      /**
+       * Don't show this survey to users who saw any survey in the last x days.
+       * @minimum 0
+       */
+      seenSurveyWaitPeriodInDays?: number;
+      /** URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain).
+
+    * `regex` - regex
+    * `not_regex` - not_regex
+    * `exact` - exact
+    * `is_not` - is_not
+    * `icontains` - icontains
+    * `not_icontains` - not_icontains */
+      urlMatchType?: UrlMatchTypeEnum;
+      events?: SurveyEventsConditionSchema;
+      /** Device types that should match for this survey to be shown. */
+      deviceTypes?: DeviceTypesEnum[];
+      /** URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain).
+
+    * `regex` - regex
+    * `not_regex` - not_regex
+    * `exact` - exact
+    * `is_not` - is_not
+    * `icontains` - icontains
+    * `not_icontains` - not_icontains */
+      deviceTypesMatchType?: DeviceTypesMatchTypeEnum;
+      /** The variant of the feature flag linked to this survey. */
+      linkedFlagVariant?: string;
+    }
+
+    /**
+     * * `html` - html
+    * `text` - text
+     */
+    export type ThankYouMessageDescriptionContentTypeEnum = typeof ThankYouMessageDescriptionContentTypeEnum[keyof typeof ThankYouMessageDescriptionContentTypeEnum];
+
+
+    export const ThankYouMessageDescriptionContentTypeEnum = {
+      Html: 'html',
+      Text: 'text',
+    } as const;
+
+    /**
+     * * `button` - button
+    * `tab` - tab
+    * `selector` - selector
+     */
+    export type WidgetTypeEnum = typeof WidgetTypeEnum[keyof typeof WidgetTypeEnum];
+
+
+    export const WidgetTypeEnum = {
+      Button: 'button',
+      Tab: 'tab',
+      Selector: 'selector',
+    } as const;
+
+    export interface SurveyAppearanceSchema {
+      backgroundColor?: string;
+      submitButtonColor?: string;
+      textColor?: string;
+      submitButtonText?: string;
+      submitButtonTextColor?: string;
+      descriptionTextColor?: string;
+      ratingButtonColor?: string;
+      ratingButtonActiveColor?: string;
+      ratingButtonHoverColor?: string;
+      whiteLabel?: boolean;
+      autoDisappear?: boolean;
+      displayThankYouMessage?: boolean;
+      thankYouMessageHeader?: string;
+      thankYouMessageDescription?: string;
+      thankYouMessageDescriptionContentType?: ThankYouMessageDescriptionContentTypeEnum;
+      thankYouMessageCloseButtonText?: string;
+      borderColor?: string;
+      placeholder?: string;
+      shuffleQuestions?: boolean;
+      surveyPopupDelaySeconds?: number;
+      widgetType?: WidgetTypeEnum;
+      widgetSelector?: string;
+      widgetLabel?: string;
+      widgetColor?: string;
+      fontFamily?: string;
+      maxWidth?: string;
+      zIndex?: string;
+      disabledButtonOpacity?: string;
+      boxPadding?: string;
+    }
+
     export interface PatchedSurveySerializerCreateUpdateOnlySchema {
       readonly id?: string;
-      /** @maxLength 400 */
+      /**
+       * Survey name.
+       * @minLength 1
+       * @maxLength 400
+       */
       name?: string;
+      /** Survey description. */
       description?: string;
+      /** Survey type.
+
+    * `popover` - popover
+    * `widget` - widget
+    * `external_survey` - external survey
+    * `api` - api */
       type?: SurveyType;
-      /** @nullable */
-      schedule?: string | null;
+      /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)
+
+    * `once` - once
+    * `recurring` - recurring
+    * `always` - always */
+      schedule?: ScheduleEnum | NullEnum | null;
       readonly linked_flag?: MinimalFeatureFlag;
-      /** @nullable */
+      /**
+       * The feature flag linked to this survey.
+       * @nullable
+       */
       linked_flag_id?: number | null;
       /** @nullable */
       linked_insight_id?: number | null;
+      /** An existing targeting flag to use for this survey. */
       targeting_flag_id?: number;
       readonly targeting_flag?: MinimalFeatureFlag;
       readonly internal_targeting_flag?: MinimalFeatureFlag;
+      /** Target specific users based on their properties. Example: {groups: [{properties: [{key: 'email', value: ['@company.com'], operator: 'icontains'}], rollout_percentage: 100}]} */
       targeting_flag_filters?: FeatureFlagFiltersSchema | null;
-      /** @nullable */
+      /**
+       * Set to true to completely remove all targeting filters from the survey, making it visible to all users (subject to other display conditions like URL matching).
+       * @nullable
+       */
       remove_targeting_flag?: boolean | null;
-      /** 
+      /**
+       * 
             The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
 
             Basic (open-ended question)
@@ -23259,32 +23956,44 @@ export namespace Schemas {
                 }
             }
             ```
-             */
-      questions?: unknown | null;
-      conditions?: unknown | null;
-      appearance?: unknown | null;
+            
+       * @nullable
+       */
+      questions?: SurveyQuestionInputSchema[] | null;
+      /** Display and targeting conditions for the survey. */
+      conditions?: SurveyConditionsSchema | null;
+      /** Survey appearance customization. */
+      appearance?: SurveyAppearanceSchema | null;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
-      /** @nullable */
+      /**
+       * Setting this will launch the survey immediately. Don't add a start_date unless explicitly requested to do so.
+       * @nullable
+       */
       start_date?: string | null;
-      /** @nullable */
+      /**
+       * When the survey stopped being shown to users. Setting this will complete the survey.
+       * @nullable
+       */
       end_date?: string | null;
+      /** Archive state for the survey. */
       archived?: boolean;
       /**
-       * @minimum 0
-       * @maximum 2147483647
+       * The maximum number of responses before automatically stopping the survey.
        * @nullable
        */
       responses_limit?: number | null;
       /**
-       * @minimum 0
+       * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule.
+       * @minimum 1
        * @maximum 500
        * @nullable
        */
       iteration_count?: number | null;
       /**
-       * @minimum 0
-       * @maximum 2147483647
+       * For a recurring schedule, this field specifies the interval in days between each survey instance shown to the user, used alongside iteration_count for precise scheduling.
+       * @minimum 1
+       * @maximum 365
        * @nullable
        */
       iteration_frequency_days?: number | null;
@@ -23314,7 +24023,10 @@ export namespace Schemas {
        */
       response_sampling_limit?: number | null;
       response_sampling_daily_limits?: unknown | null;
-      /** @nullable */
+      /**
+       * When at least one question is answered, the response is stored (true). The response is stored when all questions are answered (false).
+       * @nullable
+       */
       enable_partial_responses?: boolean | null;
       /** @nullable */
       enable_iframe_embedding?: boolean | null;
@@ -23448,22 +24160,6 @@ export namespace Schemas {
 
     export type PatchedTeamManagedViewsets = {[key: string]: boolean};
 
-    /**
-     * * `30d` - 30 Days
-    * `90d` - 90 Days
-    * `1y` - 1 Year
-    * `5y` - 5 Years
-     */
-    export type SessionRecordingRetentionPeriodEnum = typeof SessionRecordingRetentionPeriodEnum[keyof typeof SessionRecordingRetentionPeriodEnum];
-
-
-    export const SessionRecordingRetentionPeriodEnum = {
-      '30d': '30d',
-      '90d': '90d',
-      '1y': '1y',
-      '5y': '5y',
-    } as const;
-
     export interface TeamRevenueAnalyticsConfig {
       base_currency?: BaseCurrencyEnum;
       events?: unknown;
@@ -23580,6 +24276,8 @@ export namespace Schemas {
        * @nullable
        */
       session_recording_trigger_match_type_config?: string | null;
+      /** V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields. */
+      session_recording_trigger_groups?: unknown | null;
       session_recording_retention_period?: SessionRecordingRetentionPeriodEnum;
       session_replay_config?: unknown | null;
       survey_config?: unknown | null;
@@ -24151,6 +24849,20 @@ export namespace Schemas {
       session_recording_linked_flag?: unknown | null;
       session_recording_network_payload_capture_config?: unknown | null;
       session_recording_masking_config?: unknown | null;
+      /** @nullable */
+      session_recording_url_trigger_config?: (unknown | null)[] | null;
+      /** @nullable */
+      session_recording_url_blocklist_config?: (unknown | null)[] | null;
+      /** @nullable */
+      session_recording_event_trigger_config?: (string | null)[] | null;
+      /**
+       * @maxLength 24
+       * @nullable
+       */
+      session_recording_trigger_match_type_config?: string | null;
+      /** V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields. */
+      session_recording_trigger_groups?: unknown | null;
+      session_recording_retention_period?: SessionRecordingRetentionPeriodEnum;
       session_replay_config?: unknown | null;
       survey_config?: unknown | null;
       access_control?: boolean;
@@ -24741,7 +25453,7 @@ export namespace Schemas {
     ```
 
     For more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access). */
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
       /** Whether results should be calculated sync or async, and how much to rely on the cache:
     - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
     - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
@@ -26802,10 +27514,46 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative76 {
-      questions: string[];
+      /**
+       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+       * @nullable
+       */
+      error?: string | null;
+      /** @nullable */
+      hasMore?: boolean | null;
+      /**
+       * Generated HogQL query.
+       * @nullable
+       */
+      hogql?: string | null;
+      /** @nullable */
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /**
+       * Cursor for fetching the next page of results
+       * @nullable
+       */
+      nextCursor?: string | null;
+      /** @nullable */
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown;
+      /**
+       * Measured timings for different parts of the query generation process
+       * @nullable
+       */
+      timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative77 {
+      questions: string[];
+    }
+
+    export interface QueryResponseAlternative78 {
       /**
        * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
        * @nullable
@@ -26836,7 +27584,7 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export interface QueryResponseAlternative78 {
+    export interface QueryResponseAlternative79 {
       /**
        * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
        * @nullable
@@ -26861,7 +27609,7 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export interface QueryResponseAlternative79 {
+    export interface QueryResponseAlternative80 {
       /**
        * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
        * @nullable
@@ -26886,7 +27634,7 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export interface QueryResponseAlternative80 {
+    export interface QueryResponseAlternative81 {
       /** @nullable */
       columns?: string[] | null;
       /**
@@ -26919,7 +27667,7 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export interface QueryResponseAlternative82 {
+    export interface QueryResponseAlternative83 {
       /**
        * Timestamp of the newer trace
        * @nullable
@@ -26947,7 +27695,7 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export interface QueryResponseAlternative83 {
+    export interface QueryResponseAlternative84 {
       /**
        * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
        * @nullable
@@ -26972,7 +27720,7 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export interface QueryResponseAlternative84 {
+    export interface QueryResponseAlternative85 {
       /**
        * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
        * @nullable
@@ -26997,7 +27745,7 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export interface QueryResponseAlternative85 {
+    export interface QueryResponseAlternative86 {
       /**
        * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
        * @nullable
@@ -27022,7 +27770,7 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export interface QueryResponseAlternative86 {
+    export interface QueryResponseAlternative87 {
       /** @nullable */
       columns?: unknown[] | null;
       /**
@@ -27057,9 +27805,9 @@ export namespace Schemas {
       types?: unknown[] | null;
     }
 
-    export type QueryResponseAlternative87ResultsItem = { [key: string]: unknown };
+    export type QueryResponseAlternative88ResultsItem = { [key: string]: unknown };
 
-    export interface QueryResponseAlternative87 {
+    export interface QueryResponseAlternative88 {
       /**
        * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
        * @nullable
@@ -27076,7 +27824,7 @@ export namespace Schemas {
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: QueryResponseAlternative87ResultsItem[];
+      results: QueryResponseAlternative88ResultsItem[];
       /**
        * Measured timings for different parts of the query generation process
        * @nullable
@@ -27084,7 +27832,7 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export interface QueryResponseAlternative88 {
+    export interface QueryResponseAlternative89 {
       /**
        * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
        * @nullable
@@ -27109,18 +27857,18 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | unknown | QueryResponseAlternative38 | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative56 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative61 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative65 | QueryResponseAlternative66 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative71 | QueryResponseAlternative72 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative84 | QueryResponseAlternative85 | QueryResponseAlternative86 | QueryResponseAlternative87 | QueryResponseAlternative88;
+    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | unknown | QueryResponseAlternative38 | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative56 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative61 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative65 | QueryResponseAlternative66 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative71 | QueryResponseAlternative72 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative83 | QueryResponseAlternative84 | QueryResponseAlternative85 | QueryResponseAlternative86 | QueryResponseAlternative87 | QueryResponseAlternative88 | QueryResponseAlternative89;
 
     export interface QueryStatusResponse {
       query_status: QueryStatus;
     }
 
     export interface QueryUpgradeRequest {
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
     }
 
     export interface QueryUpgradeResponse {
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
     }
 
     export interface ReorderTilesRequest {
@@ -27575,24 +28323,48 @@ export namespace Schemas {
 
     export interface SurveySerializerCreateUpdateOnlySchema {
       readonly id: string;
-      /** @maxLength 400 */
+      /**
+       * Survey name.
+       * @minLength 1
+       * @maxLength 400
+       */
       name: string;
+      /** Survey description. */
       description?: string;
+      /** Survey type.
+
+    * `popover` - popover
+    * `widget` - widget
+    * `external_survey` - external survey
+    * `api` - api */
       type: SurveyType;
-      /** @nullable */
-      schedule?: string | null;
+      /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)
+
+    * `once` - once
+    * `recurring` - recurring
+    * `always` - always */
+      schedule?: ScheduleEnum | NullEnum | null;
       readonly linked_flag: MinimalFeatureFlag;
-      /** @nullable */
+      /**
+       * The feature flag linked to this survey.
+       * @nullable
+       */
       linked_flag_id?: number | null;
       /** @nullable */
       linked_insight_id?: number | null;
+      /** An existing targeting flag to use for this survey. */
       targeting_flag_id?: number;
       readonly targeting_flag: MinimalFeatureFlag;
       readonly internal_targeting_flag: MinimalFeatureFlag;
+      /** Target specific users based on their properties. Example: {groups: [{properties: [{key: 'email', value: ['@company.com'], operator: 'icontains'}], rollout_percentage: 100}]} */
       targeting_flag_filters?: FeatureFlagFiltersSchema | null;
-      /** @nullable */
+      /**
+       * Set to true to completely remove all targeting filters from the survey, making it visible to all users (subject to other display conditions like URL matching).
+       * @nullable
+       */
       remove_targeting_flag?: boolean | null;
-      /** 
+      /**
+       * 
             The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
 
             Basic (open-ended question)
@@ -27703,32 +28475,44 @@ export namespace Schemas {
                 }
             }
             ```
-             */
-      questions?: unknown | null;
-      conditions?: unknown | null;
-      appearance?: unknown | null;
+            
+       * @nullable
+       */
+      questions?: SurveyQuestionInputSchema[] | null;
+      /** Display and targeting conditions for the survey. */
+      conditions?: SurveyConditionsSchema | null;
+      /** Survey appearance customization. */
+      appearance?: SurveyAppearanceSchema | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
-      /** @nullable */
+      /**
+       * Setting this will launch the survey immediately. Don't add a start_date unless explicitly requested to do so.
+       * @nullable
+       */
       start_date?: string | null;
-      /** @nullable */
+      /**
+       * When the survey stopped being shown to users. Setting this will complete the survey.
+       * @nullable
+       */
       end_date?: string | null;
+      /** Archive state for the survey. */
       archived?: boolean;
       /**
-       * @minimum 0
-       * @maximum 2147483647
+       * The maximum number of responses before automatically stopping the survey.
        * @nullable
        */
       responses_limit?: number | null;
       /**
-       * @minimum 0
+       * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule.
+       * @minimum 1
        * @maximum 500
        * @nullable
        */
       iteration_count?: number | null;
       /**
-       * @minimum 0
-       * @maximum 2147483647
+       * For a recurring schedule, this field specifies the interval in days between each survey instance shown to the user, used alongside iteration_count for precise scheduling.
+       * @minimum 1
+       * @maximum 365
        * @nullable
        */
       iteration_frequency_days?: number | null;
@@ -27758,7 +28542,10 @@ export namespace Schemas {
        */
       response_sampling_limit?: number | null;
       response_sampling_daily_limits?: unknown | null;
-      /** @nullable */
+      /**
+       * When at least one question is answered, the response is stored (true). The response is stored when all questions are answered (false).
+       * @nullable
+       */
       enable_partial_responses?: boolean | null;
       /** @nullable */
       enable_iframe_embedding?: boolean | null;
@@ -28029,6 +28816,8 @@ export namespace Schemas {
        * @nullable
        */
       session_recording_trigger_match_type_config?: string | null;
+      /** V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields. */
+      session_recording_trigger_groups?: unknown | null;
       session_recording_retention_period?: SessionRecordingRetentionPeriodEnum;
       session_replay_config?: unknown | null;
       survey_config?: unknown | null;
@@ -29034,14 +29823,14 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type EnvironmentsInsightsGenerateNameCreateParams = {
-    format?: EnvironmentsInsightsGenerateNameCreateFormat;
+    export type EnvironmentsInsightsGenerateMetadataCreateParams = {
+    format?: EnvironmentsInsightsGenerateMetadataCreateFormat;
     };
 
-    export type EnvironmentsInsightsGenerateNameCreateFormat = typeof EnvironmentsInsightsGenerateNameCreateFormat[keyof typeof EnvironmentsInsightsGenerateNameCreateFormat];
+    export type EnvironmentsInsightsGenerateMetadataCreateFormat = typeof EnvironmentsInsightsGenerateMetadataCreateFormat[keyof typeof EnvironmentsInsightsGenerateMetadataCreateFormat];
 
 
-    export const EnvironmentsInsightsGenerateNameCreateFormat = {
+    export const EnvironmentsInsightsGenerateMetadataCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
@@ -29769,6 +30558,17 @@ export namespace Schemas {
     };
 
     export type ErrorTrackingReleasesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type ErrorTrackingSpikeEventsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -31823,14 +32623,14 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type InsightsGenerateNameCreateParams = {
-    format?: InsightsGenerateNameCreateFormat;
+    export type InsightsGenerateMetadataCreateParams = {
+    format?: InsightsGenerateMetadataCreateFormat;
     };
 
-    export type InsightsGenerateNameCreateFormat = typeof InsightsGenerateNameCreateFormat[keyof typeof InsightsGenerateNameCreateFormat];
+    export type InsightsGenerateMetadataCreateFormat = typeof InsightsGenerateMetadataCreateFormat[keyof typeof InsightsGenerateMetadataCreateFormat];
 
 
-    export const InsightsGenerateNameCreateFormat = {
+    export const InsightsGenerateMetadataCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
@@ -32590,6 +33390,28 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type SurveysStatsRetrieve2Params = {
+    /**
+     * Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
+     */
+    date_from?: string;
+    /**
+     * Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+     */
+    date_to?: string;
+    };
+
+    export type SurveysStatsRetrieveParams = {
+    /**
+     * Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
+     */
+    date_from?: string;
+    /**
+     * Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+     */
+    date_to?: string;
     };
 
     export type TagsListParams = {

@@ -1,9 +1,10 @@
 import csv
 import uuid
 import datetime as dt
+from collections.abc import Callable
 from dataclasses import dataclass
 from io import StringIO
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import urlparse, urlunparse
 
 from django.conf import settings
@@ -44,9 +45,9 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.clickhouse.client import query_with_columns
 from posthog.constants import PAGEVIEW_EVENT
 from posthog.demo.matrix.matrix import Cluster, Matrix
+from posthog.demo.matrix.models import SimEvent
 from posthog.demo.matrix.randomization import Industry
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Action, Cohort, Dashboard, DashboardTile, FeatureFlag, Insight, InsightViewed
@@ -69,6 +70,7 @@ from .models import HedgeboxAccount, HedgeboxPerson
 from .taxonomy import (
     COMPANY_CLUSTERS_PROPORTION,
     EVENT_DELETED_FILE,
+    EVENT_DOWNGRADED_PLAN,
     EVENT_DOWNLOADED_FILE,
     EVENT_PAID_BILL,
     EVENT_SHARED_FILE_LINK,
@@ -91,6 +93,14 @@ if TYPE_CHECKING:
 class HedgeboxCompany:
     name: str
     industry: Industry
+
+
+@dataclass(frozen=True)
+class DemoDataWarehouseTableSpec:
+    name: str
+    columns: dict[str, str]
+    source_events: tuple[str, ...]
+    row_builder: Callable[[SimEvent, int], tuple[Any, ...]]
 
 
 class HedgeboxCluster(Cluster):
@@ -1228,7 +1238,7 @@ class HedgeboxMatrix(Matrix):
                 experiment=new_experiment, saved_metric=metric, metadata={"type": "secondary"}
             )
 
-        self._set_up_paid_bill_data_warehouse_table(team, user)
+        self._set_up_demo_data_warehouse_tables(team, user)
 
         # Endpoints
         try:
@@ -1430,7 +1440,7 @@ class HedgeboxMatrix(Matrix):
             except (IntegrityError, ValidationError):
                 pass
 
-    def _set_up_paid_bill_data_warehouse_table(self, team: "Team", user: "User") -> None:
+    def _set_up_demo_data_warehouse_tables(self, team: "Team", user: "User") -> None:
         if settings.TEST or not settings.OBJECT_STORAGE_ENABLED:
             return
 
@@ -1439,106 +1449,175 @@ class HedgeboxMatrix(Matrix):
         if not access_key or not access_secret or not settings.OBJECT_STORAGE_ENDPOINT:
             return
 
-        try:
-            rows = self._collect_paid_bill_rows(team.pk)
-            s3_prefix = f"data-warehouse/demo_paid_bills/team_{team.pk}"
-            object_key = f"{s3_prefix}/paid_bills.csv"
-            object_storage.write(object_key, self._paid_bill_rows_to_csv(rows))
-
-            credential = get_or_create_datawarehouse_credential(
-                team_id=team.pk,
-                access_key=access_key,
-                access_secret=access_secret,
-            )
-            url_pattern = f"{self._warehouse_endpoint()}/{settings.OBJECT_STORAGE_BUCKET}/{s3_prefix}/*.csv"
-            columns = {
-                "id": "Int64",
-                "distinct_id": "String",
-                "timestamp": "DateTime",
-                "amount_usd": "Float64",
-                "plan": "String",
-            }
-
-            table_name = "paid_bills"
-            existing_table = DataWarehouseTable.objects.filter(team=team, name=table_name).first()
-            if existing_table:
-                if existing_table.external_data_source is not None:
-                    return
-                existing_table.format = DataWarehouseTable.TableFormat.CSVWithNames
-                existing_table.url_pattern = url_pattern
-                existing_table.credential = credential
-                existing_table.columns = columns
-                existing_table.deleted = False
-                existing_table.deleted_at = None
-                if existing_table.created_by_id is None:
-                    existing_table.created_by = user
-                existing_table.save()
-            else:
-                DataWarehouseTable.objects.create(
-                    team=team,
-                    name=table_name,
-                    format=DataWarehouseTable.TableFormat.CSVWithNames,
-                    url_pattern=url_pattern,
-                    credential=credential,
-                    columns=columns,
-                    created_by=user,
-                )
-        except Exception as err:
-            capture_exception(err)
-
-    def _collect_paid_bill_rows(self, team_id: int) -> list[tuple[int, str, str, float, str]]:
-        if self.is_complete:
-            rows: list[tuple[int, str, str, float, str]] = []
-            row_id = 1
-            for person in self.people:
-                for event in person.past_events:
-                    if event.event != EVENT_PAID_BILL:
-                        continue
-                    amount_usd = event.properties.get("amount_usd")
-                    rows.append(
-                        (
-                            row_id,
-                            event.distinct_id,
-                            self._format_warehouse_timestamp(event.timestamp),
-                            float(amount_usd) if amount_usd is not None else 0.0,
-                            str(event.properties.get("plan") or ""),
-                        )
-                    )
-                    row_id += 1
-            return rows
-
-        query = """
-            SELECT
-                toInt64(cityHash64(toString(uuid))) AS id,
-                distinct_id,
-                toString(timestamp) AS timestamp,
-                JSONExtractFloat(properties, 'amount_usd') AS amount_usd,
-                JSONExtractString(properties, 'plan') AS plan
-            FROM events
-            WHERE team_id = %(team_id)s
-                AND event = %(event)s
-            ORDER BY timestamp
-        """
-        results = query_with_columns(
-            query,
-            {"team_id": team_id, "event": EVENT_PAID_BILL},
+        credential = get_or_create_datawarehouse_credential(
+            team_id=team.pk,
+            access_key=access_key,
+            access_secret=access_secret,
         )
-        return [
+        for table_spec in self._demo_data_warehouse_table_specs():
+            try:
+                rows = self._collect_demo_data_warehouse_rows(table_spec)
+                self._upsert_demo_data_warehouse_table(team, user, credential, table_spec, rows)
+            except Exception as err:
+                capture_exception(err)
+
+    def _demo_data_warehouse_table_specs(self) -> tuple[DemoDataWarehouseTableSpec, ...]:
+        return (
+            DemoDataWarehouseTableSpec(
+                name="paid_bills",
+                columns={
+                    "id": "Int64",
+                    "distinct_id": "String",
+                    "timestamp": "DateTime",
+                    "amount_usd": "Float64",
+                    "plan": "String",
+                },
+                source_events=(EVENT_PAID_BILL,),
+                row_builder=self._paid_bill_row,
+            ),
+            DemoDataWarehouseTableSpec(
+                name="signups",
+                columns={
+                    "id": "Int64",
+                    "distinct_id": "String",
+                    "timestamp": "DateTime",
+                    "from_invite": "Bool",
+                },
+                source_events=(EVENT_SIGNED_UP,),
+                row_builder=self._signup_row,
+            ),
+            DemoDataWarehouseTableSpec(
+                name="uploaded_files",
+                columns={
+                    "id": "Int64",
+                    "distinct_id": "String",
+                    "timestamp": "DateTime",
+                    "file_type": "String",
+                    "file_size_b": "Int64",
+                    "used_mb": "Float64",
+                    "file_name": "String",
+                },
+                source_events=(EVENT_UPLOADED_FILE,),
+                row_builder=self._uploaded_file_row,
+            ),
+            DemoDataWarehouseTableSpec(
+                name="plan_changes",
+                columns={
+                    "id": "Int64",
+                    "distinct_id": "String",
+                    "timestamp": "DateTime",
+                    "change_type": "String",
+                    "previous_plan": "String",
+                    "new_plan": "String",
+                },
+                source_events=(EVENT_UPGRADED_PLAN, EVENT_DOWNGRADED_PLAN),
+                row_builder=self._plan_change_row,
+            ),
+        )
+
+    def _collect_demo_data_warehouse_rows(self, table_spec: DemoDataWarehouseTableSpec) -> list[tuple[Any, ...]]:
+        if not self.is_complete:
+            raise ValueError("Demo data warehouse tables require a completed simulation.")
+
+        matching_events = sorted(
             (
-                int(row["id"]),
-                row["distinct_id"],
-                row["timestamp"],
-                float(row["amount_usd"]),
-                row["plan"] or "",
-            )
-            for row in results
-        ]
+                event
+                for person in self.people
+                for event in person.past_events
+                if event.event in table_spec.source_events
+            ),
+            key=lambda event: (event.timestamp, event.distinct_id, event.event),
+        )
+        return [table_spec.row_builder(event, row_id) for row_id, event in enumerate(matching_events, start=1)]
+
+    def _upsert_demo_data_warehouse_table(
+        self,
+        team: "Team",
+        user: "User",
+        credential,
+        table_spec: DemoDataWarehouseTableSpec,
+        rows: list[tuple[Any, ...]],
+    ) -> None:
+        s3_prefix = f"data-warehouse/demo_{table_spec.name}/team_{team.pk}"
+        object_key = f"{s3_prefix}/{table_spec.name}.csv"
+        object_storage.write(object_key, self._warehouse_rows_to_csv(rows, headers=tuple(table_spec.columns.keys())))
+
+        url_pattern = f"{self._warehouse_endpoint()}/{settings.OBJECT_STORAGE_BUCKET}/{s3_prefix}/*.csv"
+        existing_table = DataWarehouseTable.objects.filter(team=team, name=table_spec.name).first()
+        if existing_table:
+            if existing_table.external_data_source is not None:
+                return
+            existing_table.format = DataWarehouseTable.TableFormat.CSVWithNames
+            existing_table.url_pattern = url_pattern
+            existing_table.credential = credential
+            existing_table.columns = table_spec.columns
+            existing_table.deleted = False
+            existing_table.deleted_at = None
+            if existing_table.created_by_id is None:
+                existing_table.created_by = user
+            existing_table.save()
+            return
+
+        DataWarehouseTable.objects.create(
+            team=team,
+            name=table_spec.name,
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            url_pattern=url_pattern,
+            credential=credential,
+            columns=table_spec.columns,
+            created_by=user,
+        )
+
+    @classmethod
+    def _paid_bill_row(cls, event: SimEvent, row_id: int) -> tuple[int, str, str, float, str]:
+        amount_usd = event.properties.get("amount_usd")
+        return (
+            row_id,
+            event.distinct_id,
+            cls._format_warehouse_timestamp(event.timestamp),
+            float(amount_usd) if amount_usd is not None else 0.0,
+            str(event.properties.get("plan") or ""),
+        )
+
+    @classmethod
+    def _signup_row(cls, event: SimEvent, row_id: int) -> tuple[int, str, str, bool]:
+        return (
+            row_id,
+            event.distinct_id,
+            cls._format_warehouse_timestamp(event.timestamp),
+            bool(event.properties.get("from_invite", False)),
+        )
+
+    @classmethod
+    def _uploaded_file_row(cls, event: SimEvent, row_id: int) -> tuple[int, str, str, str, int, float, str]:
+        file_size_b = event.properties.get("file_size_b")
+        used_mb = event.properties.get("used_mb")
+        return (
+            row_id,
+            event.distinct_id,
+            cls._format_warehouse_timestamp(event.timestamp),
+            str(event.properties.get("file_type") or ""),
+            int(file_size_b) if file_size_b is not None else 0,
+            float(used_mb) if used_mb is not None else 0.0,
+            str(event.properties.get("file_name") or ""),
+        )
+
+    @classmethod
+    def _plan_change_row(cls, event: SimEvent, row_id: int) -> tuple[int, str, str, str, str, str]:
+        return (
+            row_id,
+            event.distinct_id,
+            cls._format_warehouse_timestamp(event.timestamp),
+            "upgrade" if event.event == EVENT_UPGRADED_PLAN else "downgrade",
+            str(event.properties.get("previous_plan") or ""),
+            str(event.properties.get("new_plan") or ""),
+        )
 
     @staticmethod
-    def _paid_bill_rows_to_csv(rows: list[tuple[int, str, str, float, str]]) -> str:
+    def _warehouse_rows_to_csv(rows: list[tuple[Any, ...]], headers: tuple[str, ...]) -> str:
         output = StringIO()
         writer = csv.writer(output)
-        writer.writerow(["id", "distinct_id", "timestamp", "amount_usd", "plan"])
+        writer.writerow(headers)
         writer.writerows(rows)
         return output.getvalue()
 

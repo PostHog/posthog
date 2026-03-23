@@ -2,6 +2,7 @@ import logging
 from typing import Union
 
 from django.db import transaction
+from django.db.models import QuerySet
 
 from django_scim import constants
 from django_scim.adapters import SCIMGroup
@@ -272,9 +273,5 @@ class PostHogSCIMGroup(SCIMGroup):
                     RoleMembership.objects.filter(role=self.obj).delete()
 
     @classmethod
-    def get_for_organization(cls, organization_domain: OrganizationDomain) -> list["PostHogSCIMGroup"]:
-        """
-        Get all roles (groups) for a specific organization.
-        """
-        roles = Role.objects.filter(organization=organization_domain.organization)
-        return [cls(role, organization_domain) for role in roles]
+    def get_queryset_for_organization(cls, organization_domain: OrganizationDomain) -> QuerySet[Role]:
+        return Role.objects.filter(organization=organization_domain.organization).order_by("id")

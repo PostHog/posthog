@@ -79,7 +79,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert response.json() == expected_alert_json
 
         alerts = self.client.get(f"/api/projects/{self.team.id}/alerts")
-        assert alerts.json()["results"] == [expected_alert_json]
+        assert alerts.json()["results"] == [{**expected_alert_json, "checks": []}]
 
         alert_id = response.json()["id"]
         self.client.delete(f"/api/projects/{self.team.id}/alerts/{alert_id}")
@@ -359,6 +359,126 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         response = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert['id']}", overrides)
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert expected_error_fragment in str(response.content).lower()
+
+
+class TestAlertSimulate(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.insight_data: dict[str, Any] = {
+            "query": {
+                "kind": "TrendsQuery",
+                "series": [
+                    {
+                        "kind": "EventsNode",
+                        "event": "$pageview",
+                    }
+                ],
+                "trendsFilter": {"display": "ActionsLineGraph"},
+                "interval": "day",
+            },
+        }
+        self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.insight_data).json()
+
+    @mock.patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight")
+    def test_simulate_returns_valid_response(self, mock_calculate) -> None:
+        mock_calculate.return_value = mock.MagicMock(
+            result=[
+                {
+                    "data": [10.0, 12.0, 11.0, 50.0, 13.0, 12.0, 11.0] * 5,
+                    "days": [f"2024-01-{i:02d}" for i in range(1, 36)],
+                    "labels": [f"2024-01-{i:02d}" for i in range(1, 36)],
+                    "label": "pageview",
+                    "action": {"name": "pageview"},
+                    "actions": [],
+                    "count": 35,
+                    "breakdown_value": "",
+                    "status": None,
+                    "compare_label": None,
+                    "compare": False,
+                    "persons_urls": [],
+                    "persons": {},
+                    "filter": {},
+                }
+            ]
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {
+                "insight": self.insight["id"],
+                "detector_config": {"type": "zscore", "threshold": 0.9, "window": 30},
+                "series_index": 0,
+            },
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        data = response.json()
+        assert "data" in data
+        assert "dates" in data
+        assert "scores" in data
+        assert "triggered_indices" in data
+        assert "triggered_dates" in data
+        assert "interval" in data
+        assert "total_points" in data
+        assert "anomaly_count" in data
+        assert data["total_points"] == 35
+        assert isinstance(data["scores"], list)
+        assert len(data["scores"]) == 35
+
+    def test_simulate_missing_detector_config_returns_400(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {
+                "insight": self.insight["id"],
+                "series_index": 0,
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_simulate_invalid_detector_config_returns_400(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {
+                "insight": self.insight["id"],
+                "detector_config": {"type": "nonexistent_detector"},
+                "series_index": 0,
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @mock.patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight")
+    def test_simulate_does_not_create_alert_check_records(self, mock_calculate) -> None:
+        mock_calculate.return_value = mock.MagicMock(
+            result=[
+                {
+                    "data": [10.0, 12.0, 11.0, 50.0, 13.0, 12.0, 11.0] * 5,
+                    "days": [f"2024-01-{i:02d}" for i in range(1, 36)],
+                    "labels": [f"2024-01-{i:02d}" for i in range(1, 36)],
+                    "label": "pageview",
+                    "action": {"name": "pageview"},
+                    "actions": [],
+                    "count": 35,
+                    "breakdown_value": "",
+                    "status": None,
+                    "compare_label": None,
+                    "compare": False,
+                    "persons_urls": [],
+                    "persons": {},
+                    "filter": {},
+                }
+            ]
+        )
+
+        checks_before = AlertCheck.objects.count()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {
+                "insight": self.insight["id"],
+                "detector_config": {"type": "zscore", "threshold": 0.9, "window": 30},
+                "series_index": 0,
+            },
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert AlertCheck.objects.count() == checks_before
 
 
 class TestAlertAPIKeyAccess(APIBaseTest):
