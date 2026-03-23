@@ -57,6 +57,21 @@ MATCH_ANY_CHARACTER = "$$_POSTHOG_ANY_$$"
 PROPERTY_DEFINITION_LIMIT = 220
 
 
+def get_connection_supported_functions(context: HogQLContext) -> list[str]:
+    metadata = context.direct_postgres_connection_metadata
+    if metadata is None and context.database is not None:
+        metadata = getattr(context.database, "_direct_connection_metadata", None)
+
+    if not isinstance(metadata, dict):
+        return []
+
+    available_functions = metadata.get("available_functions")
+    if not isinstance(available_functions, list):
+        return []
+
+    return [function_name for function_name in available_functions if isinstance(function_name, str)]
+
+
 class GetNodeAtPositionTraverser(TraversingVisitor):
     start: int
     end: int
@@ -307,7 +322,7 @@ def append_table_field_to_response(
     )
 
     if language == HogLanguage.HOG_QL or language == HogLanguage.HOG_QL_EXPR:
-        available_functions = ALL_EXPOSED_FUNCTION_NAMES
+        available_functions = sorted(set(ALL_EXPOSED_FUNCTION_NAMES) | set(get_connection_supported_functions(context)))
     else:
         available_functions = ALL_HOG_FUNCTIONS
     extend_responses(

@@ -316,6 +316,48 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(metadata.isValid)
         self.assertEqual(metadata.errors, [])
 
+    def test_metadata_with_direct_connection_allows_connection_metadata_function_in_expr(self):
+        source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            connection_metadata={"available_functions": ["icu_collate_nl"]},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="posthog_user",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"name": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}},
+        )
+        ExternalDataSchema.objects.create(
+            name="posthog_user",
+            team=self.team,
+            source=source,
+            table=table,
+        )
+
+        metadata = get_hogql_metadata(
+            query=HogQLMetadata(
+                kind="HogQLMetadata",
+                language=HogLanguage.HOG_QL_EXPR,
+                query="icu_collate_nl(name, 'nl')",
+                sourceQuery=HogQLQuery(query="select * from posthog_user"),
+                response=None,
+                connectionId=str(source.id),
+            ),
+            team=self.team,
+        )
+
+        self.assertTrue(metadata.isValid)
+        self.assertEqual(metadata.errors, [])
+
     def test_metadata_with_direct_connection_does_not_allow_disabled_tables(self):
         source = ExternalDataSource.objects.create(
             source_id="selected-upstream-source",

@@ -150,7 +150,8 @@ def process_expr_on_table(
             select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
 
         # Nothing to return, we just make sure it doesn't throw
-        prepare_and_print_ast(select_query, context, "clickhouse")
+        dialect = "postgres" if getattr(context.database, "_connection_id", None) else "clickhouse"
+        prepare_and_print_ast(select_query, context, dialect)
     except (NotImplementedError, SyntaxError):
         raise
 

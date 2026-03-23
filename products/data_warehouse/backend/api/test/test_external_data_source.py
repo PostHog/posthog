@@ -558,6 +558,34 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(payload["results"]), 2)
 
+    def test_connections_returns_lightweight_direct_connection_options(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="Primary database",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"host": "localhost", "password": "secret"},
+            connection_metadata={"engine": "duckdb", "database": "ducklake", "available_functions": ["date_bin"]},
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            [
+                {
+                    "id": str(source.pk),
+                    "prefix": "Primary database",
+                    "engine": "duckdb",
+                }
+            ],
+        )
+
     def test_dont_expose_job_inputs(self):
         self._create_external_data_source()
 
@@ -591,6 +619,7 @@ class TestExternalDataSource(APIBaseTest):
                 "prefix",
                 "description",
                 "access_method",
+                "engine",
                 "last_run_at",
                 "schemas",
                 "job_inputs",
@@ -598,6 +627,7 @@ class TestExternalDataSource(APIBaseTest):
                 "user_access_level",
             ],
         )
+        self.assertIsNone(payload["engine"])
         self.assertEqual(
             payload["schemas"],
             [
@@ -1110,8 +1140,10 @@ class TestExternalDataSource(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         source.refresh_from_db()
-        self.assertEqual(source.connection_metadata["database"], "ducklake")
-        self.assertEqual(source.connection_metadata["available_functions"], ["duckdb_functions", "date_bin"])
+        connection_metadata = source.connection_metadata
+        assert connection_metadata is not None
+        self.assertEqual(connection_metadata["database"], "ducklake")
+        self.assertEqual(connection_metadata["available_functions"], ["duckdb_functions", "date_bin"])
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_create_direct_postgres_preserves_numeric_as_decimal(self, mock_get_source):
@@ -1173,8 +1205,10 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(table.columns["amount"]["clickhouse"], "Decimal")
         self.assertEqual(table.columns["amount"]["hogql"], "numeric")
         source = ExternalDataSource.objects.get(pk=response.json()["id"])
-        self.assertEqual(source.connection_metadata["database"], "app")
-        self.assertEqual(source.connection_metadata["available_functions"], ["duckdb_functions", "date_bin"])
+        connection_metadata = source.connection_metadata
+        assert connection_metadata is not None
+        self.assertEqual(connection_metadata["database"], "app")
+        self.assertEqual(connection_metadata["available_functions"], ["duckdb_functions", "date_bin"])
 
     def test_create_direct_postgres_requires_name(self):
         response = self.client.post(

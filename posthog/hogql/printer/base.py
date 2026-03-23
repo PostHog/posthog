@@ -96,6 +96,17 @@ class HogQLPrinter(Visitor[str]):
     def indent(self, extra: int = 0):
         return " " * self.tab_size * (self._indent + extra)
 
+    def _get_connection_supported_functions(self) -> set[str]:
+        metadata = self.context.direct_postgres_connection_metadata
+        if not isinstance(metadata, dict):
+            return set()
+
+        available_functions = metadata.get("available_functions")
+        if not isinstance(available_functions, list):
+            return set()
+
+        return {function_name.lower() for function_name in available_functions if isinstance(function_name, str)}
+
     def visit(self, node: AST | None):
         if node is None:
             return ""
@@ -990,6 +1001,9 @@ class HogQLPrinter(Visitor[str]):
             # If hogql dialect, just keep it as is
             return f"{node.name}({', '.join(args)})"
         else:
+            if self.dialect == "hogql" and node.name.lower() in self._get_connection_supported_functions():
+                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
+
             close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)
             if len(close_matches) > 0:
                 raise QueryError(
