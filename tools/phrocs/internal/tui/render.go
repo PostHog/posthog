@@ -76,7 +76,8 @@ func (m Model) renderSidebar() string {
 		iconColor := statusIconColor(p.Status())
 
 		name := truncate(p.Name, innerW-3)
-		rows = append(rows, renderSidebarRow(iconChar, name, iconColor, i == m.servicesCursor, innerW))
+		cpuPct := p.CPUPercent()
+		rows = append(rows, renderSidebarRow(iconChar, name, iconColor, i == m.servicesCursor, cpuPct, innerW))
 	}
 
 	// Pad remaining rows so the sidebar border extends the full height

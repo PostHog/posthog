@@ -141,6 +141,26 @@ func (p *Process) Status() Status {
 	return p.status
 }
 
+// CPUPercent returns the most recently sampled CPU usage, or 0 if not yet sampled.
+func (p *Process) CPUPercent() float64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.metrics == nil {
+		return 0
+	}
+	return p.metrics.CPUPercent
+}
+
+// MemRSSMB returns the most recently sampled RSS in MB, or 0 if not yet sampled.
+func (p *Process) MemRSSMB() float64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.metrics == nil {
+		return 0
+	}
+	return p.metrics.MemRSSMB
+}
+
 // Returns a copy of the output lines
 func (p *Process) Lines() []string {
 	p.mu.Lock()
