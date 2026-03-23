@@ -891,7 +891,7 @@ class FeatureFlagSerializer(
                         raise serializers.ValidationError(
                             "Filters are not valid (person-aggregated conditions can only use person, cohort, and flag properties)"
                         )
-                    if prop.type == "flag" and prop.operator != "flag_evaluates_to":
+                    if prop.type == "flag" and prop_dict.get("operator") != "flag_evaluates_to":
                         raise serializers.ValidationError("Flag properties must use the 'flag_evaluates_to' operator")
                 else:
                     # Group-aggregated condition: only allow group properties matching the
