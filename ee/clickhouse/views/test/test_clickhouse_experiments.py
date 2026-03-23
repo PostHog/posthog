@@ -722,11 +722,9 @@ class TestExperimentCRUD(APILicensedTest):
                 "name": "Test Experiment saved metric",
                 "description": "Test description",
                 "query": {
-                    "kind": "ExperimentTrendsQuery",
-                    "count_query": {
-                        "kind": "TrendsQuery",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    },
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
                 },
             },
         )
@@ -740,8 +738,9 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(
             response.json()["query"],
             {
-                "kind": "ExperimentTrendsQuery",
-                "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
                 "uuid": saved_metric_uuid,
             },
         )
@@ -783,8 +782,9 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(
             saved_metric.query,
             {
-                "kind": "ExperimentTrendsQuery",
-                "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
                 "uuid": saved_metric_uuid,
             },
         )
@@ -796,8 +796,9 @@ class TestExperimentCRUD(APILicensedTest):
                 "name": "Test Experiment saved metric 2",
                 "description": "Test description 2",
                 "query": {
-                    "kind": "ExperimentTrendsQuery",
-                    "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageleave"}]},
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageleave"},
                 },
             },
         )
@@ -885,8 +886,9 @@ class TestExperimentCRUD(APILicensedTest):
                 "name": "Test Experiment saved metric",
                 "description": "Test description",
                 "query": {
-                    "kind": "ExperimentTrendsQuery",
-                    "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
                 },
             },
         )
@@ -3530,11 +3532,9 @@ class TestExperimentCRUD(APILicensedTest):
                 "feature_flag_key": "launch-endpoint-flag",
                 "metrics": [
                     {
-                        "kind": "ExperimentTrendsQuery",
-                        "count_query": {
-                            "kind": "TrendsQuery",
-                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                        },
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
                     }
                 ],
             },
@@ -3571,11 +3571,9 @@ class TestExperimentCRUD(APILicensedTest):
                 "start_date": "2024-01-01T10:00",
                 "metrics": [
                     {
-                        "kind": "ExperimentTrendsQuery",
-                        "count_query": {
-                            "kind": "TrendsQuery",
-                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                        },
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
                     }
                 ],
             },
@@ -4302,8 +4300,9 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
                 "name": "Activity Logging Test Metric",
                 "description": "Testing saved metric activity logging fix",
                 "query": {
-                    "kind": "ExperimentTrendsQuery",
-                    "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
                 },
             },
             format="json",

@@ -6,6 +6,7 @@ from .grouping_rules import ErrorTrackingGroupingRuleViewSet
 from .issues import ErrorTrackingIssueViewSet
 from .releases import ErrorTrackingReleaseViewSet
 from .spike_detection_config import ErrorTrackingSpikeDetectionConfigViewSet
+from .spike_events import ErrorTrackingSpikeEventViewSet
 from .stack_frames import ErrorTrackingStackFrameViewSet
 from .suppression_rules import ErrorTrackingSuppressionRuleViewSet
 from .symbol_sets import ErrorTrackingSymbolSetViewSet
@@ -19,6 +20,7 @@ __all__ = [
     "ErrorTrackingGroupingRuleViewSet",
     "ErrorTrackingReleaseViewSet",
     "ErrorTrackingSpikeDetectionConfigViewSet",
+    "ErrorTrackingSpikeEventViewSet",
     "ErrorTrackingSuppressionRuleViewSet",
     "ErrorTrackingAssignmentRuleViewSet",
     "GitProviderFileLinksViewSet",

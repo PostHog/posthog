@@ -622,6 +622,8 @@ export interface ConversationsSettings {
     slack_channel_id?: string | null
     slack_channel_name?: string | null
     slack_ticket_emoji?: string | null
+    slack_bot_icon_url?: string | null
+    slack_bot_display_name?: string | null
     email_enabled?: boolean
 }
 
@@ -5497,6 +5499,7 @@ export type SchemaIncrementalFieldsResponse = {
     incremental_available: boolean
     append_available: boolean
     full_refresh_available: boolean
+    supports_webhooks: boolean
 }
 
 // numeric is snowflake specific and objectid is mongodb specific
@@ -5521,6 +5524,7 @@ export interface ExternalDataSourceSyncSchema {
     incremental_fields: IncrementalField[]
     incremental_available: boolean
     append_available: boolean
+    supports_webhooks: boolean
     description?: string | null
 }
 

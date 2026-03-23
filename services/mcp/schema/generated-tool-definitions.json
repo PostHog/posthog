@@ -90,7 +90,7 @@
         }
     },
     "alerts-list": {
-        "description": "List all insight alerts in the project. Returns alerts with their current state, threshold configuration, and timing information. Supports filtering by insight ID via query parameter.",
+        "description": "List all insight alerts in the project. Returns alerts with their current state, threshold or detector configuration, timing information, and firing check history. Supports filtering by insight ID via query parameter. Alerts can use either threshold-based conditions (absolute_value, relative_increase, relative_decrease) or anomaly detection via detector_config (zscore, mad, iqr, isolation_forest, knn, etc.).",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "List alerts",
@@ -105,7 +105,7 @@
         }
     },
     "alert-get": {
-        "description": "Get a specific alert by ID. Returns the full alert configuration including the last 5 check results, threshold settings, and subscribed users.",
+        "description": "Get a specific alert by ID. Returns the full alert configuration including the last 5 check results, threshold settings, detector_config (for anomaly detection alerts), and subscribed users. Check results include anomaly_scores, triggered_points, and triggered_dates for detector-based alerts.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Get alert",
@@ -120,7 +120,7 @@
         }
     },
     "alert-create": {
-        "description": "Create a new alert on an insight. Alerts monitor insight values and notify subscribed users when thresholds are breached. Requires an insight ID, at least one subscribed user, and a threshold configuration. The alert condition determines how the value is evaluated (absolute_value, relative_increase, or relative_decrease).",
+        "description": "Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold configuration with bounds. For anomaly detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. Requires an insight ID and at least one subscribed user.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Create alert",
@@ -135,7 +135,7 @@
         }
     },
     "alert-update": {
-        "description": "Update an existing alert by ID. Can update name, threshold, condition, config, subscribed users, enabled state, calculation interval, and weekend skipping. To snooze an alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.",
+        "description": "Update an existing alert by ID. Can update name, threshold, condition, config, detector_config, subscribed users, enabled state, calculation interval, and weekend skipping. Set detector_config to switch to anomaly detection, or set it to null to switch back to threshold mode. To snooze an alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Update alert",
@@ -162,6 +162,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "alert-simulate": {
+        "description": "Run an anomaly detector on an insight's historical data without creating any alert or check records. Use this to preview how a detector configuration would perform before saving it as an alert. Requires an insight ID and a detector_config object with a type (zscore, mad, iqr, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca, or ensemble). Optionally specify date_from (e.g. '-48h', '-30d') to control how far back to simulate, and series_index to pick which series to analyze. Returns data values, anomaly scores per point, triggered indices and dates, and for ensemble detectors, per-sub-detector score breakdowns.",
+        "category": "Alerts",
+        "feature": "alerts",
+        "summary": "Simulate detector on insight",
+        "title": "Simulate detector on insight",
+        "required_scopes": ["alert:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "annotations-list": {
@@ -1120,6 +1135,21 @@
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "prompt-duplicate": {
+        "description": "Duplicate an existing LLM prompt under a new name. Copies the latest version's content to create a new prompt at version 1. Useful for forking a prompt or as a way to rename since names are immutable after creation.",
+        "category": "Prompts",
+        "feature": "prompts",
+        "summary": "Duplicate prompt",
+        "title": "Duplicate prompt",
+        "required_scopes": ["llm_prompt:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
         }

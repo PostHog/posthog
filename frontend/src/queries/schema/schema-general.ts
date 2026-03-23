@@ -5120,6 +5120,8 @@ export interface SourceConfig {
     iconPath: string
     featureFlag?: string
     iconClassName?: string
+    webhookSetupCaption?: string
+    webhookFields?: SourceFieldConfig[]
 
     /**
      * Tables to suggest enabling, with optional tooltip explaining why
@@ -5921,6 +5923,7 @@ export interface ReplayInactivityPeriod {
 
 export enum DomainConnectProviderName {
     Cloudflare = 'Cloudflare',
+    Vercel = 'Vercel',
 }
 
 export enum PropertyType {

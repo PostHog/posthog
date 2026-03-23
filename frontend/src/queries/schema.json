@@ -11985,7 +11985,7 @@
             "type": "object"
         },
         "DomainConnectProviderName": {
-            "const": "Cloudflare",
+            "enum": ["Cloudflare", "Vercel"],
             "type": "string"
         },
         "DurationType": {
@@ -32286,6 +32286,15 @@
                 },
                 "unreleasedSource": {
                     "type": "boolean"
+                },
+                "webhookFields": {
+                    "items": {
+                        "$ref": "#/definitions/SourceFieldConfig"
+                    },
+                    "type": "array"
+                },
+                "webhookSetupCaption": {
+                    "type": "string"
                 }
             },
             "required": ["name", "fields", "iconPath"],

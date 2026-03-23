@@ -20,6 +20,7 @@ import requests
 import structlog
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
+from posthog.llm.gateway_client import get_llm_client
 from posthog.models.integration import (
     GitHubIntegration,
     Integration,
@@ -95,7 +96,7 @@ class RulesCommand:
     action: Literal["list", "add", "remove", "help", "default_set", "default_show", "default_clear"]
     rule_text: str | None = None
     repository: str | None = None
-    rule_number: int | None = None
+    rule_numbers: list[int] | None = None
 
 
 def _slack_user_info_cache_key(integration_id: int, slack_user_id: str) -> str:
@@ -710,9 +711,11 @@ def _parse_rules_command(text: str) -> RulesCommand | None:
     if add_no_repo_match:
         return RulesCommand(action="add", rule_text=add_no_repo_match.group(1))
 
-    remove_match = re.fullmatch(r"rules\s+remove\s+(\d+)", cleaned, flags=re.IGNORECASE)
+    remove_match = re.fullmatch(r"rules\s+remove\s+([\d,\s]+)", cleaned, flags=re.IGNORECASE)
     if remove_match:
-        return RulesCommand(action="remove", rule_number=int(remove_match.group(1)))
+        numbers = [int(n.strip()) for n in remove_match.group(1).split(",") if n.strip().isdigit()]
+        if numbers:
+            return RulesCommand(action="remove", rule_numbers=numbers)
 
     default_set_match = re.fullmatch(
         r"default\s+repo\s+set\s+([\w.-]+/[\w.-]+)",
@@ -976,8 +979,6 @@ def _match_repo_rule(
     )
 
     try:
-        from posthog.llm.gateway_client import get_llm_client
-
         client = get_llm_client("slack-posthog-code")
         response = client.chat.completions.create(
             model="claude-haiku-4-5-20251001",
@@ -1009,6 +1010,44 @@ def _match_repo_rule(
     except Exception:
         logger.exception("posthog_code_rule_match_failed", team_id=team_id)
         return None
+
+
+def classify_task_needs_repo(
+    event_text: str,
+    thread_messages: list[dict[str, str]],
+) -> bool:
+    """Classify whether a Slack conversation requires code repository access.
+
+    Returns True if the task likely needs a repo (writing code, fixing bugs, PRs),
+    False if it does not (analytics, data queries, PostHog config).
+    Defaults to True on error (conservative — falls back to picker).
+    """
+    conversation = "\n".join(f"{msg['user']}: {msg['text']}" for msg in thread_messages)
+    prompt = (
+        "You are a task classifier. Given a Slack conversation, determine whether the task "
+        "requires access to a code repository (e.g. writing code, fixing bugs, creating PRs, "
+        "reviewing code, modifying files) or NOT (e.g. answering questions about analytics, "
+        "querying data, PostHog configuration, general knowledge questions, planning).\n\n"
+        f"Conversation:\n{conversation}\n\n"
+        f"Latest message: {event_text}\n\n"
+        'Respond with ONLY a JSON object: {{"needs_repo": true}} or {{"needs_repo": false}}'
+    )
+    try:
+        client = get_llm_client("slack-posthog-code")
+        response = client.chat.completions.create(
+            model="claude-haiku-4-5-20251001",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=64,
+            temperature=0,
+        )
+        content = (response.choices[0].message.content or "").strip()
+        if content.startswith("```"):
+            content = content.strip("`").removeprefix("json").strip()
+        parsed = json.loads(content)
+        return bool(parsed.get("needs_repo", True))
+    except Exception:
+        logger.exception("classify_task_needs_repo_failed")
+        return True
 
 
 def route_posthog_code_event_to_relevant_region(
