@@ -7,6 +7,42 @@ from django.db import migrations, models
 
 import posthog.models.utils
 
+MODELS_TO_MOVE = [
+    "survey",
+    "surveyresponsearchive",
+]
+
+
+def _move_content_types(apps, schema_editor, from_label, to_label):
+    """Move ContentTypes between apps, handling duplicates idempotently.
+
+    If the target (app_label, model) already exists (e.g., Django auto-created
+    it before migration ran, or a prior failed attempt), merges permissions
+    onto the target and deletes the source to avoid unique constraint violations.
+    """
+    db_alias = schema_editor.connection.alias
+    ContentType = apps.get_model("contenttypes", "ContentType")
+    Permission = apps.get_model("auth", "Permission")
+
+    for model_name in MODELS_TO_MOVE:
+        source = ContentType.objects.using(db_alias).filter(app_label=from_label, model=model_name).first()
+        target = ContentType.objects.using(db_alias).filter(app_label=to_label, model=model_name).first()
+
+        if source and target:
+            Permission.objects.using(db_alias).filter(content_type=source).update(content_type=target)
+            source.delete(using=db_alias)
+        elif source:
+            source.app_label = to_label
+            source.save(using=db_alias)
+
+
+def update_content_types(apps, schema_editor):
+    _move_content_types(apps, schema_editor, "posthog", "surveys")
+
+
+def reverse_content_types(apps, schema_editor):
+    _move_content_types(apps, schema_editor, "surveys", "posthog")
+
 
 class Migration(migrations.Migration):
     initial = True
@@ -277,4 +313,5 @@ class Migration(migrations.Migration):
             ],
             database_operations=[],
         ),
+        migrations.RunPython(update_content_types, reverse_content_types),
     ]

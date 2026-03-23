@@ -3,24 +3,6 @@
 from django.db import migrations
 
 
-def update_content_types(apps, schema_editor):
-    """Update ContentType entries to point to the new surveys app."""
-    if not schema_editor.connection.alias == "default":
-        return
-    ContentType = apps.get_model("contenttypes", "ContentType")
-    for model in ("survey", "surveyresponsearchive"):
-        ContentType.objects.filter(app_label="posthog", model=model).update(app_label="surveys")
-
-
-def reverse_content_types(apps, schema_editor):
-    """Reverse ContentType entries back to posthog app."""
-    if not schema_editor.connection.alias == "default":
-        return
-    ContentType = apps.get_model("contenttypes", "ContentType")
-    for model in ("survey", "surveyresponsearchive"):
-        ContentType.objects.filter(app_label="surveys", model=model).update(app_label="posthog")
-
-
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1062_migrate_links_models"),
@@ -48,5 +30,4 @@ class Migration(migrations.Migration):
             ],
             database_operations=[],
         ),
-        migrations.RunPython(update_content_types, reverse_content_types),
     ]
