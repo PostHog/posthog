@@ -269,9 +269,9 @@ export class ErrorTrackingConsumer {
                 size: messages.length,
             })
             throw error
+        } finally {
+            // Flush scheduled work and invocation results to prevent memory accumulation
+            await Promise.all([this.promiseScheduler.waitForAll(), this.deps.hogTransformer.processInvocationResults()])
         }
-
-        // Flush scheduled work and invocation results to prevent memory accumulation
-        await Promise.all([this.promiseScheduler.waitForAll(), this.deps.hogTransformer.processInvocationResults()])
     }
 }
