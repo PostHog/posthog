@@ -9,6 +9,8 @@ from asgiref.sync import sync_to_async
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.errors import CHQueryErrorS3Error
+from posthog.hogql.errors import QueryError
 from posthog.models.exported_asset import ExportedAsset
 from posthog.slo.types import SloOutcome
 from posthog.temporal.exports.activities import emit_export_outcome, export_asset_activity
@@ -16,103 +18,149 @@ from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetW
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
+EXPORT_FORMAT = ExportedAsset.ExportFormat.PNG
+
+
+async def _run_export_workflow(env, asset, team, mock_exporter, fake_export):
+    mock_exporter.export_asset_direct = fake_export
+
+    async with Worker(
+        env.client,
+        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        workflows=[ExportAssetWorkflow],
+        activities=[export_asset_activity, emit_export_outcome],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+        activity_executor=ThreadPoolExecutor(max_workers=5),
+        debug_mode=True,
+    ):
+        await env.client.execute_workflow(
+            ExportAssetWorkflow.run,
+            ExportAssetWorkflowInputs(
+                exported_asset_id=asset.id,
+                team_id=team.id,
+                export_format=EXPORT_FORMAT,
+            ),
+            id=f"export-asset-{asset.id}",
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+        )
+
+
+def _get_slo_completed_props(mock_analytics) -> dict:
+    completed_calls = [
+        c for c in mock_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
+    ]
+    assert len(completed_calls) == 1
+    return completed_calls[0].kwargs["properties"]
+
+
+def _success_export(asset_obj, **kwargs):
+    asset_obj.content_location = "s3://bucket/test.png"
+    asset_obj.save(update_fields=["content_location"])
+
 
 @patch("posthog.slo.events.posthoganalytics")
 @patch("posthog.temporal.exports.activities.exporter")
-async def test_export_asset_workflow_success_emits_slo_completed(
+async def test_successful_export(
     mock_exporter: MagicMock,
     mock_analytics: MagicMock,
     team,
 ):
-    asset = await sync_to_async(ExportedAsset.objects.create)(
-        team=team,
-        export_format="image/png",
-    )
-
-    def fake_export(asset_obj, **kwargs):
-        asset_obj.content_location = "s3://bucket/test.png"
-        asset_obj.save(update_fields=["content_location"])
-
-    mock_exporter.export_asset_direct = fake_export
+    asset = await sync_to_async(ExportedAsset.objects.create)(team=team, export_format=EXPORT_FORMAT)
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
-        async with Worker(
-            env.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
-            workflows=[ExportAssetWorkflow],
-            activities=[export_asset_activity, emit_export_outcome],
-            workflow_runner=UnsandboxedWorkflowRunner(),
-            activity_executor=ThreadPoolExecutor(max_workers=5),
-            debug_mode=True,
-        ):
-            await env.client.execute_workflow(
-                ExportAssetWorkflow.run,
-                ExportAssetWorkflowInputs(
-                    exported_asset_id=asset.id,
-                    team_id=team.id,
-                    source="web",
-                    export_format="image/png",
-                ),
-                id=f"export-asset-{asset.id}",
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
-            )
+        await _run_export_workflow(env, asset, team, mock_exporter, _success_export)
 
     await sync_to_async(asset.refresh_from_db)()
     assert asset.has_content
 
-    completed_calls = [
-        c for c in mock_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
-    ]
-    assert len(completed_calls) == 1
-    props = completed_calls[0].kwargs["properties"]
+    props = _get_slo_completed_props(mock_analytics)
     assert props["outcome"] == SloOutcome.SUCCESS
     assert props["operation"] == "export"
     assert props["exported_asset_id"] == asset.id
-    assert props["export_format"] == "image/png"
-    assert props["source"] == "web"
+    assert props["export_format"] == EXPORT_FORMAT
+    assert props["error"] is None
 
 
 @patch("posthog.slo.events.posthoganalytics")
 @patch("posthog.temporal.exports.activities.exporter")
-async def test_export_asset_workflow_failure_emits_slo_failure(
+async def test_transient_error_retries_and_succeeds(
     mock_exporter: MagicMock,
     mock_analytics: MagicMock,
     team,
 ):
-    asset = await sync_to_async(ExportedAsset.objects.create)(
-        team=team,
-        export_format="image/png",
-    )
+    asset = await sync_to_async(ExportedAsset.objects.create)(team=team, export_format=EXPORT_FORMAT)
 
-    mock_exporter.export_asset_direct = MagicMock(side_effect=RuntimeError("Chrome crashed"))
+    call_count = 0
+
+    def flaky_export(asset_obj, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count <= 2:
+            raise CHQueryErrorS3Error("S3 error", code=499)
+        _success_export(asset_obj, **kwargs)
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        await _run_export_workflow(env, asset, team, mock_exporter, flaky_export)
+
+    assert call_count == 3
+
+    await sync_to_async(asset.refresh_from_db)()
+    assert asset.has_content
+
+    props = _get_slo_completed_props(mock_analytics)
+    assert props["outcome"] == SloOutcome.SUCCESS
+    assert props["error"] is None
+
+
+@patch("posthog.slo.events.posthoganalytics")
+@patch("posthog.temporal.exports.activities.exporter")
+async def test_non_retryable_user_error_fails_immediately(
+    mock_exporter: MagicMock,
+    mock_analytics: MagicMock,
+    team,
+):
+    """User query errors are non-retryable — called once, SLO reports failure with structured error details
+    extracted from Temporal's ActivityError -> ApplicationError chain."""
+    asset = await sync_to_async(ExportedAsset.objects.create)(team=team, export_format=EXPORT_FORMAT)
+
+    call_count = 0
+
+    def user_error_export(asset_obj, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        raise QueryError("Invalid HogQL query")
 
     with pytest.raises(Exception):
         async with await WorkflowEnvironment.start_time_skipping() as env:
-            async with Worker(
-                env.client,
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
-                workflows=[ExportAssetWorkflow],
-                activities=[export_asset_activity, emit_export_outcome],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-                activity_executor=ThreadPoolExecutor(max_workers=5),
-                debug_mode=True,
-            ):
-                await env.client.execute_workflow(
-                    ExportAssetWorkflow.run,
-                    ExportAssetWorkflowInputs(
-                        exported_asset_id=asset.id,
-                        team_id=team.id,
-                        source="web",
-                        export_format="image/png",
-                    ),
-                    id=f"export-asset-{asset.id}",
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
-                )
+            await _run_export_workflow(env, asset, team, mock_exporter, user_error_export)
 
-    completed_calls = [
-        c for c in mock_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
-    ]
-    assert len(completed_calls) == 1
-    props = completed_calls[0].kwargs["properties"]
+    assert call_count == 1
+
+    props = _get_slo_completed_props(mock_analytics)
     assert props["outcome"] == SloOutcome.FAILURE
     assert props["error"] is not None
+    assert props["error"]["exception_class"] == "QueryError"
+
+
+@patch("posthog.slo.events.posthoganalytics")
+@patch("posthog.temporal.exports.activities.exporter")
+async def test_generic_error_reports_failure_with_traceback(
+    mock_exporter: MagicMock,
+    mock_analytics: MagicMock,
+    team,
+):
+    """Non-Temporal exceptions (no ApplicationError chain) fall back to generic error extraction
+    with exception class name and traceback."""
+    asset = await sync_to_async(ExportedAsset.objects.create)(team=team, export_format=EXPORT_FORMAT)
+
+    with pytest.raises(Exception):
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            await _run_export_workflow(
+                env, asset, team, mock_exporter, MagicMock(side_effect=RuntimeError("Chrome crashed"))
+            )
+
+    props = _get_slo_completed_props(mock_analytics)
+    assert props["outcome"] == SloOutcome.FAILURE
+    assert props["error"] is not None
+    # Generic errors use the exception class name, not the ApplicationError chain
+    assert "RuntimeError" in str(props["error"])

@@ -1,3 +1,4 @@
+import asyncio
 import threading
 from datetime import timedelta
 from typing import Any
@@ -19,7 +20,7 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.event_usage import EventSource, groups
+from posthog.event_usage import EventSource, get_event_source, groups
 from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.exported_asset import ExportedAsset, get_content_response
@@ -28,7 +29,6 @@ from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
 from posthog.slo.events import emit_slo_started
 from posthog.slo.types import SloArea, SloOperation, SloStartedProperties
-from posthog.tasks import exporter
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExportWorkflow
@@ -233,9 +233,9 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                         logger.exception("video_export_workflow_dispatch_failed", asset_id=instance.id, error=str(e))
                         raise
             else:
-                self._start_export_workflow(instance, team, user, wait=True)
+                self._start_export_workflow(instance, team, user, force_async=False)
         else:
-            self._start_export_workflow(instance, team, user, wait=False)
+            self._start_export_workflow(instance, team, user, force_async=True)
 
         posthoganalytics.capture(
             distinct_id=user.distinct_id if user else str(team.uuid),
@@ -288,15 +288,9 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         return instance
 
     def _start_export_workflow(
-        self, instance: ExportedAsset, team: Any, user: User | None, wait: bool = True
+        self, instance: ExportedAsset, team: Any, user: User | None, force_async: bool = False
     ) -> None:
-        """Dispatch a Temporal ExportAssetWorkflow. Falls back to Celery on failure.
-
-        Args:
-            wait: If True, block until the workflow completes (synchronous export).
-                  If False, fire-and-forget (async export, frontend polls).
-        """
-        source = EventSource.WEB if user else EventSource.API
+        source = get_event_source(self.context["request"])
         distinct_id = str(user.distinct_id) if user else str(team.id)
 
         emit_slo_started(
@@ -318,46 +312,26 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             exported_asset_id=instance.id,
             team_id=team.id,
             distinct_id=distinct_id,
-            source=source,
             export_format=instance.export_format,
         )
 
-        if wait:
-            async def _execute():
-                client = await async_connect()
-                await client.execute_workflow(
-                    ExportAssetWorkflow.run,
-                    workflow_inputs,
-                    id=f"export-asset-{instance.id}",
-                    task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
-                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                    execution_timeout=timedelta(minutes=35),
-                )
+        async def _run():
+            client = await async_connect()
+            method = client.start_workflow if force_async else client.execute_workflow
+            await method(
+                ExportAssetWorkflow.run,
+                workflow_inputs,
+                id=f"export-asset-{instance.id}",
+                task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
+                execution_timeout=timedelta(minutes=30),
+            )
 
-            try:
-                async_to_sync(_execute)()
-                logger.info("export_workflow_completed", asset_id=instance.id)
-            except Exception:
-                logger.warning("export_workflow_failed", asset_id=instance.id, exc_info=True)
-                exporter.export_asset(instance.id)
-        else:
-            async def _start():
-                client = await async_connect()
-                await client.start_workflow(
-                    ExportAssetWorkflow.run,
-                    workflow_inputs,
-                    id=f"export-asset-{instance.id}",
-                    task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
-                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                    execution_timeout=timedelta(minutes=35),
-                )
-
-            try:
-                async_to_sync(_start)()
-                logger.info("export_workflow_dispatched", asset_id=instance.id)
-            except Exception:
-                logger.warning("export_workflow_dispatch_failed", asset_id=instance.id, exc_info=True)
-                exporter.export_asset.delay(instance.id)
+        asyncio.run(_run())
+        logger.info(
+            "export_workflow_dispatched" if force_async else "export_workflow_completed",
+            asset_id=instance.id,
+        )
 
 
 @extend_schema(tags=["core"])

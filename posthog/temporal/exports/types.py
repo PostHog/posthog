@@ -47,5 +47,4 @@ class EmitExportOutcomeInput:
     outcome: SloOutcome
     duration_ms: Optional[float] = None
     export_format: str = ""
-    source: str = ""
     error: Optional[ExportError] = None

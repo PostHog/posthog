@@ -141,9 +141,7 @@ async def emit_export_outcome(inputs: EmitExportOutcomeInput) -> None:
             duration_ms=inputs.duration_ms,
         ),
         extra_properties={
-            "exported_asset_id": inputs.exported_asset_id,
             "export_format": inputs.export_format,
-            "source": inputs.source,
             "error": {"exception_class": inputs.error.exception_class, "error_trace": inputs.error.error_trace}
             if inputs.error
             else None,
