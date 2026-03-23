@@ -389,7 +389,6 @@ POSTGRES_PASSTHROUGH_FUNCTIONS: frozenset[str] = frozenset(
         "nullif",
         # Date/time
         "date_trunc",
-        "year",
         # Other
         "md5",
     }

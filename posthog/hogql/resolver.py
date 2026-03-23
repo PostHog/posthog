@@ -460,6 +460,8 @@ class Resolver(CloningVisitor):
                 for field in collector.fields:
                     if not field.chain:
                         raise QueryError("PIVOT columns must be identifiers")
+                    if field.chain == ["*"]:
+                        continue
                     if len(field.chain) == 1:
                         column_name = str(field.chain[0])
                     elif len(field.chain) == 2 and str(field.chain[0]) in allowed_prefixes:
