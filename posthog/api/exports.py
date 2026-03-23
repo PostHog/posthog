@@ -1,7 +1,6 @@
 import threading
 from datetime import timedelta
 from typing import Any
-from uuid import NAMESPACE_DNS, uuid5
 
 from django.conf import settings
 from django.http import HttpResponse
@@ -27,6 +26,8 @@ from posthog.models.exported_asset import ExportedAsset, get_content_response
 from posthog.security.url_validation import is_url_allowed
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
+from posthog.slo.events import emit_slo_started
+from posthog.slo.types import SloArea, SloOperation, SloStartedProperties
 from posthog.tasks import exporter
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
@@ -288,15 +289,21 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
 
     def _start_export_workflow(self, instance: ExportedAsset, team: Any, user: User | None) -> None:
         """Dispatch a Temporal ExportAssetWorkflow. Falls back to Celery on failure."""
-        posthoganalytics.capture(
-            distinct_id=str(team.id),
-            event="slo_export_started",
-            uuid=str(uuid5(NAMESPACE_DNS, f"slo-export-started-{instance.id}")),
-            properties={
+        source = EventSource.WEB if user else EventSource.API
+        distinct_id = str(user.distinct_id) if user else str(team.id)
+
+        emit_slo_started(
+            distinct_id=distinct_id,
+            properties=SloStartedProperties(
+                operation=SloOperation.EXPORT,
+                resource_id=str(instance.id),
+                area=SloArea.ANALYTIC_PLATFORM,
+                team_id=team.id,
+            ),
+            extra_properties={
                 "exported_asset_id": instance.id,
-                "team_id": team.id,
-                "source": EventSource.WEB if user else EventSource.API,
-                "format": instance.export_format,
+                "source": source,
+                "export_format": instance.export_format,
             },
         )
 
@@ -307,7 +314,8 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                 ExportAssetWorkflowInputs(
                     exported_asset_id=instance.id,
                     team_id=team.id,
-                    source=EventSource.WEB if user else EventSource.API,
+                    distinct_id=distinct_id,
+                    source=source,
                     export_format=instance.export_format,
                 ),
                 id=f"export-asset-{instance.id}",
