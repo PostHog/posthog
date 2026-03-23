@@ -55,17 +55,17 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     enable_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=600,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=39728447488,
+                       enable_analyzer=1,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentMeanMetric.test_conversion_window_extends_to_last_exposure_1_precomputed
@@ -107,18 +107,18 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS load_balancing='in_order',
-                     readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     enable_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 50000 SETTINGS load_balancing='in_order',
+                       readonly=2,
+                       max_execution_time=600,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=39728447488,
+                       enable_analyzer=1,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentMeanMetric.test_count_distinct_property_values_via_hogql_0_direct
@@ -177,17 +177,17 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     enable_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=600,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=39728447488,
+                       enable_analyzer=1,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentMeanMetric.test_count_distinct_property_values_via_hogql_1_precomputed
@@ -229,18 +229,18 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS load_balancing='in_order',
-                     readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     enable_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 50000 SETTINGS load_balancing='in_order',
+                       readonly=2,
+                       max_execution_time=600,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=39728447488,
+                       enable_analyzer=1,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentMeanMetric.test_count_unique_property_values_via_hogql_0_direct
@@ -299,17 +299,17 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     enable_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=600,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=39728447488,
+                       enable_analyzer=1,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentMeanMetric.test_count_unique_property_values_via_hogql_1_precomputed
@@ -351,18 +351,18 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS load_balancing='in_order',
-                     readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     enable_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 50000 SETTINGS load_balancing='in_order',
+                       readonly=2,
+                       max_execution_time=600,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=39728447488,
+                       enable_analyzer=1,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentMeanMetric.test_outlier_handling_for_count_metric_0_direct
@@ -431,17 +431,17 @@
          sum(power(winsorized_entity_metrics.value, 2)) AS total_sum_of_squares
   FROM winsorized_entity_metrics
   GROUP BY winsorized_entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     enable_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=600,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=39728447488,
+                       enable_analyzer=1,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentMeanMetric.test_outlier_handling_for_count_metric_1_precomputed
@@ -493,18 +493,18 @@
          sum(power(winsorized_entity_metrics.value, 2)) AS total_sum_of_squares
   FROM winsorized_entity_metrics
   GROUP BY winsorized_entity_metrics.variant
-  LIMIT 100 SETTINGS load_balancing='in_order',
-                     readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     enable_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 50000 SETTINGS load_balancing='in_order',
+                       readonly=2,
+                       max_execution_time=600,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=39728447488,
+                       enable_analyzer=1,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentMeanMetric.test_outlier_handling_for_sum_metric_0_direct
@@ -573,17 +573,17 @@
          sum(power(winsorized_entity_metrics.value, 2)) AS total_sum_of_squares
   FROM winsorized_entity_metrics
   GROUP BY winsorized_entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     enable_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=600,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=39728447488,
+                       enable_analyzer=1,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentMeanMetric.test_outlier_handling_for_sum_metric_1_precomputed
@@ -635,18 +635,18 @@
          sum(power(winsorized_entity_metrics.value, 2)) AS total_sum_of_squares
   FROM winsorized_entity_metrics
   GROUP BY winsorized_entity_metrics.variant
-  LIMIT 100 SETTINGS load_balancing='in_order',
-                     readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     enable_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 50000 SETTINGS load_balancing='in_order',
+                       readonly=2,
+                       max_execution_time=600,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=39728447488,
+                       enable_analyzer=1,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentMeanMetric.test_outlier_handling_with_ignore_zeros_0_direct
@@ -715,17 +715,17 @@
          sum(power(winsorized_entity_metrics.value, 2)) AS total_sum_of_squares
   FROM winsorized_entity_metrics
   GROUP BY winsorized_entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     enable_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=600,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=39728447488,
+                       enable_analyzer=1,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentMeanMetric.test_outlier_handling_with_ignore_zeros_1_precomputed
@@ -777,18 +777,18 @@
          sum(power(winsorized_entity_metrics.value, 2)) AS total_sum_of_squares
   FROM winsorized_entity_metrics
   GROUP BY winsorized_entity_metrics.variant
-  LIMIT 100 SETTINGS load_balancing='in_order',
-                     readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     enable_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 50000 SETTINGS load_balancing='in_order',
+                       readonly=2,
+                       max_execution_time=600,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=39728447488,
+                       enable_analyzer=1,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentMeanMetric.test_property_avg_metric_0_direct
@@ -847,17 +847,17 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     enable_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=600,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=39728447488,
+                       enable_analyzer=1,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentMeanMetric.test_property_avg_metric_1_precomputed
@@ -899,18 +899,18 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS load_balancing='in_order',
-                     readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     enable_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 50000 SETTINGS load_balancing='in_order',
+                       readonly=2,
+                       max_execution_time=600,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=39728447488,
+                       enable_analyzer=1,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentMeanMetric.test_property_max_metric_0_direct
@@ -969,17 +969,17 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     enable_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=600,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=39728447488,
+                       enable_analyzer=1,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentMeanMetric.test_property_max_metric_1_precomputed
@@ -1021,18 +1021,18 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS load_balancing='in_order',
-                     readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     enable_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 50000 SETTINGS load_balancing='in_order',
+                       readonly=2,
+                       max_execution_time=600,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=39728447488,
+                       enable_analyzer=1,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentMeanMetric.test_property_min_metric_0_direct
@@ -1091,17 +1091,17 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     enable_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=600,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=39728447488,
+                       enable_analyzer=1,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentMeanMetric.test_property_min_metric_1_precomputed
@@ -1143,18 +1143,18 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS load_balancing='in_order',
-                     readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     enable_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 50000 SETTINGS load_balancing='in_order',
+                       readonly=2,
+                       max_execution_time=600,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=39728447488,
+                       enable_analyzer=1,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentMeanMetric.test_property_sum_metric_0_direct
@@ -1213,17 +1213,17 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     enable_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=600,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=39728447488,
+                       enable_analyzer=1,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentMeanMetric.test_property_sum_metric_1_precomputed
@@ -1265,18 +1265,18 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS load_balancing='in_order',
-                     readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     enable_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 50000 SETTINGS load_balancing='in_order',
+                       readonly=2,
+                       max_execution_time=600,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=39728447488,
+                       enable_analyzer=1,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentMeanMetric.test_unique_sessions_math_type_0_direct
@@ -1335,17 +1335,17 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     enable_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=600,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=39728447488,
+                       enable_analyzer=1,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentMeanMetric.test_unique_sessions_math_type_1_precomputed
@@ -1387,17 +1387,17 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS load_balancing='in_order',
-                     readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     enable_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 50000 SETTINGS load_balancing='in_order',
+                       readonly=2,
+                       max_execution_time=600,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=39728447488,
+                       enable_analyzer=1,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---

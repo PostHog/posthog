@@ -29,6 +29,7 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
                 <LemonButton
                     size="small"
                     onClick={() => toggleConversationHistory()}
+                    data-attr="max-view-all-chat-history"
                     tooltip="Open chat history"
                     tooltipPlacement="bottom"
                 >
@@ -46,6 +47,7 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
                     <span key={conversation.id} className="flex items-center gap-2">
                         <Link
                             className="grow text-sm text-primary hover:text-accent-hover active:text-accent-active"
+                            data-attr="max-open-conversation"
                             to={urls.ai(conversation.id)}
                             onClick={(e) => {
                                 if (sidePanel) {

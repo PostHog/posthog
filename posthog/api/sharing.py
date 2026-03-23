@@ -774,13 +774,13 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     session_id=session_recording_id, team=resource.team
                 )
 
-                # Create a JWT for the recording
+                # Create a scoped JWT for the recording
                 export_access_token = ""
                 if resource.created_by and resource.created_by.id:
                     export_access_token = encode_jwt(
                         {"id": resource.created_by.id},
                         timedelta(minutes=5),  # 5 mins should be enough for the export to complete
-                        PosthogJwtAudience.IMPERSONATED_USER,
+                        PosthogJwtAudience.EXPORT_RENDERER,
                     )
 
                 asset_title = "Session Recording"
@@ -831,13 +831,13 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 raise NotFound("Invalid heatmap export - missing heatmap_type")
 
             try:
-                # Create a JWT to access the heatmap data
+                # Create a scoped JWT to access the heatmap data
                 export_access_token = ""
                 if resource.created_by and resource.created_by.id:
                     export_access_token = encode_jwt(
                         {"id": resource.created_by.id},
                         timedelta(minutes=5),
-                        PosthogJwtAudience.IMPERSONATED_USER,
+                        PosthogJwtAudience.EXPORT_RENDERER,
                     )
 
                 asset_title = "Heatmap"

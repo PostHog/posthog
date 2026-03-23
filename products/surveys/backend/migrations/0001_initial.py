@@ -13,7 +13,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
-        ("posthog", "1059_add_button_tile"),
+        ("posthog", "1062_migrate_links_models"),
     ]
 
     operations = [

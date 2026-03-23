@@ -6,6 +6,7 @@ import { IconOpenSidebar, IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -97,6 +98,42 @@ const RecentFiltersEmptyState = (): JSX.Element => {
     )
 }
 
+const PageviewUrlsEmptyState = (): JSX.Element => {
+    const { hasPageview } = getProjectEventExistence()
+    return (
+        <div className="flex flex-col items-center p-8 mt-4 w-full text-center">
+            <p className="text-sm text-secondary">
+                {hasPageview
+                    ? 'Search to find pageview URLs. Type at least 3 characters to see results.'
+                    : 'No pageview events have been ingested yet. Once your app sends $pageview events, URLs will appear here.'}
+            </p>
+        </div>
+    )
+}
+
+const ScreensEmptyState = (): JSX.Element => {
+    const { hasScreen } = getProjectEventExistence()
+    return (
+        <div className="flex flex-col items-center p-8 mt-4 w-full text-center">
+            <p className="text-sm text-secondary">
+                {hasScreen
+                    ? 'Search to find screens. Type at least 3 characters to see results.'
+                    : 'No screen events have been ingested yet. Once your app sends $screen events, screen names will appear here.'}
+            </p>
+        </div>
+    )
+}
+
+const EmailAddressesEmptyState = (): JSX.Element => {
+    return (
+        <div className="flex flex-col items-center p-8 mt-4 w-full text-center">
+            <p className="text-sm text-secondary">
+                Search to find email addresses. Type at least 5 characters to see results.
+            </p>
+        </div>
+    )
+}
+
 const DefaultEmptyState = (): JSX.Element | null => {
     return null
 }
@@ -106,6 +143,9 @@ const EMPTY_STATES: Partial<Record<TaxonomicFilterGroupType, () => JSX.Element>>
     [TaxonomicFilterGroupType.DataWarehouseProperties]: DataWarehouseEmptyState,
     [TaxonomicFilterGroupType.DataWarehousePersonProperties]: DataWarehouseEmptyState,
     [TaxonomicFilterGroupType.RecentFilters]: RecentFiltersEmptyState,
+    [TaxonomicFilterGroupType.PageviewUrls]: PageviewUrlsEmptyState,
+    [TaxonomicFilterGroupType.Screens]: ScreensEmptyState,
+    [TaxonomicFilterGroupType.EmailAddresses]: EmailAddressesEmptyState,
 } as const
 
 export const taxonomicFilterGroupTypesWithEmptyStates = Object.keys(EMPTY_STATES) as TaxonomicFilterGroupType[]

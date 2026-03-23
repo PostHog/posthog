@@ -172,6 +172,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let service = PersonHogReplicaService::new(storage);
     let grpc_addr = config.grpc_address;
+    let keepalive_interval = config.grpc_keepalive_interval();
+    let keepalive_timeout = config.grpc_keepalive_timeout();
 
     tracing::info!("Starting gRPC server on {}", grpc_addr);
 
@@ -186,6 +188,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
         let incoming = tracked_tcp_incoming(listener);
         if let Err(e) = Server::builder()
+            .http2_keepalive_interval(keepalive_interval)
+            .http2_keepalive_timeout(keepalive_timeout)
             .layer(GrpcMetricsLayer)
             .add_service(PersonHogReplicaServer::new(service))
             .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
