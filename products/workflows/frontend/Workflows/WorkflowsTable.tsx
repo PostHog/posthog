@@ -99,6 +99,7 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
         draftWorkflows,
         archivedWorkflows,
         workflowsLoading,
+        hasLoadedWorkflows,
         filters,
         visibleStatuses,
         selectedArchivedWorkflowIds,
@@ -282,6 +283,7 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
     ]
 
     const showProductIntroduction =
+        hasLoadedWorkflows &&
         !workflowsLoading &&
         activeWorkflows.length === 0 &&
         draftWorkflows.length === 0 &&
