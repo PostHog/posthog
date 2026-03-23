@@ -51,7 +51,7 @@ jobs:
                   IS_FORK: ${{ github.event.pull_request.head.repo.full_name != 'PostHog/posthog' }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
-                  message_body="It looks like the code of \`@posthog/hogql-parser\` (npm) has changed since last push, but its version stayed the same at $COMMITTED_VERSION. 👀"
+                  message_body="It looks like the code of \`@posthog/hogql-parser\` (npm) changed in this PR, but its version stayed the same at $COMMITTED_VERSION. 👀"
                   message_body+=$'\n'"Make sure to resolve this in \`common/hogql_parser/package.json\` before merging!"
                   if [[ "$IS_FORK" == 'true' ]]; then
                     message_body+=$'\n'"This needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member will assist with this."
