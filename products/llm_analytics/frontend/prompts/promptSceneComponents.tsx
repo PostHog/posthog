@@ -146,9 +146,11 @@ function OutlineNode({
 function PromptOutline({
     promptText,
     containerRef,
+    className,
 }: {
     promptText: string
     containerRef: React.RefObject<HTMLDivElement | null>
+    className?: string
 }): JSX.Element | null {
     const [isExpanded, setIsExpanded] = useState(false)
     const headings = useMemo(() => parseMarkdownHeadings(promptText), [promptText])
@@ -192,7 +194,7 @@ function PromptOutline({
     const allExpanded = expandedNodes.size >= allExpandableKeys.size
 
     return (
-        <div className="mb-3 rounded border bg-bg-light" data-attr="llma-prompt-outline">
+        <div className={`mb-3 rounded border bg-bg-light ${className ?? ''}`} data-attr="llma-prompt-outline">
             <div className="flex items-center justify-between px-3 py-2">
                 <button
                     type="button"
@@ -314,7 +316,7 @@ export function PromptViewDetails(): JSX.Element {
                     <PromptDiffView />
                 ) : isRenderingMarkdown ? (
                     <>
-                        <PromptOutline promptText={promptText} containerRef={markdownContainerRef} />
+                        <PromptOutline promptText={promptText} containerRef={markdownContainerRef} className="mt-2" />
                         <div ref={markdownContainerRef}>
                             <LemonMarkdown className="mt-1 rounded border bg-bg-light p-3" generateHeadingIds>
                                 {prompt.prompt}
