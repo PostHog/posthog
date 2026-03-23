@@ -966,6 +966,7 @@ class ClickHousePrinter(HogQLPrinter):
         used_aliases: set[str] = set()
         for column in columns:
             printed_alias: str | None = None
+            dropped_hidden_alias = False
             if isinstance(column, ast.Alias):
                 # It's either a visible alias, or the last hidden alias with this name.
                 if found_aliases.get(column.alias) == column:
@@ -979,6 +980,7 @@ class ClickHousePrinter(HogQLPrinter):
                     printed_alias = column.alias
                 else:
                     # Non-unique hidden alias. Skip.
+                    dropped_hidden_alias = True
                     column = column.expr
             else:
                 column_type = getattr(column, "type", None)
@@ -989,7 +991,7 @@ class ClickHousePrinter(HogQLPrinter):
                 elif isinstance(column_type, ast.ExpressionFieldType):
                     printed_alias = column_type.name
 
-            if isinstance(column, ast.Call):
+            if isinstance(column, ast.Call) and not dropped_hidden_alias:
                 with self.context.timings.measure("printer"):
                     column_alias = safe_identifier(
                         HogQLPrinter(
