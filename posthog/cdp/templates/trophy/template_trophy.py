@@ -63,7 +63,7 @@ if (res.status >= 400) {
         {
             "key": "api_key",
             "type": "string",
-            "label": "Trophy API key",
+            "label": "Trophy API Key",
             "secret": True,
             "required": True,
             "description": "Create this at https://app.trophy.so/integration/api-keys",
@@ -71,7 +71,7 @@ if (res.status >= 400) {
         {
             "key": "metric_key",
             "type": "string",
-            "label": "Metric key",
+            "label": "Metric Key",
             "secret": False,
             "required": True,
             "description": "The key of the metric to send the event to.",
