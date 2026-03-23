@@ -3,6 +3,7 @@ import {
     DragEndEvent,
     DragOverlay,
     DragStartEvent,
+    KeyboardSensor,
     PointerSensor,
     useSensor,
     useSensors,
@@ -11,7 +12,7 @@ import {
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
-import React, { useRef, useMemo, useState } from 'react'
+import React, { useRef, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 
 import { IconCollapse, IconCopy, IconExpand, IconInfo, IconPlus, IconTrash } from '@posthog/icons'
@@ -50,6 +51,7 @@ import { FlagIntent, featureFlagIntentWarningLogic } from './featureFlagIntentWa
 import { FeatureFlagLogicProps } from './featureFlagLogic'
 import {
     FeatureFlagReleaseConditionsLogicProps,
+    FeatureFlagGroupTypeWithSortKey,
     featureFlagReleaseConditionsLogic,
 } from './featureFlagReleaseConditionsLogic'
 
@@ -150,29 +152,27 @@ function ConditionHeader({
                         ` · ${humanFriendlyNumber(actualUserCount)} ${aggregationTargetName}`}
                     )
                 </span>
-                <Tooltip title="Duplicate condition set">
-                    <span
-                        className="cursor-pointer p-1 hover:bg-bg-dark rounded text-muted hover:text-default transition-colors"
+                <LemonButton
+                    icon={<IconCopy />}
+                    size="xsmall"
+                    noPadding
+                    tooltip="Duplicate condition set"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        onDuplicate()
+                    }}
+                />
+                {totalGroups > 1 && (
+                    <LemonButton
+                        icon={<IconTrash />}
+                        size="xsmall"
+                        noPadding
+                        tooltip="Remove condition set"
                         onClick={(e) => {
                             e.stopPropagation()
-                            onDuplicate()
+                            onRemove()
                         }}
-                    >
-                        <IconCopy className="w-4 h-4" />
-                    </span>
-                </Tooltip>
-                {totalGroups > 1 && (
-                    <Tooltip title="Remove condition set">
-                        <span
-                            className="cursor-pointer p-1 hover:bg-bg-dark rounded text-muted hover:text-default transition-colors"
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                onRemove()
-                            }}
-                        >
-                            <IconTrash className="w-4 h-4" />
-                        </span>
-                    </Tooltip>
+                    />
                 )}
             </div>
         </div>
@@ -279,7 +279,7 @@ const SortableCondition = ({
     isAnyItemDragging,
     isDragDropEnabled = false,
 }: {
-    group: FeatureFlagGroupType
+    group: FeatureFlagGroupTypeWithSortKey
     index: number
     totalGroups: number
     affectedUsers: Record<string, number | undefined>
@@ -308,7 +308,7 @@ const SortableCondition = ({
     isDragDropEnabled?: boolean
 }): JSX.Element => {
     const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
-        id: group.sort_key || index.toString(),
+        id: group.sort_key!, // sort_key is guaranteed by ensureSortKeys() in the logic
     })
 
     const [originalWidth, setOriginalWidth] = useState<number | undefined>(undefined)
@@ -337,11 +337,25 @@ const SortableCondition = ({
         }),
     }
 
+    const toggleCondition = (): void => {
+        // Prevent collapse/expand during ANY drag operation to maintain consistent heights
+        if (isAnyItemDragging) {
+            return
+        }
+
+        const conditionKey = `condition-${group.sort_key!}`
+        const isOpen = openConditions.includes(conditionKey)
+        const newOpenConditions = isOpen
+            ? openConditions.filter((key) => key !== conditionKey)
+            : [...openConditions, conditionKey]
+        handleOpenConditionsChange(newOpenConditions)
+    }
+
     return (
         <div
             ref={combinedRef}
             style={style}
-            className={isDragging ? 'opacity-50 border-2 border-dashed border-border-light bg-bg-3000 rounded' : ''}
+            className={isDragging ? 'border-2 border-dashed border-border-light bg-bg-3000 rounded' : ''}
         >
             {flagId && <UnreachableConditionBanner flagId={flagId} groupIndex={index} />}
             <div className="flex items-start gap-3">
@@ -351,7 +365,7 @@ const SortableCondition = ({
                             className="flex items-center justify-between w-full p-3 cursor-pointer hover:bg-bg-dark transition-colors"
                             role="button"
                             tabIndex={0}
-                            aria-expanded={openConditions.includes(`condition-${group.sort_key ?? index}`)}
+                            aria-expanded={openConditions.includes(`condition-${group.sort_key!}`)}
                             aria-label={`Toggle condition ${index + 1} details`}
                             onClick={() => {
                                 // Prevent collapse/expand during ANY drag operation to maintain consistent heights
@@ -359,11 +373,7 @@ const SortableCondition = ({
                                     return
                                 }
 
-                                const isOpen = openConditions.includes(`condition-${group.sort_key ?? index}`)
-                                const newOpenConditions = isOpen
-                                    ? openConditions.filter((key) => key !== `condition-${group.sort_key ?? index}`)
-                                    : [...openConditions, `condition-${group.sort_key ?? index}`]
-                                handleOpenConditionsChange(newOpenConditions)
+                                toggleCondition()
                             }}
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter' || e.key === ' ') {
@@ -373,11 +383,7 @@ const SortableCondition = ({
                                         return
                                     }
 
-                                    const isOpen = openConditions.includes(`condition-${group.sort_key ?? index}`)
-                                    const newOpenConditions = isOpen
-                                        ? openConditions.filter((key) => key !== `condition-${group.sort_key ?? index}`)
-                                        : [...openConditions, `condition-${group.sort_key ?? index}`]
-                                    handleOpenConditionsChange(newOpenConditions)
+                                    toggleCondition()
                                 }
                             }}
                         >
@@ -392,14 +398,14 @@ const SortableCondition = ({
                                 onRemove={onRemove}
                             />
                             <span className="ml-2">
-                                {openConditions.includes(`condition-${group.sort_key ?? index}`) ? (
+                                {openConditions.includes(`condition-${group.sort_key!}`) ? (
                                     <IconCollapse className="w-4 h-4" />
                                 ) : (
                                     <IconExpand className="w-4 h-4" />
                                 )}
                             </span>
                         </div>
-                        {openConditions.includes(`condition-${group.sort_key ?? index}`) && (
+                        {openConditions.includes(`condition-${group.sort_key!}`) && (
                             <div className="p-3 pt-0 border-t">
                                 <div className="flex flex-col gap-3 pt-2">
                                     <div className="max-w-md">
@@ -578,7 +584,7 @@ const SortableCondition = ({
                     </div>
                 </div>
                 {totalGroups > 1 && (
-                    <div className="flex flex-col items-center gap-1 pr-2">
+                    <div className="flex flex-col items-center pr-2">
                         {isDragDropEnabled && (
                             <FeatureFlagConditionDragHandle
                                 listeners={listeners}
@@ -587,7 +593,7 @@ const SortableCondition = ({
                                 hasMultipleConditions={true}
                             />
                         )}
-                        <div className="flex flex-col gap-0.5">
+                        <div className="flex flex-row gap-0.5 w-6 justify-center">
                             {index > 0 && (
                                 <LemonButton
                                     icon={<IconArrowUp />}
@@ -632,16 +638,12 @@ export function FeatureFlagReleaseConditionsCollapsible({
     onBucketingIdentifierChange,
     evaluationRuntime,
 }: FeatureFlagReleaseConditionsCollapsibleProps): JSX.Element {
-    const releaseConditionsLogic = useMemo(
-        () =>
-            featureFlagReleaseConditionsLogic({
-                id,
-                readOnly,
-                filters,
-                onChange,
-            }),
-        [id, readOnly, filters, onChange]
-    )
+    const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
+        id,
+        readOnly,
+        filters,
+        onChange,
+    })
 
     const {
         taxonomicGroupTypes,
@@ -675,7 +677,12 @@ export function FeatureFlagReleaseConditionsCollapsible({
         addConditionSet(uuidv4())
     }
 
-    const sensors = useSensors(useSensor(PointerSensor))
+    const sensors = useSensors(
+        useSensor(PointerSensor, {
+            activationConstraint: { distance: 8 },
+        }),
+        useSensor(KeyboardSensor)
+    )
     const [isAnyItemDragging, setIsAnyItemDragging] = useState(false)
     const [draggedGroup, setDraggedGroup] = useState<FeatureFlagGroupType | null>(null)
 
@@ -683,9 +690,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
         setIsAnyItemDragging(true)
 
         // Find the group being dragged
-        const draggedItem = filterGroups.find(
-            (group, index) => (group.sort_key || index.toString()) === String(event.active.id)
-        )
+        const draggedItem = filterGroups.find((group) => group.sort_key === String(event.active.id))
         setDraggedGroup(draggedItem || null)
     }
 
@@ -914,18 +919,18 @@ export function FeatureFlagReleaseConditionsCollapsible({
                         }}
                     >
                         <SortableContext
-                            items={filterGroups.map((group, index) => group.sort_key || index.toString())}
+                            items={filterGroups.map((group) => group.sort_key!)}
                             strategy={verticalListSortingStrategy}
                         >
                             {filterGroups.map((group, index) => (
-                                <React.Fragment key={`fragment-${group.sort_key ?? index}`}>
+                                <React.Fragment key={`fragment-${group.sort_key!}`}>
                                     {index > 0 && (
                                         <div className="text-xs font-medium text-muted uppercase tracking-wide text-center w-full py-2">
                                             or
                                         </div>
                                     )}
                                     <SortableCondition
-                                        key={`condition-${group.sort_key ?? index}`}
+                                        key={`condition-${group.sort_key!}`}
                                         group={group}
                                         index={index}
                                         totalGroups={filterGroups.length}
