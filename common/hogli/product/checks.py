@@ -153,7 +153,7 @@ def _parse_pytest_paths(script: str) -> list[str]:
             skip_next = False
             continue
         # flags that consume the next token
-        if part in ("-c", "--rootdir", "-k", "-m", "-p", "--override-ini", "-o", "--co"):
+        if part in ("-c", "--rootdir", "-k", "-m", "-p", "--override-ini", "-o"):
             skip_next = True
             continue
         # skip flags
@@ -206,12 +206,12 @@ class PackageJsonScriptsCheck(ProductCheck):
             # strip trailing || true / || exit 0 before further checks
             base_script = test_script.split("||")[0].strip()
 
-            # check: || true swallows failures
+            # check: || true / || exit 0 swallows failures
             if "||" in test_script:
                 tail = test_script.split("||", 1)[1].strip()
                 if tail in ("true", "exit 0"):
-                    result.lines.append("✗ 'backend:test' uses '|| true'")
-                    result.issues.append("'backend:test' script uses '|| true' which swallows test failures in CI")
+                    result.lines.append(f"✗ 'backend:test' uses '|| {tail}'")
+                    result.issues.append(f"'backend:test' script uses '|| {tail}' which swallows test failures in CI")
 
             # check: no-op script but test files exist
             if _is_noop_script(base_script) and _has_test_files(ctx.backend_dir):

@@ -311,7 +311,8 @@ class TestPipeTrueDetection:
             extra_dirs=["backend"],
         )
         result = check.run(ctx)
-        assert any("|| true" in i for i in result.issues)
+        assert any("|| exit 0" in i for i in result.issues)
+        assert any("swallows" in i for i in result.issues)
 
     def test_no_pipe_true_passes(self, tmp_path: Path) -> None:
         ctx = _make_product(
