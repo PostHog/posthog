@@ -109,7 +109,7 @@ def service_account_description(aorganization, request) -> str:
 @pytest_asyncio.fixture
 async def integration(
     request, aorganization, ateam, bigquery_config, service_account_description
-) -> None | GoogleCloudServiceAccountIntegration:
+) -> GoogleCloudServiceAccountIntegration | None:
     try:
         integration_type = request.param
     except Exception:
@@ -122,7 +122,7 @@ async def integration(
 
             inner = await impersonated_integration(ateam, bigquery_config)
             await set_service_account_description_for_integration(inner, service_account_description)
-            integration = GoogleCloudServiceAccountIntegration(inner)
+            integration: GoogleCloudServiceAccountIntegration | None = GoogleCloudServiceAccountIntegration(inner)
         case "key_file":
             integration = GoogleCloudServiceAccountIntegration(await key_file_integration(ateam, bigquery_config))
         case _:
