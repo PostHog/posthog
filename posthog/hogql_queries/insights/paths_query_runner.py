@@ -266,7 +266,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         final_path_item_column = "path_item_ungrouped"
 
         if (
-            self.query.pathsFilter.pathReplacements
+            self.query.pathsFilter.pathReplacements is not False
             and self.team.path_cleaning_filters
             and len(self.team.path_cleaning_filters) > 0
         ):
