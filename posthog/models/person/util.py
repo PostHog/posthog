@@ -211,7 +211,9 @@ def create_person_distinct_id(
     )
 
 
-def _fetch_persons_by_distinct_ids_via_personhog(team_id: int, distinct_ids: list[str]) -> list[Person]:
+def _fetch_persons_by_distinct_ids_via_personhog(
+    team_id: int, distinct_ids: list[str], *, distinct_id_limit: int | None = None
+) -> list[Person]:
     from posthog.personhog_client.client import get_personhog_client
     from posthog.personhog_client.converters import proto_person_to_model
     from posthog.personhog_client.proto import GetDistinctIdsForPersonsRequest, GetPersonsByDistinctIdsInTeamRequest
@@ -239,9 +241,10 @@ def _fetch_persons_by_distinct_ids_via_personhog(team_id: int, distinct_ids: lis
     if not person_ids:
         return []
 
-    distinct_ids_resp = client.get_distinct_ids_for_persons(
-        GetDistinctIdsForPersonsRequest(team_id=team_id, person_ids=person_ids)
-    )
+    did_request = GetDistinctIdsForPersonsRequest(team_id=team_id, person_ids=person_ids)
+    if distinct_id_limit is not None:
+        did_request.limit_per_person = distinct_id_limit
+    distinct_ids_resp = client.get_distinct_ids_for_persons(did_request)
 
     distinct_ids_by_person: dict[int, list[str]] = {}
     for pd in distinct_ids_resp.person_distinct_ids:
@@ -287,7 +290,11 @@ def _personhog_routed(
 
 
 def get_persons_by_distinct_ids(
-    team_id: int, distinct_ids: list[str], *, operation: str = "get_persons_by_distinct_ids"
+    team_id: int,
+    distinct_ids: list[str],
+    *,
+    operation: str = "get_persons_by_distinct_ids",
+    distinct_id_limit: int | None = None,
 ) -> list[Person]:
     from django.db.models.query import Prefetch
 
@@ -312,7 +319,9 @@ def get_persons_by_distinct_ids(
 
     return _personhog_routed(
         operation,
-        lambda: _fetch_persons_by_distinct_ids_via_personhog(team_id, distinct_ids),
+        lambda: _fetch_persons_by_distinct_ids_via_personhog(
+            team_id, distinct_ids, distinct_id_limit=distinct_id_limit
+        ),
         orm_fn,
         team_id=team_id,
     )

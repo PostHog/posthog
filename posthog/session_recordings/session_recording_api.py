@@ -1900,12 +1900,19 @@ def list_recordings_from_query(
         distinct_id_to_person: dict[str, Person] = {}
         person_distinct_ids = None
         if use_personhog():
-            # personhog returns persons with _distinct_ids already populated
+            # personhog returns persons with all _distinct_ids populated, but
+            # we intentionally truncate to one per person (the matched recording
+            # distinct_id) to match the ORM path and avoid loading large ID sets
+            # into the serializer response.
+            # NOTE: we can't use distinct_id_limit=1 here because personhog
+            # doesn't guarantee ordering — the single returned distinct_id might
+            # not be the one we searched by, breaking the mapping below.
             persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
             distinct_ids_set = set(distinct_ids)
             for person in persons:
                 for did in person.distinct_ids:
                     if did in distinct_ids_set:
+                        person._distinct_ids = [did]
                         distinct_id_to_person[did] = person
         else:
             # ORM path: define queryset here, iterate in process_persons to preserve

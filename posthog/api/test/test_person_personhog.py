@@ -1,14 +1,73 @@
-"""Integration tests for the person API batch_by_distinct_ids endpoint via the personhog path.
-
-These mirror the test cases in TestPerson.test_batch_by_distinct_ids_* to ensure
-the personhog code path returns identical results to the ORM path.
-"""
+"""Integration tests for person API endpoints via the personhog path."""
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
+from unittest import mock
 
 from rest_framework import status
 
+from posthog.models.person import Person
 from posthog.personhog_client.fake_client import fake_personhog_client
+
+UUID_A = "550e8400-e29b-41d4-a716-446655440000"
+
+
+class TestDeletePropertyPersonhog(APIBaseTest):
+    @mock.patch("posthog.api.person.capture_internal")
+    def test_uuid_lookup_routes_through_personhog(self, mock_capture):
+        mock_capture.return_value = mock.MagicMock(status_code=200)
+
+        with fake_personhog_client() as fake:
+            fake.add_person(
+                team_id=self.team.pk,
+                person_id=42,
+                uuid=UUID_A,
+                distinct_ids=["did1", "did2"],
+                properties={"foo": "bar"},
+            )
+
+            resp = self.client.post(
+                f"/api/person/{UUID_A}/delete_property",
+                {"$unset": "foo"},
+            )
+
+            assert resp.status_code == 201
+            mock_capture.assert_called_once_with(
+                token=self.team.api_token,
+                event_name="$delete_person_property",
+                event_source="person_viewset",
+                distinct_id="did1",
+                timestamp=mock.ANY,
+                properties={"$unset": ["foo"]},
+                process_person_profile=True,
+            )
+            fake.assert_called("get_person_by_uuid")
+            fake.assert_called("get_distinct_ids_for_person")
+
+    @mock.patch("posthog.api.person.capture_internal")
+    def test_int_pk_bypasses_personhog_uuid_lookup(self, mock_capture):
+        mock_capture.return_value = mock.MagicMock(status_code=200)
+        person = Person.objects.create(
+            team=self.team,
+            distinct_ids=["did1"],
+            properties={"foo": "bar"},
+        )
+
+        with fake_personhog_client() as fake:
+            resp = self.client.post(
+                f"/api/person/{person.pk}/delete_property",
+                {"$unset": "foo"},
+            )
+
+            assert resp.status_code == 201
+            fake.assert_not_called("get_person_by_uuid")
+
+    def test_uuid_not_found_via_personhog_returns_error(self):
+        with fake_personhog_client():
+            resp = self.client.post(
+                f"/api/person/{UUID_A}/delete_property",
+                {"$unset": "foo"},
+            )
+            assert resp.status_code != 201
 
 
 class TestBatchByDistinctIdsPersonhog(ClickhouseTestMixin, APIBaseTest):
