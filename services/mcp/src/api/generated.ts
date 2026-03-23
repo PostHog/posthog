@@ -11383,6 +11383,13 @@ export namespace Schemas {
     * `endpoint` - Endpoint
     * `managed_viewset` - Managed Viewset */
       readonly origin: OriginEnum | NullEnum | null;
+      /** Whether this view is for testing only and will auto-expire. */
+      is_test?: boolean;
+      /**
+       * When this test view should be automatically deleted.
+       * @nullable
+       */
+      readonly expires_at: string | null;
     }
 
     export interface DataWarehouseSavedQueryDraft {
@@ -11441,6 +11448,13 @@ export namespace Schemas {
     * `endpoint` - Endpoint
     * `managed_viewset` - Managed Viewset */
       readonly origin: OriginEnum | NullEnum | null;
+      /** Whether this view is for testing only and will auto-expire. */
+      readonly is_test: boolean;
+      /**
+       * When this test view should be automatically deleted.
+       * @nullable
+       */
+      readonly expires_at: string | null;
     }
 
     export type DataWarehouseSyncInterval = typeof DataWarehouseSyncInterval[keyof typeof DataWarehouseSyncInterval];
@@ -21449,6 +21463,13 @@ export namespace Schemas {
     * `endpoint` - Endpoint
     * `managed_viewset` - Managed Viewset */
       readonly origin?: OriginEnum | NullEnum | null;
+      /** Whether this view is for testing only and will auto-expire. */
+      is_test?: boolean;
+      /**
+       * When this test view should be automatically deleted.
+       * @nullable
+       */
+      readonly expires_at?: string | null;
     }
 
     export interface PatchedDataWarehouseSavedQueryDraft {

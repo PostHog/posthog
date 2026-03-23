@@ -5400,6 +5400,8 @@ export interface DataWarehouseSavedQuery {
     created_at?: string
     run_history?: DataWarehouseSavedQueryRunHistory[]
     origin?: DataWarehouseSavedQueryOrigin
+    is_test?: boolean
+    expires_at?: string
 }
 
 export interface DataWarehouseSavedQueryDraft {
