@@ -37,6 +37,7 @@ import {
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
     AssistantRetentionQuery,
+    AssistantStickinessQuery,
     AssistantTrendsQuery,
 } from '~/queries/schema/schema-assistant-queries'
 import {
@@ -453,6 +454,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                 | AssistantTrendsQuery
                                 | AssistantFunnelsQuery
                                 | AssistantRetentionQuery
+                                | AssistantStickinessQuery
                                 | AssistantHogQLQuery
                         ) => {
                             const source = castAssistantQuery(toolOutput)

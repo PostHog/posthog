@@ -10,6 +10,7 @@ import {
     Node,
     NodeKind,
     RetentionFilterLegacy,
+    StickinessFilterLegacy,
     TrendsFilterLegacy,
     TrendsFormulaNode,
 } from './schema-general'
@@ -759,6 +760,94 @@ export interface AssistantRetentionQuery extends AssistantInsightsQueryBase {
     kind: NodeKind.RetentionQuery
     /** Properties specific to the retention insight */
     retentionFilter: AssistantRetentionFilter
+}
+
+/**
+ * Defines the event series for the stickiness insight.
+ */
+export interface AssistantStickinessEventsNode extends Omit<
+    EventsNode,
+    | 'fixedProperties'
+    | 'properties'
+    | 'math_hogql'
+    | 'limit'
+    | 'groupBy'
+    | 'orderBy'
+    | 'response'
+    | 'math_property_revenue_currency'
+> {
+    properties?: AssistantPropertyFilter[]
+}
+
+/**
+ * Defines the action series for the stickiness insight. You must provide the action ID in the `id` field and the name in the `name` field.
+ */
+export interface AssistantStickinessActionsNode extends Omit<
+    ActionsNode,
+    | 'fixedProperties'
+    | 'properties'
+    | 'math_hogql'
+    | 'limit'
+    | 'groupBy'
+    | 'orderBy'
+    | 'response'
+    | 'name'
+    | 'math_property_revenue_currency'
+> {
+    properties?: AssistantPropertyFilter[]
+    /**
+     * Action name from the plan.
+     */
+    name: string
+}
+
+export interface AssistantStickinessFilter {
+    /**
+     * Visualization type. Available values:
+     * `ActionsLineGraph` - time-series line chart showing how many days users performed the event (default).
+     * `ActionsBar` - time-series bar chart.
+     * `ActionsAreaGraph` - time-series area chart.
+     * @default ActionsLineGraph
+     */
+    display?: StickinessFilterLegacy['display']
+
+    /**
+     * Whether to show the legend describing series.
+     * @default false
+     */
+    showLegend?: StickinessFilterLegacy['show_legend']
+
+    /**
+     * Whether to show a value on each data point.
+     * @default false
+     */
+    showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
+}
+
+export interface AssistantStickinessQuery extends AssistantInsightsQueryBase {
+    kind: NodeKind.StickinessQuery
+
+    /**
+     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
+     *
+     * @default day
+     */
+    interval?: IntervalType
+
+    /**
+     * Events or actions to include. Each series measures how many intervals (e.g. days) within the date range a user performed the event. Prioritize the more popular and fresh events and actions.
+     */
+    series: (AssistantStickinessEventsNode | AssistantStickinessActionsNode)[]
+
+    /**
+     * Properties specific to the stickiness insight
+     */
+    stickinessFilter?: AssistantStickinessFilter
+
+    /**
+     * Compare to date range
+     */
+    compareFilter?: CompareFilter
 }
 
 export interface AssistantHogQLQuery {
