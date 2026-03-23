@@ -20,6 +20,8 @@ class PostHogConfig(AppConfig):
     verbose_name = "PostHog"
 
     def ready(self):
+        import posthog.storage.team_access_cache_signal_handlers  # noqa: F401
+
         self._setup_lazy_admin()
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
         # Fall back to DEV_API_KEY in debug so feature flags work locally without manual env setup.
@@ -96,12 +98,12 @@ class PostHogConfig(AppConfig):
         else:
             setup_async_migrations()
 
-        import posthog.storage.team_access_cache_signal_handlers  # noqa: F401 — register @receiver handlers
         from posthog.api.file_system import registrations as file_system_registrations
         from posthog.tasks.hog_functions import queue_sync_hog_function_templates
 
         # Skip during tests since we handle this in conftest.py
-        if not settings.TEST:
+        # Skip during collectstatic (STATIC_COLLECTION=1 in Dockerfile) — no Redis available at build time
+        if not settings.TEST and not settings.STATIC_COLLECTION:
             queue_sync_hog_function_templates()
 
         file_system_registrations.register_core_file_system_types()

@@ -26,7 +26,7 @@ from .dashboard import Dashboard
 from .dashboard_templates import DashboardTemplate
 from .data_color_theme import DataColorTheme
 from ..ducklake.models import DuckgresServer, DuckLakeCatalog
-from .dashboard_tile import DashboardTile, Text
+from .dashboard_tile import ButtonTile, DashboardTile, Text
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
@@ -57,7 +57,6 @@ from .insight_caching_state import InsightCachingState
 from .insight_variable import InsightVariable
 from .instance_setting import InstanceSetting
 from .integration import Integration
-from .link import Link
 from .llm_prompt import LLMPrompt
 from .materialized_column_slots import MaterializedColumnSlot, MaterializedColumnSlotState
 from .message_template import MessageTemplate
@@ -119,6 +118,7 @@ __all__ = [
     "BatchExportDestination",
     "BatchExportRun",
     "BatchImport",
+    "ButtonTile",
     "Cohort",
     "CohortPeople",
     "CohortCalculationHistory",
@@ -155,7 +155,6 @@ __all__ = [
     "HogFlow",
     "HogFunction",
     "HogFunctionTemplate",
-    "Link",
     "LLMPrompt",
     "HostDefinition",
     "Insight",

@@ -583,10 +583,6 @@ class TestExperimentCRUD(APILicensedTest):
 
         self.assertEqual(created_ff.key, ff_key)
         self.assertEqual(
-            created_ff.filters["holdout_groups"],
-            [{"properties": [], "rollout_percentage": 20, "variant": f"holdout-{holdout_id}"}],
-        )
-        self.assertEqual(
             created_ff.filters["holdout"],
             {"id": holdout_id, "exclusion_percentage": 20},
         )
@@ -621,10 +617,6 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(experiment.holdout_id, holdout_2_id)
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
-        self.assertEqual(
-            created_ff.filters["holdout_groups"],
-            [{"properties": [], "rollout_percentage": 5, "variant": f"holdout-{holdout_2_id}"}],
-        )
         self.assertEqual(
             created_ff.filters["holdout"],
             {"id": holdout_2_id, "exclusion_percentage": 5},
@@ -661,10 +653,6 @@ class TestExperimentCRUD(APILicensedTest):
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
         self.assertEqual(
-            created_ff.filters["holdout_groups"],
-            [{"properties": [], "rollout_percentage": 5, "variant": f"holdout-{holdout_2_id}"}],
-        )
-        self.assertEqual(
             created_ff.filters["holdout"],
             {"id": holdout_2_id, "exclusion_percentage": 5},
         )
@@ -689,7 +677,6 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(experiment.holdout_id, None)
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
-        self.assertEqual(created_ff.filters["holdout_groups"], None)
         self.assertEqual(created_ff.filters["holdout"], None)
 
         # try adding invalid holdout
@@ -724,10 +711,6 @@ class TestExperimentCRUD(APILicensedTest):
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
         self.assertEqual(
-            created_ff.filters["holdout_groups"],
-            [{"properties": [], "rollout_percentage": 5, "variant": f"holdout-{holdout_2_id}"}],
-        )
-        self.assertEqual(
             created_ff.filters["holdout"],
             {"id": holdout_2_id, "exclusion_percentage": 5},
         )
@@ -739,11 +722,9 @@ class TestExperimentCRUD(APILicensedTest):
                 "name": "Test Experiment saved metric",
                 "description": "Test description",
                 "query": {
-                    "kind": "ExperimentTrendsQuery",
-                    "count_query": {
-                        "kind": "TrendsQuery",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    },
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
                 },
             },
         )
@@ -757,8 +738,9 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(
             response.json()["query"],
             {
-                "kind": "ExperimentTrendsQuery",
-                "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
                 "uuid": saved_metric_uuid,
             },
         )
@@ -800,8 +782,9 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(
             saved_metric.query,
             {
-                "kind": "ExperimentTrendsQuery",
-                "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
                 "uuid": saved_metric_uuid,
             },
         )
@@ -813,8 +796,9 @@ class TestExperimentCRUD(APILicensedTest):
                 "name": "Test Experiment saved metric 2",
                 "description": "Test description 2",
                 "query": {
-                    "kind": "ExperimentTrendsQuery",
-                    "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageleave"}]},
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageleave"},
                 },
             },
         )
@@ -902,8 +886,9 @@ class TestExperimentCRUD(APILicensedTest):
                 "name": "Test Experiment saved metric",
                 "description": "Test description",
                 "query": {
-                    "kind": "ExperimentTrendsQuery",
-                    "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
                 },
             },
         )
@@ -2235,7 +2220,6 @@ class TestExperimentCRUD(APILicensedTest):
                     ]
                 },
                 "aggregation_group_type_index": None,
-                "holdout_groups": None,
                 "holdout": None,
             },
         )
@@ -2293,7 +2277,6 @@ class TestExperimentCRUD(APILicensedTest):
                     ]
                 },
                 "aggregation_group_type_index": None,
-                "holdout_groups": None,
                 "holdout": None,
             },
         )
@@ -2362,7 +2345,6 @@ class TestExperimentCRUD(APILicensedTest):
                     ]
                 },
                 "aggregation_group_type_index": None,
-                "holdout_groups": None,
                 "holdout": None,
             },
         )
@@ -3550,11 +3532,9 @@ class TestExperimentCRUD(APILicensedTest):
                 "feature_flag_key": "launch-endpoint-flag",
                 "metrics": [
                     {
-                        "kind": "ExperimentTrendsQuery",
-                        "count_query": {
-                            "kind": "TrendsQuery",
-                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                        },
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
                     }
                 ],
             },
@@ -3591,11 +3571,9 @@ class TestExperimentCRUD(APILicensedTest):
                 "start_date": "2024-01-01T10:00",
                 "metrics": [
                     {
-                        "kind": "ExperimentTrendsQuery",
-                        "count_query": {
-                            "kind": "TrendsQuery",
-                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                        },
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
                     }
                 ],
             },
@@ -4322,8 +4300,9 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
                 "name": "Activity Logging Test Metric",
                 "description": "Testing saved metric activity logging fix",
                 "query": {
-                    "kind": "ExperimentTrendsQuery",
-                    "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
                 },
             },
             format="json",

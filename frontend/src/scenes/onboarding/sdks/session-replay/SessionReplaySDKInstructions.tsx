@@ -42,34 +42,42 @@ const SessionReplayWebInstructionsWrapper = withOnboardingDocsWrapper({
 const SessionReplayReactInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: ReactInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'React',
 })
 const SessionReplayNextJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: NextJSInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'Next.js',
 })
 const SessionReplaySvelteInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: SvelteInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'Svelte',
 })
 const SessionReplayAstroInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: AstroInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'Astro',
 })
 const SessionReplayAngularInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: AngularInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'Angular',
 })
 const SessionReplayVueInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: VueInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'Vue',
 })
 const SessionReplayNuxtJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: NuxtInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'Nuxt',
 })
 const SessionReplayRemixJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RemixInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'React Router',
 })
 
 // Website builders
@@ -90,10 +98,12 @@ const SessionReplayWebflowInstructionsWrapper = withOnboardingDocsWrapper({
 const SessionReplayAndroidInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: AndroidInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'Android',
 })
 const SessionReplayIOSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: IOSInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'Swift',
 })
 const SessionReplayFlutterInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: FlutterInstallation,
@@ -102,6 +112,7 @@ const SessionReplayFlutterInstructionsWrapper = withOnboardingDocsWrapper({
 const SessionReplayRNInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: ReactNativeInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'React Native',
 })
 
 export const SessionReplaySDKInstructions: SDKInstructionsMap = {

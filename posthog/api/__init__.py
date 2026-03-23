@@ -48,6 +48,7 @@ from products.error_tracking.backend.api import (
     ErrorTrackingIssueViewSet,
     ErrorTrackingReleaseViewSet,
     ErrorTrackingSpikeDetectionConfigViewSet,
+    ErrorTrackingSpikeEventViewSet,
     ErrorTrackingStackFrameViewSet,
     ErrorTrackingSuppressionRuleViewSet,
     ErrorTrackingSymbolSetViewSet,
@@ -943,6 +944,13 @@ environments_router.register(
 )
 
 environments_router.register(
+    r"error_tracking/spike_events",
+    ErrorTrackingSpikeEventViewSet,
+    "environment_error_tracking_spike_events",
+    ["team_id"],
+)
+
+environments_router.register(
     r"error_tracking/git-provider-file-links",
     GitProviderFileLinksViewSet,
     "environment_error_tracking_git_provider_file_links",
@@ -1105,6 +1113,7 @@ register_grandfathered_environment_nested_viewset(r"logs", logs.LogsViewSet, "en
 register_grandfathered_environment_nested_viewset(
     r"logs/alerts", logs.LogsAlertViewSet, "environment_logs_alerts", ["team_id"]
 )
+environments_router.register(r"logs/views", logs.LogsViewViewSet, "environment_logs_views", ["team_id"])
 
 environments_router.register(
     r"logs/explainLogWithAI",

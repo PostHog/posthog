@@ -84,6 +84,234 @@ class TestResolver(BaseTest):
         expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(expr) == self.snapshot
 
+    def test_resolve_table_column_aliases_dialect_guard(self):
+        expr = self._select("SELECT 1 FROM events AS e (event_alias)")
+
+        # Resolver allows column_aliases in any dialect; the printer enforces the dialect guard
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
+        assert isinstance(resolved.select_from, ast.JoinExpr)
+        assert resolved.select_from.column_aliases == ["event_alias"]
+
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert isinstance(resolved.select_from, ast.JoinExpr)
+        assert resolved.select_from.column_aliases == ["event_alias"]
+
+    def test_resolve_limit_percent_dialect_guard(self):
+        expr = self._select("SELECT 1 FROM events LIMIT 10 %")
+
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
+        assert resolved.limit_percent is True
+
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert resolved.limit_percent is True
+
+    def test_resolve_limit_percent_expression_guard_clickhouse(self):
+        expr = self._select("SELECT 1 FROM events LIMIT (60 + 7) %")
+
+        with self.assertRaises(QueryError) as context:
+            resolve_types(expr, self.context, dialect="clickhouse")
+        self.assertEqual(
+            str(context.exception),
+            "LIMIT percent with expressions is not supported in clickhouse dialect",
+        )
+
+    def test_resolve_limit_percent_range_guard(self):
+        expr = self._select("SELECT 1 FROM events LIMIT (100.1) %")
+
+        with self.assertRaises(QueryError) as context:
+            resolve_types(expr, self.context, dialect="postgres")
+        self.assertEqual(
+            str(context.exception),
+            "Limit percent must be between 0 and 100",
+        )
+
+    @parameterized.expand(
+        [
+            ("events.created_at", None),
+            ("created_at", None),
+            ("e.created_at", "e"),
+            ("events.created_at", "e"),
+        ]
+    )
+    def test_resolve_exclude_qualified_columns(self, exclude, alias):
+        expr = ast.SelectQuery(
+            select=[ast.ColumnsExpr(all_columns=True, exclude=[exclude])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias=alias),
+        )
+
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
+        selected_names = [str(field.chain[-1]) for field in resolved.select if isinstance(field, ast.Field)]
+        assert "created_at" not in selected_names
+
+    def test_resolve_exclude_missing_column(self):
+        expr = ast.SelectQuery(
+            select=[ast.ColumnsExpr(all_columns=True, exclude=["first_names"])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+        )
+
+        with self.assertRaises(QueryError) as context:
+            resolve_types(expr, self.context, dialect="clickhouse")
+        self.assertEqual(
+            str(context.exception),
+            'Column "first_names" in EXCLUDE list was not found in events',
+        )
+
+    def test_resolve_exclude_with_column_aliases(self):
+        expr = ast.SelectQuery(
+            select=[ast.ColumnsExpr(all_columns=True, exclude=["a", "b", "c"])],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+                alias="c",
+                column_aliases=["a", "b", "c"],
+            ),
+        )
+
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        selected_names = [str(field.chain[-1]) for field in resolved.select if isinstance(field, ast.Field)]
+        assert "a" not in selected_names
+        assert "b" not in selected_names
+        assert "c" not in selected_names
+
+    def test_resolve_replace_columns(self):
+        expr = self._select("SELECT (* REPLACE (1 AS event)) FROM events")
+
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        selected_names = [str(field.chain[-1]) for field in resolved.select if isinstance(field, ast.Field)]
+        assert "event" not in selected_names
+
+        aliases = [alias for alias in resolved.select if isinstance(alias, ast.Alias)]
+        assert any(
+            alias.alias == "event" and isinstance(alias.expr, ast.Constant) and alias.expr.value == 1
+            for alias in aliases
+        )
+
+    def test_resolve_replace_columns_with_exclude(self):
+        expr = self._select("SELECT (* EXCLUDE (uuid) REPLACE (1 AS event)) FROM events")
+
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        selected_names = [str(field.chain[-1]) for field in resolved.select if isinstance(field, ast.Field)]
+        assert "uuid" not in selected_names
+        assert "event" not in selected_names
+
+        aliases = [alias for alias in resolved.select if isinstance(alias, ast.Alias)]
+        assert any(
+            alias.alias == "event" and isinstance(alias.expr, ast.Constant) and alias.expr.value == 1
+            for alias in aliases
+        )
+
+    def test_resolve_replace_missing_column(self):
+        expr = self._select("SELECT (* REPLACE (1 AS does_not_exist)) FROM events")
+
+        with self.assertRaises(QueryError) as context:
+            resolve_types(expr, self.context, dialect="postgres")
+        self.assertEqual(
+            str(context.exception),
+            'Column "does_not_exist" in REPLACE list was not found in events',
+        )
+
+    def test_resolve_replace_exclude_same_column(self):
+        expr = self._select("SELECT (* EXCLUDE (event) REPLACE (1 AS event)) FROM events")
+
+        with self.assertRaises(QueryError) as context:
+            resolve_types(expr, self.context, dialect="postgres")
+        self.assertEqual(
+            str(context.exception),
+            'Column "event" cannot occur in both EXCLUDE and REPLACE list',
+        )
+
+    def test_resolve_replace_expression_references_excluded_column(self):
+        expr = self._select("SELECT (* EXCLUDE (event) REPLACE (concat(event, 'x') AS other)) FROM events")
+
+        with self.assertRaises(QueryError) as context:
+            resolve_types(expr, self.context, dialect="postgres")
+        self.assertEqual(
+            str(context.exception),
+            'Replace expression for "other" cannot reference excluded column "event"',
+        )
+
+    def test_resolve_replace_with_column_aliases_success(self):
+        expr = self._select(
+            "SELECT (* REPLACE (0 AS a)) FROM (SELECT 1 AS customer_id, 2 AS b, 3 AS c) AS customers (a, b, c)"
+        )
+
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        selected_names = [str(field.chain[-1]) for field in resolved.select if isinstance(field, ast.Field)]
+        assert "a" not in selected_names
+        aliases = [alias for alias in resolved.select if isinstance(alias, ast.Alias)]
+        assert any(
+            alias.alias == "a" and isinstance(alias.expr, ast.Constant) and alias.expr.value == 0 for alias in aliases
+        )
+
+    def test_resolve_replace_with_column_aliases_missing_column(self):
+        expr = self._select(
+            "SELECT (* REPLACE (0 AS customer_id)) FROM (SELECT 1 AS customer_id, 2 AS b, 3 AS c) AS customers (a, b, c)"
+        )
+
+        with self.assertRaises(QueryError) as context:
+            resolve_types(expr, self.context, dialect="postgres")
+        self.assertEqual(
+            str(context.exception),
+            'Column "customer_id" in REPLACE list was not found in customers',
+        )
+
+    def test_resolve_unpivot_tuple_shape_guard(self):
+        expr = self._select(
+            "SELECT field_name, field_value FROM events UNPIVOT ((field_value) FOR field_name IN ((event, uuid)))"
+        )
+
+        with self.assertRaises(QueryError) as context:
+            resolve_types(expr, self.context, dialect="postgres")
+        self.assertEqual(
+            str(context.exception),
+            "UNPIVOT value and name columns must both be tuples or both be single columns",
+        )
+
+    def test_resolve_unpivot_tuple_length_guard(self):
+        expr = self._select(
+            "SELECT field_name, field_value FROM events UNPIVOT ((field_value, other_value) FOR (field_name, other_name) IN ((event)))"
+        )
+
+        with self.assertRaises(QueryError) as context:
+            resolve_types(expr, self.context, dialect="postgres")
+        self.assertEqual(
+            str(context.exception),
+            "UNPIVOT IN values must be tuples of length 2",
+        )
+
+    def test_resolve_lambda_style_dialect_guard(self):
+        expr = self._select("SELECT lambda x: x + 1")
+
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
+        assert isinstance(resolved.select[0], ast.Lambda)
+
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert isinstance(resolved.select[0], ast.Lambda)
+
+    def test_resolve_array_slice_dialect_guard(self):
+        expr = self._select("SELECT [1, 2, 3][1:2]")
+
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
+        assert isinstance(resolved.select[0], ast.ArraySlice)
+
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert isinstance(resolved.select[0], ast.ArraySlice)
+
+    def test_resolve_try_cast_dialect_guard(self):
+        expr = self._select("SELECT try_cast(1 AS Int64)")
+
+        with self.assertRaises(QueryError) as context:
+            resolve_types(expr, self.context, dialect="clickhouse")
+        self.assertEqual(str(context.exception), "TRY_CAST is not allowed in clickhouse dialect")
+
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert isinstance(resolved.select[0], ast.TryCast)
+
+    def test_resolve_is_distinct_from_unresolved_field(self):
+        expr = self._select("SELECT missing is distinct from 1")
+        with self.assertRaises(QueryError) as context:
+            resolve_types(expr, self.context, dialect="clickhouse")
+        self.assertEqual(str(context.exception), "Unable to resolve field: missing")
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_events_table_column_alias_inside_subquery(self):
         expr = self._select("SELECT b FROM (select event as b, timestamp as c from events) e WHERE e.b = 'test'")
@@ -602,6 +830,86 @@ class TestResolver(BaseTest):
         node = self._select("select * from (select * from events union all select * from events)")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(node) == self.snapshot
+
+    @parameterized.expand(
+        [
+            ("regex", "select COLUMNS('time') from events", ["timestamp"]),
+            ("regex_caret", "select COLUMNS('^event$') from events", ["event"]),
+            ("list", "select COLUMNS(event, timestamp) from events", ["event", "timestamp"]),
+            ("subquery", "select COLUMNS('a') from (select 1 as a1, 2 as a2, 3 as b1)", ["a1", "a2"]),
+        ]
+    )
+    def test_columns_expr_resolves(self, _name: str, query: str, expected_names: list[str]):
+        node = self._select(query)
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        column_names = [
+            col.type.name if isinstance(col.type, ast.FieldType) else cast(ast.Alias, col).alias for col in node.select
+        ]
+        assert sorted(column_names) == sorted(expected_names)
+
+    def test_columns_expr_no_match_raises(self):
+        node = self._select("select COLUMNS('^nonexistent_xyz$') from events")
+        with self.assertRaises(QueryError) as e:
+            resolve_types(node, self.context, dialect="clickhouse")
+        assert "No columns matched" in str(e.exception)
+
+    def test_columns_expr_subquery(self):
+        node = self._select("select COLUMNS('a') from (select 1 as a1, 2 as a2, 3 as b1)")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        column_names = [
+            col.type.name if isinstance(col.type, ast.FieldType) else cast(ast.Alias, col).alias for col in node.select
+        ]
+        assert sorted(column_names) == ["a1", "a2"]
+
+    @parameterized.expand(
+        [
+            (
+                "regex",
+                "select coalesce(*COLUMNS('a')) from (select 1 as a1, 2 as a2, 3 as b1)",
+                "coalesce",
+                ["a1", "a2"],
+            ),
+            (
+                "list",
+                "select coalesce(*COLUMNS(event, timestamp)) from events",
+                "coalesce",
+                ["event", "timestamp"],
+            ),
+        ]
+    )
+    def test_spread_columns_in_function_call(self, _name, query, expected_fn, expected_args):
+        node = self._select(query)
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        call = node.select[0]
+        assert isinstance(call, ast.Call)
+        assert call.name == expected_fn
+        assert len(call.args) == len(expected_args)
+        arg_names = [
+            arg.type.name if isinstance(arg.type, ast.FieldType) else arg.type.alias
+            for arg in call.args
+            if isinstance(arg.type, (ast.FieldType, ast.FieldAliasType))
+        ]
+        assert sorted(arg_names) == sorted(expected_args)
+
+    @parameterized.expand(
+        [
+            (
+                "top_level",
+                "select *COLUMNS('^event$') from events",
+                "*COLUMNS",
+            ),
+            (
+                "no_match",
+                "select coalesce(*COLUMNS('^nonexistent$')) from events",
+                "No columns matched",
+            ),
+        ]
+    )
+    def test_spread_columns_raises(self, _name, query, expected_msg):
+        with self.assertRaises(QueryError) as e:
+            node = self._select(query)
+            resolve_types(node, self.context, dialect="clickhouse")
+        assert expected_msg in str(e.exception)
 
     def test_lambda_parent_scope(self):
         # does not raise
@@ -1227,6 +1535,59 @@ class TestResolver(BaseTest):
         with self.assertRaisesMessage(QueryError, "VALUES has 2 column(s) but 3 column name(s) were provided"):
             expr = self._select("SELECT * FROM (VALUES (1, 'a')) AS v (id, name, extra)")
             resolve_types(expr, self.context, dialect="postgres")
+
+    def test_unpivot_basic_resolves(self):
+        expr = self._select(
+            "SELECT field_name, field_value, distinct_id FROM events UNPIVOT (field_value FOR field_name IN (event))"
+        )
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert isinstance(expr.select_from, ast.JoinExpr)
+        assert isinstance(expr.select_from.table, ast.UnpivotExpr)
+        assert isinstance(expr.select_from.type, ast.SelectQueryType)
+
+        columns = expr.select_from.type.columns
+        assert "field_name" in columns
+        assert "field_value" in columns
+        assert "distinct_id" in columns
+        assert "event" not in columns
+
+        for column in expr.select:
+            field = column.expr if isinstance(column, ast.Alias) else column
+            assert isinstance(field, ast.Field)
+            assert isinstance(field.type, ast.FieldType)
+
+    def test_unpivot_non_postgres_dialect_error(self):
+        with self.assertRaisesMessage(QueryError, "UNPIVOT is not allowed in clickhouse dialect"):
+            expr = self._select(
+                "SELECT field_name, field_value FROM events UNPIVOT (field_value FOR field_name IN (event))"
+            )
+            resolve_types(expr, self.context, dialect="clickhouse")
+
+    def test_unpivot_non_identifier_output_columns_error(self):
+        with self.assertRaisesMessage(QueryError, "UNPIVOT columns must be identifiers"):
+            expr = self._select("SELECT * FROM events UNPIVOT (field_value + 1 FOR field_name IN (event))")
+            resolve_types(expr, self.context, dialect="postgres")
+
+    def test_unpivot_unknown_in_column_error(self):
+        with self.assertRaisesMessage(QueryError, 'UNPIVOT value column "does_not_exist" was not found'):
+            expr = self._select("SELECT * FROM events UNPIVOT (field_value FOR field_name IN (does_not_exist))")
+            resolve_types(expr, self.context, dialect="postgres")
+
+    def test_limit_with_ties_postgres_error(self):
+        with self.assertRaisesMessage(QueryError, "WITH TIES is not supported in postgres dialect"):
+            expr = self._select("SELECT 1 FROM events ORDER BY 1 LIMIT 1 WITH TIES")
+            resolve_types(expr, self.context, dialect="postgres")
+
+    def test_positional_refs_postgres(self):
+        expr = self._select("SELECT #1, #2 FROM events")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert isinstance(expr.select[0], ast.PositionalRef)
+        assert isinstance(expr.select[1], ast.PositionalRef)
+
+    def test_positional_refs_non_postgres_error(self):
+        with self.assertRaisesMessage(QueryError, "Positional references are not allowed in clickhouse dialect"):
+            expr = self._select("SELECT #1 FROM events")
+            resolve_types(expr, self.context, dialect="clickhouse")
 
     def test_subquery_alias_columns_remap(self):
         # Subquery with alias column list: SELECT * FROM (SELECT 1, 'a') AS v(id, name)

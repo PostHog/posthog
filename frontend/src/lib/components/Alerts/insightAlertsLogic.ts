@@ -10,7 +10,7 @@ import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 import type { insightAlertsLogicType } from './insightAlertsLogicType'
-import { AlertType } from './types'
+import { AlertType, AnomalyPoint } from './types'
 
 export interface InsightAlertsLogicProps {
     insightId: number
@@ -29,6 +29,9 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
         setShouldShowAlertDeletionWarning: (show: boolean) => ({ show }),
         upsertAlert: (alert: AlertType) => ({ alert }),
         removeAlert: (alertId: AlertType['id']) => ({ alertId }),
+        setSimulationAnomalyPoints: (points: AnomalyPoint[]) => ({ points }),
+        clearSimulationAnomalyPoints: true,
+        setShowAlertAnomalyPoints: (show: boolean) => ({ show }),
     }),
 
     connect((props: InsightAlertsLogicProps) => ({
@@ -71,6 +74,19 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
                 setShouldShowAlertDeletionWarning: (_, { show }) => show,
             },
         ],
+        simulationAnomalyPoints: [
+            [] as AnomalyPoint[],
+            {
+                setSimulationAnomalyPoints: (_, { points }) => points,
+                clearSimulationAnomalyPoints: () => [],
+            },
+        ],
+        showAlertAnomalyPointsFlag: [
+            false,
+            {
+                setShowAlertAnomalyPoints: (_, { show }) => show,
+            },
+        ],
     }),
 
     selectors({
@@ -109,6 +125,60 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
                 return result
             },
         ],
+        /** Whether the insight has any detector-based alerts (used to show/hide the toggle). */
+        hasDetectorAlerts: [
+            (s) => [s.alerts],
+            (alerts: AlertType[]): boolean => alerts.some((a) => !!a.detector_config),
+        ],
+        /** Anomaly points from the latest check of detector-based alerts, merged with any active simulation points. */
+        alertAnomalyPoints: [
+            (s) => [s.alerts, s.showAlertAnomalyPointsFlag, s.simulationAnomalyPoints],
+            (alerts: AlertType[], showFlag: boolean, simulationPoints: AnomalyPoint[]): AnomalyPoint[] => {
+                // Simulation points take priority when active (user is previewing)
+                if (simulationPoints.length > 0) {
+                    return simulationPoints
+                }
+
+                if (!showFlag) {
+                    return []
+                }
+
+                // Derive from all firing checks of each detector-based alert.
+                // Each check typically has 0-1 triggered points, so we aggregate
+                // across checks to build the full anomaly timeline. Deduplicate by date.
+                const seen = new Set<string>()
+                return alerts.flatMap((alert) => {
+                    if (!alert.detector_config || !alert.checks?.length) {
+                        return []
+                    }
+                    const seriesIndex = alert.config?.series_index ?? 0
+                    return alert.checks.flatMap((check) => {
+                        if (!check.triggered_dates?.length) {
+                            return []
+                        }
+                        return check.triggered_dates
+                            .filter((date) => {
+                                const key = `${seriesIndex}:${date}`
+                                if (seen.has(key)) {
+                                    return false
+                                }
+                                seen.add(key)
+                                return true
+                            })
+                            .map((date, i) => {
+                                const ptIdx = check.triggered_points?.[i] ?? 0
+                                const scores = check.anomaly_scores
+                                // Score array may be shorter than the point index (e.g. detect() returns single score)
+                                const score =
+                                    scores && ptIdx < scores.length
+                                        ? scores[ptIdx]
+                                        : (scores?.[scores.length - 1] ?? null)
+                                return { index: ptIdx, date, score, seriesIndex }
+                            })
+                    })
+                })
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
@@ -117,6 +187,13 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
                 actions.setShouldShowAlertDeletionWarning(false)
             } else {
                 actions.setShouldShowAlertDeletionWarning(true)
+            }
+        },
+        setShowAlertAnomalyPoints: ({ show }) => {
+            // When toggling on, reload alerts from the API to get latest check data
+            // (inline alerts from the insight endpoint don't include checks)
+            if (show && values.alerts.some((a) => !!a.detector_config && !a.checks?.length)) {
+                actions.loadAlerts()
             }
         },
     })),

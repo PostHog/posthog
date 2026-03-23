@@ -7,50 +7,37 @@ import { initKeaTests } from '~/test/init'
 import { createActionFromEvent } from './createActionFromEvent'
 
 describe('createActionFromEvent()', () => {
-    given(
-        'subject',
-        () => () =>
-            createActionFromEvent(
-                given.teamId,
-                given.event,
-                given.increment,
-                given.dataAttributes,
-                given.createInFolder,
-                given.recurse
-            )
-    )
+    const teamId = 44
+    const createInFolder = null
+    const recurse = jest.fn()
 
-    given('teamId', () => 44)
-    given('increment', () => 0)
-    given('dataAttributes', () => [])
-    given('createInFolder', () => null)
-    given('recurse', () => jest.fn())
-
-    given('event', () => ({
+    const makeEvent = (overrides = {}) => ({
         id: 123,
-        event: given.eventName,
+        event: 'some-event',
         properties: {
             $current_url: 'http://foo.bar/some/path',
-            $event_type: given.eventType,
+            $event_type: undefined,
         },
-        elements: given.elements,
-    }))
+        elements: [],
+        ...overrides,
+    })
 
-    given('eventName', () => 'some-event')
-    given('elements', () => [])
-    given('createResponse', () => ({ id: 456 }))
+    const subject = (event, increment = 0, dataAttributes = []) =>
+        createActionFromEvent(teamId, event, increment, dataAttributes, createInFolder, recurse)
 
     beforeEach(() => {
         initKeaTests()
         jest.spyOn(api.actions, 'get')
         jest.spyOn(api.actions, 'create')
-        api.actions.get.mockImplementation(() => Promise.resolve(given.event))
-        api.actions.create.mockImplementation(() => Promise.resolve(given.createResponse))
+        api.actions.create.mockImplementation(() => Promise.resolve({ id: 456 }))
     })
 
     describe('action did not exist', () => {
         it('creates the correct action', async () => {
-            await given.subject()
+            const event = makeEvent()
+            api.actions.get.mockImplementation(() => Promise.resolve(event))
+
+            await subject(event)
 
             expect(api.actions.create).toHaveBeenCalledWith({
                 name: 'some-event event',
@@ -59,16 +46,20 @@ describe('createActionFromEvent()', () => {
         })
 
         it('directs to the action page and shows toast', async () => {
-            await given.subject()
+            const event = makeEvent()
+            api.actions.get.mockImplementation(() => Promise.resolve(event))
+
+            await subject(event)
 
             expect(router.values.location.pathname).toEqual('/project/997/data-management/actions/456')
         })
 
         describe('increments', () => {
-            given('increment', () => 4)
-
             it('handles increments', async () => {
-                await given.subject()
+                const event = makeEvent()
+                api.actions.get.mockImplementation(() => Promise.resolve(event))
+
+                await subject(event, 4)
 
                 expect(api.actions.create).toHaveBeenCalledWith({
                     name: 'some-event event 4',
@@ -78,16 +69,21 @@ describe('createActionFromEvent()', () => {
         })
 
         describe('$autocapture events', () => {
-            given('eventName', () => '$autocapture')
-
             describe('without data attributes', () => {
-                given('eventType', () => 'submit')
-                given('elements', () => [
-                    { tag_name: 'form', text: 'Submit form!', attributes: { 'attr__data-attr': 'form' } },
-                ])
-
                 it('handles submit $autocapture events with elements', async () => {
-                    await given.subject()
+                    const event = makeEvent({
+                        event: '$autocapture',
+                        properties: {
+                            $current_url: 'http://foo.bar/some/path',
+                            $event_type: 'submit',
+                        },
+                        elements: [
+                            { tag_name: 'form', text: 'Submit form!', attributes: { 'attr__data-attr': 'form' } },
+                        ],
+                    })
+                    api.actions.get.mockImplementation(() => Promise.resolve(event))
+
+                    await subject(event)
 
                     expect(api.actions.create).toHaveBeenCalledWith({
                         name: 'submitted form with text "Submit form!"',
@@ -105,15 +101,21 @@ describe('createActionFromEvent()', () => {
             })
 
             describe('with data attributes', () => {
-                given('eventType', () => 'click')
-                given('elements', () => [
-                    { tag_name: 'input', text: 'Submit form!' },
-                    { tag_name: 'form', text: 'Submit form!', attributes: { 'attr__data-attr': 'form' } },
-                ])
-                given('dataAttributes', () => ['data-attr'])
-
                 it('handles data attributes', async () => {
-                    await given.subject()
+                    const event = makeEvent({
+                        event: '$autocapture',
+                        properties: {
+                            $current_url: 'http://foo.bar/some/path',
+                            $event_type: 'click',
+                        },
+                        elements: [
+                            { tag_name: 'input', text: 'Submit form!' },
+                            { tag_name: 'form', text: 'Submit form!', attributes: { 'attr__data-attr': 'form' } },
+                        ],
+                    })
+                    api.actions.get.mockImplementation(() => Promise.resolve(event))
+
+                    await subject(event, 0, ['data-attr'])
 
                     expect(api.actions.create).toHaveBeenCalledWith({
                         name: 'clicked input with text "Submit form!"',
@@ -132,16 +134,22 @@ describe('createActionFromEvent()', () => {
             })
 
             describe('with data attributes on a link', () => {
-                given('eventType', () => 'click')
-                given('elements', () => [
-                    { tag_name: 'svg' },
-                    { tag_name: 'a', text: 'Submit form via link!', attributes: { 'attr__data-attr': 'link' } },
-                    { tag_name: 'form', text: 'Submit form!', attributes: { 'attr__data-attr': 'form' } },
-                ])
-                given('dataAttributes', () => ['data-attr'])
-
                 it('handles data attributes', async () => {
-                    await given.subject()
+                    const event = makeEvent({
+                        event: '$autocapture',
+                        properties: {
+                            $current_url: 'http://foo.bar/some/path',
+                            $event_type: 'click',
+                        },
+                        elements: [
+                            { tag_name: 'svg' },
+                            { tag_name: 'a', text: 'Submit form via link!', attributes: { 'attr__data-attr': 'link' } },
+                            { tag_name: 'form', text: 'Submit form!', attributes: { 'attr__data-attr': 'form' } },
+                        ],
+                    })
+                    api.actions.get.mockImplementation(() => Promise.resolve(event))
+
+                    await subject(event, 0, ['data-attr'])
 
                     expect(api.actions.create).toHaveBeenCalledWith({
                         name: 'clicked svg',
@@ -160,16 +168,22 @@ describe('createActionFromEvent()', () => {
             })
 
             describe('with wildcard data attributes', () => {
-                given('eventType', () => 'click')
-                given('elements', () => [
-                    { tag_name: 'svg' },
-                    { tag_name: 'a', text: 'Submit form via link!', attributes: { 'attr__data-attr': 'link' } },
-                    { tag_name: 'form', text: 'Submit form!', attributes: { 'attr__data-attr': 'form' } },
-                ])
-                given('dataAttributes', () => ['data-at*'])
-
                 it('handles data attributes', async () => {
-                    await given.subject()
+                    const event = makeEvent({
+                        event: '$autocapture',
+                        properties: {
+                            $current_url: 'http://foo.bar/some/path',
+                            $event_type: 'click',
+                        },
+                        elements: [
+                            { tag_name: 'svg' },
+                            { tag_name: 'a', text: 'Submit form via link!', attributes: { 'attr__data-attr': 'link' } },
+                            { tag_name: 'form', text: 'Submit form!', attributes: { 'attr__data-attr': 'form' } },
+                        ],
+                    })
+                    api.actions.get.mockImplementation(() => Promise.resolve(event))
+
+                    await subject(event, 0, ['data-at*'])
 
                     expect(api.actions.create).toHaveBeenCalledWith({
                         name: 'clicked svg',
@@ -189,10 +203,11 @@ describe('createActionFromEvent()', () => {
         })
 
         describe('$pageview event', () => {
-            given('eventName', () => '$pageview')
-
             it('is handled', async () => {
-                await given.subject()
+                const event = makeEvent({ event: '$pageview' })
+                api.actions.get.mockImplementation(() => Promise.resolve(event))
+
+                await subject(event)
 
                 expect(api.actions.create).toHaveBeenCalledWith({
                     name: 'Pageview on /some/path',
@@ -210,25 +225,22 @@ describe('createActionFromEvent()', () => {
         })
 
         it('recurses with increment + 1', async () => {
-            await given.subject()
+            const event = makeEvent()
+            api.actions.get.mockImplementation(() => Promise.resolve(event))
 
-            expect(given.recurse).toHaveBeenCalledWith(
-                given.teamId,
-                given.event,
-                1,
-                given.dataAttributes,
-                given.createInFolder,
-                given.recurse
-            )
+            await subject(event)
+
+            expect(recurse).toHaveBeenCalledWith(teamId, event, 1, [], createInFolder, recurse)
         })
 
         describe('increment == 30', () => {
-            given('increment', () => 30)
-
             it('stops recursion', async () => {
-                await given.subject()
+                const event = makeEvent()
+                api.actions.get.mockImplementation(() => Promise.resolve(event))
 
-                expect(given.recurse).not.toHaveBeenCalled()
+                await subject(event, 30)
+
+                expect(recurse).not.toHaveBeenCalled()
             })
         })
     })
