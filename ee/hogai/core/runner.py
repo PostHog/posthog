@@ -62,6 +62,7 @@ from ee.hogai.utils.types.base import (
     AssistantOutput,
     AssistantResultUnion,
     AssistantStreamedMessageUnion,
+    ConversationTitleAction,
     LangGraphUpdateEvent,
 )
 from ee.hogai.utils.types.composed import AssistantMaxGraphState, AssistantMaxPartialGraphState
@@ -264,6 +265,7 @@ class BaseAgentRunner(ABC):
                 # Send the latest received human message with the initialized id.
                 yield AssistantEventType.MESSAGE, self._latest_message
 
+            self._pending_conversation_update = False
             try:
                 async for update in generator:
                     if messages := await self._process_update(update):
@@ -279,6 +281,13 @@ class BaseAgentRunner(ABC):
                                 yield AssistantEventType.STATUS, message
                             elif isinstance(message, AssistantUpdateEvent | SubagentUpdateEvent):
                                 yield AssistantEventType.UPDATE, message
+
+                    # Re-yield the conversation when the title generator has
+                    # produced a title. Checked after _process_update so the
+                    # flag set by ConversationTitleAction is picked up.
+                    if self._pending_conversation_update:
+                        self._pending_conversation_update = False
+                        yield AssistantEventType.CONVERSATION, self._conversation
             except GraphInterrupt:
                 # GraphInterrupt is raised when interrupt() is called in a tool.
                 # TRICKY: don't reset state. The interrupt handling code
@@ -577,6 +586,11 @@ class BaseAgentRunner(ABC):
 
     async def _process_update(self, update: Any) -> list[AssistantResultUnion] | None:
         update = extract_stream_update(update)
+
+        if isinstance(update, ConversationTitleAction):
+            self._conversation.title = update.title
+            self._pending_conversation_update = True
+            return None
 
         if not isinstance(update, AssistantDispatcherEvent):
             if updates := await self._stream_processor.process_langgraph_update(LangGraphUpdateEvent(update=update)):
