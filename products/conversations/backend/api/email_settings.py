@@ -90,12 +90,22 @@ class EmailConnectView(APIView):
                 status=400,
             )
 
+        # Prevent cross-team domain conflicts
+        if TeamConversationsEmailConfig.objects.filter(domain=domain).exclude(team=team).exists():
+            return Response({"error": "This domain is already in use by another team."}, status=400)
+
         # Register domain with Mailgun for outbound sending
         dns_records: dict = {}
         try:
             dns_records = mailgun_add_domain(domain)
         except ValueError as e:
             logger.info("email_connect_mailgun_domain_error", team_id=team.id, domain=domain, error=str(e))
+            return Response(
+                {
+                    "error": "This domain cannot be registered for sending. It may already be claimed by another account."
+                },
+                status=400,
+            )
         except Exception:
             logger.exception("email_connect_mailgun_add_domain_failed", team_id=team.id, domain=domain)
 
@@ -287,8 +297,8 @@ class EmailDisconnectView(APIView):
             team.conversations_settings = settings
             team.save(update_fields=["conversations_settings"])
 
-        # Remove domain from Mailgun outside the transaction to avoid holding DB connections during HTTP calls
-        if domain_to_delete:
+        # Only remove from Mailgun if no other teams still use this domain
+        if domain_to_delete and not TeamConversationsEmailConfig.objects.filter(domain=domain_to_delete).exists():
             try:
                 mailgun_delete_domain(domain_to_delete)
             except ValueError:
