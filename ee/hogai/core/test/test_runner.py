@@ -712,7 +712,7 @@ class TestRunnerConversationTitleAction(BaseTest):
         runner._pending_conversation_update = False
 
         # A values update — (namespace, "values", state_dict) format from LangGraph multi-mode streaming
-        other_update = (("some_node",), "values", {})
+        other_update: tuple[tuple[str, ...], str, dict] = (("some_node",), "values", {})
         await runner._process_update(other_update)
 
         self.assertFalse(runner._pending_conversation_update)

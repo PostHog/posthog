@@ -38,9 +38,10 @@ class TitleGeneratorNode(AssistantNode):
         # Emit the title to the stream so the frontend can display it immediately
         try:
             writer = get_stream_writer()
-            writer(ConversationTitleAction(title=conversation.title))
         except RuntimeError:
             pass  # Not in a streaming context (e.g. testing)
+        else:
+            writer(ConversationTitleAction(title=conversation.title))
 
         return None
 
