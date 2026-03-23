@@ -7,7 +7,8 @@ from posthog.dags.common import JobOwners
 
 
 class SymbolSetBackfillLastUsedConfig(dagster.Config):
-    batch_size: int = 300000
+    total_per_run: int = 300000
+    batch_size: int = 10000
 
 
 @dagster.asset
@@ -17,30 +18,39 @@ def symbol_set_backfill_last_used(
 ) -> dagster.MaterializeResult:
     """
     Backfill last_used for symbol sets that don't have one.
-    Runs hourly, updating a batch per run. Once all rows are backfilled this is a no-op.
+    Runs hourly, updating rows in small batches to avoid long locks.
+    Once all rows are backfilled this is a no-op.
     """
     today = timezone.now().date()
+    total_updated = 0
 
-    with connection.cursor() as cursor:
-        cursor.execute(
-            """
-            UPDATE posthog_errortrackingsymbolset
-            SET last_used = %s
-            WHERE id IN (
-                SELECT id FROM posthog_errortrackingsymbolset
-                WHERE last_used IS NULL
-                LIMIT %s
+    while total_updated < config.total_per_run:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE posthog_errortrackingsymbolset
+                SET last_used = %s
+                WHERE id IN (
+                    SELECT id FROM posthog_errortrackingsymbolset
+                    WHERE last_used IS NULL
+                    LIMIT %s
+                )
+                """,
+                [today, config.batch_size],
             )
-            """,
-            [today, config.batch_size],
-        )
-        updated = cursor.rowcount
+            updated = cursor.rowcount
 
-    context.log.info(f"Backfilled last_used for {updated} symbol sets")
+        if updated == 0:
+            break
+
+        total_updated += updated
+        context.log.info(f"Updated {total_updated} symbol sets so far")
+
+    context.log.info(f"Backfilled last_used for {total_updated} symbol sets")
 
     return dagster.MaterializeResult(
         metadata={
-            "total_updated": dagster.MetadataValue.int(updated),
+            "total_updated": dagster.MetadataValue.int(total_updated),
         }
     )
 
