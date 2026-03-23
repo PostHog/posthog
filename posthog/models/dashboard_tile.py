@@ -148,16 +148,72 @@ class DashboardTile(models.Model):
         ):
             raise ValidationError("Fields to do with refreshing are only applicable when this is an insight tile")
 
+    def prepare_move_to_dashboard(self, to_dashboard_id: int) -> None:
+        """Remove other tile rows on the destination that reference the same insight/text/button.
+
+        A soft-deleted row still occupies the unique (dashboard, insight|text|button) key; delete it so
+        ``dashboard_id`` can be updated onto this tile. If a non-deleted row exists, moving is invalid.
+        """
+        if self.insight is not None:
+            qs = DashboardTile.objects_including_soft_deleted.filter(
+                dashboard_id=to_dashboard_id, insight=self.insight
+            ).exclude(pk=self.pk)
+        elif self.text is not None:
+            qs = DashboardTile.objects_including_soft_deleted.filter(
+                dashboard_id=to_dashboard_id, text=self.text
+            ).exclude(pk=self.pk)
+        elif self.button_tile is not None:
+            qs = DashboardTile.objects_including_soft_deleted.filter(
+                dashboard_id=to_dashboard_id, button_tile=self.button_tile
+            ).exclude(pk=self.pk)
+        else:
+            return
+        for stale in qs:
+            if stale.deleted is not True:
+                raise ValidationError("This content is already on the destination dashboard.")
+            stale.delete()
+
     def copy_to_dashboard(self, dashboard: Dashboard) -> None:
+        """
+        Place this tile's content on another dashboard: create a new row, or undelete a soft-deleted
+        row for the same insight or text (unique constraint would block a second insert otherwise).
+
+        Button tiles are not supported for copy (see ``copy_tile`` API).
+        """
+        if self.button_tile is not None and self.insight is None and self.text is None:
+            raise ValidationError("Button tiles cannot be copied between dashboards.")
+
+        if self.insight is not None:
+            existing = DashboardTile.objects_including_soft_deleted.filter(
+                dashboard=dashboard, insight=self.insight
+            ).first()
+        elif self.text is not None:
+            existing = DashboardTile.objects_including_soft_deleted.filter(dashboard=dashboard, text=self.text).first()
+        else:
+            raise ValidationError("Cannot copy tile without insight or text.")
+
+        if existing:
+            if existing.deleted is not True:
+                raise ValidationError("Tile already exists on destination dashboard")
+            existing.deleted = False
+            existing.layouts = self.layouts
+            existing.color = self.color
+            existing.show_description = self.show_description
+            existing.transparent_background = self.transparent_background
+            existing.filters_overrides = self.filters_overrides
+            existing.save()
+            return
+
         DashboardTile.objects.create(
             dashboard=dashboard,
             insight=self.insight,
             text=self.text,
-            button_tile=self.button_tile,
+            button_tile=None,
             color=self.color,
             layouts=self.layouts,
             show_description=self.show_description,
             transparent_background=self.transparent_background,
+            filters_overrides=self.filters_overrides,
         )
 
     @staticmethod

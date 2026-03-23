@@ -7,7 +7,9 @@ from typing import Any, Optional, cast
 
 from django.conf import settings
 from django.core.cache import cache
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import URLValidator
+from django.db import IntegrityError, transaction
 from django.db.models import CharField, Count, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
 from django.db.models.functions import Cast
 from django.http import StreamingHttpResponse
@@ -33,7 +35,7 @@ from posthog.schema import InsightVizNode
 from posthog.api.dashboards.dashboard_ai import generate_refresh_analysis
 from posthog.api.dashboards.dashboard_template_json_schema_parser import DashboardTemplateCreationJSONSchemaParser
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.insight import InsightSerializer, InsightViewSet
+from posthog.api.insight import DashboardTileBasicSerializer, InsightSerializer, InsightViewSet
 from posthog.api.insight_suggestions import summarize_insight_result
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -58,7 +60,7 @@ from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import filters_override_requested_by_client, str_to_bool, variables_override_requested_by_client
@@ -141,6 +143,11 @@ class ReorderTilesRequestSerializer(serializers.Serializer):
     )
 
 
+class CopyDashboardTileRequestSerializer(serializers.Serializer):
+    fromDashboardId = serializers.IntegerField(help_text="Dashboard id the tile currently belongs to.")
+    tileId = serializers.IntegerField(help_text="Dashboard tile id to copy.")
+
+
 class CanEditDashboard(BasePermission):
     message = "You don't have edit permissions for this dashboard."
 
@@ -189,6 +196,12 @@ class TextSerializer(serializers.ModelSerializer):
         fields = "__all__"
         read_only_fields = ["id", "created_by", "last_modified_by", "last_modified_at"]
 
+    def to_representation(self, instance: Text) -> dict[str, Any]:
+        representation = super().to_representation(instance)
+        tiles = DashboardTile.objects.filter(text_id=instance.id)
+        representation["dashboard_tiles"] = DashboardTileBasicSerializer(tiles, many=True).data
+        return representation
+
 
 class ButtonTileSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
@@ -219,6 +232,12 @@ class ButtonTileSerializer(serializers.ModelSerializer):
             except Exception:
                 raise serializers.ValidationError("Must be a valid URL or a pathname starting with /")
         return value
+
+    def to_representation(self, instance: ButtonTile) -> dict[str, Any]:
+        representation = super().to_representation(instance)
+        tiles = DashboardTile.objects.filter(button_tile_id=instance.id)
+        representation["dashboard_tiles"] = DashboardTileBasicSerializer(tiles, many=True).data
+        return representation
 
 
 class DashboardTileSerializer(serializers.ModelSerializer):
@@ -1241,15 +1260,79 @@ class DashboardsViewSet(
             id=tile["id"],
             dashboard__team__project_id=self.team.project_id,
         )
-        get_object_or_404(Dashboard, id=to_dashboard, team__project_id=self.team.project_id)
-        tile.dashboard_id = to_dashboard
-        tile.save(update_fields=["dashboard_id"])
+        to_dashboard_obj = get_object_or_404(Dashboard, id=to_dashboard, team__project_id=self.team.project_id)
+        if not self.user_permissions.dashboard(to_dashboard_obj).can_edit:
+            raise exceptions.PermissionDenied("You don't have edit permissions for the destination dashboard.")
+        try:
+            with transaction.atomic():
+                tile.prepare_move_to_dashboard(to_dashboard)
+                tile.dashboard_id = to_dashboard
+                tile.save(update_fields=["dashboard_id"])
+        except DjangoValidationError:
+            logger.exception("validation_error_while_moving_dashboard_tile")
+            raise exceptions.ValidationError("Invalid request data for moving tile.")
 
         serializer = DashboardSerializer(
             get_object_or_404(Dashboard, id=from_dashboard, team__project_id=self.team.project_id),
             context=self.get_serializer_context(),
         )
         return Response(serializer.data)
+
+    @extend_schema(request=CopyDashboardTileRequestSerializer, responses={200: DashboardSerializer})
+    @action(methods=["POST"], detail=True, required_scopes=["dashboard:write"])
+    def copy_tile(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Copy an existing dashboard tile to another dashboard (insight or text card; new tile row)."""
+        destination = self.get_object()
+        if destination.deleted:
+            raise exceptions.NotFound()
+
+        serializer = CopyDashboardTileRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        from_dashboard_id = serializer.validated_data["fromDashboardId"]
+        tile_id = serializer.validated_data["tileId"]
+
+        if from_dashboard_id == destination.pk:
+            raise exceptions.ValidationError("Destination must be a different dashboard than the source.")
+
+        tile = get_object_or_404(
+            DashboardTile,
+            dashboard_id=from_dashboard_id,
+            id=tile_id,
+            dashboard__team__project_id=self.team.project_id,
+        )
+        if tile.insight is None and tile.text is None:
+            raise exceptions.ValidationError("Only insight and text tiles can be copied between dashboards.")
+
+        user_access_control = UserAccessControl(user=cast(User, request.user), team=self.team)
+
+        if tile.insight is not None:
+            if not user_access_control.check_access_level_for_object(tile.insight, "viewer"):
+                raise exceptions.PermissionDenied("You don't have permission to view this insight.")
+
+            if DashboardTile.objects.filter(dashboard=destination, insight=tile.insight).exists():
+                raise exceptions.ValidationError("This insight is already on the destination dashboard.")
+        elif tile.text is not None:
+            if DashboardTile.objects.filter(dashboard=destination, text=tile.text).exists():
+                raise exceptions.ValidationError("This text card is already on the destination dashboard.")
+
+        try:
+            tile.copy_to_dashboard(destination)
+        except DjangoValidationError:
+            logger.warning("validation_error_while_copying_dashboard_tile", exc_info=True)
+            raise exceptions.ValidationError("Unable to copy tile due to invalid data.")
+        except IntegrityError:
+            raise exceptions.ValidationError(
+                "This insight is already on the destination dashboard."
+                if tile.insight is not None
+                else "This text card is already on the destination dashboard."
+            )
+
+        return Response(
+            DashboardSerializer(
+                get_object_or_404(Dashboard, id=destination.pk, team__project_id=self.team.project_id),
+                context=self.get_serializer_context(),
+            ).data
+        )
 
     @extend_schema(request=ReorderTilesRequestSerializer, responses={200: DashboardSerializer})
     @action(methods=["POST"], detail=True, required_scopes=["dashboard:write"])

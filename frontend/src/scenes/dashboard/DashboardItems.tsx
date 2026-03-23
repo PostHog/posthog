@@ -18,7 +18,6 @@ import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunity
 import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
@@ -60,14 +59,13 @@ export function DashboardItems(): JSX.Element {
         duplicateTile,
         refreshDashboardItem,
         moveToDashboard,
+        copyToDashboard,
         setTileOverride,
         setDashboardMode,
     } = useActions(dashboardLogic)
     const { renameInsight } = useActions(insightsModel)
     const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
     const { push } = useActions(router)
-    const { nameSortedDashboards } = useValues(dashboardsModel)
-    const otherDashboards = nameSortedDashboards.filter((nsdb) => nsdb.id !== dashboard?.id)
     const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({})
 
     const bestSurveyOpportunityFunnel = surveyLinkedInsightsLoading
@@ -320,6 +318,12 @@ export function DashboardItems(): JSX.Element {
                                     }
                                     moveToDashboard(tile, dashboard.id, id, name)
                                 },
+                                copyToDashboard: ({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
+                                    if (!dashboard) {
+                                        throw new Error('must be on a dashboard to copy this tile')
+                                    }
+                                    copyToDashboard(tile, dashboard.id, id, name)
+                                },
                                 removeFromDashboard: () => removeTile(tile),
                             }
 
@@ -375,7 +379,7 @@ export function DashboardItems(): JSX.Element {
                                         key={tile.id}
                                         tile={tile}
                                         placement={placement}
-                                        otherDashboards={otherDashboards}
+                                        dashboardId={dashboard?.id}
                                         isDragging={isDragging.current}
                                         onEdit={() => {
                                             if (dashboard?.id) {
@@ -383,6 +387,12 @@ export function DashboardItems(): JSX.Element {
                                             }
                                         }}
                                         onMoveToDashboard={commonTileProps.moveToDashboard}
+                                        onCopyToDashboard={({ id, name }) => {
+                                            if (!dashboard) {
+                                                throw new Error('must be on a dashboard to copy this tile')
+                                            }
+                                            copyToDashboard(tile, dashboard.id, id, name)
+                                        }}
                                         onDuplicate={() => duplicateTile(tile)}
                                         onRemove={commonTileProps.removeFromDashboard}
                                         showResizeHandles={commonTileProps.showResizeHandles}
@@ -400,7 +410,7 @@ export function DashboardItems(): JSX.Element {
                                         key={tile.id}
                                         tile={tile}
                                         placement={placement}
-                                        otherDashboards={otherDashboards}
+                                        dashboardId={dashboard?.id}
                                         isDraggingRef={isDragging}
                                         onEdit={() => {
                                             if (dashboard?.id) {
