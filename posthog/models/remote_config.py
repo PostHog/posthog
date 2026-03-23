@@ -164,9 +164,11 @@ class RemoteConfig(UUIDTModel):
 
         # Build V1 fields (for backward compatibility with old SDKs)
         sample_rate = (
-            str(team.session_recording_sample_rate) if team.session_recording_sample_rate is not None else None
+            str(team.session_recording_sample_rate.normalize())
+            if team.session_recording_sample_rate is not None
+            else None
         )
-        if sample_rate == "1.00":
+        if sample_rate == "1":
             sample_rate = None
 
         linked_flag = None
