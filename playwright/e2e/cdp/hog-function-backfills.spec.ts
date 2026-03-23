@@ -106,11 +106,6 @@ test.describe('Hog function backfills tab', () => {
         // Click the Backfills tab
         await backfillsTab.click()
 
-        // This test reproduces the Kea mounting error:
-        // Error: [KEA] Can not find path "scenes.data-pipelines.batch-exports.batchExportConfigFormLogic.ID:..."
-        //
-        // If the backfills table renders successfully with the "Completed" status,
-        // the mounting error has been fixed.
         await expect(page.getByText('Completed')).toBeVisible({ timeout: 10000 })
     })
 })
