@@ -539,7 +539,6 @@ export const experimentLogic = kea<experimentLogicType>([
             [
                 'reportExperimentCreated',
                 'reportExperimentViewed',
-                'reportExperimentLaunched',
                 'reportExperimentCompleted',
                 'reportExperimentStopped',
                 'reportExperimentArchived',
@@ -1391,7 +1390,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 // Trigger results refresh so the metrics table doesn't get stuck in "loading" state
                 actions.refreshExperimentResults(false, 'manual')
                 actions.setUnmodifiedExperiment(structuredClone(experimentWithMetricOrdering))
-                eventUsageLogic.actions.reportExperimentLaunched(experimentWithMetricOrdering, dayjs())
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.LaunchExperiment)
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to launch experiment')

@@ -1249,7 +1249,6 @@ interface EventSchemas {
     'experiment feature flag selected': Record<string, any>
     'experiment holdout assigned': Record<string, any>
     'experiment holdout created': Record<string, any>
-    'experiment launched': Record<string, any>
     'experiment load insight failed': Record<string, any>
     'experiment metric timeout': Record<string, any>
     'experiment_recalculation_time team setting updated': Record<string, any>
