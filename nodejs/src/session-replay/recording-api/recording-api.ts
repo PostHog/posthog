@@ -131,6 +131,7 @@ export class RecordingApi {
             request_timeout: 30_000,
             max_open_connections: 10,
             // Internal ClickHouse uses self-signed certs with a hostname mismatch
+            // nosemgrep: problem-based-packs.insecure-transport.js-node.bypass-tls-verification.bypass-tls-verification
             ...(this.config.CLICKHOUSE_SECURE
                 ? { http_agent: new https.Agent({ rejectUnauthorized: false, keepAlive: true, maxSockets: 10 }) }
                 : {}),
