@@ -75,7 +75,7 @@ After disabling or deleting flags, generate a cleanup prompt the user can run in
 Classify each deleted/disabled flag into one of three rollout states based on its definition:
 
 - **`fully_rolled_out`**: A boolean flag with a release condition at 100% rollout and no property filters, or a multivariate flag where one variant is at 100%. Record which variant was active (for multivariate flags).
-- **`not_rolled_out`**: The flag was never called (`last_called_at` is null and it's not fully rolled out), or all release conditions are at 0%.
+- **`not_rolled_out`**: All release conditions are at 0%, or the flag has no release conditions at all.
 - **`partial`**: Everything else — the flag had some targeting but wasn't fully rolled out or fully off.
 
 Then generate instructions following this structure:
@@ -124,9 +124,9 @@ Present the full cleanup prompt in a copyable format so the user can paste it di
 User: "Can you help me clean up our stale feature flags?"
 
 Agent steps:
-1. Call feature-flag-get-all with active: "STALE" to get all stale flags in one request
-2. For each stale flag, call feature-flag-get-definition to check experiment_set and dependencies
-4. Present findings:
+- Call feature-flag-get-all with active: "STALE" to get all stale flags in one request
+- For each stale flag, call feature-flag-get-definition to check experiment_set and dependencies
+- Present findings:
 
    "I found 7 stale feature flags in your project:
 
@@ -141,12 +141,13 @@ Agent steps:
    Want me to disable any of these? I'd recommend starting with old-checkout-flow
    and beta-dashboard-v2 since they have no dependencies."
 
-5. User confirms: "Yes, delete those two"
-6. Call delete-feature-flag for each
-7. Classify rollout states from the flag definitions:
+- User confirms: "Yes, remove those two"
+- Disable each flag first using update-feature-flag (active: false), then confirm with the user before deleting
+- After user confirms no issues, call delete-feature-flag for each
+- Classify rollout states from the flag definitions:
    - old-checkout-flow: fully_rolled_out (boolean, 100% rollout, no conditions)
    - beta-dashboard-v2: fully_rolled_out (boolean, 100% rollout, no conditions)
-8. Generate and present cleanup prompt:
+- Generate and present cleanup prompt:
 
    "Both flags are deleted. Here's a cleanup prompt you can paste into your
    code editor:
