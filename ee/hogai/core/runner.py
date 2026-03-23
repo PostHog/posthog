@@ -627,6 +627,7 @@ class BaseAgentRunner(ABC):
             self._user,
             event_name,
             properties,
+            send_feature_flags=True,
         )
 
     @asynccontextmanager
