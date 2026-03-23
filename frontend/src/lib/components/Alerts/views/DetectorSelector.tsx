@@ -122,12 +122,13 @@ function getDefaultSingleConfigs(window: number): Record<string, SingleDetectorC
         mad: { type: 'mad', threshold: 0.9, window },
         iqr: { type: 'iqr', multiplier: 1.5, window },
         threshold: { type: 'threshold' },
-        ecod: { type: 'ecod', threshold: 0.9 },
-        copod: { type: 'copod', threshold: 0.9 },
+        ecod: { type: 'ecod', threshold: 0.9, window },
+        copod: { type: 'copod', threshold: 0.9, window },
         isolation_forest: {
             type: 'isolation_forest',
             threshold: 0.9,
             n_estimators: 100,
+            window,
             preprocessing: { diffs_n: 1, lags_n: 3 },
         },
         knn: {
@@ -135,12 +136,13 @@ function getDefaultSingleConfigs(window: number): Record<string, SingleDetectorC
             threshold: 0.9,
             n_neighbors: 5,
             method: 'largest',
+            window,
             preprocessing: { diffs_n: 1, lags_n: 3 },
         },
-        lof: { type: 'lof', threshold: 0.9, n_neighbors: 20, preprocessing: { diffs_n: 1, lags_n: 3 } },
-        hbos: { type: 'hbos', threshold: 0.9, n_bins: 10 },
-        ocsvm: { type: 'ocsvm', threshold: 0.9, preprocessing: { diffs_n: 1, lags_n: 3 } },
-        pca: { type: 'pca', threshold: 0.9, preprocessing: { diffs_n: 1, lags_n: 3 } },
+        lof: { type: 'lof', threshold: 0.9, n_neighbors: 20, window, preprocessing: { diffs_n: 1, lags_n: 3 } },
+        hbos: { type: 'hbos', threshold: 0.9, n_bins: 10, window },
+        ocsvm: { type: 'ocsvm', threshold: 0.9, window, preprocessing: { diffs_n: 1, lags_n: 3 } },
+        pca: { type: 'pca', threshold: 0.9, window, preprocessing: { diffs_n: 1, lags_n: 3 } },
     }
 }
 
@@ -370,48 +372,56 @@ function SingleDetectorConfigSection({
                 <ECODConfig
                     config={config as ECODDetectorConfig}
                     onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                    calculationInterval={calculationInterval}
                 />
             )}
             {config.type === 'copod' && (
                 <COPODConfig
                     config={config as COPODDetectorConfig}
                     onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                    calculationInterval={calculationInterval}
                 />
             )}
             {config.type === 'isolation_forest' && (
                 <IsolationForestConfig
                     config={config as IsolationForestDetectorConfig}
                     onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                    calculationInterval={calculationInterval}
                 />
             )}
             {config.type === 'knn' && (
                 <KNNConfig
                     config={config as KNNDetectorConfig}
                     onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                    calculationInterval={calculationInterval}
                 />
             )}
             {config.type === 'lof' && (
                 <LOFConfig
                     config={config as LOFDetectorConfig}
                     onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                    calculationInterval={calculationInterval}
                 />
             )}
             {config.type === 'hbos' && (
                 <HBOSConfig
                     config={config as HBOSDetectorConfig}
                     onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                    calculationInterval={calculationInterval}
                 />
             )}
             {config.type === 'ocsvm' && (
                 <OCSVMConfig
                     config={config as OCSVMDetectorConfig}
                     onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                    calculationInterval={calculationInterval}
                 />
             )}
             {config.type === 'pca' && (
                 <PCAConfig
                     config={config as PCADetectorConfig}
                     onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                    calculationInterval={calculationInterval}
                 />
             )}
             <PreprocessingSection config={config} onChange={(updated) => onChange(updated as SingleDetectorConfig)} />
@@ -478,9 +488,11 @@ function IQRConfig({
 function ECODConfig({
     config,
     onChange,
+    calculationInterval,
 }: {
     config: ECODDetectorConfig
     onChange: (config: DetectorConfig) => void
+    calculationInterval?: AlertCalculationInterval
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
@@ -489,6 +501,7 @@ function ECODConfig({
                 onChange={(val) => onChange({ ...config, threshold: val })}
                 tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
+            <WindowSizeInput config={config} onChange={onChange} calculationInterval={calculationInterval} />
             <p className="text-xs text-muted">Empirical cumulative distribution — parameter-free and interpretable.</p>
         </div>
     )
@@ -497,9 +510,11 @@ function ECODConfig({
 function COPODConfig({
     config,
     onChange,
+    calculationInterval,
 }: {
     config: COPODDetectorConfig
     onChange: (config: DetectorConfig) => void
+    calculationInterval?: AlertCalculationInterval
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
@@ -508,6 +523,7 @@ function COPODConfig({
                 onChange={(val) => onChange({ ...config, threshold: val })}
                 tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
+            <WindowSizeInput config={config} onChange={onChange} calculationInterval={calculationInterval} />
             <p className="text-xs text-muted">Copula-based detection — efficient and parameter-free.</p>
         </div>
     )
@@ -516,9 +532,11 @@ function COPODConfig({
 function IsolationForestConfig({
     config,
     onChange,
+    calculationInterval,
 }: {
     config: IsolationForestDetectorConfig
     onChange: (config: DetectorConfig) => void
+    calculationInterval?: AlertCalculationInterval
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
@@ -539,6 +557,7 @@ function IsolationForestConfig({
                     fullWidth
                 />
             </div>
+            <WindowSizeInput config={config} onChange={onChange} calculationInterval={calculationInterval} />
             <p className="text-xs text-muted">Isolates anomalies using random forest — good for complex patterns.</p>
         </div>
     )
@@ -547,9 +566,11 @@ function IsolationForestConfig({
 function KNNConfig({
     config,
     onChange,
+    calculationInterval,
 }: {
     config: KNNDetectorConfig
     onChange: (config: DetectorConfig) => void
+    calculationInterval?: AlertCalculationInterval
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
@@ -589,6 +610,7 @@ function KNNConfig({
                     fullWidth
                 />
             </div>
+            <WindowSizeInput config={config} onChange={onChange} calculationInterval={calculationInterval} />
             <p className="text-xs text-muted">
                 Uses distance to nearest neighbors — points far from others are anomalies.
             </p>
@@ -599,9 +621,11 @@ function KNNConfig({
 function LOFConfig({
     config,
     onChange,
+    calculationInterval,
 }: {
     config: LOFDetectorConfig
     onChange: (config: DetectorConfig) => void
+    calculationInterval?: AlertCalculationInterval
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
@@ -625,6 +649,7 @@ function LOFConfig({
                     fullWidth
                 />
             </div>
+            <WindowSizeInput config={config} onChange={onChange} calculationInterval={calculationInterval} />
             <p className="text-xs text-muted">
                 Density-based — compares local density of a point to its neighbors. Good for seasonal data.
             </p>
@@ -635,9 +660,11 @@ function LOFConfig({
 function HBOSConfig({
     config,
     onChange,
+    calculationInterval,
 }: {
     config: HBOSDetectorConfig
     onChange: (config: DetectorConfig) => void
+    calculationInterval?: AlertCalculationInterval
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
@@ -661,6 +688,7 @@ function HBOSConfig({
                     fullWidth
                 />
             </div>
+            <WindowSizeInput config={config} onChange={onChange} calculationInterval={calculationInterval} />
             <p className="text-xs text-muted">Very fast histogram-based detection. Good for high-volume alerting.</p>
         </div>
     )
@@ -669,9 +697,11 @@ function HBOSConfig({
 function OCSVMConfig({
     config,
     onChange,
+    calculationInterval,
 }: {
     config: OCSVMDetectorConfig
     onChange: (config: DetectorConfig) => void
+    calculationInterval?: AlertCalculationInterval
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
@@ -680,6 +710,7 @@ function OCSVMConfig({
                 onChange={(val) => onChange({ ...config, threshold: val })}
                 tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
+            <WindowSizeInput config={config} onChange={onChange} calculationInterval={calculationInterval} />
             <p className="text-xs text-muted">
                 One-class SVM — learns a boundary around normal data using a support vector machine.
             </p>
@@ -690,9 +721,11 @@ function OCSVMConfig({
 function PCAConfig({
     config,
     onChange,
+    calculationInterval,
 }: {
     config: PCADetectorConfig
     onChange: (config: DetectorConfig) => void
+    calculationInterval?: AlertCalculationInterval
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
@@ -701,6 +734,7 @@ function PCAConfig({
                 onChange={(val) => onChange({ ...config, threshold: val })}
                 tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
+            <WindowSizeInput config={config} onChange={onChange} calculationInterval={calculationInterval} />
             <p className="text-xs text-muted">
                 PCA-based — detects anomalies as points with high reconstruction error.
             </p>
