@@ -253,6 +253,10 @@ export function LemonTable<T extends Record<string, any>>({
 
     const isRowExpansionToggleShown = expandable ? (expandable?.showRowExpansionToggle ?? true) : false
 
+    const visibleDataColumnCount = useMemo(() => columns.filter((column) => !column.isHidden).length, [columns])
+    /** Matches the main header row cell count so the loader row does not add an extra table column (which shifts headers). */
+    const headerLoaderColSpan = Number(!!expandable) + visibleDataColumnCount + Number(!!rowActions)
+
     return (
         <div
             id={id}
@@ -506,7 +510,11 @@ export function LemonTable<T extends Record<string, any>>({
                                             })
                                     )}
                                     {rowActions && <th className="w-0" />}
-                                    <LemonTableLoader loading={loading} tag="th" />
+                                </tr>
+                                <tr className="LemonTable__loader-row">
+                                    <th colSpan={headerLoaderColSpan} className="LemonTable__loader-host">
+                                        <LemonTableLoader loading={loading} tag="div" />
+                                    </th>
                                 </tr>
                             </thead>
                         )}
