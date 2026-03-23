@@ -206,7 +206,6 @@ fn main() -> Result<()> {
 }
 
 async fn async_main(config: Config) -> Result<()> {
-
     // Initialize tracing with structured output similar to feature-flags
     let log_layer = {
         let base = fmt::layer()
