@@ -4923,6 +4923,15 @@ class TestPostgresPrinter(BaseTest):
         self.assertIn("GROUP BY", result)
         self.assertIn("ORDER BY", result)
 
+    def test_unpivot_join_prints(self):
+        self.assertEqual(
+            self._select(
+                "SELECT field_name, field_value FROM events JOIN events AS e2 ON 1 "
+                "UNPIVOT (field_value FOR field_name IN (events.event))"
+            ),
+            "SELECT field_name, field_value FROM events JOIN events AS e2 ON 1 UNPIVOT (field_value FOR field_name IN (events.event)) LIMIT 50000",
+        )
+
     def test_unpivot_clickhouse_raises_error(self):
         from posthog.hogql.errors import QueryError
 

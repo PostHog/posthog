@@ -1684,6 +1684,16 @@ class TestResolver(BaseTest):
         assert isinstance(expr.select_from.table, ast.UnpivotExpr)
         assert expr.select_from.table.include_nulls is True
 
+    def test_unpivot_join_basic_resolves(self):
+        expr = self._select(
+            "SELECT field_name, field_value FROM events JOIN events AS e2 ON 1 "
+            "UNPIVOT (field_value FOR field_name IN (events.event))"
+        )
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert isinstance(expr.select_from, ast.JoinExpr)
+        assert isinstance(expr.select_from.table, ast.UnpivotExpr)
+        assert isinstance(expr.select_from.type, ast.SelectQueryType)
+
     def test_positional_refs_non_postgres_error(self):
         with self.assertRaisesMessage(QueryError, "Positional references are not allowed in clickhouse dialect"):
             expr = self._select("SELECT #1 FROM events")

@@ -3782,6 +3782,37 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_select_from_join_unpivot(self):
+            self.assertEqual(
+                self._select(
+                    "SELECT field_name, field_value FROM events JOIN events AS e2 ON 1 "
+                    "UNPIVOT (field_value FOR field_name IN (events.event))"
+                ),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["field_name"]), ast.Field(chain=["field_value"])],
+                    select_from=ast.JoinExpr(
+                        table=ast.UnpivotExpr(
+                            table=ast.JoinExpr(
+                                table=ast.Field(chain=["events"]),
+                                next_join=ast.JoinExpr(
+                                    join_type="JOIN",
+                                    table=ast.Field(chain=["events"]),
+                                    alias="e2",
+                                    constraint=ast.JoinConstraint(expr=ast.Constant(value=1), constraint_type="ON"),
+                                ),
+                            ),
+                            columns=[
+                                ast.UnpivotColumn(
+                                    value_columns=ast.Field(chain=["field_value"]),
+                                    name_columns=ast.Field(chain=["field_name"]),
+                                    unpivot_values=[ast.Field(chain=["events", "event"])],
+                                )
+                            ],
+                        )
+                    ),
+                ),
+            )
+
         def test_select_positional_join(self):
             self.assertEqual(
                 self._select("SELECT * FROM events POSITIONAL JOIN persons"),
