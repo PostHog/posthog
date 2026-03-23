@@ -137,7 +137,7 @@ def get_stuck_static_cohort_candidates_queryset() -> QuerySet:
         is_static=True,
         is_calculating=True,
         deleted=False,
-        errors_calculating__lte=MAX_ERRORS_CALCULATING,
+        errors_calculating__lt=MAX_ERRORS_CALCULATING,
         query__isnull=False,  # Only cohorts created from a HogQL query (e.g. dynamic→static duplication).
         # Excludes CSV uploads and other static cohort types that don't have a re-triggerable task.
     ).filter(
@@ -499,6 +499,7 @@ def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> N
         # the INSERT uses generateUUIDv4() so re-running creates duplicate rows.
         from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
 
+        # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
         existing_ch_count = sync_execute(
             f"SELECT count() FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
             {"cohort_id": cohort.pk, "team_id": team_id},
@@ -540,6 +541,7 @@ def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> N
             raise
     finally:
         cohort._safe_save_cohort_state(team_id=team_id, processing_error=processing_error)
+        cohort.refresh_from_db(fields=["is_calculating", "errors_calculating"])
         logger.info(
             "insert_cohort_from_query_finished",
             cohort_id=cohort_id,
