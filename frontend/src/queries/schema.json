@@ -32402,11 +32402,6 @@
                     },
                     "type": "array"
                 },
-                "hasAdvancedConfig": {
-                    "default": false,
-                    "description": "Whether this source supports per-schema advanced configuration (e.g. property selection)",
-                    "type": "boolean"
-                },
                 "iconClassName": {
                     "type": "string"
                 },
