@@ -4,8 +4,8 @@ from ..core import HogQLFunctionMeta
 
 # Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 STRING_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
-    "left": HogQLFunctionMeta("left", 2, 2, signatures=[((StringType(), IntegerType()), StringType())]),
-    "right": HogQLFunctionMeta("right", 2, 2, signatures=[((StringType(), IntegerType()), StringType())]),
+    "left": HogQLFunctionMeta("leftUTF8", 2, 2, signatures=[((StringType(), IntegerType()), StringType())]),
+    "right": HogQLFunctionMeta("rightUTF8", 2, 2, signatures=[((StringType(), IntegerType()), StringType())]),
     "lengthUTF8": HogQLFunctionMeta("lengthUTF8", 1, 1),
     "leftPad": HogQLFunctionMeta("leftPad", 2, 3),
     "rightPad": HogQLFunctionMeta("rightPad", 2, 3),

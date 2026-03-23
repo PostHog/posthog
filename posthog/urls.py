@@ -35,7 +35,6 @@ from posthog.api import (
 from posthog.api.query import progress
 from posthog.api.sdk_doctor import sdk_doctor
 from posthog.api.slack import slack_interactivity_callback
-from posthog.api.survey import public_survey_page, surveys
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.api.web_experiment import web_experiments
@@ -54,6 +53,7 @@ from products.slack_app.backend.api import (
     posthog_code_interactivity_handler,
     slack_event_handler,
 )
+from products.surveys.backend.api.survey import public_survey_page, surveys
 from products.tasks.backend.webhooks import github_pr_webhook
 
 from .utils import opt_slash_path, render_template

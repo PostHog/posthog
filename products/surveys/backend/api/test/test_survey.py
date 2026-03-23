@@ -25,16 +25,15 @@ from django.test.client import Client
 from nanoid import generate
 from rest_framework import status
 
-from posthog.api.survey import nh3_clean_with_allow_list
 from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.constants import AvailableFeature
 from posthog.models import Action, FeatureFlag, Person, Team
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.organization import Organization
-from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey, surveys_hypercache
-from posthog.models.surveys.survey_response_archive import SurveyResponseArchive
 
 from products.product_tours.backend.models import ProductTour
+from products.surveys.backend.api.survey import nh3_clean_with_allow_list
+from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, surveys_hypercache
 
 
 class TestSurvey(APIBaseTest):
@@ -2371,7 +2370,7 @@ class TestSurvey(APIBaseTest):
             ],
         )
 
-    @patch("posthog.api.survey.report_user_action")
+    @patch("products.surveys.backend.api.survey.report_user_action")
     @freeze_time("2023-05-01 12:00:00")
     def test_update_survey_dates_calls_report_user_action(self, mock_report_user_action):
         survey = Survey.objects.create(

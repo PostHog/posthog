@@ -1,6 +1,6 @@
 from unittest import TestCase
 
-from posthog.models.surveys.util import (
+from products.surveys.backend.util import (
     _build_coalesce_query,
     _build_id_based_key,
     _build_index_based_key,

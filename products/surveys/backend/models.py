@@ -15,7 +15,7 @@ from django_deprecate_fields import deprecate_field
 from posthog.models import Action
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from posthog.models.utils import RootTeamMixin, UUIDTModel
+from posthog.models.utils import RootTeamMixin, UUIDModel, UUIDTModel
 from posthog.storage.hypercache import HyperCache
 
 # we have seen users accidentally set a huge value for iteration count
@@ -45,6 +45,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         ALWAYS = "always", "always"
 
     class Meta:
+        db_table = "posthog_survey"
         constraints = [models.UniqueConstraint(fields=["team", "name"], name="unique survey name for team")]
 
     team = models.ForeignKey(
@@ -460,7 +461,7 @@ def update_survey_iterations(sender, instance, *args, **kwargs):
 
 
 def _get_surveys_response(team: "Team") -> dict:
-    from posthog.api.survey import get_surveys_response
+    from products.surveys.backend.api.survey import get_surveys_response
 
     return get_surveys_response(team)
 
@@ -484,3 +485,41 @@ def survey_changed(sender, instance: "Survey", **kwargs):
     # excluded from local evaluation (GitHub issue #43631)
     transaction.on_commit(lambda: update_team_surveys_cache.delay(instance.team_id))
     transaction.on_commit(lambda: update_team_flags_cache.delay(instance.team_id))
+
+
+class SurveyResponseArchive(UUIDModel):
+    """
+    Separate table to track archived survey responses, since survey results are
+    stored as ClickHouse events
+    """
+
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="survey_response_archives",
+        related_query_name="survey_response_archive",
+    )
+    survey = models.ForeignKey(
+        "surveys.Survey",
+        on_delete=models.CASCADE,
+        related_name="response_archives",
+        related_query_name="response_archive",
+    )
+    response_uuid = models.UUIDField(help_text="UUID of the ClickHouse event representing the survey response")
+    archived_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "posthog_surveyresponsearchive"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "response_uuid"],
+                name="unique_archived_response_per_team",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["survey", "team"]),
+            models.Index(fields=["team", "response_uuid"]),
+        ]
+
+    def __str__(self):
+        return f"Archived response {self.response_uuid} for survey {self.survey_id}"

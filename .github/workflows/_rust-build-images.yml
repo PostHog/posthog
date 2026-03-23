@@ -204,14 +204,28 @@ jobs:
               with:
                   pattern: digest-*
                   path: /tmp/digests
+                  merge-multiple: false
 
             - name: Aggregate digests
               id: aggregate
               run: |
+                  shopt -s nullglob
+                  echo "Contents of /tmp/digests/:"
+                  ls -laR /tmp/digests/ 2>/dev/null || echo "/tmp/digests/ does not exist"
                   digests='{}'
+                  found=0
                   for dir in /tmp/digests/digest-*; do
+                      found=1
                       name="${dir##*/digest-}"
                       digest=$(cat "$dir/digest.txt")
+                      if [ -z "$digest" ]; then
+                          echo "::error::Empty digest for $name (file: $dir/digest.txt)"
+                          exit 1
+                      fi
                       digests=$(echo "$digests" | jq -c --arg k "$name" --arg v "$digest" '. + {($k): $v}')
                   done
+                  if [ "$found" -eq 0 ]; then
+                      echo "::error::No digest artifacts found under /tmp/digests/"
+                      exit 1
+                  fi
                   echo "digests=$digests" >> "$GITHUB_OUTPUT"
