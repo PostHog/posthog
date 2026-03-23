@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 from django.contrib.auth.models import AnonymousUser
 
 import posthoganalytics
+from opentelemetry import trace
 from rest_framework.authentication import SessionAuthentication
 
 from posthog.models import Organization, User
@@ -374,6 +375,9 @@ def get_request_analytics_properties(request) -> AnalyticsProps:
     }
 
 
+_tracer = trace.get_tracer(__name__)
+
+
 def report_user_action(
     user: User | AnonymousUser,
     event: str,
@@ -383,26 +387,32 @@ def report_user_action(
     organization: Optional[Organization] = None,
     request: Optional["Request"] = None,
     analytics_props: Optional[AnalyticsProps] = None,
+    send_feature_flags: bool = False,
 ):
-    # isinstance works through Django's SimpleLazyObject because it proxies __class__
-    if not isinstance(user, User) or not user.distinct_id:
-        return
-    if request is not None and analytics_props is not None:
-        raise ValueError("Pass either request or analytics_props, not both")
-    if properties is None:
-        properties = {}
-    if request is not None:
-        properties = {**get_request_analytics_properties(request), **properties}
-    if analytics_props is not None:
-        properties = {**analytics_props, **properties}
-    if user.email:
-        properties["$set_once"] = {"email": user.email}
-    posthoganalytics.capture(
-        distinct_id=user.distinct_id,
-        event=event,
-        properties=properties,
-        groups=groups(organization or user.current_organization, team or user.current_team),
-    )
+    with _tracer.start_as_current_span("report_user_action") as span:
+        span.set_attribute("posthog.event", event)
+        span.set_attribute("posthog.send_feature_flags", send_feature_flags)
+
+        # isinstance works through Django's SimpleLazyObject because it proxies __class__
+        if not isinstance(user, User) or not user.distinct_id:
+            return
+        if request is not None and analytics_props is not None:
+            raise ValueError("Pass either request or analytics_props, not both")
+        if properties is None:
+            properties = {}
+        if request is not None:
+            properties = {**get_request_analytics_properties(request), **properties}
+        if analytics_props is not None:
+            properties = {**analytics_props, **properties}
+        if user.email:
+            properties["$set_once"] = {"email": user.email}
+        posthoganalytics.capture(
+            distinct_id=user.distinct_id,
+            event=event,
+            properties=properties,
+            groups=groups(organization or user.current_organization, team or user.current_team),
+            send_feature_flags=send_feature_flags,
+        )
 
 
 def report_user_or_team_action(
