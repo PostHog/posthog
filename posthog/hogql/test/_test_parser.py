@@ -833,6 +833,18 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_function_calls_with_order_by(self):
+            self.assertEqual(
+                self._expr("sum(event ORDER BY timestamp DESC)"),
+                ast.Call(
+                    name="sum",
+                    params=None,
+                    args=[ast.Field(chain=["event"])],
+                    distinct=False,
+                    order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
+                ),
+            )
+
         def test_alias(self):
             self.assertEqual(
                 self._expr("1 as asd"),

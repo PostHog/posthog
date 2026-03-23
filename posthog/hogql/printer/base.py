@@ -1311,6 +1311,9 @@ class HogQLPrinter(Visitor[str]):
     def visit_field_alias_type(self, type: ast.FieldAliasType):
         return self._print_identifier(type.alias)
 
+    def visit_expression_field_type(self, type: ast.ExpressionFieldType):
+        return self.visit(type.expr)
+
     def visit_virtual_table_type(self, type: ast.VirtualTableType):
         return self.visit(type.table_type)
 

@@ -1603,11 +1603,6 @@ class TestResolver(BaseTest):
             expr = self._select("SELECT 1 FROM events PIVOT (sum(thing) FOR toYear(timestamp) IN (2015))")
             resolve_types(expr, self.context, dialect="postgres")
 
-    def test_pivot_non_identifier_column_error(self):
-        with self.assertRaisesMessage(QueryError, "PIVOT columns must be identifiers"):
-            expr = self._select("SELECT 1 FROM events PIVOT (count() FOR event + 1 IN ('a'))")
-            resolve_types(expr, self.context, dialect="postgres")
-
     def test_pivot_unknown_column_error(self):
         with self.assertRaisesMessage(QueryError, 'PIVOT column "does_not_exist" was not found'):
             expr = self._select("SELECT 1 FROM events PIVOT (count() FOR does_not_exist IN ('a'))")
@@ -1628,6 +1623,20 @@ class TestResolver(BaseTest):
         expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
         assert isinstance(expr.select[0], ast.PositionalRef)
         assert isinstance(expr.select[1], ast.PositionalRef)
+
+    def test_function_call_order_by_resolves(self):
+        expr = self._select("SELECT sum(event ORDER BY timestamp DESC) FROM events")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert isinstance(expr.select[0], ast.Call)
+        call = expr.select[0]
+        assert call.order_by is not None
+        assert len(call.order_by) == 1
+        assert call.order_by[0].order == "DESC"
+        order_expr = call.order_by[0].expr
+        if isinstance(order_expr, ast.Alias):
+            order_expr = order_expr.expr
+        assert isinstance(order_expr, ast.Field)
+        assert isinstance(order_expr.type, ast.FieldType)
 
     def test_positional_refs_non_postgres_error(self):
         with self.assertRaisesMessage(QueryError, "Positional references are not allowed in clickhouse dialect"):

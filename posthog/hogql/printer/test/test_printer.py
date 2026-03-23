@@ -4416,9 +4416,9 @@ class TestPostgresPrinter(BaseTest):
     def test_pivot_prints_multiple_columns(self):
         self.assertEqual(
             self._select(
-                "SELECT 1 FROM events PIVOT (count() FOR event IN ('a') person_id IN (1, 2) GROUP BY distinct_id)"
+                "SELECT 1 FROM events PIVOT (count() FOR event IN ('a') distinct_id IN (1, 2) GROUP BY timestamp)"
             ),
-            "SELECT 1 FROM events PIVOT (count() FOR events.event IN ('a') events.person_id IN (1, 2) GROUP BY events.distinct_id) LIMIT 50000",
+            "SELECT 1 FROM events PIVOT (count() FOR events.event IN ('a') events.distinct_id IN (1, 2) GROUP BY events.timestamp) LIMIT 50000",
         )
 
     def test_limit_percent_basic(self):
@@ -4455,6 +4455,12 @@ class TestPostgresPrinter(BaseTest):
     def test_try_cast(self, expr: str, expected: str):
         printed = self._select(f"SELECT {expr}")
         self.assertIn(expected, printed)
+
+    def test_function_call_order_by_prints(self):
+        self.assertEqual(
+            self._select("SELECT sum(event ORDER BY timestamp DESC) FROM events"),
+            "SELECT sum(events.event ORDER BY events.timestamp DESC) FROM events LIMIT 50000",
+        )
 
     @parameterized.expand(
         [
