@@ -281,13 +281,13 @@ class HogQLPrinter(Visitor[str]):
             (
                 f"GROUP BY ALL"
                 if node.group_by_mode == "all"
-                else f"GROUP BY{space}GROUPING SETS ({comma.join(group_by)})"
+                else f"GROUP BY{space}GROUPING SETS ({comma.join(group_by or [])})"
                 if node.group_by_mode == "grouping_sets"
-                else f"GROUP BY{space}CUBE({comma.join(group_by)})"
+                else f"GROUP BY{space}CUBE({comma.join(group_by or [])})"
                 if node.group_by_mode == "cube"
-                else f"GROUP BY{space}ROLLUP({comma.join(group_by)})"
+                else f"GROUP BY{space}ROLLUP({comma.join(group_by or [])})"
                 if node.group_by_mode == "rollup"
-                else f"GROUP BY{space}{comma.join(group_by)}"
+                else f"GROUP BY{space}{comma.join(group_by or [])}"
             )
             if node.group_by_mode == "all" or (group_by and len(group_by) > 0)
             else None,

@@ -237,8 +237,8 @@ class TraversingVisitor(Visitor[None]):
         self.visit(node.initial_select_query)
         for expr in node.subsequent_select_queries:
             self.visit(expr.select_query)
-        for expr in node.order_by or []:
-            self.visit(expr)
+        for order_expr in node.order_by or []:
+            self.visit(order_expr)
         if node.limit is not None:
             self.visit(node.limit)
         if node.offset is not None:
