@@ -602,6 +602,7 @@ class ExperimentService:
     # Archive
     # ------------------------------------------------------------------
 
+    @transaction.atomic
     def archive_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
         """Archive an ended experiment: validate it has ended, set archived=True."""
         if experiment.archived:
