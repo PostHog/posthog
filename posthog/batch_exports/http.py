@@ -1134,7 +1134,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
                 **test_configuration,
                 **integration.config,
                 **integration.sensitive_config,
-                **{"integration": integration},
+                "integration": integration,
             }
 
         destination_test.configure(**test_configuration)
@@ -1173,7 +1173,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
                 **test_configuration,
                 **integration.config,
                 **integration.sensitive_config,
-                **{"integration": integration},
+                "integration": integration,
             }
 
         destination_test.configure(**test_configuration)
