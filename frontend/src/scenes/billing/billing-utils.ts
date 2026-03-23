@@ -424,14 +424,17 @@ export const currencyFormatter = (value: number): string => {
 
 /**
  * Determines if the user has sufficient permissions to read billing information based on their organization membership level.
+ * When ownerOnly is true (via the owner-only-billing feature flag), only org owners can access billing.
  */
 export function canAccessBilling(
-    currentOrganization: Pick<OrganizationType, 'membership_level'> | null | undefined
+    currentOrganization: Pick<OrganizationType, 'membership_level'> | null | undefined,
+    ownerOnly: boolean = false
 ): boolean {
     if (!currentOrganization || !currentOrganization.membership_level) {
         return false
     }
-    return currentOrganization.membership_level >= OrganizationMembershipLevel.Admin
+    const minimumLevel = ownerOnly ? OrganizationMembershipLevel.Owner : OrganizationMembershipLevel.Admin
+    return currentOrganization.membership_level >= minimumLevel
 }
 
 /**

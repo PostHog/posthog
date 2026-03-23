@@ -60,8 +60,9 @@ export function Billing(): JSX.Element {
     const { activeCoupons, couponsOverviewLoading } = useValues(couponLogic({}))
     const { memberCount } = useValues(membersLogic)
 
+    const isOwnerOnlyBilling = !!featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]
     const restrictionReason = useRestrictedArea({
-        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        minimumAccessLevel: isOwnerOnlyBilling ? OrganizationMembershipLevel.Owner : OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Organization,
     })
 

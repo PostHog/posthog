@@ -4,9 +4,10 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationIntegrationsLogic } from 'scenes/settings/organization/organizationIntegrationsLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -88,6 +89,8 @@ export const settingsLogic = kea<settingsLogicType>([
             ['currentTeam'],
             organizationIntegrationsLogic,
             ['organizationIntegrations'],
+            organizationLogic,
+            ['currentOrganization'],
         ],
     })),
 
@@ -238,8 +241,24 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
         sections: [
-            (s) => [s.doesMatchFlags, s.isCloudOrDev, s.currentTeam, s.organizationIntegrations, s.preflight],
-            (doesMatchFlags, isCloudOrDev, currentTeam, organizationIntegrations, preflight): SettingSection[] => {
+            (s) => [
+                s.doesMatchFlags,
+                s.isCloudOrDev,
+                s.currentTeam,
+                s.organizationIntegrations,
+                s.preflight,
+                s.featureFlags,
+                s.currentOrganization,
+            ],
+            (
+                doesMatchFlags,
+                isCloudOrDev,
+                currentTeam,
+                organizationIntegrations,
+                preflight,
+                featureFlags,
+                currentOrganization
+            ): SettingSection[] => {
                 const isSettingVisible = (setting: Setting): boolean => {
                     if (!doesMatchFlags(setting)) {
                         return false
@@ -253,6 +272,11 @@ export const settingsLogic = kea<settingsLogicType>([
                     return true
                 }
 
+                const isOwnerOnlyBilling = !!featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]
+                const isOwner =
+                    currentOrganization?.membership_level != null &&
+                    currentOrganization.membership_level >= OrganizationMembershipLevel.Owner
+
                 const sections = SETTINGS_MAP.filter(doesMatchFlags).filter((section) => {
                     if (section.hideSelfHost && !isCloudOrDev) {
                         return false
@@ -261,6 +285,9 @@ export const settingsLogic = kea<settingsLogicType>([
                         section.id === 'organization-integrations' &&
                         (!organizationIntegrations || organizationIntegrations.length === 0)
                     ) {
+                        return false
+                    }
+                    if (section.id === 'organization-billing' && isOwnerOnlyBilling && !isOwner) {
                         return false
                     }
 

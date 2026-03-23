@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 
 import { IconGear, IconLeave, IconPlusSmall, IconReceipt } from '@posthog/icons'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
@@ -287,7 +287,12 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     </Menu.Portal>
                                 </Menu.SubmenuRoot>
 
-                                {isCloudOrDev ? (
+                                {isCloudOrDev &&
+                                !(
+                                    featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING] &&
+                                    currentOrganization?.membership_level != null &&
+                                    currentOrganization.membership_level < OrganizationMembershipLevel.Owner
+                                ) ? (
                                     <Menu.Item
                                         render={(props) => (
                                             <Link

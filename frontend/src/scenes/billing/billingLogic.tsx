@@ -809,7 +809,8 @@ export const billingLogic = kea<billingLogicType>([
                 return
             }
 
-            const hasBillingAccess = canAccessBilling(values.currentOrganization)
+            const isOwnerOnlyBilling = !!values.featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]
+            const hasBillingAccess = canAccessBilling(values.currentOrganization, isOwnerOnlyBilling)
 
             const trial = values.billing.trial
             if (trial && trial.expires_at && dayjs(trial.expires_at).isAfter(dayjs())) {

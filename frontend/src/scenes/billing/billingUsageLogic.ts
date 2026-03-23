@@ -8,7 +8,9 @@ import sortBy from 'lodash.sortby'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateMapping, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -84,6 +86,8 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             ['billing', 'billingPeriodUTC'],
             preflightLogic,
             ['isHobby'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [eventUsageLogic, ['reportBillingUsageInteraction']],
     })),
@@ -108,7 +112,8 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             null as BillingUsageResponse | null,
             {
                 loadBillingUsage: async () => {
-                    if (!canAccessBilling(values.currentOrganization) || values.isHobby) {
+                    const isOwnerOnlyBilling = !!values.featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]
+                    if (!canAccessBilling(values.currentOrganization, isOwnerOnlyBilling) || values.isHobby) {
                         return null
                     }
                     const { usage_types, team_ids, breakdowns, interval } = values.filters
