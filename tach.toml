@@ -324,6 +324,7 @@ path = "products.product_tours"
 depends_on = [
     "ee",
     "posthog",
+    "products.surveys",
 ]
 layer = "non_isolated"
 
@@ -366,6 +367,7 @@ path = "products.surveys"
 depends_on = [
     "ee",
     "posthog",
+    "products.product_tours",
 ]
 layer = "non_isolated"
 

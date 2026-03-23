@@ -19,6 +19,7 @@ import products.mcp_store.backend.api as mcp_store
 import products.signals.backend.views as signals
 import products.conversations.backend.api as conversations
 import products.live_debugger.backend.api as live_debugger
+import products.surveys.backend.api.survey as survey
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.marketing_analytics.backend.api as marketing_analytics
 import products.early_access_features.backend.api as early_access_feature
@@ -141,7 +142,6 @@ from . import (
     schema_property_group,
     search,
     sharing,
-    survey,
     tagged_item,
     team,
     uploaded_media,

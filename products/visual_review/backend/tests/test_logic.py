@@ -5,9 +5,10 @@ import pytest
 from products.visual_review.backend import logic
 from products.visual_review.backend.facade.enums import RunStatus, RunType, SnapshotResult
 from products.visual_review.backend.models import Repo
+from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestProjectOperations:
     def test_create_repo(self, team):
         repo = logic.create_repo(team_id=team.id, repo_external_id=12345, repo_full_name="org/my-repo")
@@ -41,7 +42,7 @@ class TestProjectOperations:
         assert names == {"org/first", "org/second"}
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestArtifactOperations:
     @pytest.fixture
     def repo(self, team):
@@ -113,7 +114,7 @@ class TestArtifactOperations:
         assert missing == []
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestRunOperations:
     @pytest.fixture
     def repo(self, team):
@@ -294,7 +295,7 @@ class TestRunOperations:
         assert updated.error_message == "Something failed"
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestApproveRun:
     @pytest.fixture
     def repo(self, team):
@@ -334,7 +335,7 @@ class TestApproveRun:
         assert snapshot.reviewed_by_id == user.id
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestGetRunSnapshots:
     @pytest.fixture
     def repo(self, team):
@@ -363,14 +364,14 @@ class TestGetRunSnapshots:
         assert [s.identifier for s in snapshots] == ["A-component", "B-component", "C-component"]
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db(transaction=True, databases=PRODUCT_DATABASES)
 class TestCommitStatusChecks:
     """Test that GitHub commit status checks are posted at state transitions."""
 
     @pytest.fixture
     def github_repo(self, team, mock_github_integration):
         return Repo.objects.create(
-            team=team,
+            team_id=team.id,
             repo_external_id=55555,
             repo_full_name="test-org/test-repo",
             baseline_file_paths={"storybook": ".snapshots.yml"},
@@ -497,7 +498,7 @@ class TestCommitStatusChecks:
     def test_no_status_without_repo_full_name(self, team, mock_github_integration, mock_github_api):
         """Status checks are silently skipped when repo has no repo_full_name."""
         repo = Repo.objects.create(
-            team=team,
+            team_id=team.id,
             repo_external_id=88888,
             repo_full_name="",
         )
@@ -518,13 +519,13 @@ class TestCommitStatusChecks:
         assert len(mock_github_api.status_checks) == 0
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestRunSupersession:
     """When a new run is created for the same (repo, branch, run_type), older runs get superseded."""
 
     @pytest.fixture
     def repo(self, team):
-        return Repo.objects.create(team=team, repo_external_id=66666, repo_full_name="org/test-repo")
+        return Repo.objects.create(team_id=team.id, repo_external_id=66666, repo_full_name="org/test-repo")
 
     def _create_run(self, repo, *, branch="feat/x", run_type=RunType.STORYBOOK, commit_sha="abc"):
         run, _ = logic.create_run(

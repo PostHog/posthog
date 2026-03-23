@@ -19,7 +19,7 @@ export const config = {
     metricsPort: parseInt(process.env.METRICS_PORT || '6740', 10),
 
     // Encryption
-    secretKey: process.env.DJANGO_SECRET_KEY,
+    secretKey: process.env.SECRET_KEY,
 
     // S3
     s3Endpoint: process.env.VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT,

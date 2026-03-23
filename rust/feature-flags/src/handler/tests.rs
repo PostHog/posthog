@@ -1304,6 +1304,7 @@ async fn test_fetch_and_filter_flags() {
         team_hypercache_reader,
         hypercache_reader,
         NegativeCache::new(100, 300),
+        false,
     );
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(None).await.unwrap();
@@ -1478,6 +1479,7 @@ async fn test_fetch_and_filter_preserves_evaluation_metadata() {
         team_hypercache_reader,
         hypercache_reader,
         NegativeCache::new(100, 300),
+        false,
     );
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(None).await.unwrap();

@@ -9,8 +9,10 @@ from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
 
-from posthog.models import FeatureFlag, Organization, Survey, Team, User
+from posthog.models import FeatureFlag, Organization, Team, User
 from posthog.tasks.stop_surveys_reached_target import stop_surveys_reached_target
+
+from products.surveys.backend.models import Survey
 
 
 class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):

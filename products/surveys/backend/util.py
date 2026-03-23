@@ -3,7 +3,7 @@ from uuid import UUID
 
 from posthog.hogql.escape_sql import escape_clickhouse_string
 
-from posthog.models.surveys.survey_response_archive import SurveyResponseArchive
+from products.surveys.backend.models import SurveyResponseArchive
 
 
 class SurveyEventName(StrEnum):
