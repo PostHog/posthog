@@ -451,7 +451,11 @@ services:
             - xpack.security.enabled=false
         image: elasticsearch:7.17.28
         healthcheck:
-            test: ['CMD-SHELL', 'curl -s http://localhost:9200/_cluster/health | grep -qE "\"status\":\"(green|yellow)\""']
+            test:
+                [
+                    'CMD-SHELL',
+                    'curl -s http://localhost:9200/_cluster/health | grep -qE "\"status\":\"(green|yellow)\""',
+                ]
             interval: 10s
             timeout: 10s
             retries: 30
