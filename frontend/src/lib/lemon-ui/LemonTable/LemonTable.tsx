@@ -255,7 +255,10 @@ export function LemonTable<T extends Record<string, any>>({
 
     const visibleDataColumnCount = useMemo(() => columns.filter((column) => !column.isHidden).length, [columns])
     // Matches the main header row cell count so the loader row does not add an extra table column (which shifts headers while loading)
-    const headerLoaderColSpan = Number(!!expandable) + visibleDataColumnCount + Number(!!rowActions)
+    const headerLoaderColSpan = Math.max(
+        1,
+        Number(isRowExpansionToggleShown) + visibleDataColumnCount + Number(!!rowActions)
+    )
 
     return (
         <div
