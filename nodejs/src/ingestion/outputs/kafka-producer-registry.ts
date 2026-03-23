@@ -3,11 +3,13 @@ import { logger } from '../../utils/logger'
 import { AllowedConfigKey, getProducerConfig } from './kafka-producer-config'
 
 /**
- * Typed producer registry. Generic over `P` so the set of producers
- * is known at compile time.
+ * Typed producer registry that creates and caches Kafka producers by name.
  *
- * Each producer name maps to an env var config map via the configMaps constructor arg.
+ * Generic over `P` so the set of valid producer names is known at compile time.
+ * Each producer name maps to an env var config map via the `configMaps` constructor arg.
  * Safe for concurrent calls — caches the in-flight promise to prevent duplicate creation.
+ *
+ * @see `getProducerConfig()` for how env var maps are parsed into rdkafka config.
  */
 export class KafkaProducerRegistry<P extends string> {
     private producers: Map<P, Promise<KafkaProducerWrapper>> = new Map()
@@ -17,7 +19,13 @@ export class KafkaProducerRegistry<P extends string> {
         private configMaps: Record<P, Record<string, AllowedConfigKey>>
     ) {}
 
-    /** Get or create a producer by its typed name. */
+    /**
+     * Get or create a producer by its typed name.
+     *
+     * Returns a cached producer if one exists, otherwise creates it from the env var config map.
+     *
+     * @param name - The producer name to look up or create.
+     */
     async getProducer(name: P): Promise<KafkaProducerWrapper> {
         const existing = this.producers.get(name)
         if (existing) {
@@ -35,7 +43,12 @@ export class KafkaProducerRegistry<P extends string> {
         return KafkaProducerWrapper.createWithConfig(this.kafkaClientRack, config)
     }
 
-    /** Flush and disconnect all producers. Continues on failure to ensure all producers are attempted. */
+    /**
+     * Flush and disconnect all producers.
+     *
+     * Continues on failure to ensure all producers are attempted. Throws after all
+     * disconnects complete if any failed.
+     */
     async disconnectAll(): Promise<void> {
         const entries = Array.from(this.producers.entries())
         const errors: [string, unknown][] = []

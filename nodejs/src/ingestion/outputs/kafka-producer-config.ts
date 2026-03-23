@@ -2,7 +2,13 @@ import { ProducerGlobalConfig } from 'node-rdkafka'
 import { hostname } from 'os'
 import { z } from 'zod'
 
-/** Zod schema for producer config. Defaults are baked in. */
+/**
+ * Zod schema defining the supported rdkafka producer config keys.
+ *
+ * Each key has a parser (string, number, enum, boolean) and an optional default.
+ * Keys without defaults are optional — they're only included in the config if the
+ * corresponding env var is set. Invalid env var values cause a startup failure.
+ */
 const producerConfigSchema = z.object({
     'metadata.broker.list': z.string().default('kafka:9092'),
     'security.protocol': z.enum(['plaintext', 'ssl', 'sasl_plaintext', 'sasl_ssl']).optional(),
@@ -28,11 +34,19 @@ const producerConfigSchema = z.object({
     'max.in.flight.requests.per.connection': z.coerce.number().default(5),
 })
 
+/** The rdkafka config keys that can be set via env vars. */
 export type AllowedConfigKey = keyof z.input<typeof producerConfigSchema>
 
 /**
- * Build rdkafka producer config from a map of env var names to config keys.
- * Reads env vars, parses through zod (with defaults), throws on invalid values.
+ * Build an rdkafka producer config from environment variables.
+ *
+ * Takes a map of env var names to rdkafka config keys, reads each env var,
+ * and parses the values through the zod schema. Missing env vars fall back
+ * to schema defaults. Invalid values throw.
+ *
+ * @param envVarMap - Maps env var names (e.g. `KAFKA_PRODUCER_LINGER_MS`) to
+ *   rdkafka config keys (e.g. `linger.ms`).
+ * @returns A fully typed `ProducerGlobalConfig` with `client.id` set to the hostname.
  */
 export function getProducerConfig(envVarMap: Record<string, AllowedConfigKey>): ProducerGlobalConfig {
     const envValues: Record<string, string> = {}
