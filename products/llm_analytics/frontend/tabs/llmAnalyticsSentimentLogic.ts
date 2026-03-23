@@ -143,6 +143,8 @@ function captureEngagementEvents(
             model_prediction_score: impressedCard.sentiment.score,
             ai_model: impressedCard.generation.model,
             card_position: impressedPosition,
+            sentiment_filter: sentimentFilter,
+            intensity_threshold: intensityThreshold,
             trigger_event: engagementType,
             trigger_generation_uuid: card.generation.uuid,
         })
