@@ -233,9 +233,9 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                         logger.exception("video_export_workflow_dispatch_failed", asset_id=instance.id, error=str(e))
                         raise
             else:
-                self._start_export_workflow(instance, team, user)
+                self._start_export_workflow(instance, team, user, wait=True)
         else:
-            self._start_export_workflow(instance, team, user)
+            self._start_export_workflow(instance, team, user, wait=False)
 
         posthoganalytics.capture(
             distinct_id=user.distinct_id if user else str(team.uuid),
@@ -287,8 +287,15 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                 pass
         return instance
 
-    def _start_export_workflow(self, instance: ExportedAsset, team: Any, user: User | None) -> None:
-        """Dispatch a Temporal ExportAssetWorkflow. Falls back to Celery on failure."""
+    def _start_export_workflow(
+        self, instance: ExportedAsset, team: Any, user: User | None, wait: bool = True
+    ) -> None:
+        """Dispatch a Temporal ExportAssetWorkflow. Falls back to Celery on failure.
+
+        Args:
+            wait: If True, block until the workflow completes (synchronous export).
+                  If False, fire-and-forget (async export, frontend polls).
+        """
         source = EventSource.WEB if user else EventSource.API
         distinct_id = str(user.distinct_id) if user else str(team.id)
 
@@ -307,29 +314,50 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             },
         )
 
-        async def _start():
-            client = await async_connect()
-            await client.start_workflow(
-                ExportAssetWorkflow.run,
-                ExportAssetWorkflowInputs(
-                    exported_asset_id=instance.id,
-                    team_id=team.id,
-                    distinct_id=distinct_id,
-                    source=source,
-                    export_format=instance.export_format,
-                ),
-                id=f"export-asset-{instance.id}",
-                task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
-                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                execution_timeout=timedelta(minutes=35),
-            )
+        workflow_inputs = ExportAssetWorkflowInputs(
+            exported_asset_id=instance.id,
+            team_id=team.id,
+            distinct_id=distinct_id,
+            source=source,
+            export_format=instance.export_format,
+        )
 
-        try:
-            async_to_sync(_start)()
-            logger.info("export_workflow_dispatched", asset_id=instance.id)
-        except Exception:
-            logger.warning("export_workflow_dispatch_failed", asset_id=instance.id, exc_info=True)
-            exporter.export_asset.delay(instance.id)
+        if wait:
+            async def _execute():
+                client = await async_connect()
+                await client.execute_workflow(
+                    ExportAssetWorkflow.run,
+                    workflow_inputs,
+                    id=f"export-asset-{instance.id}",
+                    task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                    execution_timeout=timedelta(minutes=35),
+                )
+
+            try:
+                async_to_sync(_execute)()
+                logger.info("export_workflow_completed", asset_id=instance.id)
+            except Exception:
+                logger.warning("export_workflow_failed", asset_id=instance.id, exc_info=True)
+                exporter.export_asset(instance.id)
+        else:
+            async def _start():
+                client = await async_connect()
+                await client.start_workflow(
+                    ExportAssetWorkflow.run,
+                    workflow_inputs,
+                    id=f"export-asset-{instance.id}",
+                    task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                    execution_timeout=timedelta(minutes=35),
+                )
+
+            try:
+                async_to_sync(_start)()
+                logger.info("export_workflow_dispatched", asset_id=instance.id)
+            except Exception:
+                logger.warning("export_workflow_dispatch_failed", asset_id=instance.id, exc_info=True)
+                exporter.export_asset.delay(instance.id)
 
 
 @extend_schema(tags=["core"])
