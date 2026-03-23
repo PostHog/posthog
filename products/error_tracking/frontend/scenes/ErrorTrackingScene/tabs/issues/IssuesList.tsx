@@ -114,11 +114,10 @@ const CountColumn = ({ record, columnName }: { record: unknown; columnName: stri
     )
 }
 
-const ISSUE_COUNT_COLUMN_WIDTH = 'clamp(4.75rem, 5vw, 5.5rem)'
+const ISSUE_COUNT_COLUMN_WIDTH = 'clamp(6.75rem, 8.5vw, 9rem)'
 
 const defaultColumns: Record<string, QueryContextColumn> = {
     error: {
-        width: '50%',
         render: TitleColumn,
         renderTitle: TitleHeader,
     },
@@ -127,7 +126,7 @@ const defaultColumns: Record<string, QueryContextColumn> = {
     users: { align: 'center', width: ISSUE_COUNT_COLUMN_WIDTH, render: CountColumn },
     volume: {
         align: 'center',
-        width: 'clamp(12rem, 20vw, 13rem)',
+        width: 'clamp(16rem, 30vw, 22rem)',
         renderTitle: VolumeColumnHeader,
         render: VolumeColumn,
     },
