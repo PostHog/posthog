@@ -1601,8 +1601,32 @@ export const sceneLogic = kea<sceneLogicType>([
                     router.actions.push(nextActiveTab.pathname, nextActiveTab.search, nextActiveTab.hash)
                 }
             }
-            window.addEventListener('storage', onStorage)
-            return () => window.removeEventListener('storage', onStorage)
+
+            const addStorageListener = (): void => {
+                window.addEventListener('storage', onStorage)
+            }
+            const removeStorageListener = (): void => {
+                window.removeEventListener('storage', onStorage)
+            }
+
+            const onVisibilityChange = (): void => {
+                if (document.hidden) {
+                    removeStorageListener()
+                } else {
+                    addStorageListener()
+                    onStorage(new StorageEvent('storage', { key: getStorageKey(PINNED_TAB_STATE_KEY) }))
+                }
+            }
+
+            if (!document.hidden) {
+                addStorageListener()
+            }
+            document.addEventListener('visibilitychange', onVisibilityChange)
+
+            return () => {
+                removeStorageListener()
+                document.removeEventListener('visibilitychange', onVisibilityChange)
+            }
         }, 'pinnedTabsStorageListener')
     }),
 ])
