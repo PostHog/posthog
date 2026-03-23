@@ -848,7 +848,9 @@ class FeatureFlagSerializer(
         # condition set that doesn't already have one. This maintains backward
         # compatibility with clients that only set the flag-level field.
         for condition in filters["groups"]:
-            if "aggregation_group_type_index" not in condition:
+            if "aggregation_group_type_index" not in condition or (
+                condition.get("aggregation_group_type_index") is None and flag_level_aggregation is not None
+            ):
                 condition["aggregation_group_type_index"] = flag_level_aggregation
 
         # Derive the flag-level field from condition sets for backward compatibility.
