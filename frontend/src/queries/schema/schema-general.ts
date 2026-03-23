@@ -106,6 +106,7 @@ export enum NodeKind {
     LogsQuery = 'LogsQuery',
     LogAttributesQuery = 'LogAttributesQuery',
     LogValuesQuery = 'LogValuesQuery',
+    TraceSpansQuery = 'TraceSpansQuery',
     SessionBatchEventsQuery = 'SessionBatchEventsQuery',
 
     // Interface nodes
@@ -226,6 +227,7 @@ export type AnyDataNode =
     | LogsQuery
     | LogAttributesQuery
     | LogValuesQuery
+    | TraceSpansQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | CalendarHeatmapQuery
@@ -319,6 +321,9 @@ export type QuerySchema =
     | LogAttributesQuery
     | LogValuesQuery
 
+    // Tracing
+    | TraceSpansQuery
+
     // AI
     | SuggestedQuestionsQuery
     | TeamTaxonomyQuery
@@ -375,6 +380,7 @@ export type AnyResponseType =
     | LogsQueryResponse
     | LogAttributesQueryResponse
     | LogValuesQueryResponse
+    | TraceSpansQueryResponse
 
 /** Tags that will be added to the Query log comment  **/
 export interface QueryLogTags {
@@ -2890,6 +2896,32 @@ export type CachedSessionBatchEventsQueryResponse = CachedEventsQueryResponse & 
 }
 export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
 
+export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
+    kind: NodeKind.TraceSpansQuery
+    dateRange: DateRange
+    limit?: integer
+    offset?: integer
+    orderBy?: 'latest' | 'earliest'
+    searchTerm?: string
+    serviceNames?: string[]
+    statusCodes?: integer[]
+    traceId?: string
+    rootSpans?: boolean
+    /** Cursor for fetching the next page of results */
+    after?: string
+}
+
+export interface TraceSpansQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    /** Cursor for fetching the next page of results */
+    nextCursor?: string
+}
+
+export type CachedTraceSpansQueryResponse = CachedQueryResponse<TraceSpansQueryResponse>
+
 export interface FileSystemCount {
     count: number
     entries: FileSystemEntry[]
@@ -3981,6 +4013,8 @@ export interface ECODDetectorConfig {
     type: 'ecod'
     /** Anomaly probability threshold (default: 0.9) */
     threshold?: number
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+    window?: integer
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -3989,6 +4023,8 @@ export interface COPODDetectorConfig {
     type: 'copod'
     /** Anomaly probability threshold (default: 0.9) */
     threshold?: number
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+    window?: integer
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -3999,6 +4035,8 @@ export interface IsolationForestDetectorConfig {
     threshold?: number
     /** Number of trees in the forest (default: 100) */
     n_estimators?: integer
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+    window?: integer
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -4011,6 +4049,8 @@ export interface KNNDetectorConfig {
     n_neighbors?: integer
     /** Distance method: 'largest', 'mean', 'median' (default: 'largest') */
     method?: 'largest' | 'mean' | 'median'
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+    window?: integer
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -4021,6 +4061,8 @@ export interface HBOSDetectorConfig {
     threshold?: number
     /** Number of histogram bins (default: 10) */
     n_bins?: integer
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+    window?: integer
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -4031,6 +4073,8 @@ export interface LOFDetectorConfig {
     threshold?: number
     /** Number of neighbors for LOF (default: 20) */
     n_neighbors?: integer
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+    window?: integer
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -4043,6 +4087,8 @@ export interface OCSVMDetectorConfig {
     kernel?: string
     /** Upper bound on training errors fraction (default: 0.1) */
     nu?: number
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+    window?: integer
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -4051,6 +4097,8 @@ export interface PCADetectorConfig {
     type: 'pca'
     /** Anomaly probability threshold (default: 0.9) */
     threshold?: number
+    /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+    window?: integer
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }

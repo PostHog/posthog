@@ -17,6 +17,8 @@ import { GENERATED_TOOLS as notebooks } from './notebooks'
 import { GENERATED_TOOLS as persons } from './persons'
 import { GENERATED_TOOLS as prompts } from './prompts'
 import { GENERATED_TOOLS as proxyRecords } from './proxy-records'
+import { GENERATED_TOOLS as queryWrappers } from './query-wrappers'
+import { GENERATED_TOOLS as surveys } from './surveys'
 import { GENERATED_TOOLS as workflows } from './workflows'
 
 export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
@@ -36,5 +38,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...persons,
     ...prompts,
     ...proxyRecords,
+    ...queryWrappers,
+    ...surveys,
     ...workflows,
 }

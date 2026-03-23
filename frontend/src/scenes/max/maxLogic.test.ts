@@ -12,7 +12,7 @@ import { SidePanelTab } from '~/types'
 
 import { QUESTION_SUGGESTIONS_DATA, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
-import { maxMocks } from './testUtils'
+import { MOCK_CONVERSATION, MOCK_CONVERSATION_ID, maxMocks } from './testUtils'
 
 describe('maxLogic', () => {
     let logic: ReturnType<typeof maxLogic.build>
@@ -400,6 +400,99 @@ describe('maxLogic', () => {
             await expectLogic(threadLogic).toMatchValues({
                 agentMode: null,
             })
+        })
+    })
+
+    describe('chatTitle selector', () => {
+        it('returns the conversation title when the conversation has a title', async () => {
+            useMocks({
+                ...maxMocks,
+                get: {
+                    ...maxMocks.get,
+                    '/api/environments/:team_id/conversations/': { results: [MOCK_CONVERSATION] },
+                },
+            })
+
+            logic = maxLogic({ tabId: 'test' })
+            logic.mount()
+
+            // Wait for conversation history to load, then set conversationId
+            await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess']).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setConversationId(MOCK_CONVERSATION_ID)
+            }).toMatchValues({
+                chatTitle: MOCK_CONVERSATION.title,
+            })
+        })
+
+        it('returns "New chat" when there is a conversationId but no matching conversation in history', async () => {
+            logic = maxLogic({ tabId: 'test' })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setConversationId('unknown-id')
+            }).toMatchValues({
+                chatTitle: 'New chat',
+            })
+        })
+
+        it('returns "Chat history" when conversation history is visible', async () => {
+            logic = maxLogic({ tabId: 'test' })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.toggleConversationHistory(true)
+            }).toMatchValues({
+                chatTitle: 'Chat history',
+            })
+        })
+
+        it('returns null when there is no conversationId and history is not visible', async () => {
+            logic = maxLogic({ tabId: 'test' })
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({
+                conversationId: null,
+                conversationHistoryVisible: false,
+                chatTitle: null,
+            })
+        })
+    })
+
+    describe('breadcrumbs', () => {
+        it('shows "New chat" as the first breadcrumb name when no conversationId is set', async () => {
+            logic = maxLogic({ tabId: 'test' })
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({
+                conversationId: null,
+            })
+
+            const breadcrumbs = logic.values.breadcrumbs
+            expect(breadcrumbs[0].name).toBe('New chat')
+        })
+
+        it('shows "AI" as the first breadcrumb name and chat title in second breadcrumb when conversationId is set', async () => {
+            useMocks({
+                ...maxMocks,
+                get: {
+                    ...maxMocks.get,
+                    '/api/environments/:team_id/conversations/': { results: [MOCK_CONVERSATION] },
+                },
+            })
+
+            logic = maxLogic({ tabId: 'test' })
+            logic.mount()
+
+            // Wait for conversation history to load, then set conversationId
+            await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess']).toFinishAllListeners()
+
+            logic.actions.setConversationId(MOCK_CONVERSATION_ID)
+
+            const breadcrumbs = logic.values.breadcrumbs
+            expect(breadcrumbs[0].name).toBe('AI')
+            expect(breadcrumbs[1].name).toBe(MOCK_CONVERSATION.title)
         })
     })
 })

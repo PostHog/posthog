@@ -399,6 +399,10 @@ export class ApiConfig {
         return this._currentTeamId
     }
 
+    static hasCurrentTeamId(): boolean {
+        return !!this._currentTeamId
+    }
+
     static setCurrentTeamId(id: TeamType['id']): void {
         this._currentTeamId = id
     }
@@ -2578,14 +2582,25 @@ const api = {
     },
 
     tracing: {
-        async listSpans(): Promise<{ results: Record<string, any>[] }> {
-            return new ApiRequest().tracingSpans().get()
+        async listSpans(query: {
+            dateRange?: { date_from?: string; date_to?: string }
+            serviceNames?: string[]
+            statusCodes?: number[]
+            searchTerm?: string
+            orderBy?: 'latest' | 'earliest'
+            limit?: number
+            after?: string
+        }): Promise<{ results: Record<string, any>[]; hasMore: boolean; nextCursor?: string }> {
+            return new ApiRequest().tracingSpans().withAction('query').create({ data: { query } })
         },
-        async getTrace(traceId: string): Promise<{ results: Record<string, any>[] }> {
-            return new ApiRequest().tracingSpans().withAction(`trace/${traceId}`).get()
-        },
-        async sparkline(): Promise<{ results: Record<string, any>[] }> {
-            return new ApiRequest().tracingSpans().withAction('sparkline').get()
+        async getTrace(
+            traceId: string,
+            dateRange?: { date_from?: string; date_to?: string }
+        ): Promise<{ results: Record<string, any>[] }> {
+            return new ApiRequest()
+                .tracingSpans()
+                .withAction(`trace/${traceId}`)
+                .create({ data: { dateRange: dateRange ?? { date_from: '-24h' } } })
         },
     },
 

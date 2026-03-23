@@ -18,6 +18,7 @@ import { AssigneeIconDisplay, AssigneeLabelDisplay } from './Assignee/AssigneeDi
 import { AssigneeSelect } from './Assignee/AssigneeSelect'
 import { issueActionsLogic } from './IssueActions/issueActionsLogic'
 import { issueFiltersLogic, updateFilterSearchParams } from './IssueFilters/issueFiltersLogic'
+import { issueQueryOptionsLogic } from './IssueQueryOptions/issueQueryOptionsLogic'
 import { IssueStatusSelect } from './IssueStatusSelect'
 import { RuntimeIcon } from './RuntimeIcon'
 
@@ -50,6 +51,7 @@ export const IssueListTitleColumn = <T extends ErrorTrackingIssue | ErrorTrackin
     const { setSelectedIssueIds, setPreviouslyCheckedRecordIndex } = useActions(bulkSelectLogic)
     const { updateIssueAssignee, updateIssueStatus } = useActions(issueActionsLogic)
     const { dateRange, filterGroup, filterTestAccounts, searchQuery } = useValues(issueFiltersLogic)
+    const { orderBy } = useValues(issueQueryOptionsLogic)
 
     const record = props.record as ErrorTrackingIssue
     const checked = selectedIssueIds.includes(record.id)
@@ -139,12 +141,25 @@ export const IssueListTitleColumn = <T extends ErrorTrackingIssue | ErrorTrackin
                         )}
                     </AssigneeSelect>
                     <CustomSeparator />
-                    <TZLabel time={record.first_seen} className="border-dotted border-b text-xs ml-1" delayMs={750} />
-                    <IconChevronRight className="text-quaternary mx-1" />
+                    {orderBy === 'first_seen' && (
+                        <>
+                            <TZLabel
+                                time={record.first_seen}
+                                className="border-dotted border-b text-xs ml-1"
+                                suffix="old"
+                                delayMs={750}
+                            />
+                            <IconChevronRight className="text-quaternary mx-0.5" fontSize="0.75rem" />
+                        </>
+                    )}
                     {record.last_seen ? (
-                        <TZLabel time={record.last_seen} className="border-dotted border-b text-xs" delayMs={750} />
+                        <TZLabel
+                            time={record.last_seen}
+                            className="border-dotted border-b text-xs ml-1"
+                            delayMs={750}
+                        />
                     ) : (
-                        <LemonSkeleton />
+                        <LemonSkeleton className="ml-1" />
                     )}
                 </div>
             </div>

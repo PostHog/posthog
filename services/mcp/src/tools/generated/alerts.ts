@@ -9,6 +9,7 @@ import {
     AlertsPartialUpdateBody,
     AlertsPartialUpdateParams,
     AlertsRetrieveParams,
+    AlertsRetrieveQueryParams,
     AlertsSimulateCreateBody,
 } from '@/generated/alerts/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -35,7 +36,7 @@ const alertsList = (): ToolBase<typeof AlertsListSchema, Schemas.PaginatedAlertL
     },
 })
 
-const AlertGetSchema = AlertsRetrieveParams.omit({ project_id: true })
+const AlertGetSchema = AlertsRetrieveParams.omit({ project_id: true }).extend(AlertsRetrieveQueryParams.shape)
 
 const alertGet = (): ToolBase<typeof AlertGetSchema, Schemas.Alert> => ({
     name: 'alert-get',
@@ -45,6 +46,11 @@ const alertGet = (): ToolBase<typeof AlertGetSchema, Schemas.Alert> => ({
         const result = await context.api.request<Schemas.Alert>({
             method: 'GET',
             path: `/api/projects/${projectId}/alerts/${params.id}/`,
+            query: {
+                checks_date_from: params.checks_date_from,
+                checks_date_to: params.checks_date_to,
+                checks_limit: params.checks_limit,
+            },
         })
         return result
     },

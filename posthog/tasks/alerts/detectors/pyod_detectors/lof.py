@@ -20,4 +20,4 @@ class LOFDetector(BasePyODDetector):
 
     @classmethod
     def get_default_config(cls) -> dict[str, Any]:
-        return {"type": DetectorType.LOF.value, "threshold": 0.9, "n_neighbors": 20}
+        return {"type": DetectorType.LOF.value, "threshold": cls.DEFAULT_THRESHOLD, "n_neighbors": 20}
