@@ -8,7 +8,14 @@ import { IndexedTrendResult } from 'scenes/trends/types'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { BaseMathType, ChartDisplayType, InsightLogicProps, InsightModel, PropertyMathType } from '~/types'
+import {
+    BaseMathType,
+    ChartDisplayType,
+    CompareLabelType,
+    InsightLogicProps,
+    InsightModel,
+    PropertyMathType,
+} from '~/types'
 
 import { AggregationType, compareResultKey, insightsTableDataLogic } from './insightsTableDataLogic'
 
@@ -250,8 +257,8 @@ describe('insightsTableDataLogic', () => {
             }
             const insight: Partial<InsightModel> = {
                 result: [
-                    makeCompareResult({ compare_label: 'current', compare: true }),
-                    makeCompareResult({ compare_label: 'previous', compare: true }),
+                    makeCompareResult({ compare_label: CompareLabelType.Current, compare: true }),
+                    makeCompareResult({ compare_label: CompareLabelType.Previous, compare: true }),
                 ],
             }
 
@@ -278,16 +285,16 @@ describe('insightsTableDataLogic', () => {
             }
             const insight: Partial<InsightModel> = {
                 result: [
-                    makeCompareResult({ compare_label: 'current', compare: true }),
-                    makeCompareResult({ compare_label: 'previous', compare: true, count: 80, data: [8, 16, 24] }),
+                    makeCompareResult({ compare_label: CompareLabelType.Current, compare: true }),
+                    makeCompareResult({ compare_label: CompareLabelType.Previous, compare: true, count: 80, data: [8, 16, 24] }),
                     makeCompareResult({
-                        compare_label: 'current',
+                        compare_label: CompareLabelType.Current,
                         compare: true,
                         action: { order: 1, id: '$autocapture', name: '$autocapture' } as any,
                         label: '$autocapture',
                     }),
                     makeCompareResult({
-                        compare_label: 'previous',
+                        compare_label: CompareLabelType.Previous,
                         compare: true,
                         action: { order: 1, id: '$autocapture', name: '$autocapture' } as any,
                         label: '$autocapture',
@@ -317,8 +324,8 @@ describe('insightsTableDataLogic', () => {
             }
             const insight: Partial<InsightModel> = {
                 result: [
-                    makeCompareResult({ compare_label: 'current', compare: true, count: 100 }),
-                    makeCompareResult({ compare_label: 'previous', compare: true, count: 80 }),
+                    makeCompareResult({ compare_label: CompareLabelType.Current, compare: true, count: 100 }),
+                    makeCompareResult({ compare_label: CompareLabelType.Previous, compare: true, count: 80 }),
                 ],
             }
 
