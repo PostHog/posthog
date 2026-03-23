@@ -44,9 +44,6 @@ const Template: StoryFn<typeof InlineRichMarkdownEditor> = (props) => {
     return <InlineRichMarkdownEditor {...storyDefaults} {...props} value={value} onChange={setValue} />
 }
 
-export const Empty: Story = Template.bind({})
-Empty.args = { value: '' }
-
 export const WithMarkdown: Story = Template.bind({})
 WithMarkdown.args = {
     value: `Select this paragraph to format it with the bubble menu.
@@ -54,12 +51,6 @@ WithMarkdown.args = {
 ## Or use headings
 
 **Bold** and *italic* work too.`,
-}
-
-export const NoCharacterCount: Story = Template.bind({})
-NoCharacterCount.args = {
-    ...WithMarkdown.args,
-    showCharacterCount: false,
 }
 
 export const WithSlashCommands: Story = Template.bind({})

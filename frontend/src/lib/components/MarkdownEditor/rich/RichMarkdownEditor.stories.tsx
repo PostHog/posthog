@@ -40,9 +40,6 @@ const Template: StoryFn<typeof RichMarkdownEditor> = (props) => {
     return <RichMarkdownEditor {...storyDefaults} {...props} value={value} onChange={setValue} />
 }
 
-export const Empty: Story = Template.bind({})
-Empty.args = { value: '' }
-
 export const WithMarkdown: Story = Template.bind({})
 WithMarkdown.args = {
     value: `## Week notes
@@ -53,17 +50,4 @@ WithMarkdown.args = {
 - Bullet two
 
 > A blockquote worth keeping.`,
-}
-
-export const CompactHeight: Story = Template.bind({})
-CompactHeight.args = {
-    ...WithMarkdown.args,
-    minRows: 4,
-    maxRows: 12,
-}
-
-export const NearCharacterLimit: Story = Template.bind({})
-NearCharacterLimit.args = {
-    value: '# Almost full\n\n' + 'Word '.repeat(40),
-    maxLength: 120,
 }
