@@ -599,6 +599,21 @@ class ExperimentService:
         return experiment
 
     # ------------------------------------------------------------------
+    # Archive
+    # ------------------------------------------------------------------
+
+    def archive_experiment(self, experiment: Experiment) -> Experiment:
+        """Archive an ended experiment: validate it has ended, set archived=True."""
+        if experiment.archived:
+            raise ValidationError("Experiment is already archived.")
+        if not experiment.end_date:
+            raise ValidationError("Experiment must be ended before it can be archived.")
+
+        experiment.archived = True
+        experiment.save()
+        return experiment
+
+    # ------------------------------------------------------------------
     # Update
     # ------------------------------------------------------------------
 

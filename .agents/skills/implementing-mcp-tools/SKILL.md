@@ -67,6 +67,42 @@ Agents compose these primitives into higher-level workflows.
 Good: "List feature flags", "Get experiment by ID", "Create a survey".
 Bad: "Search for session recordings of an experiment" — bundles multiple concerns.
 
+## Tool naming constraints
+
+Tool names and feature identifiers are validated at build time and in CI.
+Violations fail the build.
+
+### Tool names
+
+- **Format**: lowercase kebab-case — only `[a-z0-9-]`, no leading/trailing hyphens
+- **Length**: 52 characters or fewer
+- **Convention**: `domain-action`, e.g. `cohorts-create`, `dashboard-get`, `feature-flags-list`
+
+### Feature identifiers
+
+- **Format**: lowercase snake*case — only `[a-z0-9*]`, must start with a letter
+- **Convention**: should match the product folder name, e.g. `error_tracking`, `feature_flags`
+
+### Why 52 characters?
+
+MCP clients enforce different limits on tool names. The 52-char limit is the safe zone
+that works across all known clients:
+
+| Client           | Limit                          | Notes                                                            |
+| ---------------- | ------------------------------ | ---------------------------------------------------------------- |
+| MCP spec (draft) | 1–128 chars, `[A-Za-z0-9_\-.]` | Official recommendation, not enforced                            |
+| Claude Code      | 64 chars                       | Hard limit; prefixes tool names with `mcp____`                   |
+| Cursor           | 60 chars combined              | `server_name + tool_name`; tools over this are silently filtered |
+| OpenAI API       | `^[a-zA-Z0-9_-]+$`, 64 chars   | No dots allowed                                                  |
+
+With the server name "posthog" (7 chars) plus a separator, tool names must stay at
+or below 52 characters to fit within Cursor's 60-char combined limit.
+
+### CI enforcement
+
+- `pnpm --filter=@posthog/mcp lint-tool-names` — validates length and pattern for YAML and JSON definitions
+- A vitest test validates all runtime `TOOL_MAP` and `GENERATED_TOOL_MAP` entries
+
 ## YAML definitions
 
 YAML files configure which operations are exposed as MCP tools.

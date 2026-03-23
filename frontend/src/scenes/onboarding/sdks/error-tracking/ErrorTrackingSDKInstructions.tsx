@@ -82,6 +82,7 @@ const ErrorTrackingRubyInstructionsWrapper = withOnboardingDocsWrapper({
 })
 const ErrorTrackingRubyOnRailsInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RubyOnRailsInstallation,
+    wizardIntegrationName: 'Ruby on Rails',
 })
 
 const ErrorTrackingHonoInstructionsWrapper = withOnboardingDocsWrapper({
@@ -90,15 +91,18 @@ const ErrorTrackingHonoInstructionsWrapper = withOnboardingDocsWrapper({
 })
 const ErrorTrackingAndroidInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: AndroidInstallation,
+    wizardIntegrationName: 'Android',
 })
 const ErrorTrackingIOSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: IOSInstallation,
+    wizardIntegrationName: 'Swift',
 })
 const ErrorTrackingFlutterInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: FlutterInstallation,
 })
 const ErrorTrackingReactNativeInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: ReactNativeInstallation,
+    wizardIntegrationName: 'React Native',
 })
 const ErrorTrackingAPIInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: APIInstallation,
