@@ -21,6 +21,7 @@ import {
 } from '~/types'
 
 import type { batchExportConfigFormLogicType } from './batchExportConfigFormLogicType'
+import { batchExportConfigLogic } from './batchExportConfigLogic'
 import { humanizeBatchExportName } from './utils'
 
 // Bucket naming rules (supports both S3 and GCS):
@@ -625,6 +626,9 @@ const sessionsTable: DatabaseSchemaBatchExportTable = {
     },
 }
 
+// Form logic for creating and editing batch export configurations.
+// Owns form state, validation, dirty-checking, test steps, and save/delete actions.
+// Reads the underlying config data from batchExportConfigLogic.
 export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
     props({ id: null, service: null } as BatchExportConfigFormLogicProps),
     key(({ service, id }: BatchExportConfigFormLogicProps) => {
@@ -634,12 +638,18 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
         return `NEW:${service}`
     }),
     path((key) => ['scenes', 'data-pipelines', 'batch-exports', 'batchExportConfigFormLogic', key]),
-    connect(() => ({
+    connect((props: BatchExportConfigFormLogicProps) => ({
         values: [
             teamLogic,
             ['timezone as teamTimezone', 'weekStartDay as teamWeekStartDay'],
             featureFlagLogic,
             ['featureFlags'],
+            batchExportConfigLogic({ id: props.id }),
+            ['batchExportConfig', 'batchExportConfigLoading'],
+        ],
+        actions: [
+            batchExportConfigLogic({ id: props.id }),
+            ['loadBatchExportConfig', 'loadBatchExportConfigSuccess', 'setBatchExportConfig'],
         ],
     })),
     actions({
@@ -647,119 +657,10 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
         setSelectedModel: (model: string) => ({ model }),
         setRunningStep: (step: number | null) => ({ step }),
         deleteBatchExport: () => true,
+        updateBatchExportConfig: (formdata: Record<string, any>) => ({ formdata }),
+        updateBatchExportConfigSuccess: (batchExportConfig: BatchExportConfiguration) => ({ batchExportConfig }),
     }),
-    loaders(({ props, actions, values }) => ({
-        batchExportConfig: [
-            null as BatchExportConfiguration | null,
-            {
-                loadBatchExportConfig: async () => {
-                    if (props.id) {
-                        return await api.batchExports.get(props.id)
-                    }
-                    return null
-                },
-                updateBatchExportConfig: async (formdata) => {
-                    const {
-                        name,
-                        destination,
-                        interval,
-                        timezone,
-                        offset_day,
-                        offset_hour,
-                        paused,
-                        created_at,
-                        start_at,
-                        end_at,
-                        model,
-                        filters,
-                        json_config_file,
-                        integration_id,
-                        // Redshift COPY configuration
-                        mode,
-                        authorization_mode,
-                        redshift_s3_bucket,
-                        redshift_s3_key_prefix,
-                        redshift_s3_bucket_region_name,
-                        redshift_s3_bucket_aws_access_key_id,
-                        redshift_s3_bucket_aws_secret_access_key,
-                        redshift_iam_role,
-                        redshift_aws_access_key_id,
-                        redshift_aws_secret_access_key,
-                        ...config
-                    } = formdata
-
-                    if (destination === 'Redshift') {
-                        if (mode === 'COPY') {
-                            const copyInputs: Record<string, any> = {
-                                s3_bucket: redshift_s3_bucket,
-                                s3_key_prefix: redshift_s3_key_prefix,
-                                region_name: redshift_s3_bucket_region_name,
-                            }
-
-                            if (redshift_iam_role) {
-                                copyInputs.authorization = redshift_iam_role
-                            } else if (redshift_aws_access_key_id && redshift_aws_secret_access_key) {
-                                copyInputs.authorization = {
-                                    aws_access_key_id: redshift_aws_access_key_id,
-                                    aws_secret_access_key: redshift_aws_secret_access_key,
-                                }
-                            }
-
-                            if (redshift_s3_bucket_aws_access_key_id && redshift_s3_bucket_aws_secret_access_key) {
-                                copyInputs.bucket_credentials = {
-                                    aws_access_key_id: redshift_s3_bucket_aws_access_key_id,
-                                    aws_secret_access_key: redshift_s3_bucket_aws_secret_access_key,
-                                }
-                            }
-
-                            config.copy_inputs = copyInputs
-                        }
-                        config.mode = mode
-                    }
-
-                    const destinationObj = {
-                        type: destination,
-                        integration: integration_id,
-                        config: config,
-                    }
-                    const data: Omit<
-                        BatchExportConfiguration,
-                        'id' | 'team_id' | 'created_at' | 'start_at' | 'end_at'
-                    > = {
-                        paused,
-                        name,
-                        interval,
-                        // timezone and offset are only used for day and week intervals
-                        timezone: interval === 'day' || interval === 'week' ? timezone : null,
-                        offset_day: interval === 'week' ? offset_day : null,
-                        offset_hour: interval === 'day' || interval === 'week' ? offset_hour : null,
-                        model,
-                        filters,
-                        destination: destinationObj,
-                    } as any
-                    if (props.id) {
-                        const res = await api.batchExports.update(props.id, data)
-                        lemonToast.success('Batch export configuration updated successfully')
-                        void addProductIntent({
-                            product_type: ProductKey.PIPELINE_BATCH_EXPORTS,
-                            intent_context: ProductIntentContext.BATCH_EXPORT_UPDATED,
-                        })
-                        return res
-                    }
-                    const res = await api.batchExports.create(data)
-                    actions.resetConfiguration(getConfigurationFromBatchExportConfig(res))
-
-                    void addProductIntent({
-                        product_type: ProductKey.PIPELINE_BATCH_EXPORTS,
-                        intent_context: ProductIntentContext.BATCH_EXPORT_CREATED,
-                    })
-
-                    router.actions.replace(urls.batchExport(res.id))
-                    lemonToast.success('Batch export created successfully')
-                    return res
-                },
-            },
-        ],
+    loaders(({ props, values }) => ({
         batchExportConfigTest: [
             null as BatchExportConfigurationTest | null,
             {
@@ -1068,7 +969,106 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
             },
         ],
     })),
-    listeners(({ values, actions }) => ({
+    listeners(({ props, values, actions }) => ({
+        updateBatchExportConfig: async ({ formdata }) => {
+            const {
+                name,
+                destination,
+                interval,
+                timezone,
+                offset_day,
+                offset_hour,
+                paused,
+                created_at,
+                start_at,
+                end_at,
+                model,
+                filters,
+                json_config_file,
+                integration_id,
+                // Redshift COPY configuration
+                mode,
+                authorization_mode,
+                redshift_s3_bucket,
+                redshift_s3_key_prefix,
+                redshift_s3_bucket_region_name,
+                redshift_s3_bucket_aws_access_key_id,
+                redshift_s3_bucket_aws_secret_access_key,
+                redshift_iam_role,
+                redshift_aws_access_key_id,
+                redshift_aws_secret_access_key,
+                ...config
+            } = formdata
+
+            if (destination === 'Redshift') {
+                if (mode === 'COPY') {
+                    const copyInputs: Record<string, any> = {
+                        s3_bucket: redshift_s3_bucket,
+                        s3_key_prefix: redshift_s3_key_prefix,
+                        region_name: redshift_s3_bucket_region_name,
+                    }
+
+                    if (redshift_iam_role) {
+                        copyInputs.authorization = redshift_iam_role
+                    } else if (redshift_aws_access_key_id && redshift_aws_secret_access_key) {
+                        copyInputs.authorization = {
+                            aws_access_key_id: redshift_aws_access_key_id,
+                            aws_secret_access_key: redshift_aws_secret_access_key,
+                        }
+                    }
+
+                    if (redshift_s3_bucket_aws_access_key_id && redshift_s3_bucket_aws_secret_access_key) {
+                        copyInputs.bucket_credentials = {
+                            aws_access_key_id: redshift_s3_bucket_aws_access_key_id,
+                            aws_secret_access_key: redshift_s3_bucket_aws_secret_access_key,
+                        }
+                    }
+
+                    config.copy_inputs = copyInputs
+                }
+                config.mode = mode
+            }
+
+            const destinationObj = {
+                type: destination,
+                integration: integration_id,
+                config: config,
+            }
+            const data: Omit<BatchExportConfiguration, 'id' | 'team_id' | 'created_at' | 'start_at' | 'end_at'> = {
+                paused,
+                name,
+                interval,
+                // timezone and offset are only used for day and week intervals
+                timezone: interval === 'day' || interval === 'week' ? timezone : null,
+                offset_day: interval === 'week' ? offset_day : null,
+                offset_hour: interval === 'day' || interval === 'week' ? offset_hour : null,
+                model,
+                filters,
+                destination: destinationObj,
+            } as any
+            if (props.id) {
+                const res = await api.batchExports.update(props.id, data)
+                lemonToast.success('Batch export configuration updated successfully')
+                void addProductIntent({
+                    product_type: ProductKey.PIPELINE_BATCH_EXPORTS,
+                    intent_context: ProductIntentContext.BATCH_EXPORT_UPDATED,
+                })
+                actions.setBatchExportConfig(res)
+                actions.updateBatchExportConfigSuccess(res)
+                return
+            }
+            const res = await api.batchExports.create(data)
+            actions.resetConfiguration(getConfigurationFromBatchExportConfig(res))
+
+            void addProductIntent({
+                product_type: ProductKey.PIPELINE_BATCH_EXPORTS,
+                intent_context: ProductIntentContext.BATCH_EXPORT_CREATED,
+            })
+
+            router.actions.replace(urls.batchExport(res.id))
+            lemonToast.success('Batch export created successfully')
+            actions.updateBatchExportConfigSuccess(res)
+        },
         updateBatchExportConfigSuccess: ({ batchExportConfig }) => {
             if (!batchExportConfig) {
                 return
@@ -1293,7 +1293,6 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
     })),
 
     afterMount(({ actions }) => {
-        actions.loadBatchExportConfig()
         actions.loadBatchExportConfigTest()
     }),
 ])

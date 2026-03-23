@@ -1,3 +1,4 @@
+// Loads and manages batch export runs — grouping by date, retry, cancel, and pagination logic.
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
@@ -9,7 +10,7 @@ import { dayjs } from 'lib/dayjs'
 import { BatchExportRun, GroupedBatchExportRuns, RawBatchExportRun } from '~/types'
 
 import { batchExportBackfillModalLogic } from './batchExportBackfillModalLogic'
-import { batchExportConfigFormLogic } from './batchExportConfigFormLogic'
+import { batchExportConfigLogic } from './batchExportConfigLogic'
 import type { batchExportRunsLogicType } from './batchExportRunsLogicType'
 
 const DEFAULT_DATE_FROM = '-2d'
@@ -22,13 +23,7 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
     key(({ id }) => id),
     path((key) => ['scenes', 'pipeline', 'batchExportRunsLogic', key]),
     connect((props: BatchExportRunsLogicProps) => ({
-        values: [
-            batchExportConfigFormLogic({
-                id: props.id,
-                service: null,
-            }),
-            ['batchExportConfig'],
-        ],
+        values: [batchExportConfigLogic({ id: props.id }), ['batchExportConfig']],
         actions: [batchExportBackfillModalLogic(props), ['submitBackfillFormSuccess', 'openBackfillModal']],
     })),
     actions({
