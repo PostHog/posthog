@@ -1,0 +1,84 @@
+#
+# Codespace overlay: runs Rust/Go services as pre-built Docker containers
+# instead of building from source. Loaded only when POSTHOG_DEVBOX=1.
+#
+# Port mappings match bin/start-rust-service and bin/start-go-service
+# defaults so the proxy Caddyfile in docker-compose.dev.yml works unchanged
+# (proxy reaches services via extra_hosts host-gateway + mapped host ports).
+#
+
+services:
+    # feature-flags is already defined in docker-compose.dev.yml but without
+    # a host port mapping (native binary normally listens on host:3001).
+    # Add the port so the proxy can reach the container via host-gateway.
+    feature-flags:
+        ports:
+            - '3001:3001'
+
+    # property-defs-rs is not in docker-compose.dev.yml (only runs natively).
+    # Define it here so it starts as a container in codespace mode.
+    property-defs-rs:
+        extends:
+            file: docker-compose.base.yml
+            service: property-defs-rs
+        depends_on:
+            kafka:
+                condition: service_healthy
+            db:
+                condition: service_healthy
+
+    # --- Profile-gated services (activated by intent resolution) ---
+
+    replay-capture:
+        extends:
+            file: docker-compose.base.yml
+            service: replay-capture
+        ports:
+            - '3306:3000'
+        depends_on:
+            kafka:
+                condition: service_healthy
+            redis7:
+                condition: service_healthy
+        profiles:
+            - capture_replay
+
+    capture-ai:
+        extends:
+            file: docker-compose.base.yml
+            service: capture-ai
+        ports:
+            - '3309:3000'
+        depends_on:
+            kafka:
+                condition: service_healthy
+            redis7:
+                condition: service_healthy
+            objectstorage:
+                condition: service_started
+        profiles:
+            - capture_ai
+
+    cyclotron-janitor:
+        extends:
+            file: docker-compose.base.yml
+            service: cyclotron-janitor
+        depends_on:
+            kafka:
+                condition: service_healthy
+            db:
+                condition: service_healthy
+        profiles:
+            - codespace_cyclotron
+
+    livestream:
+        extends:
+            file: docker-compose.base.yml
+            service: livestream
+        ports:
+            - '8666:8080'
+        depends_on:
+            kafka:
+                condition: service_started
+        profiles:
+            - codespace_livestream

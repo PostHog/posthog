@@ -35,7 +35,45 @@ class DevenvConfig(BaseModel):
 
 
 # Docker compose command building
-DOCKER_COMPOSE_BASE = "docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml"
+
+# All native Rust/Go processes — excluded from mprocs in codespace mode
+# (they'd fail without toolchains and run as Docker containers instead).
+NATIVE_SERVICES: set[str] = {
+    "capture",
+    "capture-replay",
+    "capture-ai",
+    "feature-flags",
+    "property-defs-rs",
+    "cyclotron-janitor",
+    "cymbal",
+    "embedding-worker",
+    "batch-import-worker",
+    "personhog-replica",
+    "personhog-router",
+    "livestream",
+}
+
+# Subset with Docker container definitions in docker-compose.codespace.yml.
+# Maps process name to the docker compose profile that starts it (None = always starts).
+NATIVE_SERVICE_PROFILES: dict[str, str | None] = {
+    "capture": "capture",  # profile-gated in docker-compose.dev.yml
+    "feature-flags": None,  # always starts from dev.yml
+    "property-defs-rs": None,  # always starts from codespace overlay
+    "capture-replay": "capture_replay",
+    "capture-ai": "capture_ai",
+    "cyclotron-janitor": "codespace_cyclotron",
+    "livestream": "codespace_livestream",
+}
+
+
+def _is_codespace() -> bool:
+    return os.environ.get("POSTHOG_DEVBOX") == "1"
+
+
+def _get_docker_compose_base() -> str:
+    if _is_codespace():
+        return "docker compose -f docker-compose.dev.yml -f docker-compose.codespace.yml -f docker-compose.profiles.yml"
+    return "docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml"
 
 
 def build_docker_compose_command(profiles: list[str], action: str = "up -d") -> str:
@@ -48,10 +86,11 @@ def build_docker_compose_command(profiles: list[str], action: str = "up -d") -> 
     Returns:
         Complete docker compose command string
     """
+    base = _get_docker_compose_base()
     if profiles:
         profile_flags = " ".join(f"--profile {p}" for p in profiles)
-        return f"{DOCKER_COMPOSE_BASE} {profile_flags} {action}"
-    return f"{DOCKER_COMPOSE_BASE} {action}"
+        return f"{base} {profile_flags} {action}"
+    return f"{base} {action}"
 
 
 class ConfigGenerator(ABC):
@@ -126,6 +165,11 @@ class MprocsGenerator(ConfigGenerator):
             if not proc_config:
                 continue
 
+            # In codespace mode, native Rust/Go services run as Docker
+            # containers — skip them from the mprocs process list.
+            if _is_codespace() and name in NATIVE_SERVICES:
+                continue
+
             # Include if: in resolved units, or autostart: false (manual start)
             is_resolved = name in resolved.units
             is_manual_start = proc_config.get("autostart") is False
@@ -155,7 +199,9 @@ class MprocsGenerator(ConfigGenerator):
 
             # Special handling for docker-compose
             if name == "docker-compose":
-                proc_config = self._generate_docker_compose_config(resolved.get_docker_profiles_list())
+                proc_config = self._generate_docker_compose_config(
+                    resolved.get_docker_profiles_list(), resolved_units=resolved.units
+                )
 
             # Special handling for nodejs - set capability groups based on resolved nodejs_* capabilities
             if name == "nodejs":
@@ -249,15 +295,28 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
         proc_config["shell"] = message + original_shell
         return proc_config
 
-    def _generate_docker_compose_config(self, profiles: list[str]) -> dict[str, Any]:
+    def _generate_docker_compose_config(
+        self, profiles: list[str], resolved_units: set[str] | None = None
+    ) -> dict[str, Any]:
         """Generate docker-compose process config with profile flags.
 
         Args:
             profiles: List of docker compose profiles to activate
+            resolved_units: Resolved unit names (used in codespace mode to
+                inject profiles for native services running as containers)
 
         Returns:
             Process configuration dict with modified shell command
         """
+        # In codespace mode, inject profiles for native services that are
+        # in the resolved set so their Docker containers start.
+        if _is_codespace() and resolved_units:
+            profiles = list(profiles)  # avoid mutating caller's list
+            for svc_name, profile in NATIVE_SERVICE_PROFILES.items():
+                if svc_name in resolved_units and profile and profile not in profiles:
+                    profiles.append(profile)
+            profiles.sort()
+
         # Build the profile flags (may be empty for minimal stack)
         if profiles:
             message = f"echo '▶ docker-compose: profiles: {', '.join(profiles)} (configure via: hogli dev:setup)' && "

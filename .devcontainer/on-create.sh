@@ -20,15 +20,11 @@ export COREPACK_ENABLE_AUTO_PIN=0
 corepack enable
 pnpm install --frozen-lockfile
 
-# Build phrocs (Go process runner)
-echo "Building phrocs..."
-(cd tools/phrocs && go build -o ../../bin/phrocs .) || echo "phrocs build skipped (Go may not be ready yet)"
-
-# Pull only core infrastructure images. Profile-specific images (temporal,
-# observability, dev_tools) are pulled on-demand by post-create.sh when
-# the intent system starts the requested services.
+# Pull core infrastructure + codespace service images. Profile-specific
+# images (temporal, observability, dev_tools) are pulled on-demand by
+# post-create.sh when the intent system starts the requested services.
 echo "Pulling core Docker images..."
-docker compose -f docker-compose.dev.yml pull --quiet || echo "Some images failed to pull (non-fatal)"
+docker compose -f docker-compose.dev.yml -f docker-compose.codespace.yml pull --quiet || echo "Some images failed to pull (non-fatal)"
 
 # Download GeoIP database
 echo "Downloading GeoIP database..."
