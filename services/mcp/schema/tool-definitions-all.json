@@ -512,10 +512,10 @@
     "survey-create": {
         "description": "Creates a new survey in the project. Surveys can be popover or API-based and support various question types including open-ended, multiple choice, rating, and link questions. Once created, you should ask the user if they want to add the survey to their application code.",
         "category": "Surveys",
-        "summary": "Creates a new survey in the project.",
-        "required_scopes": ["survey:write"],
         "feature": "surveys",
-        "title": "Create survey",
+        "summary": "Creates a new survey in the project.",
+        "title": "Creates a new survey in the project.",
+        "required_scopes": ["survey:write"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -527,10 +527,10 @@
     "survey-get": {
         "description": "Get a specific survey by ID. Returns the survey configuration including questions, targeting, and scheduling details.",
         "category": "Surveys",
-        "summary": "Get a specific survey by ID.",
-        "required_scopes": ["survey:read"],
         "feature": "surveys",
-        "title": "Get survey",
+        "summary": "Get a specific survey by ID.",
+        "title": "Get a specific survey by ID.",
+        "required_scopes": ["survey:read"],
         "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
@@ -542,10 +542,10 @@
     "surveys-get-all": {
         "description": "Get all surveys in the project with optional filtering. Can filter by search term or use pagination.",
         "category": "Surveys",
-        "summary": "Get all surveys in the project with optional filtering.",
-        "required_scopes": ["survey:read"],
         "feature": "surveys",
-        "title": "Get all surveys",
+        "summary": "Get all surveys in the project with optional filtering.",
+        "title": "Get all surveys in the project with optional filtering.",
+        "required_scopes": ["survey:read"],
         "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
@@ -557,10 +557,10 @@
     "survey-update": {
         "description": "Update an existing survey by ID. Can update name, description, questions, scheduling, and other survey properties.",
         "category": "Surveys",
-        "summary": "Update an existing survey by ID.",
-        "required_scopes": ["survey:write"],
         "feature": "surveys",
-        "title": "Update survey",
+        "summary": "Update an existing survey by ID.",
+        "title": "Update an existing survey by ID.",
+        "required_scopes": ["survey:write"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -572,10 +572,10 @@
     "survey-delete": {
         "description": "Delete a survey by ID (soft delete - marks as archived).",
         "category": "Surveys",
-        "summary": "Delete a survey by ID.",
-        "required_scopes": ["survey:write"],
         "feature": "surveys",
-        "title": "Delete survey",
+        "summary": "Delete a survey by ID.",
+        "title": "Delete a survey by ID.",
+        "required_scopes": ["survey:write"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": true,
@@ -587,10 +587,10 @@
     "surveys-global-stats": {
         "description": "Get aggregated response statistics across all surveys in the project. Includes event counts (shown, dismissed, sent), unique respondents, conversion rates, and timing data. Supports optional date filtering.",
         "category": "Surveys",
-        "summary": "Get aggregated response statistics across all surveys.",
-        "required_scopes": ["survey:read"],
         "feature": "surveys",
-        "title": "Get all survey response stats",
+        "summary": "Get aggregated response statistics across all surveys.",
+        "title": "Get aggregated response statistics across all surveys.",
+        "required_scopes": ["survey:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -602,10 +602,10 @@
     "survey-stats": {
         "description": "Get response statistics for a specific survey. Includes detailed event counts (shown, dismissed, sent), unique respondents, conversion rates, and timing data. Supports optional date filtering.",
         "category": "Surveys",
-        "summary": "Get response statistics for a specific survey.",
-        "required_scopes": ["survey:read"],
         "feature": "surveys",
-        "title": "Get survey response stats",
+        "summary": "Get response statistics for a specific survey.",
+        "title": "Get response statistics for a specific survey.",
+        "required_scopes": ["survey:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,

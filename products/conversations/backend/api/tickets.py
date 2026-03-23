@@ -248,7 +248,16 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             except json.JSONDecodeError:
                 pass
 
-        allowed_orderings = {"updated_at", "-updated_at", "sla_due_at", "-sla_due_at", "created_at", "-created_at"}
+        allowed_orderings = {
+            "updated_at",
+            "-updated_at",
+            "sla_due_at",
+            "-sla_due_at",
+            "created_at",
+            "-created_at",
+            "ticket_number",
+            "-ticket_number",
+        }
         order_by = self.request.query_params.get("order_by", "-updated_at")
         if order_by not in allowed_orderings:
             order_by = "-updated_at"
