@@ -310,7 +310,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             event_name=event_name,
             distinct_id=self.context.distinct_id,
             properties=properties,
-            groups={"organization": self.context.organization_id},
+            groups={
+                "organization": self.context.organization_id,
+                "project": self.context.team_uuid,
+            },
         )
         await workflow.execute_activity(
             track_workflow_event,

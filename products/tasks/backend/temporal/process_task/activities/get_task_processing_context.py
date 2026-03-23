@@ -27,6 +27,7 @@ class TaskProcessingContext:
     task_id: str
     run_id: str
     team_id: int
+    team_uuid: str
     organization_id: str
     github_integration_id: int | None
     repository: str | None
@@ -104,6 +105,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         task_id=str(task.id),
         run_id=run_id,
         team_id=task.team_id,
+        team_uuid=str(task.team.uuid),
         organization_id=str(task.team.organization_id),
         github_integration_id=task.github_integration_id,
         repository=task.repository,

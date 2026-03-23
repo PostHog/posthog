@@ -121,7 +121,7 @@ class Task(DeletedMetaFields, models.Model):
                 groups=groups(team=self.team),
             )
         except Exception as e:
-            logger.warning(f"Failed to track {event}", error=str(e))
+            logger.warning("task.capture_event_failed", analytics_event=event, error=str(e))
 
     def _track_task_created(self) -> None:
         self.capture_event(
@@ -441,7 +441,7 @@ class TaskRun(models.Model):
                 groups=groups(team=self.team),
             )
         except Exception as e:
-            logger.warning(f"Failed to track {event}", error=str(e))
+            logger.warning("task_run.capture_event_failed", analytics_event=event, error=str(e))
 
     def _duration_seconds(self) -> float:
         if self.completed_at and self.created_at:
@@ -467,7 +467,7 @@ class TaskRun(models.Model):
         self.capture_event(
             "task_run_failed",
             {
-                "error_type": type(error).__name__ if not isinstance(error, str) else "str",
+                "error_type": type(error).__name__,
                 "error_message": error[:500],
                 "duration_seconds": self._duration_seconds(),
             },
