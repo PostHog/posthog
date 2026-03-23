@@ -129,7 +129,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
             "Name or service not known": None,
             "Network is unreachable": None,
             "InsufficientPrivilege": None,
-            "OperationalError: connection failed: connection to server at": None,
+            "No route to host": None,
             "password authentication failed connection": None,
             "connection timeout expired": None,
             "Connection refused": None,

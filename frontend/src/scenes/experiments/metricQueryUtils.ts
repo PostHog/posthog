@@ -296,7 +296,7 @@ export const getFilter = (metric: ExperimentMetric): FilterType => {
             return {
                 events: funnelSteps.filter((step) => step.type === 'events'),
                 actions: funnelSteps.filter((step) => step.type === 'actions'),
-                data_warehouse: [], // datawarehouse nodes are not supported for funnel metrics yet
+                data_warehouse: funnelSteps.filter((step) => step.type === 'data_warehouse'),
             }
         })
         .with({ metric_type: ExperimentMetricType.RATIO }, (ratioMetric) => {

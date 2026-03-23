@@ -76,6 +76,10 @@ export interface ToolFilterOptions {
     aiConsentGiven?: boolean | undefined
 }
 
+function normalizeFeatureName(name: string): string {
+    return name.replace(/-/g, '_')
+}
+
 export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
     const { features, version, readOnly, aiConsentGiven } = options || {}
     const toolDefinitions = getToolDefinitions(version)
@@ -87,9 +91,13 @@ export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
         entries = entries.filter(([_, definition]) => definition.new_mcp !== false)
     }
 
-    // Filter by features if provided
+    // Filter by features if provided. Normalize hyphens to underscores so that
+    // both "error-tracking" and "error_tracking" match regardless of convention.
     if (features && features.length > 0) {
-        entries = entries.filter(([_, definition]) => definition.feature && features.includes(definition.feature))
+        const normalizedFeatures = new Set(features.map(normalizeFeatureName))
+        entries = entries.filter(
+            ([_, definition]) => definition.feature && normalizedFeatures.has(normalizeFeatureName(definition.feature))
+        )
     }
 
     // In read-only mode, only expose tools annotated as read-only

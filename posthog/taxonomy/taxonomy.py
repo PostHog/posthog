@@ -381,6 +381,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Debug information about full snapshots in the replay session.",
             "used_for_debug": True,
         },
+        "$sdk_debug_recording_script_not_loaded": {
+            "label": "Recording script not loaded",
+            "description": "Recording script not loaded. This can be caused by ad blockers.",
+            "used_for_debug": True,
+        },
         "$debug_first_full_snapshot_timestamp": {
             "label": "First full snapshot timestamp",
             "description": "The timestamp of the first full snapshot in the replay session.",

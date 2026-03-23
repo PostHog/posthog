@@ -17,7 +17,6 @@ import {
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
-import { dayjs } from 'lib/dayjs'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { stripMarkdown } from 'lib/utils/stripMarkdown'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -60,8 +59,9 @@ export const scene: SceneExport = {
 export const SUPPORT_TICKETS_TABLE_COLUMNS: LemonTableColumns<Ticket> = [
     {
         title: 'Ticket',
-        key: 'key',
+        key: 'ticket_number',
         width: 80,
+        sorter: true,
         render: (_, ticket) => <span className="text-xs font-mono text-muted-alt">{ticket.ticket_number}</span>,
     },
     {
@@ -141,18 +141,7 @@ export const SUPPORT_TICKETS_TABLE_COLUMNS: LemonTableColumns<Ticket> = [
     {
         title: 'SLA',
         key: 'sla_due_at',
-        sorter: (a, b) => {
-            if (!a.sla_due_at && !b.sla_due_at) {
-                return 0
-            }
-            if (!a.sla_due_at) {
-                return 1
-            }
-            if (!b.sla_due_at) {
-                return -1
-            }
-            return dayjs(a.sla_due_at).unix() - dayjs(b.sla_due_at).unix()
-        },
+        sorter: true,
         render: (_, ticket) =>
             ticket.sla_due_at ? (
                 <SlaDisplay slaDueAt={ticket.sla_due_at} className="text-xs" />
@@ -187,6 +176,7 @@ export const SUPPORT_TICKETS_TABLE_COLUMNS: LemonTableColumns<Ticket> = [
     {
         title: 'Created',
         key: 'created_at',
+        sorter: true,
         render: (_, ticket) => {
             return (
                 <span className="text-xs text-muted-alt">
@@ -198,6 +188,7 @@ export const SUPPORT_TICKETS_TABLE_COLUMNS: LemonTableColumns<Ticket> = [
     {
         title: 'Updated',
         key: 'updated_at',
+        sorter: true,
         align: 'right',
         render: (_, ticket) => {
             return (
@@ -215,8 +206,8 @@ interface SupportTicketsTableProps {
 
 export function SupportTicketsTable({ embedded = false }: SupportTicketsTableProps): JSX.Element {
     const logic = useMountedLogic(supportTicketsSceneLogic)
-    const { filteredTickets, ticketsLoading, currentPage, totalCount } = useValues(logic)
-    const { setCurrentPage } = useActions(logic)
+    const { filteredTickets, ticketsLoading, currentPage, totalCount, sorting } = useValues(logic)
+    const { setCurrentPage, setSorting } = useActions(logic)
     const { push } = useActions(router)
 
     return (
@@ -225,6 +216,9 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
             rowKey="id"
             loading={ticketsLoading}
             embedded={embedded}
+            sorting={sorting}
+            onSort={(newSorting) => setSorting(newSorting)}
+            noSortingCancellation
             pagination={{
                 controlled: true,
                 currentPage,

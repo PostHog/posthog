@@ -313,6 +313,26 @@ class ExperimentService:
             request=request,
         )
 
+    def _report_experiment_launched(
+        self,
+        experiment: Experiment,
+        *,
+        request: Any | None = None,
+    ) -> None:
+        if request is None:
+            return
+
+        analytics_metadata = experiment.get_analytics_metadata()
+        analytics_metadata["launch_date"] = experiment.start_date.isoformat() if experiment.start_date else None
+
+        report_user_action(
+            self.user,
+            "experiment launched",
+            analytics_metadata,
+            team=experiment.team,
+            request=request,
+        )
+
     def _ensure_feature_flag(
         self,
         feature_flag_key: str,
@@ -544,7 +564,7 @@ class ExperimentService:
     # ------------------------------------------------------------------
 
     @transaction.atomic
-    def launch_experiment(self, experiment: Experiment) -> Experiment:
+    def launch_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
         """Launch a draft experiment: validate readiness, set start_date, activate feature flag."""
         if not experiment.is_draft:
             raise ValidationError("Experiment has already been launched.")
@@ -572,6 +592,24 @@ class ExperimentService:
         feature_flag.active = True
         feature_flag.save()
 
+        experiment.save()
+
+        self._report_experiment_launched(experiment, request=request)
+
+        return experiment
+
+    # ------------------------------------------------------------------
+    # Archive
+    # ------------------------------------------------------------------
+
+    def archive_experiment(self, experiment: Experiment) -> Experiment:
+        """Archive an ended experiment: validate it has ended, set archived=True."""
+        if experiment.archived:
+            raise ValidationError("Experiment is already archived.")
+        if not experiment.end_date:
+            raise ValidationError("Experiment must be ended before it can be archived.")
+
+        experiment.archived = True
         experiment.save()
         return experiment
 

@@ -21,6 +21,9 @@ class DetectionResult:
 class BaseDetector(ABC):
     """Abstract base class for all anomaly detectors."""
 
+    # Default anomaly probability threshold. Higher = fewer alerts.
+    DEFAULT_THRESHOLD = 0.95
+
     # Default number of recent points to exclude from training data.
     # Prevents the model from fitting on the points it's about to score.
     # Higher values make the model slower to adapt to recent distribution shifts.
