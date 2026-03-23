@@ -252,14 +252,13 @@ The behavioral cohorts pool uses tight limits (max 5 connections, 1s statement t
 | `OBJECT_STORAGE_REGION`   | `us-east-1` | AWS region                       |
 | `OBJECT_STORAGE_ENDPOINT` | (empty)     | Custom S3 endpoint for local dev |
 
-
 ### Team lookup
 
-| Variable                          | Default | Purpose                                                                                                                                                         |
-| --------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SKIP_PG_TEAM_FALLBACK`          | `false` | When enabled, skip PostgreSQL fallback for team token lookups. HyperCache (Redis/S3) is treated as the source of truth — a cache miss means the token is invalid |
-| `TEAM_NEGATIVE_CACHE_TTL_SECONDS` | `30`    | TTL (seconds) for negative cache entries for invalid team tokens                                                                                                |
-| `TEAM_NEGATIVE_CACHE_CAPACITY`    | `10000` | Max entries in the negative cache for invalid team tokens                                                                                                       |
+| Variable                          | Default | Purpose                                                                                                                                                          |
+| --------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SKIP_PG_TEAM_FALLBACK`           | `false` | When enabled, skip PostgreSQL fallback for team token lookups. HyperCache (Redis/S3) is treated as the source of truth — a cache miss means the token is invalid |
+| `TEAM_NEGATIVE_CACHE_TTL_SECONDS` | `30`    | TTL (seconds) for negative cache entries for invalid team tokens                                                                                                 |
+| `TEAM_NEGATIVE_CACHE_CAPACITY`    | `10000` | Max entries in the negative cache for invalid team tokens                                                                                                        |
 
 When `SKIP_PG_TEAM_FALLBACK` is enabled, HyperCache misses return a token validation error instead of querying PostgreSQL. This eliminates database pressure from requests with invalid tokens. Transient errors (Redis/S3 timeouts) bypass the fallback entirely and are not negative-cached.
 
