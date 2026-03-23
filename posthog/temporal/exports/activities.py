@@ -13,7 +13,12 @@ from posthog.slo.types import SloArea, SloCompletedProperties, SloOperation, Slo
 from posthog.sync import database_sync_to_async
 from posthog.tasks import exporter
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.exports.types import EmitDeliveryOutcomeInput, ExportAssetActivityInputs, ExportAssetResult
+from posthog.temporal.exports.types import (
+    EmitDeliveryOutcomeInput,
+    EmitExportOutcomeInput,
+    ExportAssetActivityInputs,
+    ExportAssetResult,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -119,5 +124,33 @@ async def emit_delivery_outcome(inputs: EmitDeliveryOutcomeInput) -> None:
     logger.info(
         "emit_delivery_outcome.emitted",
         subscription_id=inputs.subscription_id,
+        outcome=inputs.outcome,
+    )
+
+
+@temporalio.activity.defn
+async def emit_export_outcome(inputs: EmitExportOutcomeInput) -> None:
+    emit_slo_completed(
+        distinct_id=inputs.distinct_id,
+        properties=SloCompletedProperties(
+            operation=SloOperation.EXPORT,
+            resource_id=str(inputs.exported_asset_id),
+            area=SloArea.ANALYTIC_PLATFORM,
+            team_id=inputs.team_id,
+            outcome=inputs.outcome,
+            duration_ms=inputs.duration_ms,
+        ),
+        extra_properties={
+            "exported_asset_id": inputs.exported_asset_id,
+            "export_format": inputs.export_format,
+            "source": inputs.source,
+            "error": {"exception_class": inputs.error.exception_class, "error_trace": inputs.error.error_trace}
+            if inputs.error
+            else None,
+        },
+    )
+    logger.info(
+        "emit_export_outcome.emitted",
+        exported_asset_id=inputs.exported_asset_id,
         outcome=inputs.outcome,
     )
