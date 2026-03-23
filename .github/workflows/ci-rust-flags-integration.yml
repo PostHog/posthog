@@ -94,7 +94,7 @@ jobs:
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
               with:
-                  shared-key: 'v2-rust-flags-integration'
+                  shared-key: 'v2-rust-flags-integration-debug'
                   workspaces: rust
                   save-if: ${{ github.ref == 'refs/heads/master' }}
 
@@ -123,7 +123,7 @@ jobs:
 
             - name: Build Rust flags service
               working-directory: rust
-              run: cargo build --release -p feature-flags
+              run: cargo build -p feature-flags
 
             - name: Download MaxMind Database
               run: |
@@ -132,7 +132,7 @@ jobs:
             - name: Start Rust flags service
               working-directory: rust
               run: |
-                  ./target/release/feature-flags &
+                  ./target/debug/feature-flags &
                   RUST_FLAGS_PID=$!
                   echo "RUST_FLAGS_PID=$RUST_FLAGS_PID" >> $GITHUB_ENV
                   # Wait for service to be ready, checking the process is still alive
