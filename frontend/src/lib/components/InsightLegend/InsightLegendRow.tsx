@@ -146,6 +146,7 @@ export function InsightLegendRow({ item, readOnly = false }: InsightLegendRowPro
         <InsightLegendRowContextMenu
             areAllSeriesVisible={areAllSeriesVisible}
             showLegendIsolateSeriesItem={showLegendIsolateSeriesItem}
+            isHidden={isHidden}
             isOnlyThisVisible={isOnlyThisVisible}
             onToggleOtherSeries={() => {
                 posthog.capture('insight_legend_context_menu', {

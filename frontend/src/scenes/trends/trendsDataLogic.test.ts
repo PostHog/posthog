@@ -243,7 +243,25 @@ describe('trendsDataLogic', () => {
     })
 
     describe('legend series isolation selectors', () => {
-        it('legendSeriesIsolationMenuEligible is false when only one series is returned', async () => {
+        it.each([
+            [
+                'single series',
+                [trendPieResult.result[0]],
+                {
+                    indexedResults: expect.arrayContaining([expect.any(Object)]),
+                    legendSeriesIsolationMenuEligible: false,
+                },
+            ],
+            [
+                'multiple series (default state)',
+                trendPieResult.result,
+                {
+                    areAllSeriesVisible: true,
+                    showLegendIsolateSeriesItem: true,
+                    legendSeriesIsolationMenuEligible: true,
+                },
+            ],
+        ] as const)('%s', async (_label, result, expectedValues) => {
             const query: TrendsQuery = {
                 kind: NodeKind.TrendsQuery,
                 series: [],
@@ -251,40 +269,16 @@ describe('trendsDataLogic', () => {
                     display: ChartDisplayType.ActionsPie,
                 },
             }
-            const insight: Partial<InsightModel> = {
-                result: [trendPieResult.result[0]],
-            }
+            const insight: Partial<InsightModel> = { result }
 
             await expectLogic(logic, () => {
                 insightVizDataLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
                 builtDataNodeLogic.actions.loadDataSuccess(insight)
-            }).toMatchValues({
-                indexedResults: expect.arrayContaining([expect.any(Object)]),
-                legendSeriesIsolationMenuEligible: false,
-            })
-            expect(logic.values.indexedResults).toHaveLength(1)
-        })
+            }).toMatchValues(expectedValues)
 
-        it('defaults to all series visible and menu eligible with multiple series', async () => {
-            const query: TrendsQuery = {
-                kind: NodeKind.TrendsQuery,
-                series: [],
-                trendsFilter: {
-                    display: ChartDisplayType.ActionsPie,
-                },
+            if (result.length === 1) {
+                expect(logic.values.indexedResults).toHaveLength(1)
             }
-            const insight: Partial<InsightModel> = {
-                result: trendPieResult.result,
-            }
-
-            await expectLogic(logic, () => {
-                insightVizDataLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
-                builtDataNodeLogic.actions.loadDataSuccess(insight)
-            }).toMatchValues({
-                areAllSeriesVisible: true,
-                showLegendIsolateSeriesItem: true,
-                legendSeriesIsolationMenuEligible: true,
-            })
         })
 
         it('hides isolate menu item when every series is hidden', async () => {

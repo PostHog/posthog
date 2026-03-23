@@ -14,6 +14,7 @@ export type InsightLegendRowContextMenuProps = {
     children: ReactNode
     areAllSeriesVisible: boolean
     showLegendIsolateSeriesItem: boolean
+    isHidden: boolean
     isOnlyThisVisible: boolean
     onToggleOtherSeries: () => void
     onToggleAllSeries: () => void
@@ -23,6 +24,7 @@ export function InsightLegendRowContextMenu({
     children,
     areAllSeriesVisible,
     showLegendIsolateSeriesItem,
+    isHidden,
     isOnlyThisVisible,
     onToggleOtherSeries,
     onToggleAllSeries,
@@ -32,7 +34,7 @@ export function InsightLegendRowContextMenu({
             <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
             <ContextMenuContent className="max-w-[300px] click-outside-block">
                 <ContextMenuGroup>
-                    {showLegendIsolateSeriesItem && (
+                    {showLegendIsolateSeriesItem && !isHidden && (
                         <ContextMenuItem asChild>
                             <ButtonPrimitive
                                 menuItem
@@ -43,7 +45,7 @@ export function InsightLegendRowContextMenu({
                             </ButtonPrimitive>
                         </ContextMenuItem>
                     )}
-                    {showLegendIsolateSeriesItem && !isOnlyThisVisible && <ContextMenuSeparator />}
+                    {showLegendIsolateSeriesItem && !isHidden && !isOnlyThisVisible && <ContextMenuSeparator />}
                     {!isOnlyThisVisible && (
                         <ContextMenuItem asChild>
                             <ButtonPrimitive
