@@ -3,12 +3,11 @@ import { LogicWrapper } from 'kea'
 import { routerType } from 'kea-router/lib/routerType'
 import Papa from 'papaparse'
 
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { compactNumber, dateStringToDayJs, wordPluralize } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 
-import { OrganizationType } from '~/types'
 import { BillingPeriod, BillingProductV2AddonType, BillingProductV2Type, BillingTierType, BillingType } from '~/types'
 
 import { USAGE_TYPES } from './constants'
@@ -423,21 +422,6 @@ export const currencyFormatter = (value: number): string => {
 }
 
 /**
- * Determines if the user has sufficient permissions to read billing information based on their organization membership level.
- * When ownerOnly is true (via the owner-only-billing feature flag), only org owners can access billing.
- */
-export function canAccessBilling(
-    currentOrganization: Pick<OrganizationType, 'membership_level'> | null | undefined,
-    ownerOnly: boolean = false
-): boolean {
-    if (!currentOrganization || !currentOrganization.membership_level) {
-        return false
-    }
-    const minimumLevel = ownerOnly ? OrganizationMembershipLevel.Owner : OrganizationMembershipLevel.Admin
-    return currentOrganization.membership_level >= minimumLevel
-}
-
-/**
  * Synchronizes URL search parameters with billing filter state.
  * Returns the appropriate router action format for kea-router.
  * Only updates the URL if parameters have actually changed.
@@ -675,7 +659,11 @@ export function buildUsageLimitExceededMessage(
  * Build a consolidated message for products approaching their usage limits
  */
 export function buildUsageLimitApproachingMessage(
-    products: Array<{ name: string; percentage_usage: number; usage_key?: string | null }>,
+    products: Array<{
+        name: string
+        percentage_usage: number
+        usage_key?: string | null
+    }>,
     hasBillingAccess: boolean = true
 ): { title: string; message: string } {
     if (products.length === 0) {

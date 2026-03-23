@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 import { LemonDialog, Link, lemonToast } from '@posthog/lemon-ui'
 
 import api, { getJSONOrNull } from 'lib/api'
-import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
+import { FEATURE_FLAGS, FeatureFlagKey, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
@@ -30,7 +30,7 @@ import {
     StartupProgramLabel,
 } from '~/types'
 
-import { buildUsageLimitApproachingMessage, buildUsageLimitExceededMessage, canAccessBilling } from './billing-utils'
+import { buildUsageLimitApproachingMessage, buildUsageLimitExceededMessage } from './billing-utils'
 import type { billingLogicType } from './billingLogicType'
 import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
 
@@ -512,6 +512,18 @@ export const billingLogic = kea<billingLogicType>([
         ],
     })),
     selectors({
+        minimumBillingAccessLevel: [
+            (s) => [s.featureFlags],
+            (featureFlags): OrganizationMembershipLevel =>
+                featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]
+                    ? OrganizationMembershipLevel.Owner
+                    : OrganizationMembershipLevel.Admin,
+        ],
+        canAccessBilling: [
+            (s) => [s.currentOrganization, s.minimumBillingAccessLevel],
+            (currentOrganization, minimumLevel): boolean =>
+                !!currentOrganization?.membership_level && currentOrganization.membership_level >= minimumLevel,
+        ],
         upgradeLink: [(s) => [s.preflight], (): string => '/organization/billing'],
         isUnlicensedDebug: [
             (s) => [s.preflight, s.billing],
@@ -809,9 +821,6 @@ export const billingLogic = kea<billingLogicType>([
                 return
             }
 
-            const isOwnerOnlyBilling = !!values.featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]
-            const hasBillingAccess = canAccessBilling(values.currentOrganization, isOwnerOnlyBilling)
-
             const trial = values.billing.trial
             if (trial && trial.expires_at && dayjs(trial.expires_at).isAfter(dayjs())) {
                 if (trial.type === 'autosubscribe' || trial.status !== 'active') {
@@ -867,7 +876,7 @@ export const billingLogic = kea<billingLogicType>([
                 }) || []
 
             if (productsOverLimit.length > 0) {
-                const { title, message } = buildUsageLimitExceededMessage(productsOverLimit, hasBillingAccess)
+                const { title, message } = buildUsageLimitExceededMessage(productsOverLimit, values.canAccessBilling)
 
                 actions.setBillingAlert({
                     status: 'error',
@@ -909,7 +918,10 @@ export const billingLogic = kea<billingLogicType>([
                 }) || []
 
             if (productsApproachingLimit.length > 0) {
-                const { title, message } = buildUsageLimitApproachingMessage(productsApproachingLimit, hasBillingAccess)
+                const { title, message } = buildUsageLimitApproachingMessage(
+                    productsApproachingLimit,
+                    values.canAccessBilling
+                )
 
                 actions.setBillingAlert({
                     status: 'info',

@@ -2,27 +2,18 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
-import { canAccessBilling } from 'scenes/billing/billing-utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 export function BillingAlertsV2({ className }: { className?: string }): JSX.Element | null {
-    const { billingAlert } = useValues(billingLogic)
+    const { billingAlert, canAccessBilling } = useValues(billingLogic)
     const { reportBillingAlertShown, reportBillingAlertActionClicked } = useActions(billingLogic)
     const { currentLocation } = useValues(router)
     const { sceneConfig } = useValues(sceneLogic)
-    const { currentOrganization } = useValues(organizationLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const [alertHidden, setAlertHidden] = useState(false)
-
-    const isOwnerOnlyBilling = !!featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]
-    const hasBillingAccess = canAccessBilling(currentOrganization, isOwnerOnlyBilling)
 
     useEffect(() => {
         if (billingAlert?.pathName && currentLocation.pathname !== billingAlert?.pathName) {
@@ -53,7 +44,7 @@ export function BillingAlertsV2({ className }: { className?: string }): JSX.Elem
                 children: billingAlert.buttonCTA || 'Contact support',
                 onClick: () => reportBillingAlertActionClicked(billingAlert),
             }
-          : hasBillingAccess
+          : canAccessBilling
             ? {
                   to: urls.organizationBilling(),
                   children: 'Manage billing',

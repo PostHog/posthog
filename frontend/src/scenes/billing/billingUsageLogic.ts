@@ -8,12 +8,9 @@ import sortBy from 'lodash.sortby'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateMapping, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Params } from 'scenes/sceneTypes'
 
@@ -22,7 +19,6 @@ import { DateMappingOption, OrganizationType } from '~/types'
 import {
     buildTrackingProperties,
     calculateBillingPeriodMarkers,
-    canAccessBilling,
     syncBillingSearchParams,
     updateBillingSearchParams,
 } from './billing-utils'
@@ -80,14 +76,10 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
     key(({ dashboardItemId }) => dashboardItemId || 'global'),
     connect(() => ({
         values: [
-            organizationLogic,
-            ['currentOrganization'],
             billingLogic,
-            ['billing', 'billingPeriodUTC'],
+            ['billing', 'billingPeriodUTC', 'canAccessBilling', 'currentOrganization'],
             preflightLogic,
             ['isHobby'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
         actions: [eventUsageLogic, ['reportBillingUsageInteraction']],
     })),
@@ -112,8 +104,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             null as BillingUsageResponse | null,
             {
                 loadBillingUsage: async () => {
-                    const isOwnerOnlyBilling = !!values.featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]
-                    if (!canAccessBilling(values.currentOrganization, isOwnerOnlyBilling) || values.isHobby) {
+                    if (!values.canAccessBilling || values.isHobby) {
                         return null
                     }
                     const { usage_types, team_ids, breakdowns, interval } = values.filters

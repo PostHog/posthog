@@ -4,10 +4,10 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationIntegrationsLogic } from 'scenes/settings/organization/organizationIntegrationsLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -89,8 +89,8 @@ export const settingsLogic = kea<settingsLogicType>([
             ['currentTeam'],
             organizationIntegrationsLogic,
             ['organizationIntegrations'],
-            organizationLogic,
-            ['currentOrganization'],
+            billingLogic,
+            ['canAccessBilling'],
         ],
     })),
 
@@ -247,8 +247,7 @@ export const settingsLogic = kea<settingsLogicType>([
                 s.currentTeam,
                 s.organizationIntegrations,
                 s.preflight,
-                s.featureFlags,
-                s.currentOrganization,
+                s.canAccessBilling,
             ],
             (
                 doesMatchFlags,
@@ -256,8 +255,7 @@ export const settingsLogic = kea<settingsLogicType>([
                 currentTeam,
                 organizationIntegrations,
                 preflight,
-                featureFlags,
-                currentOrganization
+                canAccessBilling
             ): SettingSection[] => {
                 const isSettingVisible = (setting: Setting): boolean => {
                     if (!doesMatchFlags(setting)) {
@@ -272,11 +270,6 @@ export const settingsLogic = kea<settingsLogicType>([
                     return true
                 }
 
-                const isOwnerOnlyBilling = !!featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]
-                const isOwner =
-                    currentOrganization?.membership_level != null &&
-                    currentOrganization.membership_level >= OrganizationMembershipLevel.Owner
-
                 const sections = SETTINGS_MAP.filter(doesMatchFlags).filter((section) => {
                     if (section.hideSelfHost && !isCloudOrDev) {
                         return false
@@ -287,7 +280,7 @@ export const settingsLogic = kea<settingsLogicType>([
                     ) {
                         return false
                     }
-                    if (section.id === 'organization-billing' && isOwnerOnlyBilling && !isOwner) {
+                    if (section.id === 'organization-billing' && !canAccessBilling) {
                         return false
                     }
 

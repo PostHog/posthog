@@ -21,7 +21,7 @@ import {
     IconShieldLock,
 } from '@posthog/icons'
 
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link/Link'
@@ -143,7 +143,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
     const { currentOrganization } = useValues(organizationLogic)
     const { isCloudOrDev, isCloud, preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { billing } = useValues(billingLogic)
+    const { billing, canAccessBilling } = useValues(billingLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
     const { reportAccountOwnerClicked } = useActions(eventUsageLogic)
@@ -189,12 +189,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                             </div>
                         </Link>
                     </DropdownMenuItem>
-                    {isCloudOrDev &&
-                    !(
-                        featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING] &&
-                        currentOrganization?.membership_level != null &&
-                        currentOrganization.membership_level < OrganizationMembershipLevel.Owner
-                    ) ? (
+                    {isCloudOrDev && canAccessBilling ? (
                         <DropdownMenuItem asChild>
                             <Link
                                 to={

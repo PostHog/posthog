@@ -11,7 +11,6 @@ import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 import { JudgeHog, StarHog } from 'lib/components/hedgehogs'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { OrganizationMembershipLevel } from 'lib/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -51,6 +50,7 @@ export function Billing(): JSX.Element {
         showBillingSummary,
         showCreditCTAHero,
         showBillingHero,
+        minimumBillingAccessLevel,
     } = useValues(billingLogic)
     const { reportBillingShown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
@@ -60,9 +60,8 @@ export function Billing(): JSX.Element {
     const { activeCoupons, couponsOverviewLoading } = useValues(couponLogic({}))
     const { memberCount } = useValues(membersLogic)
 
-    const isOwnerOnlyBilling = !!featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]
     const restrictionReason = useRestrictedArea({
-        minimumAccessLevel: isOwnerOnlyBilling ? OrganizationMembershipLevel.Owner : OrganizationMembershipLevel.Admin,
+        minimumAccessLevel: minimumBillingAccessLevel,
         scope: RestrictionScope.Organization,
     })
 
