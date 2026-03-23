@@ -29,6 +29,7 @@ class PostgresPrinter(HogQLPrinter):
         super().__init__(context=context, dialect=dialect, stack=stack, settings=settings, pretty=pretty)
         self._truncated_identifiers: dict[str, str] = {}
         self._used_truncated_identifiers: set[str] = set()
+        self._connection_supported_functions = self._get_connection_supported_functions()
 
     def visit_field(self, node: ast.Field):
         if node.type is None:
@@ -88,6 +89,9 @@ class PostgresPrinter(HogQLPrinter):
         if func_name in POSTGRES_PASSTHROUGH_FUNCTIONS:
             return f"{func_name}({', '.join(args)})"
 
+        if func_name in self._connection_supported_functions:
+            return f"{node.name}({', '.join(args)})"
+
         raise QueryError(f"Function '{node.name}' is not supported in the Postgres dialect.")
 
     def visit_array_slice(self, node: ast.ArraySlice):
@@ -108,6 +112,17 @@ class PostgresPrinter(HogQLPrinter):
         if isinstance(table, DirectPostgresTable):
             return table.to_printed_postgres(self.context)
         return table.to_printed_clickhouse(self.context)
+
+    def _get_connection_supported_functions(self) -> set[str]:
+        metadata = self.context.direct_postgres_connection_metadata
+        if not isinstance(metadata, dict):
+            return set()
+
+        available_functions = metadata.get("available_functions")
+        if not isinstance(available_functions, list):
+            return set()
+
+        return {function_name.lower() for function_name in available_functions if isinstance(function_name, str)}
 
     def _visit_to_start_of_call(self, node: ast.Call) -> str:
         if len(node.args) == 0:

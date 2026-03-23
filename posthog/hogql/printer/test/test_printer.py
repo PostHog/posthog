@@ -5090,3 +5090,15 @@ class TestPostgresPrinter(BaseTest):
     def test_standard_sql_functions_pass_through(self, _name: str, expr: str):
         result = self._expr(expr)
         self.assertIsNotNone(result)
+
+    def test_connection_metadata_functions_pass_through(self):
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            direct_postgres_connection_metadata={"available_functions": ["date_bin"]},
+        )
+
+        self.assertEqual(
+            self._expr("date_bin(toIntervalHour(1), now(), now())", context=context),
+            "date_bin((1 * INTERVAL '1 hour'), NOW(), NOW())",
+        )

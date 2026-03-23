@@ -1072,6 +1072,48 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(table.name, "Accounts")
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_direct_postgres_updates_connection_metadata(self, mock_get_source):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"host": "localhost", "port": 5432},
+            connection_metadata={"database": "old_db", "available_functions": ["count"]},
+        )
+
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_connection_metadata.return_value = {
+            "database": "ducklake",
+            "version": "PostgreSQL 15.0 (Duckgres/DuckDB)",
+            "engine": "duckdb",
+            "function_source": "duckdb_functions",
+            "available_functions": ["duckdb_functions", "date_bin"],
+        }
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(
+                name="Accounts",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+            )
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        source.refresh_from_db()
+        self.assertEqual(source.connection_metadata["database"], "ducklake")
+        self.assertEqual(source.connection_metadata["available_functions"], ["duckdb_functions", "date_bin"])
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_create_direct_postgres_preserves_numeric_as_decimal(self, mock_get_source):
         source_mock = mock_get_source.return_value
         source_mock.validate_config.return_value = (True, [])
@@ -1086,6 +1128,13 @@ class TestExternalDataSource(APIBaseTest):
         }
         source_mock.parse_config.return_value = parsed_config
         source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_connection_metadata.return_value = {
+            "database": "app",
+            "version": "Duckgres/DuckDB",
+            "engine": "duckdb",
+            "function_source": "duckdb_functions",
+            "available_functions": ["duckdb_functions", "date_bin"],
+        }
         source_mock.get_schemas.return_value = [
             SourceSchema(
                 name="accounts",
@@ -1123,6 +1172,9 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(schema.sync_type_config["schema_metadata"]["columns"][0]["data_type"], "numeric")
         self.assertEqual(table.columns["amount"]["clickhouse"], "Decimal")
         self.assertEqual(table.columns["amount"]["hogql"], "numeric")
+        source = ExternalDataSource.objects.get(pk=response.json()["id"])
+        self.assertEqual(source.connection_metadata["database"], "app")
+        self.assertEqual(source.connection_metadata["available_functions"], ["duckdb_functions", "date_bin"])
 
     def test_create_direct_postgres_requires_name(self):
         response = self.client.post(

@@ -22,6 +22,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     SSL_REQUIRED_AFTER_DATE,
     SSLRequiredError,
     filter_postgres_incremental_fields,
+    get_connection_metadata as get_postgres_connection_metadata,
     get_foreign_keys as get_postgres_foreign_keys,
     get_postgres_row_count,
     get_schemas as get_postgres_schemas,
@@ -248,6 +249,19 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             return False, f"Could not connect to {self.source_name}. Please check all connection details are valid."
 
         return True, None
+
+    def get_connection_metadata(
+        self, config: PostgresSourceConfig, team_id: int, require_ssl: bool = False
+    ) -> dict[str, object]:
+        with self.with_ssh_tunnel(config) as (host, port):
+            return get_postgres_connection_metadata(
+                host=host,
+                port=port,
+                user=config.user,
+                password=config.password,
+                database=config.database,
+                require_ssl=require_ssl,
+            )
 
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
         from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
