@@ -17,8 +17,8 @@ from django.utils import timezone
 import structlog
 
 from products.data_modeling.backend.models import GitHubSyncConfig, GitHubSyncedModel, GitHubSyncStatus, Node
-from products.data_modeling.backend.services.gitsync.config_parser import DAG_TOML, parse_dag_config
-from products.data_modeling.backend.services.gitsync.model_parser import model_name_from_path, parse_model_file
+from products.data_modeling.backend.services.github.config_parser import DAG_TOML, parse_dag_config
+from products.data_modeling.backend.services.github.model_parser import model_name_from_path, parse_model_file
 from products.data_modeling.backend.services.saved_query_dag_sync import sync_saved_query_to_dag
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 

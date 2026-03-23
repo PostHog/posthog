@@ -4,7 +4,7 @@ import pytest
 from posthog.test.base import BaseTest
 
 from products.data_modeling.backend.models import GitHubSyncConfig, GitHubSyncedModel, GitHubSyncStatus
-from products.data_modeling.backend.services.gitsync.sync_service import SyncedFile, sync_models_from_files
+from products.data_modeling.backend.services.github.sync_service import SyncedFile, sync_models_from_files
 from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
 
