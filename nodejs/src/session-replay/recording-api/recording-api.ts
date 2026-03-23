@@ -130,9 +130,7 @@ export class RecordingApi {
             database: this.config.CLICKHOUSE_DATABASE,
             request_timeout: 30_000,
             max_open_connections: 10,
-            // Skip TLS cert verification for internal ClickHouse (self-signed certs
-            // with a hostname mismatch). Scoped to this client only, unlike the
-            // process-wide NODE_TLS_REJECT_UNAUTHORIZED=0.
+            // Internal ClickHouse uses self-signed certs with a hostname mismatch
             ...(this.config.CLICKHOUSE_SECURE ? { http_agent: new https.Agent({ rejectUnauthorized: false }) } : {}),
         })
 
