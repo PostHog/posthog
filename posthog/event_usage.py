@@ -378,7 +378,6 @@ def get_request_analytics_properties(request) -> AnalyticsProps:
 _tracer = trace.get_tracer(__name__)
 
 
-@_tracer.start_as_current_span("report_user_action")
 def report_user_action(
     user: User | AnonymousUser,
     event: str,
@@ -403,13 +402,14 @@ def report_user_action(
         properties = {**analytics_props, **properties}
     if user.email:
         properties["$set_once"] = {"email": user.email}
-    posthoganalytics.capture(
-        distinct_id=user.distinct_id,
-        event=event,
-        properties=properties,
-        groups=groups(organization or user.current_organization, team or user.current_team),
-        send_feature_flags=send_feature_flags,
-    )
+    with _tracer.start_as_current_span("report_user_action"):
+        posthoganalytics.capture(
+            distinct_id=user.distinct_id,
+            event=event,
+            properties=properties,
+            groups=groups(organization or user.current_organization, team or user.current_team),
+            send_feature_flags=send_feature_flags,
+        )
 
 
 def report_user_or_team_action(

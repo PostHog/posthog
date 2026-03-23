@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
 import posthoganalytics
+from asgiref.sync import database_sync_to_async
 from opentelemetry import trace
 
 from posthog.schema import AgentMode, AssistantMessage, HumanMessage, MaxBillingContext
@@ -151,7 +152,7 @@ class ChatAgentRunner(BaseAgentRunner):
     ) -> AsyncGenerator[AssistantOutput, None]:
         if self._selected_agent_mode and self._user:
             with _tracer.start_as_current_span("posthoganalytics.capture"):
-                posthoganalytics.capture(
+                await database_sync_to_async(posthoganalytics.capture)(
                     distinct_id=self._user.distinct_id,
                     event="ai mode executed",
                     properties={

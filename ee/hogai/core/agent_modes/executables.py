@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import structlog
 import posthoganalytics
+from asgiref.sync import database_sync_to_async
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     BaseMessage,
@@ -426,7 +427,7 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
             user_distinct_id = self._get_user_distinct_id(config)
             if user_distinct_id:
                 with _tracer.start_as_current_span("posthoganalytics.capture"):
-                    posthoganalytics.capture(
+                    await database_sync_to_async(posthoganalytics.capture)(
                         distinct_id=user_distinct_id,
                         event="ai tool executed",
                         properties={
@@ -528,7 +529,7 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
             user_distinct_id = self._get_user_distinct_id(config)
             if user_distinct_id:
                 with _tracer.start_as_current_span("posthoganalytics.capture"):
-                    posthoganalytics.capture(
+                    await database_sync_to_async(posthoganalytics.capture)(
                         distinct_id=user_distinct_id,
                         event="ai mode executed",
                         properties={
