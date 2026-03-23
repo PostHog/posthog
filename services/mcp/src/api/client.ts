@@ -808,7 +808,7 @@ export class ApiClient {
 
                 return this.fetchJson<Schemas.Insight>(`${this.baseUrl}/api/projects/${projectId}/insights/`, {
                     method: 'POST',
-                    body: JSON.stringify(validatedInput),
+                    body: JSON.stringify({ ...validatedInput, saved: true }),
                 })
             },
 
