@@ -390,6 +390,15 @@ class Team(UUIDTClassicModel):
         "project",
         "admin",
     )
+    session_recording_trigger_groups = field_access_control(
+        models.JSONField(
+            null=True,
+            blank=True,
+            help_text="V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields.",
+        ),
+        "project",
+        "admin",
+    )
     session_replay_config = field_access_control(models.JSONField(null=True, blank=True), "project", "admin")
     session_recording_retention_period = field_access_control(
         models.CharField(

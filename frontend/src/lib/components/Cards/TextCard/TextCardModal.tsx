@@ -1,9 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
+import { useState } from 'react'
 
+import { isTextCardMarkdownRoundTripSafe } from 'lib/components/Cards/TextCard/textCardMarkdown'
+import { TextCardMarkdownEditor } from 'lib/components/Cards/TextCard/TextCardMarkdownEditor'
 import { textCardModalLogic } from 'lib/components/Cards/TextCard/textCardModalLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown'
 
 import { DashboardType, QueryBasedInsightModel } from '~/types'
@@ -20,8 +24,15 @@ export function TextCardModal({
     textTileId: number | 'new' | null
 }): JSX.Element {
     const modalLogic = textCardModalLogic({ dashboard, textTileId: textTileId ?? 'new', onClose })
-    const { isTextTileSubmitting, textTileValidationErrors } = useValues(modalLogic)
-    const { submitTextTile, resetTextTile } = useActions(modalLogic)
+    const { isTextTileSubmitting, textTileValidationErrors, textTile } = useValues(modalLogic)
+    const { resetTextTile } = useActions(modalLogic)
+    const [initialBody] = useState(() =>
+        textTileId && textTileId !== 'new'
+            ? dashboard.tiles?.find((tile) => tile.id === textTileId)?.text?.body || ''
+            : ''
+    )
+    const shouldUseLegacyMarkdownEditor = !isTextCardMarkdownRoundTripSafe(initialBody)
+    const hasUnsavedInput = (textTile?.body || '') !== initialBody
 
     const handleClose = (): void => {
         resetTextTile()
@@ -34,7 +45,8 @@ export function TextCardModal({
             isOpen={isOpen}
             title=""
             onClose={handleClose}
-            className="min-w-full lg:min-w-2xl"
+            hasUnsavedInput={hasUnsavedInput}
+            className="min-w-full lg:min-w-6xl"
             footer={
                 <>
                     <LemonButton
@@ -50,7 +62,6 @@ export function TextCardModal({
                         form="text-tile-form"
                         htmlType="submit"
                         type="primary"
-                        onClick={submitTextTile}
                         data-attr={textTileId === 'new' ? 'save-new-text-tile' : 'edit-text-tile-text'}
                     >
                         Save
@@ -60,14 +71,39 @@ export function TextCardModal({
         >
             <Form
                 logic={textCardModalLogic}
-                props={{ dashboard, textTileId }}
+                props={{ dashboard, textTileId: textTileId ?? 'new', onClose }}
                 formKey="textTile"
                 id="text-tile-form"
                 enableFormOnSubmit
             >
-                <Field name="body" label="">
-                    <LemonTextAreaMarkdown maxLength={4000} minRows={8} maxRows={20} data-attr="text-card-edit-area" />
-                </Field>
+                <div className="flex flex-col gap-4">
+                    <Field name="body" label="">
+                        {({ value, onChange }) =>
+                            shouldUseLegacyMarkdownEditor ? (
+                                <LemonTextAreaMarkdown
+                                    value={value}
+                                    onChange={onChange}
+                                    maxLength={4000}
+                                    minRows={8}
+                                    maxRows={36}
+                                    data-attr="text-card-edit-area"
+                                />
+                            ) : (
+                                <TextCardMarkdownEditor value={value} onChange={onChange} minRows={8} maxRows={36} />
+                            )
+                        }
+                    </Field>
+                    <Field name="transparent_background" label="">
+                        {({ value, onChange }) => (
+                            <LemonSwitch
+                                checked={value}
+                                onChange={onChange}
+                                label="Transparent background"
+                                data-attr="text-card-transparent-background"
+                            />
+                        )}
+                    </Field>
+                </div>
             </Form>
         </LemonModal>
     )

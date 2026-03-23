@@ -16,6 +16,7 @@ jobs:
         #   - https://gh.io/supported-runners-and-hardware-resources
         #   - https://gh.io/using-larger-runners
         runs-on: 'ubuntu-latest'
+        timeout-minutes: 15
         permissions:
             # required for all workflows
             security-events: write

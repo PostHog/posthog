@@ -13,7 +13,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT
 from posthog.models.integration import Integration
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import UUIDModel, UUIDTModel
 from posthog.storage import object_storage
 
 from products.error_tracking.backend.sql import INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES
@@ -52,6 +52,8 @@ class ErrorTrackingIssue(UUIDTModel):
             overrides = update_error_tracking_issue_fingerprints(
                 team_id=self.team.pk, issue_id=self.id, fingerprints=fingerprints
             )
+            # Reassign spike events from merged issues before deleting them
+            ErrorTrackingSpikeEvent.objects.filter(team=self.team, issue_id__in=issue_ids).update(issue=self)
             ErrorTrackingIssue.objects.filter(team=self.team, id__in=issue_ids).delete()
             update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
 
@@ -82,6 +84,8 @@ class ErrorTrackingIssue(UUIDTModel):
                     )
                 )
             update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
+            # Spike events are no longer meaningful after splitting since the issue composition changed
+            ErrorTrackingSpikeEvent.objects.filter(team=self.team, issue=self).delete()
         return new_issues
 
 
@@ -518,3 +522,19 @@ class ErrorTrackingSpikeDetectionConfig(models.Model):
 
     class Meta:
         db_table = "posthog_errortrackingspikedetectionconfig"
+
+
+class ErrorTrackingSpikeEvent(UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="spike_events")
+    detected_at = models.DateTimeField()
+    computed_baseline = models.FloatField()
+    current_bucket_value = models.IntegerField()
+
+    class Meta:
+        db_table = "posthog_errortrackingspikeevent"
+        indexes = [
+            models.Index(fields=["team", "-detected_at"]),
+            models.Index(fields=["issue", "-detected_at"]),
+            models.Index(fields=["-detected_at"]),
+        ]

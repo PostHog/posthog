@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { HogFlow } from '~/schema/hogflow'
+import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { PostgresUse } from '~/utils/db/postgres'
 import { UUIDT } from '~/utils/utils'
@@ -68,11 +69,11 @@ describe('CdpCyclotronWorkerHogFlow', () => {
         await resetTestDatabase()
         hub = await createHub()
         personRepository = new PostgresPersonRepository(hub.postgres)
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
         const team2Id = await createTeam(hub.postgres, team.organization_id)
-        team2 = (await getTeam(hub, team2Id))!
+        team2 = (await getTeam(hub.postgres, team2Id))!
 
-        processor = new CdpCyclotronWorkerHogFlow(hub, hub)
+        processor = new CdpCyclotronWorkerHogFlow(hub, createCdpConsumerDeps(hub))
 
         hogFlows = []
         hogFlows.push(
@@ -247,6 +248,34 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                 `${team2.id}:distinct_A_1`,
                 `${team2.id}:missing_person`,
             ])
+        })
+
+        it('should resolve person by personId when distinct_id is empty (batch invocations)', async () => {
+            const personUuid = 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7f0'
+            await createPerson(team.id, personUuid, 'distinct_batch_1', {
+                name: 'Batch Person',
+                email: 'batch@posthog.com',
+            })
+
+            // Batch invocations set distinct_id: '' and use personId instead
+            const invocation = createSerializedHogFlowInvocation(hogFlows[0], {
+                event: {
+                    distinct_id: '',
+                    properties: { foo: 'batch' },
+                } as any,
+                personId: personUuid,
+            })
+
+            const results = (await processor.processInvocations([
+                invocation,
+            ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+
+            expect(results).toHaveLength(1)
+            expect(results[0].invocation.person?.properties).toEqual({
+                name: 'Batch Person',
+                email: 'batch@posthog.com',
+            })
+            expect(results[0].invocation.filterGlobals?.person?.id).toBe(personUuid)
         })
 
         it('should skip invocations when workflow is disabled after being queued', async () => {

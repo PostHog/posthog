@@ -1,3 +1,5 @@
+import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
+
 export const normalizeIdentifier = (identifier: string): string => {
     return identifier.replace(/^[`"']|[`"']$/g, '').toLowerCase()
 }
@@ -15,7 +17,7 @@ export const buildQueryForColumnClick = (
     columnName: string
 ): string => {
     const limitOffsetClause = currentQuery ? extractLimitOffsetClause(currentQuery) : null
-    const baseQuery = `select ${columnName} from ${tableName} ${limitOffsetClause ?? 'limit 100'}`
+    const baseQuery = `SELECT ${columnName} FROM ${escapePropertyAsHogQLIdentifier(tableName)} ${limitOffsetClause ?? 'LIMIT 100'}`
 
     if (!currentQuery) {
         return baseQuery
@@ -55,7 +57,7 @@ export const buildQueryForColumnClick = (
         columns = ['*']
     }
 
-    return `select ${columns.join(', ')} from ${tableName} ${limitOffsetClause ?? 'limit 100'}`
+    return `SELECT ${columns.map(escapePropertyAsHogQLIdentifier).join(', ')} FROM ${tableName} ${limitOffsetClause ?? 'LIMIT 100'}`
 }
 
 const normalizeKeywordSpacing = (query: string): string => {

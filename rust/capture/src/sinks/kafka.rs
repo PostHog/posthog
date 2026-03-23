@@ -4,11 +4,9 @@ use crate::sinks::producer::{KafkaProducer, ProduceRecord};
 use crate::sinks::Event;
 use crate::v0_request::{DataType, ProcessedEvent};
 use async_trait::async_trait;
-use health::HealthHandle;
 use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use limiters::redis::RedisLimiter;
 use metrics::{counter, gauge, histogram};
-use rdkafka::error::KafkaError;
 use rdkafka::producer::{FutureProducer, Producer};
 use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
@@ -21,15 +19,15 @@ use tracing::{info_span, instrument, Instrument};
 use super::producer::RdKafkaProducer;
 
 pub struct KafkaContext {
-    liveness: HealthHandle,
+    liveness: lifecycle::Handle,
 }
 
 impl rdkafka::ClientContext for KafkaContext {
     fn stats(&self, stats: rdkafka::Statistics) {
-        // Signal liveness, as the main rdkafka loop is running and calling us
+        // Signal liveness when brokers are up
         let brokers_up = stats.brokers.values().any(|broker| broker.state == "UP");
         if brokers_up {
-            self.liveness.report_healthy_blocking();
+            self.liveness.report_healthy();
         }
 
         let total_brokers = stats.brokers.len();
@@ -183,7 +181,7 @@ pub type KafkaSink = KafkaSinkBase<RdKafkaProducer<KafkaContext>>;
 impl KafkaSink {
     pub async fn new(
         config: KafkaConfig,
-        liveness: HealthHandle,
+        liveness: lifecycle::Handle,
         partition: Option<OverflowLimiter>,
         replay_overflow_limiter: Option<RedisLimiter>,
     ) -> anyhow::Result<KafkaSink> {
@@ -256,6 +254,7 @@ impl KafkaSink {
         };
 
         debug!("rdkafka configuration: {client_config:?}");
+
         let producer: FutureProducer<KafkaContext> =
             client_config.create_with_context(KafkaContext {
                 liveness: liveness.clone(),
@@ -271,7 +270,7 @@ impl KafkaSink {
             )
             .is_ok()
         {
-            liveness.report_healthy().await;
+            liveness.report_healthy();
             info!("connected to Kafka brokers");
         };
 
@@ -284,11 +283,6 @@ impl KafkaSink {
             topics,
             replay_overflow_limiter,
         })
-    }
-
-    pub fn flush(&self) -> Result<(), KafkaError> {
-        // TODO: hook it up on shutdown
-        self.producer.flush()
     }
 }
 
@@ -464,12 +458,17 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
             }
         };
 
+        let payload_bytes = payload.len() as u64;
+
         let record = ProduceRecord {
             topic: topic.to_string(),
             key: partition_key.map(|s| s.to_string()),
             payload,
             headers,
         };
+
+        counter!("capture_kafka_produce_bytes_total", "topic" => topic.to_string())
+            .increment(payload_bytes);
 
         self.producer.send(record)
     }
@@ -520,6 +519,10 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
         histogram!("capture_event_batch_size").record(batch_size as f64);
         Ok(())
     }
+
+    fn flush(&self) -> Result<(), anyhow::Error> {
+        self.producer.flush().map_err(|e| anyhow::anyhow!(e))
+    }
 }
 
 #[cfg(test)]
@@ -531,7 +534,6 @@ mod tests {
     use crate::utils::uuid_v7;
     use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata};
     use common_types::CapturedEvent;
-    use health::HealthRegistry;
     use limiters::overflow::OverflowLimiter;
     use rand::distributions::Alphanumeric;
     use rand::Rng;
@@ -539,15 +541,23 @@ mod tests {
     use rdkafka::producer::DefaultProducerContext;
     use rdkafka::types::{RDKafkaApiKey, RDKafkaRespErr};
     use std::num::NonZeroU32;
-    use time::Duration;
+    use tokio_util::sync::CancellationToken;
 
     async fn start_on_mocked_sink(
         message_max_bytes: Option<u32>,
     ) -> (MockCluster<'static, DefaultProducerContext>, KafkaSink) {
-        let registry = HealthRegistry::new("liveness");
-        let handle = registry
-            .register("one".to_string(), Duration::seconds(30))
-            .await;
+        let shutdown_token = CancellationToken::new();
+        let mut manager = lifecycle::Manager::builder("test")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .with_shutdown_token(shutdown_token)
+            .build();
+        let handle = manager.register(
+            "sink",
+            lifecycle::ComponentOptions::new()
+                .with_liveness_deadline(std::time::Duration::from_secs(30)),
+        );
+        let _monitor = manager.monitor_background();
         let limiter = Some(OverflowLimiter::new(
             NonZeroU32::new(10).unwrap(),
             NonZeroU32::new(10).unwrap(),

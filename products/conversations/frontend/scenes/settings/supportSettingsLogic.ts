@@ -44,7 +44,22 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         loadSlackChannelsWithToken: true,
         setSlackTicketEmojiValue: (value: string | null) => ({ value }),
         saveSlackTicketEmoji: true,
+        setSlackBotIconUrlValue: (value: string | null) => ({ value }),
+        setSlackBotDisplayNameValue: (value: string | null) => ({ value }),
+        saveSlackBotSettings: true,
         disconnectSlack: true,
+        // Email channel settings
+        setEmailFromEmail: (value: string) => ({ value }),
+        setEmailFromName: (value: string) => ({ value }),
+        connectEmail: true,
+        connectEmailDone: (forwardingAddress: string | null) => ({ forwardingAddress }),
+        disconnectEmail: true,
+        loadEmailStatus: true,
+        loadEmailStatusDone: (
+            status: { forwarding_address: string | null; from_email: string; from_name: string } | null
+        ) => ({
+            status,
+        }),
     }),
     reducers({
         conversationsEnabledLoading: [
@@ -112,10 +127,49 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 setPlaceholderTextValue: (_, { value }) => value,
             },
         ],
+        emailFromEmail: [
+            '' as string,
+            {
+                setEmailFromEmail: (_, { value }) => value,
+            },
+        ],
+        emailFromName: [
+            '' as string,
+            {
+                setEmailFromName: (_, { value }) => value,
+            },
+        ],
+        emailConnecting: [
+            false as boolean,
+            {
+                connectEmail: () => true,
+                connectEmailDone: () => false,
+            },
+        ],
+        emailForwardingAddress: [
+            null as string | null,
+            {
+                connectEmailDone: (_, { forwardingAddress }) => forwardingAddress,
+                loadEmailStatusDone: (_, { status }) => status?.forwarding_address ?? null,
+                disconnectEmail: () => null,
+            },
+        ],
         slackTicketEmojiValue: [
             null as string | null,
             {
                 setSlackTicketEmojiValue: (_, { value }) => value,
+            },
+        ],
+        slackBotIconUrlValue: [
+            null as string | null,
+            {
+                setSlackBotIconUrlValue: (_, { value }) => value,
+            },
+        ],
+        slackBotDisplayNameValue: [
+            null as string | null,
+            {
+                setSlackBotDisplayNameValue: (_, { value }) => value,
             },
         ],
     }),
@@ -163,6 +217,18 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         slackConnected: [
             (s) => [s.currentTeam],
             (currentTeam): boolean => !!currentTeam?.conversations_settings?.slack_enabled,
+        ],
+        slackBotIconUrl: [
+            (s) => [s.currentTeam],
+            (currentTeam): string | null => currentTeam?.conversations_settings?.slack_bot_icon_url ?? null,
+        ],
+        slackBotDisplayName: [
+            (s) => [s.currentTeam],
+            (currentTeam): string | null => currentTeam?.conversations_settings?.slack_bot_display_name ?? null,
+        ],
+        emailConnected: [
+            (s) => [s.currentTeam],
+            (currentTeam): boolean => !!currentTeam?.conversations_settings?.email_enabled,
         ],
     }),
     listeners(({ values, actions }) => ({
@@ -288,6 +354,90 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 lemonToast.success('Ticket emoji saved')
             }
         },
+        saveSlackBotSettings: () => {
+            const iconUrl = values.slackBotIconUrlValue?.trim()
+            const displayName = values.slackBotDisplayNameValue?.trim()
+            if (iconUrl && !iconUrl.startsWith('https://')) {
+                lemonToast.error('Icon URL must start with https://')
+                return
+            }
+            const updates: Record<string, string | null> = {}
+            if (values.slackBotIconUrlValue !== null) {
+                updates.slack_bot_icon_url = iconUrl || null
+            }
+            if (values.slackBotDisplayNameValue !== null) {
+                updates.slack_bot_display_name = displayName || null
+            }
+            if (Object.keys(updates).length > 0) {
+                actions.updateCurrentTeam({
+                    conversations_settings: {
+                        ...values.currentTeam?.conversations_settings,
+                        ...updates,
+                    },
+                })
+                lemonToast.success('Bot settings saved')
+            }
+        },
+        loadEmailStatus: async () => {
+            try {
+                const response = await api.get('api/conversations/v1/email/status')
+                if (response.connected) {
+                    actions.loadEmailStatusDone({
+                        forwarding_address: response.forwarding_address,
+                        from_email: response.from_email,
+                        from_name: response.from_name,
+                    })
+                    actions.setEmailFromEmail(response.from_email || '')
+                    actions.setEmailFromName(response.from_name || '')
+                } else {
+                    actions.loadEmailStatusDone(null)
+                }
+            } catch {
+                actions.loadEmailStatusDone(null)
+            }
+        },
+        connectEmail: async () => {
+            const { emailFromEmail, emailFromName } = values
+            if (!emailFromEmail || !emailFromName) {
+                lemonToast.error('Please enter both an email address and display name')
+                actions.connectEmailDone(null)
+                return
+            }
+            try {
+                const response = await api.create('api/conversations/v1/email/connect', {
+                    from_email: emailFromEmail,
+                    from_name: emailFromName,
+                })
+                actions.connectEmailDone(response.forwarding_address)
+                actions.updateCurrentTeam({
+                    conversations_settings: {
+                        ...values.currentTeam?.conversations_settings,
+                        email_enabled: true,
+                    },
+                })
+                lemonToast.success('Email channel connected')
+            } catch {
+                lemonToast.error('Failed to connect email')
+                actions.connectEmailDone(null)
+            }
+        },
+        disconnectEmail: async () => {
+            try {
+                await api.create('api/conversations/v1/email/disconnect', {})
+            } catch {
+                lemonToast.error('Failed to disconnect email')
+                return
+            }
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    email_enabled: false,
+                },
+            })
+            actions.setEmailFromEmail('')
+            actions.setEmailFromName('')
+            lemonToast.success('Email channel disconnected')
+        },
         disconnectSlack: async () => {
             try {
                 await api.create('api/conversations/v1/slack/disconnect', {})
@@ -303,6 +453,8 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                     slack_channel_id: null,
                     slack_channel_name: null,
                     slack_ticket_emoji: null,
+                    slack_bot_icon_url: null,
+                    slack_bot_display_name: null,
                 },
             })
             lemonToast.success('Slack disconnected')
@@ -313,11 +465,16 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             actions.setIdentificationFormDescriptionValue(null)
             actions.setPlaceholderTextValue(null)
             actions.setSlackTicketEmojiValue(null)
+            actions.setSlackBotIconUrlValue(null)
+            actions.setSlackBotDisplayNameValue(null)
         },
     })),
     afterMount(({ values, actions }) => {
         if (values.slackConnected) {
             actions.loadSlackChannelsWithToken()
+        }
+        if (values.emailConnected) {
+            actions.loadEmailStatus()
         }
     }),
 ])

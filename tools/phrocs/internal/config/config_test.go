@@ -131,3 +131,66 @@ func TestShouldAutostart(t *testing.T) {
 		})
 	}
 }
+
+func TestLoad_cmd(t *testing.T) {
+	path := writeYAML(t, `
+procs:
+  svc:
+    cmd: ["node", "index.js", "--port=3000"]
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := cfg.Procs["svc"]
+	if len(p.Cmd) != 3 || p.Cmd[0] != "node" || p.Cmd[1] != "index.js" || p.Cmd[2] != "--port=3000" {
+		t.Errorf("Cmd: got %v, want [node index.js --port=3000]", p.Cmd)
+	}
+}
+
+func TestLoad_stopSignal(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+		want string
+	}{
+		{"SIGINT", "stop: SIGINT", "SIGINT"},
+		{"SIGTERM", "stop: SIGTERM", "SIGTERM"},
+		{"SIGKILL", "stop: SIGKILL", "SIGKILL"},
+		{"hard-kill", "stop: hard-kill", "hard-kill"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := writeYAML(t, "procs:\n  svc:\n    shell: echo hi\n    "+tt.yaml+"\n")
+			cfg, err := Load(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := cfg.Procs["svc"].Stop; got != tt.want {
+				t.Errorf("Stop: got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoad_hideKeymapWindow(t *testing.T) {
+	path := writeYAML(t, "hide_keymap_window: true\nprocs:\n  svc:\n    shell: echo hi\n")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.HideKeymapWindow {
+		t.Error("HideKeymapWindow: got false, want true")
+	}
+}
+
+func TestLoad_procListWidth(t *testing.T) {
+	path := writeYAML(t, "proc_list_width: 30\nprocs:\n  svc:\n    shell: echo hi\n")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ProcListWidth != 30 {
+		t.Errorf("ProcListWidth: got %d, want 30", cfg.ProcListWidth)
+	}
+}

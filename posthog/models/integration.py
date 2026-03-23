@@ -98,6 +98,7 @@ class Integration(models.Model):
         GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
         GOOGLE_ADS = "google-ads"
         GOOGLE_SHEETS = "google-sheets"
+        GOOGLE_CLOUD_SERVICE_ACCOUNT = "google-cloud-service-account"
         SNAPCHAT = "snapchat"
         LINKEDIN_ADS = "linkedin-ads"
         REDDIT_ADS = "reddit-ads"
@@ -121,7 +122,7 @@ class Integration(models.Model):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
     # The integration type identifier
-    kind = field_access_control(models.CharField(max_length=20, choices=IntegrationKind.choices), "project", "admin")
+    kind = field_access_control(models.CharField(max_length=32, choices=IntegrationKind.choices), "project", "admin")
     # The ID of the integration in the external system
     integration_id = field_access_control(models.TextField(null=True, blank=True), "project", "admin")
     # Any config that COULD be passed to the frontend
@@ -1168,6 +1169,94 @@ class GoogleAdsIntegration:
             all_accounts = dfs(account.split("/")[1], all_accounts, account.split("/")[1])
 
         return all_accounts
+
+
+class GoogleCloudServiceAccountIntegration:
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        self.integration = integration
+
+    @classmethod
+    def integration_from_service_account(
+        cls,
+        team_id: int,
+        organization_id: str,
+        service_account_email: str,
+        project_id: str,
+        private_key: str | None = None,
+        private_key_id: str | None = None,
+        token_uri: str | None = None,
+        created_by: User | None = None,
+    ) -> Integration:
+        sensitive_config = {}
+
+        is_impersonated = True
+        if isinstance(private_key, str) and isinstance(private_key_id, str) and isinstance(token_uri, str):
+            sensitive_config["private_key"] = private_key
+            sensitive_config["private_key_id"] = private_key_id
+            sensitive_config["token_uri"] = token_uri
+            is_impersonated = False
+
+        # Do not allow the same project_id in multiple organizations
+        same_service_account_integrations = Integration.objects.select_related("team__organization").filter(
+            kind="google-cloud-service-account", config__service_account_email=service_account_email
+        )
+        for integration in same_service_account_integrations:
+            if str(integration.team.organization.id) != str(organization_id):
+                raise ValidationError("Cannot create Google Cloud service account integration: Invalid service account")
+
+        variant = "impersonated" if is_impersonated else "key-file"
+
+        integration, _ = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind=Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT.value,
+            # Including team_id to allow teams from the same organization to use the
+            # same service account. Otherwise different teams would overwrite each other.
+            integration_id=f"{service_account_email}-{team_id}-{variant}",
+            defaults={
+                "config": {
+                    "project_id": project_id,
+                    "service_account_email": service_account_email,
+                },
+                "sensitive_config": sensitive_config,
+                "created_by": created_by,
+            },
+        )
+
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration
+
+    def has_key(self) -> bool:
+        """Return if this integration has a key associated with a service account.
+
+        If not, then it is a service account we are meant to impersonate.
+        """
+        keys = ("private_key", "private_key_id")
+        return all(key in self.integration.sensitive_config for key in keys) and all(
+            self.integration.sensitive_config[key] for key in keys
+        )
+
+    @property
+    def project_id(self) -> str:
+        return self.integration.config["project_id"]
+
+    @property
+    def service_account_email(self) -> str:
+        return self.integration.config["service_account_email"]
+
+    @property
+    def service_account_info(self) -> dict[str, str]:
+        return {
+            "private_key": self.integration.sensitive_config["private_key"],
+            "private_key_id": self.integration.sensitive_config["private_key_id"],
+            "token_uri": self.integration.sensitive_config["token_uri"],
+            "client_email": self.service_account_email,
+            "project_id": self.project_id,
+        }
 
 
 class GoogleCloudIntegration:

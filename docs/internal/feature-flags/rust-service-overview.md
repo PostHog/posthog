@@ -65,7 +65,7 @@ Routing config lives in the `charts` repo: `argocd/contour-ingress/values/values
 | `src/api/`        | HTTP endpoint handlers, auth, rate limiting, request/response types                            |
 | `src/handler/`    | Request processing pipeline: decoding, billing, evaluation, session recording, config assembly |
 | `src/flags/`      | Core domain: flag models, matching engine, property filters, analytics, dependency graph       |
-| `src/cohorts/`    | Cohort models, DB operations, in-memory cache (moka)                                           |
+| `src/cohorts/`    | Cohort models, DB operations, in-memory cache (moka), realtime membership providers            |
 | `src/properties/` | Property models, operator matching, relative date parsing                                      |
 | `src/team/`       | Team model and DB operations                                                                   |
 | `src/database/`   | Connection management, persons DB routing                                                      |
@@ -186,7 +186,7 @@ Three independent rate limiters (IP, token, definitions), all in-process using t
 The `serve()` function in `rust/feature-flags/src/server.rs` orchestrates startup:
 
 1. **Redis clients**: Shared `ReadWriteClient` (auto-routes reads to replica). Optional dedicated flags Redis with 3-mode migration: shared-only -> dual-write -> dedicated-only.
-2. **Database pools**: `PostgresRouter` with 4 pools (persons reader/writer, non-persons reader/writer). See [database-interaction-patterns.md](database-interaction-patterns.md).
+2. **Database pools**: `PostgresRouter` with 4 pools (persons reader/writer, non-persons reader/writer), plus an optional behavioral cohorts reader pool. See [database-interaction-patterns.md](database-interaction-patterns.md).
 3. **GeoIP**: MaxMind database for IP geolocation.
 4. **Cohort cache**: In-memory `CohortCacheManager` (moka, 256 MB default, 5-minute TTL).
 5. **HyperCache readers**: 4 pre-initialized readers for flags, flags+cohorts, team metadata, and config.
@@ -222,6 +222,16 @@ All values come from environment variables via the `envconfig` crate. Defined in
 | `PERSONS_READER_STATEMENT_TIMEOUT_MS`     | `3000`                                              | Statement timeout for person lookups  |
 | `WRITER_STATEMENT_TIMEOUT_MS`             | `3000`                                              | Statement timeout for writes          |
 
+### Behavioral cohorts
+
+| Variable                               | Default  | Purpose                                                                                                                   |
+| -------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `BEHAVIORAL_COHORTS_READ_DATABASE_URL` | (empty)  | Optional PostgreSQL connection for realtime cohort membership lookups. When empty, realtime cohort evaluation is disabled |
+| `COHORT_MEMBERSHIP_CACHE_TTL_SECONDS`  | `60`     | Cache TTL for cohort membership lookups                                                                                   |
+| `COHORT_MEMBERSHIP_CACHE_MAX_ENTRIES`  | `500000` | Max entries in cohort membership cache                                                                                    |
+
+The behavioral cohorts pool uses tight limits (max 5 connections, 1s statement timeout) since it only performs simple key lookups against the `cohort_membership` table. When `BEHAVIORAL_COHORTS_READ_DATABASE_URL` is not set, a `NoOpCohortMembershipProvider` is used and all realtime cohort checks return `false` (graceful degradation).
+
 ### Redis
 
 | Variable                      | Default                     | Purpose                                  |
@@ -253,6 +263,8 @@ See [rate-limiting.md](rate-limiting.md) for the full configuration reference.
 | `COHORT_CACHE_CAPACITY_BYTES`    | `268435456` (256 MB) | Moka cache memory limit   |
 | `CACHE_TTL_SECONDS`              | `300`                | Cohort cache TTL          |
 | `BILLING_LIMITER_CACHE_TTL_SECS` | `5`                  | Billing limiter cache TTL |
+
+See [Behavioral cohorts](#behavioral-cohorts) for cohort membership cache settings.
 
 ### Observability
 

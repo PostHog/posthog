@@ -10,7 +10,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.hogql_queries.insights.funnels.base import JOIN_ALGOS, FunnelBase
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.queries.breakdown_props import get_breakdown_cohort_name
+from posthog.queries.breakdown_props import NOT_IN_COHORT_ID, get_breakdown_cohort_name
 from posthog.utils import DATERANGE_MAP
 
 
@@ -137,6 +137,8 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
 
         if not self.context.breakdown:
             prop_selector = self._default_breakdown_selector()
+        elif self.context.breakdownType == BreakdownType.COHORT:
+            prop_selector = "prop_basic"
         elif self._query_has_array_breakdown():
             prop_selector = "arrayMap(x -> ifNull(x, ''), prop_basic)"
         else:
@@ -259,6 +261,19 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         """,
             {"inner_select": inner_select},
         )
+
+        if self.should_add_not_in_cohort_group:
+            columns: list[ast.Expr] = [
+                ast.Alias(alias=f"step_{i + 1}", expr=ast.Constant(value=0)) for i in range(self.context.max_steps)
+            ]
+            columns.extend(
+                ast.Alias(alias=f"step_{i}_conversion_times", expr=ast.Array(exprs=[]))
+                for i in range(1, self.context.max_steps)
+            )
+            columns.append(ast.Alias(alias="row_number", expr=ast.Constant(value=0)))
+            columns.append(ast.Alias(alias="final_prop", expr=ast.Constant(value=NOT_IN_COHORT_ID)))
+            synthetic_row = ast.SelectQuery(select=columns)
+            s = ast.SelectSetQuery.create_from_queries([s, synthetic_row], "UNION ALL")
 
         mean_conversion_times = ",".join(
             [
@@ -456,7 +471,11 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                 serialized_result.update(
                     {
                         "breakdown": (
-                            get_breakdown_cohort_name(breakdown_value, self.context.team)
+                            get_breakdown_cohort_name(
+                                breakdown_value,
+                                self.context.team,
+                                not_in_cohort_name=self._not_in_cohort_name,
+                            )
                             if self.context.breakdownFilter.breakdown_type == "cohort"
                             else breakdown_value
                         ),

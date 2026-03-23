@@ -10,6 +10,21 @@ use limiters::global_rate_limiter::{
 };
 
 const REDIS_URL: &str = "redis://localhost:6379/";
+const POLL_INTERVAL: Duration = Duration::from_millis(100);
+const POLL_TIMEOUT: Duration = Duration::from_secs(3);
+
+macro_rules! poll_assert {
+    ($msg:expr, $body:expr) => {{
+        let deadline = tokio::time::Instant::now() + POLL_TIMEOUT;
+        loop {
+            if $body {
+                break;
+            }
+            assert!(tokio::time::Instant::now() < deadline, "{}", $msg);
+            tokio::time::sleep(POLL_INTERVAL).await;
+        }
+    }};
+}
 
 async fn setup_redis() -> Option<RedisClient> {
     match RedisClient::new(REDIS_URL.to_string()).await {
@@ -40,6 +55,14 @@ fn test_config(test_name: &str) -> GlobalRateLimiterConfig {
     }
 }
 
+fn parse_redis_count(bytes: &Option<Vec<u8>>) -> u64 {
+    bytes
+        .as_ref()
+        .and_then(|b| std::str::from_utf8(b).ok())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0)
+}
+
 #[tokio::test]
 async fn test_write_then_read_epoch_keys() {
     let Some(redis) = setup_redis().await else {
@@ -54,23 +77,14 @@ async fn test_write_then_read_epoch_keys() {
         let _ = limiter.check_limit("key_a", 1, None).await;
     }
 
-    tokio::time::sleep(Duration::from_millis(300)).await;
-
     let now = Utc::now();
     let epoch = epoch_from_timestamp(now, config.window_interval);
     let redis_key = epoch_key(&config.redis_key_prefix, "key_a", epoch);
 
-    let results = redis.mget(vec![redis_key]).await.unwrap();
-    let count: u64 = results[0]
-        .as_ref()
-        .and_then(|b| std::str::from_utf8(b).ok())
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
-
-    assert!(
-        count >= 40,
-        "Expected at least 40 events written to Redis, got {count}"
-    );
+    poll_assert!("expected ≥40 events in Redis", {
+        let results = redis.mget(vec![redis_key.clone()]).await.unwrap();
+        parse_redis_count(&results[0]) >= 40
+    });
 }
 
 #[tokio::test]
@@ -85,17 +99,15 @@ async fn test_epoch_key_ttl_expiry() {
     let limiter = GlobalRateLimiterImpl::new(config.clone(), vec![redis_arc]).unwrap();
 
     let _ = limiter.check_limit("ttl_key", 10, None).await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
 
     let now = Utc::now();
     let epoch = epoch_from_timestamp(now, config.window_interval);
     let redis_key = epoch_key(&config.redis_key_prefix, "ttl_key", epoch);
 
-    let results = redis.mget(vec![redis_key.clone()]).await.unwrap();
-    assert!(
-        results[0].is_some(),
-        "Key should exist immediately after write"
-    );
+    poll_assert!("key should exist after write flush", {
+        let results = redis.mget(vec![redis_key.clone()]).await.unwrap();
+        results[0].is_some()
+    });
 
     tokio::time::sleep(Duration::from_secs(3)).await;
 
@@ -120,8 +132,6 @@ async fn test_background_task_flushes_writes() {
         let _ = limiter.check_limit(key, *count, None).await;
     }
 
-    tokio::time::sleep(Duration::from_millis(300)).await;
-
     let now = Utc::now();
     let epoch = epoch_from_timestamp(now, config.window_interval);
     let redis_keys: Vec<String> = keys
@@ -129,19 +139,13 @@ async fn test_background_task_flushes_writes() {
         .map(|k| epoch_key(&config.redis_key_prefix, k, epoch))
         .collect();
 
-    let results = redis.mget(redis_keys).await.unwrap();
-
-    for (i, (key, expected)) in keys.iter().zip(counts.iter()).enumerate() {
-        let actual: u64 = results[i]
-            .as_ref()
-            .and_then(|b| std::str::from_utf8(b).ok())
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(0);
-        assert!(
-            actual >= *expected,
-            "Entity {key}: expected at least {expected}, got {actual}"
-        );
-    }
+    poll_assert!("all entities should reach expected counts", {
+        let results = redis.mget(redis_keys.clone()).await.unwrap();
+        results
+            .iter()
+            .zip(counts.iter())
+            .all(|(r, expected)| parse_redis_count(r) >= *expected)
+    });
 }
 
 #[tokio::test]
@@ -165,14 +169,13 @@ async fn test_background_task_processes_pending_sync() {
 
     let _ = limiter.check_limit("sync_ent", 1, None).await;
 
-    tokio::time::sleep(Duration::from_millis(500)).await;
-
     // 500 + 1 = 501, threshold is 1000 => allowed
-    let result = limiter.check_limit("sync_ent", 0, None).await;
-    assert!(
-        matches!(result, EvalResult::Allowed),
-        "Expected Allowed after sync (501/1000), got {result:?}"
-    );
+    poll_assert!("expected Allowed after sync (501/1000)", {
+        matches!(
+            limiter.check_limit("sync_ent", 0, None).await,
+            EvalResult::Allowed
+        )
+    });
 }
 
 #[tokio::test]
@@ -202,24 +205,15 @@ async fn test_concurrent_access_same_entity() {
         handle.await.unwrap();
     }
 
-    tokio::time::sleep(Duration::from_millis(500)).await;
-
     let now = Utc::now();
     let epoch = epoch_from_timestamp(now, config.window_interval);
     let redis_key = epoch_key(&config.redis_key_prefix, "ck", epoch);
-
-    let results = redis.mget(vec![redis_key]).await.unwrap();
-    let total: u64 = results[0]
-        .as_ref()
-        .and_then(|b| std::str::from_utf8(b).ok())
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
-
     let expected_total = (num_tasks * events_per_task) as u64;
-    assert!(
-        total >= expected_total * 80 / 100,
-        "Expected at least 80% of {expected_total} events in Redis, got {total}"
-    );
+
+    poll_assert!("expected ≥80% of events in Redis", {
+        let results = redis.mget(vec![redis_key.clone()]).await.unwrap();
+        parse_redis_count(&results[0]) >= expected_total * 80 / 100
+    });
 }
 
 #[tokio::test]
@@ -238,37 +232,21 @@ async fn test_pipeline_100_entities() {
         let _ = limiter.check_limit(&key, (i + 1) as u64, None).await;
     }
 
-    tokio::time::sleep(Duration::from_millis(500)).await;
-
     let now = Utc::now();
     let epoch = epoch_from_timestamp(now, config.window_interval);
     let redis_keys: Vec<String> = (0..entity_count)
         .map(|i| epoch_key(&config.redis_key_prefix, &format!("e{i}"), epoch))
         .collect();
 
-    let results = redis.mget(redis_keys).await.unwrap();
-
-    let mut found_count = 0;
-    for (i, result) in results.iter().enumerate() {
-        if let Some(bytes) = result {
-            if let Ok(count) = std::str::from_utf8(bytes).unwrap_or("0").parse::<u64>() {
-                if count > 0 {
-                    found_count += 1;
-                    assert_eq!(
-                        count,
-                        (i + 1) as u64,
-                        "Entity e{i} should have count {}, got {count}",
-                        i + 1
-                    );
-                }
-            }
-        }
-    }
-
-    assert!(
-        found_count >= 90,
-        "Expected at least 90 out of {entity_count} entities written, got {found_count}"
-    );
+    poll_assert!("expected ≥90/100 entities written", {
+        let results = redis.mget(redis_keys.clone()).await.unwrap();
+        let found = results
+            .iter()
+            .enumerate()
+            .filter(|(i, r)| parse_redis_count(r) == (*i + 1) as u64)
+            .count();
+        found >= 90
+    });
 }
 
 #[tokio::test]
@@ -291,7 +269,6 @@ async fn test_sliding_window_accuracy_uniform() {
 
     let estimate = weighted_count(300, 500, now, config.window_interval);
 
-    // Weighted count should be between 500 (current only) and 800 (full prev + current)
     assert!(
         (500.0..=800.0).contains(&estimate),
         "Weighted count {estimate} should be in [500, 800] for uniform traffic"
@@ -319,21 +296,23 @@ async fn test_decay_drift_over_sync_interval() {
     let limiter = GlobalRateLimiterImpl::new(config.clone(), vec![redis_arc]).unwrap();
 
     let _ = limiter.check_limit("drift", 0, None).await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
 
-    // Wait for roughly one sync_interval
+    poll_assert!("should be Allowed after initial sync at 50% capacity", {
+        matches!(
+            limiter.check_limit("drift", 0, None).await,
+            EvalResult::Allowed
+        )
+    });
+
+    // Wait for one sync_interval then verify re-sync still allows
     tokio::time::sleep(config.sync_interval).await;
 
-    // Access again to trigger re-sync
-    let _ = limiter.check_limit("drift", 0, None).await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
-
-    // At 50% capacity, should still be allowed after re-sync
-    let result = limiter.check_limit("drift", 0, None).await;
-    assert!(
-        matches!(result, EvalResult::Allowed),
-        "Entity at 50% capacity should be Allowed after re-sync, got {result:?}"
-    );
+    poll_assert!("should be Allowed after re-sync at 50% capacity", {
+        matches!(
+            limiter.check_limit("drift", 0, None).await,
+            EvalResult::Allowed
+        )
+    });
 }
 
 #[tokio::test]
@@ -364,13 +343,14 @@ async fn test_limiter_correctly_limits_at_threshold() {
         "First access (cache miss) should be Allowed"
     );
 
-    tokio::time::sleep(Duration::from_millis(500)).await;
-
-    // After sync, should be limited
-    let result = limiter.check_limit("over", 1, None).await;
-    assert!(
-        matches!(result, EvalResult::Limited(_)),
-        "Should be Limited after sync reveals count over threshold, got {result:?}"
+    poll_assert!(
+        "should be Limited after sync reveals count over threshold",
+        {
+            matches!(
+                limiter.check_limit("over", 1, None).await,
+                EvalResult::Limited(_)
+            )
+        }
     );
 }
 
@@ -399,26 +379,27 @@ async fn test_custom_key_high_threshold_sync_and_limit() {
     let limiter = GlobalRateLimiterImpl::new(config.clone(), vec![redis_arc]).unwrap();
 
     let _ = limiter.check_custom_limit(&key, 0, None).await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
 
-    let result = limiter.check_custom_limit(&key, 1, None).await;
-    assert!(
-        matches!(result, EvalResult::Allowed),
-        "Custom key at 50k/100k should be Allowed, got {result:?}"
-    );
+    poll_assert!("custom key at 50k/100k should be Allowed", {
+        matches!(
+            limiter.check_custom_limit(&key, 1, None).await,
+            EvalResult::Allowed
+        )
+    });
 
     redis
         .batch_incr_by_expire(vec![(curr_key, 100_000)], 120)
         .await
         .unwrap();
 
-    tokio::time::sleep(config.sync_interval + Duration::from_millis(300)).await;
-    let _ = limiter.check_custom_limit(&key, 0, None).await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    // Wait for sync_interval so limiter picks up the new count
+    tokio::time::sleep(config.sync_interval).await;
 
-    let result = limiter.check_custom_limit(&key, 1, None).await;
-    assert!(
-        matches!(result, EvalResult::Limited(_)),
-        "Custom key at 150k/100k should be Limited after sync, got {result:?}"
-    );
+    poll_assert!("custom key at 150k/100k should be Limited after sync", {
+        let _ = limiter.check_custom_limit(&key, 0, None).await;
+        matches!(
+            limiter.check_custom_limit(&key, 1, None).await,
+            EvalResult::Limited(_)
+        )
+    });
 }

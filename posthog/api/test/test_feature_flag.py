@@ -24,7 +24,7 @@ from rest_framework import status
 from posthog import redis
 from posthog.api.cohort import get_cohort_actors_for_feature_flag
 from posthog.api.feature_flag import FeatureFlagSerializer, extract_etag_from_header
-from posthog.models import Experiment, FeatureFlag, GroupTypeMapping, TaggedItem, User
+from posthog.models import FeatureFlag, GroupTypeMapping, TaggedItem, User
 from posthog.models.cohort import Cohort
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlagDashboards, get_feature_flags_for_team_in_cache
@@ -35,14 +35,15 @@ from posthog.models.group.util import create_group
 from posthog.models.organization import Organization
 from posthog.models.person import Person
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
-from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.experiments.backend.models.experiment import Experiment
 from products.product_tours.backend.models import ProductTour
+from products.surveys.backend.models import Survey
 
 
 class TestExtractEtagFromHeader:
@@ -425,6 +426,48 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["key"], f"cohort-feature-{operator}")
+
+    def test_saving_flag_strips_legacy_holdout_groups(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="holdout-cleanup-test",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "holdout_groups": [{"properties": [], "rollout_percentage": 10, "variant": "holdout-1"}],
+                "holdout": {"id": 1, "exclusion_percentage": 10},
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.pk}",
+            {"name": "Updated"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        flag.refresh_from_db()
+        self.assertNotIn("holdout_groups", flag.filters)
+        self.assertEqual(flag.filters["holdout"], {"id": 1, "exclusion_percentage": 10})
+
+    def test_saving_flag_strips_legacy_holdout_groups_without_holdout_key(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="holdout-cleanup-test-legacy",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "holdout_groups": [{"properties": [], "rollout_percentage": 10, "variant": "holdout-1"}],
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.pk}",
+            {"name": "Updated"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        flag.refresh_from_db()
+        self.assertNotIn("holdout_groups", flag.filters)
 
     def test_cant_update_flag_with_duplicate_key(self):
         existing_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
@@ -1688,7 +1731,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             is_remote_configuration=True,
         )
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         self.client.logout()
 
@@ -3598,7 +3643,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         deleted_cohort = Cohort.objects.create(
             team=self.team,
@@ -3854,7 +3901,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         self.client.logout()
 
@@ -3966,7 +4015,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         response = self.client.get(
             f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
@@ -4152,7 +4203,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         response = self.client.get(
             f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
@@ -4307,7 +4360,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         client = redis.get_client()
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         self.client.logout()
         # `local_evaluation` is called by logged out clients!
@@ -4369,7 +4424,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         client = redis.get_client()
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         # request made while logged in, via client cookie auth
         response = self.client.get(f"/api/feature_flag?token={self.team.api_token}")
@@ -5712,7 +5769,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_rate_limits_for_local_evaluation_are_independent(self, rate_limit_enabled_mock, incr_mock):
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         for _ in range(5):
             response = self.client.get(
@@ -6422,7 +6481,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         # Clear both Redis and S3 caches
         from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
@@ -6468,7 +6529,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         cache.clear()
 
@@ -6501,7 +6564,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         cache.clear()
 
@@ -6558,7 +6623,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         cache.clear()
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         # Populate both cache variants
         self.client.logout()
@@ -6958,7 +7025,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
@@ -6987,7 +7056,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
@@ -7025,7 +7096,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
@@ -7057,7 +7130,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
@@ -7110,7 +7185,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
@@ -7158,7 +7235,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
@@ -7201,7 +7280,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
@@ -7239,7 +7320,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         from posthog.models.feature_flag.local_evaluation import clear_flag_definition_caches
 
@@ -7367,7 +7450,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
 
         self.client.logout()
         before = LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER.labels(source=source)._value.get()
@@ -9676,7 +9761,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(
             response.status_code,
-            status.HTTP_404_NOT_FOUND if expected_status == FeatureFlagStatus.UNKNOWN else status.HTTP_200_OK,
+            status.HTTP_200_OK,
         )
         response_data = response.json()
         self.assertEqual(response_data.get("status"), expected_status)
@@ -9756,46 +9841,32 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             FeatureFlagStatus.ACTIVE,
         )
 
-        # Request status for flag that has holdout group rolled out to <100%
-        fifty_percent_holdout_group_flag = FeatureFlag.objects.create(
+        # Request status for flag with holdout at <100% exclusion
+        holdout_flag = FeatureFlag.objects.create(
             created_at=datetime.now(UTC) - timedelta(days=31),
-            name="50 percent holdout group flag",
-            key="50-percent-holdout-group-flag",
+            name="50 percent holdout flag",
+            key="50-percent-holdout-flag",
             team=self.team,
             active=True,
-            filters={"holdout_groups": [{"rollout_percentage": 50, "properties": []}]},
+            filters={"holdout": {"id": 1, "exclusion_percentage": 50}},
             last_called_at=datetime.now(UTC) - timedelta(days=1),
         )
 
-        self.assert_expected_response(fifty_percent_holdout_group_flag.id, FeatureFlagStatus.ACTIVE)
+        self.assert_expected_response(holdout_flag.id, FeatureFlagStatus.ACTIVE)
 
-        # Request status for flag that has holdout group rolled out to 100% and specific properties
-        fully_rolled_out_holdout_group_flag_with_properties = FeatureFlag.objects.create(
+        # Request status for flag with holdout at 100% exclusion
+        fully_excluded_holdout_flag = FeatureFlag.objects.create(
             created_at=datetime.now(UTC) - timedelta(days=31),
-            name="100 percent holdout group with properties flag",
-            key="100-percent-holdout-group-with-properties-flag",
+            name="100 percent holdout flag",
+            key="100-percent-holdout-flag",
             team=self.team,
             active=True,
-            filters={
-                "holdout_groups": [
-                    {
-                        "properties": [
-                            {
-                                "key": "name",
-                                "type": "person",
-                                "value": ["Smith"],
-                                "operator": "contains",
-                            }
-                        ],
-                        "rollout_percentage": 100,
-                    }
-                ]
-            },
+            filters={"holdout": {"id": 2, "exclusion_percentage": 100}},
             last_called_at=datetime.now(UTC) - timedelta(days=1),
         )
 
         self.assert_expected_response(
-            fully_rolled_out_holdout_group_flag_with_properties.id,
+            fully_excluded_holdout_flag.id,
             FeatureFlagStatus.ACTIVE,
         )
 

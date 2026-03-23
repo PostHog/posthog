@@ -41,10 +41,10 @@ def _get_configured_providers() -> frozenset[str]:
     return frozenset(configured)
 
 
-def _is_chat_model(cost_data: ModelCost) -> bool:
-    """Check if a model is a chat model (not embedding, image generation, etc)."""
+def _is_text_generation_model(cost_data: ModelCost) -> bool:
+    """Check if a model supports text generation (chat/completions/responses)."""
     mode = cost_data.get("mode", "")
-    return mode in ("chat", "completion", "")
+    return mode in ("chat", "completion", "responses", "")
 
 
 def _model_matches_allowlist(model_id: str, allowed_models: frozenset[str]) -> bool:
@@ -87,14 +87,14 @@ class ModelRegistryService:
         configured_providers = _get_configured_providers()
         allowed_models = config.allowed_models if config else None
 
-        # Fetch all chat models from LiteLLM, filtered by configured providers
+        # Fetch all text generation models from LiteLLM, filtered by configured providers
         all_litellm_models = ModelCostService.get_instance().get_all_models()
         models = []
         for model_id, cost_data in all_litellm_models.items():
             provider = cost_data.get("litellm_provider", "")
             if provider not in configured_providers:
                 continue
-            if not _is_chat_model(cost_data):
+            if not _is_text_generation_model(cost_data):
                 continue
             if allowed_models is not None and not _model_matches_allowlist(model_id, allowed_models):
                 continue
