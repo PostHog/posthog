@@ -4445,6 +4445,11 @@ export namespace Schemas {
        */
       threshold?: number | null;
       type?: ECODDetectorConfigType;
+      /**
+       * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+       * @nullable
+       */
+      window?: number | null;
     }
 
     export type COPODDetectorConfigType = typeof COPODDetectorConfigType[keyof typeof COPODDetectorConfigType];
@@ -4463,6 +4468,11 @@ export namespace Schemas {
        */
       threshold?: number | null;
       type?: COPODDetectorConfigType;
+      /**
+       * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+       * @nullable
+       */
+      window?: number | null;
     }
 
     export type IsolationForestDetectorConfigType = typeof IsolationForestDetectorConfigType[keyof typeof IsolationForestDetectorConfigType];
@@ -4486,6 +4496,11 @@ export namespace Schemas {
        */
       threshold?: number | null;
       type?: IsolationForestDetectorConfigType;
+      /**
+       * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+       * @nullable
+       */
+      window?: number | null;
     }
 
     export type Method = typeof Method[keyof typeof Method];
@@ -4520,6 +4535,11 @@ export namespace Schemas {
        */
       threshold?: number | null;
       type?: KNNDetectorConfigType;
+      /**
+       * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+       * @nullable
+       */
+      window?: number | null;
     }
 
     export type HBOSDetectorConfigType = typeof HBOSDetectorConfigType[keyof typeof HBOSDetectorConfigType];
@@ -4543,6 +4563,11 @@ export namespace Schemas {
        */
       threshold?: number | null;
       type?: HBOSDetectorConfigType;
+      /**
+       * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+       * @nullable
+       */
+      window?: number | null;
     }
 
     export type LOFDetectorConfigType = typeof LOFDetectorConfigType[keyof typeof LOFDetectorConfigType];
@@ -4566,6 +4591,11 @@ export namespace Schemas {
        */
       threshold?: number | null;
       type?: LOFDetectorConfigType;
+      /**
+       * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+       * @nullable
+       */
+      window?: number | null;
     }
 
     export type OCSVMDetectorConfigType = typeof OCSVMDetectorConfigType[keyof typeof OCSVMDetectorConfigType];
@@ -4594,6 +4624,11 @@ export namespace Schemas {
        */
       threshold?: number | null;
       type?: OCSVMDetectorConfigType;
+      /**
+       * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+       * @nullable
+       */
+      window?: number | null;
     }
 
     export type PCADetectorConfigType = typeof PCADetectorConfigType[keyof typeof PCADetectorConfigType];
@@ -4612,6 +4647,11 @@ export namespace Schemas {
        */
       threshold?: number | null;
       type?: PCADetectorConfigType;
+      /**
+       * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+       * @nullable
+       */
+      window?: number | null;
     }
 
     export type EnsembleOperator = typeof EnsembleOperator[keyof typeof EnsembleOperator];
