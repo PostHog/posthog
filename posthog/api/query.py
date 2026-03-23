@@ -451,6 +451,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
             return format_query_results_for_llm(query, result, self.team)
         except Exception:
+            logger.warning("mcp_llm_format_failed", exc_info=True)
             return None
 
 

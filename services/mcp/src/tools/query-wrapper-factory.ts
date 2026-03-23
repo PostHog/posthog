@@ -29,7 +29,7 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
             const queryParam = encodeURIComponent(JSON.stringify(query))
             const baseUrl = context.api.getProjectBaseUrl(projectId)
             return {
-                results: result.formatted_results ?? result,
+                results: result.formatted_results ?? result.results,
                 _posthogUrl: `${baseUrl}/insights/new?q=${queryParam}`,
             }
         },
