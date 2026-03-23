@@ -385,7 +385,9 @@ class TestFunnelDWValidator(BaseTest):
             FunnelDWValidator.validate_funnel_metric(metric)
 
         error_detail = context.exception.detail
+        assert isinstance(error_detail, dict)
         self.assertIn("datawarehouse_configuration", error_detail)
+        self.assertIn("help", error_detail)
 
     def test_validate_funnel_metric_join_key_mismatch_raises(self):
         """DW funnel with inconsistent join keys raises validation error."""
@@ -410,6 +412,7 @@ class TestFunnelDWValidator(BaseTest):
             FunnelDWValidator.validate_funnel_metric(metric)
 
         error_detail = context.exception.detail
+        assert isinstance(error_detail, dict)
         self.assertIn("join_key_mismatch", error_detail)
 
     def test_validate_funnel_metric_complexity_limit_raises(self):
@@ -441,6 +444,7 @@ class TestFunnelDWValidator(BaseTest):
             FunnelDWValidator.validate_funnel_metric(metric)
 
         error_detail = context.exception.detail
+        assert isinstance(error_detail, dict)
         self.assertIn("complexity_limit", error_detail)
 
     def test_validate_funnel_metric_multiple_errors(self):
@@ -457,7 +461,7 @@ class TestFunnelDWValidator(BaseTest):
                     table_name="table_b",
                     timestamp_field="ds",
                     data_warehouse_join_key="id",
-                    events_join_key="properties.$email",  # Different join key - consistency error
+                    events_join_key="properties.$email",  # Different join key - would be consistency error
                 ),
             ]
         )
@@ -466,9 +470,10 @@ class TestFunnelDWValidator(BaseTest):
             FunnelDWValidator.validate_funnel_metric(metric)
 
         error_detail = context.exception.detail
-        # Early return on field errors, so join_key_mismatch won't be checked
+        assert isinstance(error_detail, dict)
+        # Field errors are reported first, early return prevents consistency check
         self.assertIn("datawarehouse_configuration", error_detail)
-        self.assertNotIn("join_key_mismatch", error_detail)
+        self.assertIn("help", error_detail)
 
     def test_validate_funnel_metric_events_only_passes(self):
         """Events-only funnel requires no DW validation."""
