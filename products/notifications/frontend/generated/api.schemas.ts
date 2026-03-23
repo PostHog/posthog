@@ -18,6 +18,7 @@ export interface NotificationEventApi {
     read_at: string | null
     /** @nullable */
     resource_type: string | null
+    resource_id: string
     source_url: string
     created_at: string
 }
