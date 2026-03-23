@@ -848,6 +848,8 @@ class FeatureFlagSerializer(
         # condition set that doesn't already have one. Only set the field when the
         # value is non-null to avoid adding new keys to persisted JSON that would
         # change behavior for frontend code using `!== undefined` checks.
+        # TODO #52024: once frontend null checks are fixed, always set this field
+        # (including None) so every condition set explicitly carries its aggregation mode.
         if flag_level_aggregation is not None:
             for condition in filters["groups"]:
                 if condition.get("aggregation_group_type_index") is None:
@@ -867,6 +869,7 @@ class FeatureFlagSerializer(
             # Only set the flag-level field if the resolved value is non-null.
             # Leaving it absent for person-aggregated flags preserves backward
             # compatibility with frontend code that uses `!== undefined` checks.
+            # TODO #52024: once frontend null checks are fixed, always set this field.
             if condition_aggregations[0] is not None:
                 filters["aggregation_group_type_index"] = condition_aggregations[0]
 
