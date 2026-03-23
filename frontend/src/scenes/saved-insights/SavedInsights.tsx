@@ -545,6 +545,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconLive,
         inMenu: false,
     },
+    [NodeKind.TraceSpansQuery]: {
+        name: 'Trace Spans',
+        icon: IconLive,
+        inMenu: false,
+    },
     [NodeKind.WebAnalyticsExternalSummaryQuery]: {
         name: 'Web Analytics External Summary',
         icon: IconPieChart,

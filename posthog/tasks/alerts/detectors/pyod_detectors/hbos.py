@@ -17,4 +17,4 @@ class HBOSDetector(BasePyODDetector):
 
     @classmethod
     def get_default_config(cls) -> dict[str, Any]:
-        return {"type": DetectorType.HBOS.value, "threshold": 0.9, "n_bins": 10}
+        return {"type": DetectorType.HBOS.value, "threshold": cls.DEFAULT_THRESHOLD, "n_bins": 10}

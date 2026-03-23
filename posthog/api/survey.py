@@ -19,7 +19,14 @@ import structlog
 import posthoganalytics
 from axes.decorators import axes_dispatch
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    PolymorphicProxySerializer,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
 from loginas.utils import is_impersonated_session
 from nanoid import generate
 from posthoganalytics import capture_exception
@@ -151,6 +158,292 @@ def get_survey_conditions_with_actions(
             conditions = dict(conditions)
         conditions["actions"] = {"values": action_serializer_class(actions, many=True).data}
     return conditions
+
+
+@extend_schema_field(
+    {
+        "oneOf": [
+            {"type": "integer", "minimum": 0},
+            {"type": "string", "enum": ["end"]},
+        ]
+    }
+)
+class SurveyBranchTargetField(serializers.Field):
+    def to_internal_value(self, data):
+        return data
+
+    def to_representation(self, value):
+        return value
+
+
+class SurveyNextQuestionBranchingSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=["next_question"],
+        required=True,
+        help_text="Continue to the next question in sequence.",
+    )
+
+
+class SurveyEndBranchingSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(choices=["end"], required=True, help_text="End the survey.")
+
+
+class SurveySpecificQuestionBranchingSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=["specific_question"],
+        required=True,
+        help_text="Jump to a specific question index.",
+    )
+    index = serializers.IntegerField(required=True, min_value=0, help_text="0-based index of the next question.")
+
+
+class SurveyResponseBasedBranchingSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=["response_based"],
+        required=True,
+        help_text="Branch based on the selected or entered response.",
+    )
+    responseValues = serializers.DictField(
+        required=True,
+        child=SurveyBranchTargetField(),
+        help_text="Response-based branching map. Values can be a question index or 'end'.",
+    )
+
+
+_SurveyBranchingUnion = PolymorphicProxySerializer(
+    component_name="SurveyBranchingSchema",
+    serializers=[
+        SurveyNextQuestionBranchingSerializer,
+        SurveyEndBranchingSerializer,
+        SurveySpecificQuestionBranchingSerializer,
+        SurveyResponseBasedBranchingSerializer,
+    ],
+    resource_type_field_name=None,
+)
+
+
+@extend_schema_field(_SurveyBranchingUnion)
+class SurveyBranchingSchemaField(serializers.Field):
+    def to_internal_value(self, data):
+        return data
+
+    def to_representation(self, value):
+        return value
+
+
+class SurveyQuestionValidationRuleSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=["min_length", "max_length", "email"],
+        required=True,
+        help_text="Validation rule type for open-text questions.",
+    )
+    value = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        allow_null=True,
+        help_text="Rule value for min_length or max_length validations.",
+    )
+
+
+class SurveyBaseQuestionSchemaSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=["open", "link", "rating", "single_choice", "multiple_choice"],
+        required=True,
+        help_text="Question type.",
+    )
+    question = serializers.CharField(required=True, help_text="Question text shown to respondents.")
+    description = serializers.CharField(required=False, allow_blank=True, help_text="Optional helper text.")
+    descriptionContentType = serializers.ChoiceField(
+        choices=["text", "html"],
+        required=False,
+        help_text="Format for the description field.",
+    )
+    optional = serializers.BooleanField(required=False, help_text="Whether respondents may skip this question.")
+    buttonText = serializers.CharField(required=False, allow_blank=True, help_text="Custom button label.")
+
+
+class SurveyOpenQuestionSchemaSerializer(SurveyBaseQuestionSchemaSerializer):
+    type = serializers.ChoiceField(choices=["open"], required=True)
+
+
+class SurveyLinkQuestionSchemaSerializer(SurveyBaseQuestionSchemaSerializer):
+    type = serializers.ChoiceField(choices=["link"], required=True)
+    link = serializers.CharField(required=True, help_text="HTTPS or mailto URL for link questions.")
+
+
+class SurveyRatingQuestionSchemaSerializer(SurveyBaseQuestionSchemaSerializer):
+    type = serializers.ChoiceField(choices=["rating"], required=True)
+    display = serializers.ChoiceField(
+        choices=["number", "emoji"],
+        required=False,
+        help_text="Display format: 'number' shows numeric scale, 'emoji' shows emoji scale.",
+    )
+    scale = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Rating scale can be one of 3, 5, or 7",
+    )
+    lowerBoundLabel = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Label for the lowest rating (e.g., 'Very Poor')",
+    )
+    upperBoundLabel = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Label for the highest rating (e.g., 'Excellent')",
+    )
+    branching = SurveyBranchingSchemaField(required=False, allow_null=True)
+
+
+class SurveySingleChoiceQuestionSchemaSerializer(SurveyBaseQuestionSchemaSerializer):
+    type = serializers.ChoiceField(choices=["single_choice"], required=True)
+    choices = serializers.ListField(
+        child=serializers.CharField(),
+        required=True,
+        min_length=2,
+        max_length=20,
+        help_text="Array of choice options. Choice indices (0, 1, 2, ...) are used for branching logic.",
+    )
+    shuffleOptions = serializers.BooleanField(
+        required=False,
+        help_text="Whether to randomize the order of choices for each respondent.",
+    )
+    hasOpenChoice = serializers.BooleanField(
+        required=False,
+        help_text="Whether the final option should be an open-text choice (for example, 'Other').",
+    )
+    branching = SurveyBranchingSchemaField(required=False, allow_null=True)
+
+
+class SurveyMultipleChoiceQuestionSchemaSerializer(SurveyBaseQuestionSchemaSerializer):
+    type = serializers.ChoiceField(choices=["multiple_choice"], required=True)
+    choices = serializers.ListField(
+        child=serializers.CharField(),
+        required=True,
+        min_length=2,
+        max_length=20,
+        help_text="Array of choice options. Multiple selections allowed. No branching logic supported.",
+    )
+    shuffleOptions = serializers.BooleanField(
+        required=False,
+        help_text="Whether to randomize the order of choices for each respondent.",
+    )
+    hasOpenChoice = serializers.BooleanField(
+        required=False,
+        help_text="Whether the final option should be an open-text choice (for example, 'Other').",
+    )
+
+
+_SurveyQuestionUnion = PolymorphicProxySerializer(
+    component_name="SurveyQuestionInputSchema",
+    serializers=[
+        SurveyOpenQuestionSchemaSerializer,
+        SurveyLinkQuestionSchemaSerializer,
+        SurveyRatingQuestionSchemaSerializer,
+        SurveySingleChoiceQuestionSchemaSerializer,
+        SurveyMultipleChoiceQuestionSchemaSerializer,
+    ],
+    resource_type_field_name=None,
+)
+
+
+@extend_schema_field(serializers.ListSerializer(child=_SurveyQuestionUnion))
+class SurveyQuestionsSchemaField(serializers.ListField):
+    pass
+
+
+SURVEY_MATCH_TYPE_CHOICES = ["regex", "not_regex", "exact", "is_not", "icontains", "not_icontains"]
+
+
+class SurveyAppearanceSchemaSerializer(serializers.Serializer):
+    backgroundColor = serializers.CharField(required=False)
+    submitButtonColor = serializers.CharField(required=False)
+    textColor = serializers.CharField(required=False)
+    submitButtonText = serializers.CharField(required=False)
+    submitButtonTextColor = serializers.CharField(required=False)
+    descriptionTextColor = serializers.CharField(required=False)
+    ratingButtonColor = serializers.CharField(required=False)
+    ratingButtonActiveColor = serializers.CharField(required=False)
+    ratingButtonHoverColor = serializers.CharField(required=False)
+    whiteLabel = serializers.BooleanField(required=False)
+    autoDisappear = serializers.BooleanField(required=False)
+    displayThankYouMessage = serializers.BooleanField(required=False)
+    thankYouMessageHeader = serializers.CharField(required=False)
+    thankYouMessageDescription = serializers.CharField(required=False)
+    thankYouMessageDescriptionContentType = serializers.ChoiceField(
+        choices=["html", "text"],
+        required=False,
+    )
+    thankYouMessageCloseButtonText = serializers.CharField(required=False)
+    borderColor = serializers.CharField(required=False)
+    placeholder = serializers.CharField(required=False)
+    shuffleQuestions = serializers.BooleanField(required=False)
+    surveyPopupDelaySeconds = serializers.IntegerField(required=False)
+    widgetType = serializers.ChoiceField(choices=["button", "tab", "selector"], required=False)
+    widgetSelector = serializers.CharField(required=False)
+    widgetLabel = serializers.CharField(required=False)
+    widgetColor = serializers.CharField(required=False)
+    fontFamily = serializers.CharField(required=False)
+    maxWidth = serializers.CharField(required=False)
+    zIndex = serializers.CharField(required=False)
+    disabledButtonOpacity = serializers.CharField(required=False)
+    boxPadding = serializers.CharField(required=False)
+
+
+SURVEY_DEVICE_TYPE_CHOICES = ["Desktop", "Mobile", "Tablet"]
+SURVEY_MATCH_TYPE_HELP_TEXT = (
+    "URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), "
+    "'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), "
+    "'not_icontains' (case-insensitive does not contain)."
+)
+
+
+class SurveyConditionEventValueSchemaSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Event name that triggers the survey.")
+
+
+class SurveyEventsConditionSchemaSerializer(serializers.Serializer):
+    repeatedActivation = serializers.BooleanField(
+        required=False,
+        help_text="Whether to show the survey every time one of the events is triggered (true), or just once (false).",
+    )
+    values = SurveyConditionEventValueSchemaSerializer(
+        many=True,
+        required=False,
+        help_text="Array of event names that trigger the survey.",
+    )
+
+
+class SurveyConditionsSchemaSerializer(serializers.Serializer):
+    url = serializers.CharField(required=False, allow_blank=True)
+    selector = serializers.CharField(required=False, allow_blank=True)
+    seenSurveyWaitPeriodInDays = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text="Don't show this survey to users who saw any survey in the last x days.",
+    )
+    urlMatchType = serializers.ChoiceField(
+        required=False,
+        choices=SURVEY_MATCH_TYPE_CHOICES,
+        help_text=SURVEY_MATCH_TYPE_HELP_TEXT,
+    )
+    events = SurveyEventsConditionSchemaSerializer(required=False)
+    deviceTypes = serializers.ListField(
+        required=False,
+        child=serializers.ChoiceField(choices=SURVEY_DEVICE_TYPE_CHOICES),
+        help_text="Device types that should match for this survey to be shown.",
+    )
+    deviceTypesMatchType = serializers.ChoiceField(
+        required=False,
+        choices=SURVEY_MATCH_TYPE_CHOICES,
+        help_text=SURVEY_MATCH_TYPE_HELP_TEXT,
+    )
+    linkedFlagVariant = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="The variant of the feature flag linked to this survey.",
+    )
 
 
 class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
@@ -1110,7 +1403,93 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
 
 class SurveySerializerCreateUpdateOnlySchema(SurveySerializerCreateUpdateOnly):
-    targeting_flag_filters = FeatureFlagFiltersSchemaSerializer(required=False, write_only=True, allow_null=True)  # type: ignore[assignment]
+    linked_flag_id = serializers.IntegerField(
+        required=False,
+        write_only=True,
+        allow_null=True,
+        help_text="The feature flag linked to this survey.",
+    )
+    targeting_flag_id = serializers.IntegerField(
+        required=False,
+        write_only=True,
+        help_text="An existing targeting flag to use for this survey.",
+    )
+    targeting_flag_filters = FeatureFlagFiltersSchemaSerializer(  # type: ignore[assignment]
+        required=False,
+        write_only=True,
+        allow_null=True,
+        help_text="Target specific users based on their properties. Example: {groups: [{properties: [{key: 'email', value: ['@company.com'], operator: 'icontains'}], rollout_percentage: 100}]}",
+    )
+    remove_targeting_flag = serializers.BooleanField(
+        required=False,
+        write_only=True,
+        allow_null=True,
+        help_text="Set to true to completely remove all targeting filters from the survey, making it visible to all users (subject to other display conditions like URL matching).",
+    )
+    questions = SurveyQuestionsSchemaField(
+        child=serializers.DictField(),
+        required=False,
+        allow_null=True,
+        help_text=Survey._meta.get_field("questions").help_text,
+    )
+    appearance = SurveyAppearanceSchemaSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Survey appearance customization.",
+    )
+    conditions = SurveyConditionsSchemaSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Display and targeting conditions for the survey.",
+    )
+    schedule = serializers.ChoiceField(  # type: ignore[assignment]
+        choices=Survey.Schedule.choices,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Survey scheduling behavior: 'once' = show once per user (default), "
+            "'recurring' = repeat based on iteration_count and iteration_frequency_days settings, "
+            "'always' = show every time conditions are met (mainly for widget surveys)"
+        ),
+    )
+    responses_limit = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="The maximum number of responses before automatically stopping the survey.",
+    )
+    iteration_count = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        max_value=MAX_ITERATION_COUNT,
+        min_value=1,
+        help_text="For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule.",
+    )
+    iteration_frequency_days = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=365,
+        help_text="For a recurring schedule, this field specifies the interval in days between each survey instance shown to the user, used alongside iteration_count for precise scheduling.",
+    )
+    enable_partial_responses = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="When at least one question is answered, the response is stored (true). The response is stored when all questions are answered (false).",
+    )
+
+    class Meta(SurveySerializerCreateUpdateOnly.Meta):
+        extra_kwargs = {
+            "name": {"help_text": "Survey name.", "min_length": 1},
+            "description": {"help_text": "Survey description."},
+            "type": {"help_text": "Survey type."},
+            "start_date": {
+                "help_text": "Setting this will launch the survey immediately. Don't add a start_date unless explicitly requested to do so."
+            },
+            "end_date": {
+                "help_text": "When the survey stopped being shown to users. Setting this will complete the survey."
+            },
+            "archived": {"help_text": "Archive state for the survey."},
+        }
 
 
 @extend_schema(tags=[ProductKey.SURVEYS])
@@ -1544,6 +1923,22 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
 
         return response_data
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "date_from",
+                OpenApiTypes.DATETIME,
+                required=False,
+                description="Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)",
+            ),
+            OpenApiParameter(
+                "date_to",
+                OpenApiTypes.DATETIME,
+                required=False,
+                description="Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)",
+            ),
+        ]
+    )
     @action(methods=["GET"], detail=True, url_path="stats", required_scopes=["survey:read"])
     def survey_stats(self, request: request.Request, **kwargs) -> Response:
         """Get survey response statistics for a specific survey.
@@ -1655,6 +2050,22 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         uuids = get_archived_response_uuids(str(survey.id), self.team_id)
         return Response(list(uuids))
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "date_from",
+                OpenApiTypes.DATETIME,
+                required=False,
+                description="Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)",
+            ),
+            OpenApiParameter(
+                "date_to",
+                OpenApiTypes.DATETIME,
+                required=False,
+                description="Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)",
+            ),
+        ]
+    )
     @action(methods=["GET"], detail=False, url_path="stats", required_scopes=["survey:read"])
     def global_stats(self, request: request.Request, **kwargs) -> Response:
         """Get aggregated response statistics across all surveys.

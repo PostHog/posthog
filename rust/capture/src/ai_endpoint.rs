@@ -493,7 +493,8 @@ fn build_kafka_event(
         sent_at_utc,
         ignore_sent_at,
         now,
-    );
+    )
+    .timestamp;
 
     // Serialize the event to JSON (this is what goes in the "data" field)
     let data = serde_json::to_string(&parsed.event).map_err(|e| {

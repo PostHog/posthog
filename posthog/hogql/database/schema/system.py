@@ -352,6 +352,21 @@ exports: PostgresTable = PostgresTable(
     },
 )
 
+activity_logs: PostgresTable = PostgresTable(
+    name="activity_logs",
+    postgres_table_name="posthog_activitylog",
+    access_scope="activity_log",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "activity": StringDatabaseField(name="activity"),
+        "item_id": StringDatabaseField(name="item_id"),
+        "scope": StringDatabaseField(name="scope"),
+        "detail": StringJSONDatabaseField(name="detail"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+    },
+)
+
 actions: PostgresTable = PostgresTable(
     name="actions",
     postgres_table_name="posthog_action",
@@ -532,6 +547,7 @@ early_access_features: PostgresTable = PostgresTable(
 class SystemTables(TableNode):
     name: str = "system"
     children: dict[str, TableNode] = {
+        "activity_logs": TableNode(name="activity_logs", table=activity_logs),
         "actions": TableNode(name="actions", table=actions),
         "alerts": TableNode(name="alerts", table=alerts),
         "annotations": TableNode(name="annotations", table=annotations),

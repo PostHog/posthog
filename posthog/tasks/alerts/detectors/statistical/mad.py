@@ -22,12 +22,12 @@ class MADDetector(BaseDetector):
     predict_proba (erf-based conversion).
 
     Config:
-        threshold: float - Anomaly probability threshold (default: 0.9)
+        threshold: float - Anomaly probability threshold (default: 0.95)
         window: int - Rolling window size (default: 30)
     """
 
     def detect(self, data: np.ndarray) -> DetectionResult:
-        threshold = self.config.get("threshold", 0.9)
+        threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
         window = self.config.get("window", 30)
 
         if not self._validate_data(data, min_length=window + 1):
@@ -62,7 +62,7 @@ class MADDetector(BaseDetector):
         )
 
     def detect_batch(self, data: np.ndarray) -> DetectionResult:
-        threshold = self.config.get("threshold", 0.9)
+        threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
         window = self.config.get("window", 30)
 
         if not self._validate_data(data, min_length=window + 1):
@@ -100,6 +100,6 @@ class MADDetector(BaseDetector):
     def get_default_config(cls) -> dict:
         return {
             "type": DetectorType.MAD.value,
-            "threshold": 0.9,
+            "threshold": cls.DEFAULT_THRESHOLD,
             "window": 30,
         }

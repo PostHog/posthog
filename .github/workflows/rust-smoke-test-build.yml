@@ -90,7 +90,6 @@ jobs:
 
     build-images:
         needs: [authorize, resolve-filter]
-        timeout-minutes: 35
         uses: ./.github/workflows/_rust-build-images.yml
         with:
             image-filter: ${{ needs.resolve-filter.outputs.filter }}

@@ -281,6 +281,11 @@ export interface ECODDetectorConfigApi {
      */
     threshold?: number | null
     type?: ECODDetectorConfigApiType
+    /**
+     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+     * @nullable
+     */
+    window?: number | null
 }
 
 export type COPODDetectorConfigApiType = (typeof COPODDetectorConfigApiType)[keyof typeof COPODDetectorConfigApiType]
@@ -298,6 +303,11 @@ export interface COPODDetectorConfigApi {
      */
     threshold?: number | null
     type?: COPODDetectorConfigApiType
+    /**
+     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+     * @nullable
+     */
+    window?: number | null
 }
 
 export type IsolationForestDetectorConfigApiType =
@@ -321,6 +331,11 @@ export interface IsolationForestDetectorConfigApi {
      */
     threshold?: number | null
     type?: IsolationForestDetectorConfigApiType
+    /**
+     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+     * @nullable
+     */
+    window?: number | null
 }
 
 export type MethodApi = (typeof MethodApi)[keyof typeof MethodApi]
@@ -353,6 +368,11 @@ export interface KNNDetectorConfigApi {
      */
     threshold?: number | null
     type?: KNNDetectorConfigApiType
+    /**
+     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+     * @nullable
+     */
+    window?: number | null
 }
 
 export type HBOSDetectorConfigApiType = (typeof HBOSDetectorConfigApiType)[keyof typeof HBOSDetectorConfigApiType]
@@ -375,6 +395,11 @@ export interface HBOSDetectorConfigApi {
      */
     threshold?: number | null
     type?: HBOSDetectorConfigApiType
+    /**
+     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+     * @nullable
+     */
+    window?: number | null
 }
 
 export type LOFDetectorConfigApiType = (typeof LOFDetectorConfigApiType)[keyof typeof LOFDetectorConfigApiType]
@@ -397,6 +422,11 @@ export interface LOFDetectorConfigApi {
      */
     threshold?: number | null
     type?: LOFDetectorConfigApiType
+    /**
+     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+     * @nullable
+     */
+    window?: number | null
 }
 
 export type OCSVMDetectorConfigApiType = (typeof OCSVMDetectorConfigApiType)[keyof typeof OCSVMDetectorConfigApiType]
@@ -424,6 +454,11 @@ export interface OCSVMDetectorConfigApi {
      */
     threshold?: number | null
     type?: OCSVMDetectorConfigApiType
+    /**
+     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+     * @nullable
+     */
+    window?: number | null
 }
 
 export type PCADetectorConfigApiType = (typeof PCADetectorConfigApiType)[keyof typeof PCADetectorConfigApiType]
@@ -441,6 +476,11 @@ export interface PCADetectorConfigApi {
      */
     threshold?: number | null
     type?: PCADetectorConfigApiType
+    /**
+     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+     * @nullable
+     */
+    window?: number | null
 }
 
 export type EnsembleOperatorApi = (typeof EnsembleOperatorApi)[keyof typeof EnsembleOperatorApi]

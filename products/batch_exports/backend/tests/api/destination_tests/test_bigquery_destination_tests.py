@@ -5,14 +5,28 @@ import typing
 import warnings
 
 import pytest
+from unittest.mock import patch
 
+import pytest_asyncio
 from google.cloud import bigquery, exceptions
+
+from posthog.models.integration import GoogleCloudServiceAccountIntegration
 
 from products.batch_exports.backend.api.destination_tests.bigquery import (
     BigQueryDatasetTestStep,
+    BigQueryImpersonateServiceAccountTestStep,
     BigQueryProjectTestStep,
     BigQueryTableTestStep,
+    BigQueryVerifyServiceAccountOwnershipTestStep,
     Status,
+)
+from products.batch_exports.backend.tests.temporal.destinations.bigquery.utils import (
+    impersonated_integration,
+    key_file_integration,
+    set_service_account_description_for_integration,
+)
+from products.batch_exports.backend.tests.temporal.destinations.s3.utils import (
+    check_valid_credentials as has_valid_aws_credentials,
 )
 
 SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS = pytest.mark.skipif(
@@ -80,10 +94,49 @@ def service_account_info(bigquery_config):
     return {k: v for k, v in bigquery_config.items() if k != "project_id"}
 
 
-async def test_bigquery_check_dataset_exists_test_step(project_id, service_account_info, bigquery_dataset):
+@pytest.fixture
+def service_account_description(aorganization, request) -> str:
+    try:
+        description = request.param
+    except Exception:
+        return f"posthog:{str(aorganization.id)}"
+
+    if description is None:
+        return f"posthog:{str(aorganization.id)}"
+    return description
+
+
+@pytest_asyncio.fixture
+async def integration(
+    request, aorganization, ateam, bigquery_config, service_account_description
+) -> GoogleCloudServiceAccountIntegration | None:
+    try:
+        integration_type = request.param
+    except Exception:
+        return None
+
+    match integration_type:
+        case "impersonated":
+            if not await has_valid_aws_credentials():
+                pytest.skip("AWS credentials not available")
+
+            inner = await impersonated_integration(ateam, bigquery_config)
+            await set_service_account_description_for_integration(inner, service_account_description)
+            integration: GoogleCloudServiceAccountIntegration | None = GoogleCloudServiceAccountIntegration(inner)
+        case "key_file":
+            integration = GoogleCloudServiceAccountIntegration(await key_file_integration(ateam, bigquery_config))
+        case _:
+            integration = None
+
+    return integration
+
+
+@pytest.mark.parametrize("integration", ["impersonated", "key_file", None], indirect=True)
+async def test_bigquery_check_dataset_exists_test_step(project_id, integration, service_account_info, bigquery_dataset):
     test_step = BigQueryDatasetTestStep(
         project_id=project_id,
         dataset_id=bigquery_dataset.dataset_id,
+        integration=integration,
         service_account_info=service_account_info,
     )
     result = await test_step.run()
@@ -92,10 +145,12 @@ async def test_bigquery_check_dataset_exists_test_step(project_id, service_accou
     assert result.message is None
 
 
-async def test_bigquery_check_dataset_exists_test_step_without_dataset(project_id, service_account_info):
+@pytest.mark.parametrize("integration", ["impersonated", "key_file", None], indirect=True)
+async def test_bigquery_check_dataset_exists_test_step_without_dataset(project_id, integration, service_account_info):
     test_step = BigQueryDatasetTestStep(
         project_id=project_id,
         dataset_id="garbage",
+        integration=integration,
         service_account_info=service_account_info,
     )
     result = await test_step.run()
@@ -107,20 +162,24 @@ async def test_bigquery_check_dataset_exists_test_step_without_dataset(project_i
     )
 
 
-async def test_bigquery_check_project_exists_test_step(project_id, service_account_info):
+@pytest.mark.parametrize("integration", ["impersonated", "key_file", None], indirect=True)
+async def test_bigquery_check_project_exists_test_step(project_id, integration, service_account_info):
     test_step = BigQueryProjectTestStep(
         project_id=project_id,
+        integration=integration,
         service_account_info=service_account_info,
     )
     result = await test_step.run()
 
-    assert result.status == Status.PASSED
+    assert result.status == Status.PASSED, result.message
     assert result.message is None
 
 
-async def test_bigquery_check_project_exists_test_step_without_project(service_account_info):
+@pytest.mark.parametrize("integration", ["impersonated", "key_file", None], indirect=True)
+async def test_bigquery_check_project_exists_test_step_without_project(integration, service_account_info):
     test_step = BigQueryProjectTestStep(
         project_id="garbage",
+        integration=integration,
         service_account_info=service_account_info,
     )
     result = await test_step.run()
@@ -132,7 +191,10 @@ async def test_bigquery_check_project_exists_test_step_without_project(service_a
     )
 
 
-async def test_bigquery_check_table_test_step(project_id, bigquery_client, bigquery_dataset, service_account_info):
+@pytest.mark.parametrize("integration", ["impersonated", "key_file", None], indirect=True)
+async def test_bigquery_check_table_test_step(
+    project_id, bigquery_client, bigquery_dataset, integration, service_account_info
+):
     table_id = f"destination_test_{uuid.uuid4()}"
     fully_qualified_table_id = f"{project_id}.{bigquery_dataset.dataset_id}.{table_id}"
 
@@ -143,6 +205,7 @@ async def test_bigquery_check_table_test_step(project_id, bigquery_client, bigqu
         project_id=project_id,
         dataset_id=bigquery_dataset.dataset_id,
         table_id=table_id,
+        integration=integration,
         service_account_info=service_account_info,
     )
     result = await test_step.run()
@@ -154,8 +217,9 @@ async def test_bigquery_check_table_test_step(project_id, bigquery_client, bigqu
         bigquery_client.get_table(fully_qualified_table_id)
 
 
+@pytest.mark.parametrize("integration", ["impersonated", "key_file", None], indirect=True)
 async def test_bigquery_check_table_test_step_with_invalid_identifier(
-    project_id, bigquery_client, bigquery_dataset, service_account_info
+    project_id, bigquery_client, bigquery_dataset, integration, service_account_info
 ):
     table_id = f"$destination_test_{uuid.uuid4()}"
     fully_qualified_table_id = f"{project_id}.{bigquery_dataset.dataset_id}.{table_id}"
@@ -167,6 +231,7 @@ async def test_bigquery_check_table_test_step_with_invalid_identifier(
         project_id=project_id,
         dataset_id=bigquery_dataset.dataset_id,
         table_id=table_id,
+        integration=integration,
         service_account_info=service_account_info,
     )
     result = await test_step.run()
@@ -179,7 +244,73 @@ async def test_bigquery_check_table_test_step_with_invalid_identifier(
         bigquery_client.get_table(fully_qualified_table_id)
 
 
-@pytest.mark.parametrize("step", [BigQueryTableTestStep(), BigQueryProjectTestStep(), BigQueryDatasetTestStep()])
+@pytest.mark.parametrize("integration", ["impersonated"], indirect=True)
+async def test_bigquery_impersonate_service_account_test_step(project_id, integration):
+    test_step = BigQueryImpersonateServiceAccountTestStep(
+        project_id=project_id,
+        integration=integration,
+    )
+    result = await test_step.run()
+
+    assert result.status == Status.PASSED, result.message
+    assert result.message is None
+
+
+@pytest.mark.parametrize("integration", ["impersonated"], indirect=True)
+async def test_bigquery_impersonate_service_account_test_step_with_unknown_account(project_id, integration):
+    with patch.dict(
+        integration.integration.config,
+        service_account_email=f"garbage@{integration.project_id}.iam.gserviceaccount.com",
+    ):
+        test_step = BigQueryImpersonateServiceAccountTestStep(
+            project_id=project_id,
+            integration=integration,
+        )
+        result = await test_step.run()
+
+    assert result.status == Status.FAILED
+    assert result.message is not None
+
+
+@pytest.mark.parametrize("integration", ["impersonated"], indirect=True)
+async def test_bigquery_verify_service_account_ownership_test_step(project_id, integration, aorganization):
+    test_step = BigQueryVerifyServiceAccountOwnershipTestStep(
+        project_id=project_id,
+        integration=integration,
+        organization_id=str(aorganization.id),
+    )
+    result = await test_step.run()
+
+    assert result.status == Status.PASSED, result.message
+    assert result.message is None
+
+
+@pytest.mark.parametrize("integration", ["impersonated"], indirect=True)
+@pytest.mark.parametrize("service_account_description", ["garbage"], indirect=True)
+async def test_bigquery_verify_service_account_ownership_test_step_with_garbage_description(
+    project_id, integration, aorganization
+):
+    test_step = BigQueryVerifyServiceAccountOwnershipTestStep(
+        project_id=project_id,
+        integration=integration,
+        organization_id=str(aorganization.id),
+    )
+    result = await test_step.run()
+
+    assert result.status == Status.FAILED
+    assert result.message is not None
+
+
+@pytest.mark.parametrize(
+    "step",
+    [
+        BigQueryImpersonateServiceAccountTestStep(),
+        BigQueryVerifyServiceAccountOwnershipTestStep(),
+        BigQueryTableTestStep(),
+        BigQueryProjectTestStep(),
+        BigQueryDatasetTestStep(),
+    ],
+)
 async def test_test_steps_fail_if_not_configured(step):
     result = await step.run()
     assert result.status == Status.FAILED
