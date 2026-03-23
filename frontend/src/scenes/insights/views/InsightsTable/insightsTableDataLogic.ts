@@ -5,7 +5,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
-import { ChartDisplayType, InsightLogicProps } from '~/types'
+import { ChartDisplayType, CompareLabelType, InsightLogicProps } from '~/types'
 
 import type { insightsTableDataLogicType } from './insightsTableDataLogicType'
 
@@ -99,7 +99,7 @@ export const insightsTableDataLogic = kea<insightsTableDataLogicType>([
                 }
                 const map = new Map<string, IndexedTrendResult>()
                 for (const result of indexedResults) {
-                    if (result.compare_label === 'previous') {
+                    if (result.compare_label === CompareLabelType.Previous) {
                         map.set(compareResultKey(result), result)
                     }
                 }
@@ -120,7 +120,7 @@ export const insightsTableDataLogic = kea<insightsTableDataLogicType>([
             (s) => [s.compareFilter, s.indexedResults],
             (compareFilter, indexedResults): IndexedTrendResult[] => {
                 if (compareFilter?.compare) {
-                    return indexedResults.filter((r) => r.compare_label === 'current')
+                    return indexedResults.filter((r) => r.compare_label === CompareLabelType.Current)
                 }
                 return indexedResults
             },

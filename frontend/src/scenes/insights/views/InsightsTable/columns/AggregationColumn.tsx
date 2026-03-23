@@ -1,5 +1,7 @@
 import './AggregationColumn.scss'
 
+import { ReactNode } from 'react'
+
 import { useActions, useValues } from 'kea'
 
 import { IconChevronDown } from '@posthog/icons'
@@ -101,16 +103,14 @@ export function AggregationColumnItem({
 
     const value = getAggregatedValue(item, aggregation, isNonTimeSeriesDisplay)
 
-    const formattedValue =
+    const formattedValue: ReactNode =
         value !== undefined
-            ? String(
-                  formatAggregationValue(
-                      item.action?.math_property,
-                      value,
-                      (value) =>
-                          formatAggregationAxisValue(trendsFilter as Partial<TrendsFilterType>, value, baseCurrency),
-                      formatPropertyValueForDisplay
-                  )
+            ? formatAggregationValue(
+                  item.action?.math_property,
+                  value,
+                  (value) =>
+                      formatAggregationAxisValue(trendsFilter as Partial<TrendsFilterType>, value, baseCurrency),
+                  formatPropertyValueForDisplay
               )
             : 'Unknown'
 
