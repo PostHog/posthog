@@ -12,24 +12,13 @@
 
 For revertible cloud deploys:
 
-1. Develop using the binary files at the top level of `user_scripts` (see section above),
-   with schema defined in `docker/clickhouse/user_defined_function.xml`
-2. When ready to deploy, increment the version in `posthog/udf_versioner.py` and run it.
-   This generates versioned binaries and `latest_user_defined_function.xml`
-3. Land a PR with the updated `user_scripts` folder (binaries + XML).
-   **Do not** include the `UDF_VERSION` bump in this PR —
-   that goes in a separate PR (step 5)
-4. Run the `setup_udfs` ansible role in the `posthog-cloud-infra` repo
-   to deploy the binaries and XML config to production ClickHouse.
-   The role pulls directly from the `posthog` repo's master branch,
-   so no manual XML updates are needed in `posthog-cloud-infra` for US/EU
-   - Verify that CH knows about the UDF by running `SELECT aggregate_funnel_vXX()`.
-     An "invalid arguments" error means the function is registered.
-     An "unknown function" error means the deploy hasn't taken effect yet
+1. Develop using the binary files at the top level of `user_scripts` (see section above), with schema defined in `docker/clickhouse/user_defined_function.xml`
+2. When ready to deploy, increment the version in `posthog/udf_versioner.py` and run it. This generates versioned binaries and `latest_user_defined_function.xml`
+3. Land a PR with the updated `user_scripts` folder (binaries + XML). **Do not** include the `UDF_VERSION` bump in this PR — that goes in a separate PR (step 5)
+4. Run the `setup_udfs` ansible role in the `posthog-cloud-infra` repo to deploy the binaries and XML config to production ClickHouse. The role pulls directly from the `posthog` repo's master branch, so no manual XML updates are needed in `posthog-cloud-infra` for US/EU
+   - Verify that CH knows about the UDF by running `SELECT aggregate_funnel_vXX()`. An "invalid arguments" error means the function is registered. An "unknown function" error means the deploy hasn't taken effect yet
    - Verify the UDF works by adapting the version in a CH query for a funnel insight
-5. Once the deploy is confirmed, land a separate PR that bumps `UDF_VERSION`
-   in `posthog/udf_versioner.py` to the new version.
-   This switches the posthog query builder to use the new UDF
+5. Once the deploy is confirmed, land a separate PR that bumps `UDF_VERSION` in `posthog/udf_versioner.py` to the new version. This switches the posthog query builder to use the new UDF
 
 ## Design decisions
 
