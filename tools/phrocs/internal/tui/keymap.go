@@ -23,6 +23,7 @@ type keyMap struct {
 	Hedgehog   key.Binding
 	Info       key.Binding
 	LazyDocker key.Binding
+	ProcViewer key.Binding
 }
 
 func defaultKeyMap() keyMap {
@@ -108,6 +109,11 @@ func defaultKeyMap() keyMap {
 			key.WithHelp("d:", "lazydocker"),
 			key.WithDisabled(),
 		),
+		ProcViewer: key.NewBinding(
+			key.WithKeys("p"),
+			key.WithHelp("p:", "htop"),
+			key.WithDisabled(),
+		),
 	}
 }
 
@@ -120,7 +126,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.NextProc, k.PrevProc},
 		{k.ScrollUp, k.ScrollDown},
 		{k.GotoTop, k.GotoBottom},
-		{k.NextPane, k.PrevPane},
+		{k.NextPane, k.PrevPane, k.LazyDocker, k.ProcViewer},
 		{k.Restart, k.Stop, k.Info},
 		{k.Search, k.SearchNext, k.SearchPrev},
 		{k.CopyMode, k.Quit, k.Help},

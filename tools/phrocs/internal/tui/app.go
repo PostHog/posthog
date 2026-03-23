@@ -363,12 +363,14 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 		m.searchMatches = nil
 		m.searchCursor = 0
 		m.keys.LazyDocker.SetEnabled(true)
+		m.keys.ProcViewer.SetEnabled(false)
 		m.viewport.SetContent(docker.RenderContainerStatusTable(m.containers, m.viewport.Width()))
 		cmds = append(cmds, docker.FetchContainerList(m.composeArgs), docker.PollContainersTick())
 	} else {
 		m.focusedPane = focusServices
 		m.containers = nil
 		m.keys.LazyDocker.SetEnabled(false)
+		m.keys.ProcViewer.SetEnabled(true)
 		m.viewport.SetContent(m.buildContent())
 	}
 

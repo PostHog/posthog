@@ -1,12 +1,39 @@
 package tui
 
 import (
+	"fmt"
 	"os/exec"
+	"runtime"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 )
+
+// procViewerCmd returns an exec.Cmd for the best available process viewer
+// (htop > btop > top), filtered to the given root PID. Returns nil if none found.
+func procViewerCmd(pid int) *exec.Cmd {
+	pidStr := fmt.Sprintf("%d", pid)
+
+	// htop -t (tree view) -p PID shows the process and its descendants
+	if path, err := exec.LookPath("htop"); err == nil {
+		return exec.Command(path, "-t", "-p", pidStr)
+	}
+
+	// btop has no PID filter, but still useful to open
+	if path, err := exec.LookPath("btop"); err == nil {
+		return exec.Command(path)
+	}
+
+	// macOS top: -pid PID
+	if runtime.GOOS == "darwin" {
+		if path, err := exec.LookPath("top"); err == nil {
+			return exec.Command(path, "-pid", pidStr)
+		}
+	}
+
+	return nil
+}
 
 // Resets all search state and clears viewport highlighting.
 func (m *Model) clearSearch() {
@@ -286,6 +313,17 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 			m.hedgehogDir = 1
 			m.hedgehogFrame = 0
 			cmds = append(cmds, hedgehogTick())
+		}
+
+	case key.Matches(msg, m.keys.ProcViewer):
+		if p := m.activeProc(); p != nil {
+			if pid := p.PID(); pid > 0 {
+				cmd := procViewerCmd(pid)
+				if cmd != nil {
+					m.dbg("proc viewer: %s %v", cmd.Path, cmd.Args)
+					return m, tea.ExecProcess(cmd, nil)
+				}
+			}
 		}
 
 	case key.Matches(msg, m.keys.LazyDocker):
