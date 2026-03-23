@@ -360,19 +360,14 @@ export type AssistantTrendsDisplayType = Exclude<TrendsFilterLegacy['display'], 
 
 export interface AssistantTrendsFilter {
     /**
-     * @deprecated Use formulaNodes instead.
-     * If the math aggregation is more complex or not listed above, use custom formulas to perform mathematical operations like calculating percentages or metrics. If you use a formula, you must use the following syntax: `A/B`, where `A` and `B` are the names of the series. You can combine math aggregations and formulas.
+     * Use custom formulas to perform mathematical operations like calculating percentages or metrics.
+     * Use the following syntax: `A/B`, where `A` and `B` are the names of the series. You can combine math aggregations and formulas.
      * When using a formula, you must:
      * - Identify and specify **all** events and actions needed to solve the formula.
      * - Carefully review the list of available events and actions to find appropriate entities for each part of the formula.
      * - Ensure that you find events and actions corresponding to both the numerator and denominator in ratio calculations.
      * Examples of using math formulas:
      * - If you want to calculate the percentage of users who have completed onboarding, you need to find and use events or actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users).
-     */
-    formulas?: string[]
-
-    /**
-     * List of formulas with optional custom names. Takes precedence over formulas if set.
      */
     formulaNodes?: TrendsFormulaNode[]
 

@@ -5298,9 +5298,22 @@ class AssistantTrendsFilter(BaseModel):
     )
     formulaNodes: list[TrendsFormulaNode] | None = Field(
         default=None,
-        description=("List of formulas with optional custom names. Takes precedence over formulas if set."),
+        description=(
+            "Use custom formulas to perform mathematical operations like calculating"
+            " percentages or metrics. Use the following syntax: `A/B`, where `A` and"
+            " `B` are the names of the series. You can combine math aggregations and"
+            " formulas. When using a formula, you must:\n- Identify and specify **all**"
+            " events and actions needed to solve the formula.\n- Carefully review the"
+            " list of available events and actions to find appropriate entities for"
+            " each part of the formula.\n- Ensure that you find events and actions"
+            " corresponding to both the numerator and denominator in ratio"
+            " calculations. Examples of using math formulas:\n- If you want to"
+            " calculate the percentage of users who have completed onboarding, you need"
+            " to find and use events or actions similar to `$identify` and `onboarding"
+            " complete`, so the formula will be `A / B`, where `A` is `onboarding"
+            " complete` (unique users) and `B` is `$identify` (unique users)."
+        ),
     )
-    formulas: list[str] | None = None
     showAlertThresholdLines: bool | None = Field(
         default=False, description="Whether to show alert threshold lines on the chart."
     )
