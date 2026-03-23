@@ -1,10 +1,10 @@
 import { IngestionOutputConfig, IngestionOutputs } from '../event-processing/ingestion-outputs'
+import { ProducerName } from './producer-definitions'
 import { KafkaProducerRegistry } from './producer-registry'
 
 export interface OutputDefinition {
     topic: string
-    /** Producer name, or undefined to use the default producer. */
-    defaultProducerName?: string
+    defaultProducerName: ProducerName
 }
 
 /**
@@ -13,10 +13,10 @@ export interface OutputDefinition {
  * For each output, checks for an env var override:
  *   INGESTION_OUTPUT_{NAME}_PRODUCER — override the producer name
  *
- * Falls back to defaultProducerName from the definition (undefined = default producer).
+ * Falls back to defaultProducerName from the definition.
  */
-export async function resolveOutputs<O extends string>(
-    registry: KafkaProducerRegistry,
+export async function resolveOutputs<O extends string, P extends ProducerName>(
+    registry: KafkaProducerRegistry<P>,
     definitions: Record<O, OutputDefinition>
 ): Promise<IngestionOutputs<O>> {
     const promises: Promise<{ outputName: O; config: IngestionOutputConfig }>[] = []
@@ -24,8 +24,8 @@ export async function resolveOutputs<O extends string>(
     for (const outputName in definitions) {
         const definition = definitions[outputName]
         const envKey = outputName.toUpperCase()
-        const producerNameOverride = process.env[`INGESTION_OUTPUT_${envKey}_PRODUCER`]
-        const producerName = producerNameOverride ?? definition.defaultProducerName
+        const producerNameOverride = process.env[`INGESTION_OUTPUT_${envKey}_PRODUCER`] as P | undefined
+        const producerName = producerNameOverride ?? (definition.defaultProducerName as P)
 
         // getProducer throws if the producer is not found, so all keys of O
         // are guaranteed to be present in the result or the call fails.

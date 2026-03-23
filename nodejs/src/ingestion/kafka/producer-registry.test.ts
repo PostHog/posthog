@@ -1,7 +1,19 @@
 import { KafkaProducerWrapper } from '../../kafka/producer'
+import { AllowedConfigKey } from './producer-config'
 import { KafkaProducerRegistry } from './producer-registry'
 
 jest.mock('../../kafka/producer')
+
+type TestProducer = 'ALPHA' | 'BETA'
+
+const TEST_CONFIG_MAP: Record<TestProducer, Record<string, AllowedConfigKey>> = {
+    ALPHA: {
+        TEST_ALPHA_BROKER: 'metadata.broker.list',
+    },
+    BETA: {
+        TEST_BETA_BROKER: 'metadata.broker.list',
+    },
+}
 
 describe('KafkaProducerRegistry', () => {
     const OLD_ENV = process.env
@@ -9,7 +21,6 @@ describe('KafkaProducerRegistry', () => {
     beforeEach(() => {
         jest.resetModules()
         process.env = { ...OLD_ENV }
-        jest.mocked(KafkaProducerWrapper.create).mockReset()
         jest.mocked(KafkaProducerWrapper.createWithConfig).mockReset()
     })
 
@@ -17,115 +28,68 @@ describe('KafkaProducerRegistry', () => {
         process.env = OLD_ENV
     })
 
-    function setupProducerEnv(name: string): void {
-        process.env[`INGESTION_KAFKA_PRODUCER_${name}_METADATA_BROKER_LIST`] = 'broker:9092'
-    }
-
-    function mockCreate(): void {
-        const mockProducer = { disconnect: jest.fn().mockResolvedValue(undefined) } as unknown as KafkaProducerWrapper
-        jest.mocked(KafkaProducerWrapper.create).mockResolvedValue(mockProducer)
-    }
-
     function mockCreateWithConfig(): void {
         const mockProducer = { disconnect: jest.fn().mockResolvedValue(undefined) } as unknown as KafkaProducerWrapper
         jest.mocked(KafkaProducerWrapper.createWithConfig).mockResolvedValue(mockProducer)
     }
 
-    describe('default producer (name=undefined)', () => {
-        it('uses KafkaProducerWrapper.create with PRODUCER mode', async () => {
-            mockCreate()
-            const registry = new KafkaProducerRegistry('rack1')
+    function createRegistry(): KafkaProducerRegistry<TestProducer> {
+        return new KafkaProducerRegistry('rack1', TEST_CONFIG_MAP)
+    }
 
-            await registry.getProducer(undefined)
-
-            expect(KafkaProducerWrapper.create).toHaveBeenCalledWith('rack1', 'PRODUCER')
-            expect(KafkaProducerWrapper.createWithConfig).not.toHaveBeenCalled()
-        })
-
-        it('is a singleton', async () => {
-            mockCreate()
-            const registry = new KafkaProducerRegistry('rack1')
-
-            const first = await registry.getProducer(undefined)
-            const second = await registry.getProducer(undefined)
-
-            expect(first).toBe(second)
-            expect(KafkaProducerWrapper.create).toHaveBeenCalledTimes(1)
-        })
-    })
-
-    describe('named producers', () => {
+    describe('getProducer', () => {
         it('creates a producer with config from env vars', async () => {
-            setupProducerEnv('MSK')
+            process.env.TEST_ALPHA_BROKER = 'alpha:9092'
             mockCreateWithConfig()
-            const registry = new KafkaProducerRegistry('rack1')
 
-            await registry.getProducer('MSK')
+            const registry = createRegistry()
+            await registry.getProducer('ALPHA')
 
+            expect(KafkaProducerWrapper.createWithConfig).toHaveBeenCalledTimes(1)
             expect(KafkaProducerWrapper.createWithConfig).toHaveBeenCalledWith(
                 'rack1',
-                expect.objectContaining({ 'metadata.broker.list': 'broker:9092' })
+                expect.objectContaining({ 'metadata.broker.list': 'alpha:9092' })
             )
         })
 
-        it('returns the same producer on subsequent calls (singleton)', async () => {
-            setupProducerEnv('MSK')
+        it('returns the same producer on concurrent calls (singleton, no race condition)', async () => {
             mockCreateWithConfig()
-            const registry = new KafkaProducerRegistry('rack1')
 
-            const first = await registry.getProducer('MSK')
-            const second = await registry.getProducer('MSK')
+            const registry = createRegistry()
+            const [first, second] = await Promise.all([registry.getProducer('ALPHA'), registry.getProducer('ALPHA')])
 
             expect(first).toBe(second)
             expect(KafkaProducerWrapper.createWithConfig).toHaveBeenCalledTimes(1)
         })
 
-        it('normalizes name to uppercase', async () => {
-            setupProducerEnv('MSK')
+        it('creates separate producers for different names', async () => {
             mockCreateWithConfig()
-            const registry = new KafkaProducerRegistry(undefined)
 
-            const lower = await registry.getProducer('msk')
-            const upper = await registry.getProducer('MSK')
+            const registry = createRegistry()
+            await registry.getProducer('ALPHA')
+            await registry.getProducer('BETA')
 
-            expect(lower).toBe(upper)
-            expect(KafkaProducerWrapper.createWithConfig).toHaveBeenCalledTimes(1)
-        })
-
-        it('throws when no env vars are configured for the name', async () => {
-            const registry = new KafkaProducerRegistry(undefined)
-
-            await expect(registry.getProducer('MISSING')).rejects.toThrow(
-                'No INGESTION_KAFKA_PRODUCER_MISSING_* env vars found'
-            )
+            expect(KafkaProducerWrapper.createWithConfig).toHaveBeenCalledTimes(2)
         })
     })
 
     describe('disconnectAll', () => {
         it('disconnects all producers', async () => {
-            setupProducerEnv('CUSTOM')
-            const disconnectDefault = jest.fn().mockResolvedValue(undefined)
-            const disconnectCustom = jest.fn().mockResolvedValue(undefined)
-
-            jest.mocked(KafkaProducerWrapper.create).mockResolvedValueOnce({
-                disconnect: disconnectDefault,
-            } as unknown as KafkaProducerWrapper)
-            jest.mocked(KafkaProducerWrapper.createWithConfig).mockResolvedValueOnce({
-                disconnect: disconnectCustom,
+            const disconnect = jest.fn().mockResolvedValue(undefined)
+            jest.mocked(KafkaProducerWrapper.createWithConfig).mockResolvedValue({
+                disconnect,
             } as unknown as KafkaProducerWrapper)
 
-            const registry = new KafkaProducerRegistry(undefined)
-            await registry.getProducer(undefined)
-            await registry.getProducer('CUSTOM')
+            const registry = createRegistry()
+            await registry.getProducer('ALPHA')
+            await registry.getProducer('BETA')
 
             await registry.disconnectAll()
 
-            expect(disconnectDefault).toHaveBeenCalledTimes(1)
-            expect(disconnectCustom).toHaveBeenCalledTimes(1)
+            expect(disconnect).toHaveBeenCalledTimes(2)
         })
 
         it('continues disconnecting remaining producers when one fails', async () => {
-            setupProducerEnv('CUSTOM')
             let callCount = 0
             const disconnect = jest.fn().mockImplementation(async () => {
                 callCount++
@@ -135,20 +99,16 @@ describe('KafkaProducerRegistry', () => {
                 return Promise.resolve()
             })
 
-            jest.mocked(KafkaProducerWrapper.create).mockResolvedValueOnce({
-                disconnect,
-            } as unknown as KafkaProducerWrapper)
-            jest.mocked(KafkaProducerWrapper.createWithConfig).mockResolvedValueOnce({
+            jest.mocked(KafkaProducerWrapper.createWithConfig).mockResolvedValue({
                 disconnect,
             } as unknown as KafkaProducerWrapper)
 
-            const registry = new KafkaProducerRegistry(undefined)
-            await registry.getProducer(undefined)
-            await registry.getProducer('CUSTOM')
+            const registry = createRegistry()
+            await registry.getProducer('ALPHA')
+            await registry.getProducer('BETA')
 
             await expect(registry.disconnectAll()).rejects.toThrow('Failed to disconnect producers')
 
-            // Both were attempted despite the first one failing
             expect(disconnect).toHaveBeenCalledTimes(2)
         })
     })

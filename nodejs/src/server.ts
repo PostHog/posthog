@@ -46,6 +46,7 @@ import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT, HEATMAPS_OUTPUT } from './ingestion/ev
 import { IngestionConsumer, IngestionConsumerDeps } from './ingestion/ingestion-consumer'
 import { IngestionTestingConsumer } from './ingestion/ingestion-testing-consumer'
 import { resolveOutputs } from './ingestion/kafka/output-resolver'
+import { DEFAULT_PRODUCER, PRODUCER_CONFIG_MAP, ProducerName } from './ingestion/kafka/producer-definitions'
 import { KafkaProducerRegistry } from './ingestion/kafka/producer-registry'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { onShutdown } from './lifecycle'
@@ -89,7 +90,7 @@ export class PluginServer {
     // Infrastructure resources (tracked for shutdown cleanup)
     private kafkaProducer?: KafkaProducerWrapper
     private kafkaMetricsProducer?: KafkaProducerWrapper
-    private ingestionProducerRegistry?: KafkaProducerRegistry
+    private ingestionProducerRegistry?: KafkaProducerRegistry<ProducerName>
     private postgres?: PostgresRouter
     private redisPool?: RedisPool
     private posthogRedisPool?: RedisPool
@@ -217,13 +218,25 @@ export class PluginServer {
             // is reachable (rdkafka retries indefinitely), so the server will hang
             // here if a broker is down and the pod never becomes healthy.
             if (needsIngestion) {
-                this.ingestionProducerRegistry = new KafkaProducerRegistry(this.config.KAFKA_CLIENT_RACK)
+                this.ingestionProducerRegistry = new KafkaProducerRegistry(
+                    this.config.KAFKA_CLIENT_RACK,
+                    PRODUCER_CONFIG_MAP
+                )
             }
             const ingestionOutputs = this.ingestionProducerRegistry
                 ? await resolveOutputs(this.ingestionProducerRegistry, {
-                      [EVENTS_OUTPUT]: { topic: this.config.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC },
-                      [AI_EVENTS_OUTPUT]: { topic: this.config.CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC },
-                      [HEATMAPS_OUTPUT]: { topic: this.config.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC },
+                      [EVENTS_OUTPUT]: {
+                          topic: this.config.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                          defaultProducerName: DEFAULT_PRODUCER,
+                      },
+                      [AI_EVENTS_OUTPUT]: {
+                          topic: this.config.CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC,
+                          defaultProducerName: DEFAULT_PRODUCER,
+                      },
+                      [HEATMAPS_OUTPUT]: {
+                          topic: this.config.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                          defaultProducerName: DEFAULT_PRODUCER,
+                      },
                   })
                 : undefined
 
