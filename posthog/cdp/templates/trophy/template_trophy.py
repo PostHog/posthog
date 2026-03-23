@@ -121,12 +121,13 @@ if (res.status >= 400) {
             "required": False,
         },
         {
+        {
             "key": "user_attributes",
             "type": "dictionary",
             "label": "Custom User Attributes",
             "default": {},
             "secret": False,
-            "required": True,
+            "required": False,
             "description": "Map PostHog user properties to Trophy user attributes. For more information on user attributes, see https://docs.trophy.so/platform/users#custom-user-attributes",
         },
         {
@@ -135,7 +136,7 @@ if (res.status >= 400) {
             "label": "Custom Event Attributes",
             "default": {},
             "secret": False,
-            "required": True,
+            "required": False,
             "description": "Map PostHog event properties to Trophy event attributes. For more information on event attributes, see https://docs.trophy.so/platform/events#custom-event-attributes",
         },
         {
