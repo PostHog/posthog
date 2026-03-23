@@ -1,5 +1,5 @@
 import FuseClass from 'fuse.js'
-import { actions, kea, key, path, reducers, selectors } from 'kea'
+import { actions, kea, key, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -33,11 +33,15 @@ export const workflowsLogic = kea<workflowsLogicType>([
         archiveWorkflow: (workflow: HogFlow) => ({ workflow }),
         restoreWorkflow: (workflow: HogFlow) => ({ workflow }),
         deleteWorkflow: (workflow: HogFlow) => ({ workflow }),
+        deleteSelectedWorkflows: true,
         loadWorkflows: () => ({}),
         setFilters: (filters: Partial<WorkflowsFilters>) => ({ filters }),
         setSearchTerm: (search: string) => ({ search }),
         setCreatedBy: (createdBy: string | null) => ({ createdBy }),
         setStatusFilter: (status: WorkflowStatusFilter) => ({ status }),
+        toggleArchivedWorkflowSelection: (id: string) => ({ id }),
+        selectAllArchivedWorkflows: (ids: string[]) => ({ ids }),
+        clearArchivedWorkflowSelection: true,
     }),
     reducers({
         filters: [
@@ -47,6 +51,24 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 setSearchTerm: (state, { search }) => ({ ...state, search }),
                 setCreatedBy: (state, { createdBy }) => ({ ...state, createdBy }),
                 setStatusFilter: (state, { status }) => ({ ...state, status }),
+            },
+        ],
+        selectedArchivedWorkflowIds: [
+            new Set<string>(),
+            {
+                toggleArchivedWorkflowSelection: (state, { id }) => {
+                    const next = new Set(state)
+                    if (next.has(id)) {
+                        next.delete(id)
+                    } else {
+                        next.add(id)
+                    }
+                    return next
+                },
+                selectAllArchivedWorkflows: (_, { ids }) => new Set<string>(ids),
+                clearArchivedWorkflowSelection: () => new Set<string>(),
+                setStatusFilter: () => new Set<string>(),
+                loadWorkflowsSuccess: () => new Set<string>(),
             },
         ],
     }),
@@ -186,6 +208,13 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 return filtered
             },
         ],
+        allArchivedSelected: [
+            (s) => [s.filteredWorkflows, s.selectedArchivedWorkflowIds],
+            (filteredWorkflows, selectedIds): boolean => {
+                return filteredWorkflows.length > 0 && filteredWorkflows.every((w) => selectedIds.has(w.id))
+            },
+        ],
+        selectedArchivedCount: [(s) => [s.selectedArchivedWorkflowIds], (selectedIds): number => selectedIds.size],
         creators: [
             (s) => [s.workflows],
             (workflows) => {
@@ -204,4 +233,40 @@ export const workflowsLogic = kea<workflowsLogicType>([
             },
         ],
     }),
+    listeners(({ actions, values }) => ({
+        deleteSelectedWorkflows: () => {
+            const ids = Array.from(values.selectedArchivedWorkflowIds)
+            if (ids.length === 0) {
+                return
+            }
+            LemonDialog.open({
+                width: 500,
+                title: `Delete ${ids.length} archived workflow${ids.length === 1 ? '' : 's'}?`,
+                description: `Are you sure you want to permanently delete ${ids.length} archived workflow${ids.length === 1 ? '' : 's'}? This action cannot be undone.`,
+                primaryButton: {
+                    children: 'Delete',
+                    type: 'primary',
+                    status: 'danger',
+                    onClick: async () => {
+                        try {
+                            const result = await api.hogFlows.bulkDeleteHogFlows(ids)
+                            lemonToast.success(`${result.deleted} workflow${result.deleted === 1 ? '' : 's'} deleted`)
+                            for (const id of ids) {
+                                deleteFromTree('hog_flow/', id)
+                            }
+                            actions.clearArchivedWorkflowSelection()
+                            actions.loadWorkflows()
+                        } catch (error: any) {
+                            lemonToast.error(
+                                `Failed to delete workflows: ${error?.detail || error?.message || 'Unknown error'}`
+                            )
+                        }
+                    },
+                },
+                secondaryButton: {
+                    children: 'Cancel',
+                },
+            })
+        },
+    })),
 ])

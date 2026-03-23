@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonDivider, LemonInput, LemonSelect, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonDivider, LemonInput, LemonSelect, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { MailHog } from 'lib/components/hedgehogs'
@@ -92,7 +92,15 @@ function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Elemen
 
 export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
     const logic = workflowsLogic()
-    const { filteredWorkflows, workflowsLoading, workflows, filters } = useValues(logic)
+    const {
+        filteredWorkflows,
+        workflowsLoading,
+        workflows,
+        filters,
+        selectedArchivedWorkflowIds,
+        allArchivedSelected,
+        selectedArchivedCount,
+    } = useValues(logic)
     const {
         loadWorkflows,
         toggleWorkflowStatus,
@@ -100,9 +108,13 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
         archiveWorkflow,
         restoreWorkflow,
         deleteWorkflow,
+        deleteSelectedWorkflows,
         setSearchTerm,
         setCreatedBy,
         setStatusFilter,
+        toggleArchivedWorkflowSelection,
+        selectAllArchivedWorkflows,
+        clearArchivedWorkflowSelection,
     } = useActions(logic)
     const { showNewWorkflowModal } = useActions(newWorkflowLogic)
 
@@ -120,7 +132,32 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
         loadWorkflows()
     })
 
+    const isArchived = filters.status === 'archived'
+
     const columns: LemonTableColumns<HogFlow> = [
+        ...(isArchived
+            ? [
+                  {
+                      title: (
+                          <LemonCheckbox
+                              checked={allArchivedSelected ? true : selectedArchivedCount > 0 ? 'indeterminate' : false}
+                              onChange={(checked: boolean) =>
+                                  checked
+                                      ? selectAllArchivedWorkflows(filteredWorkflows.map((w) => w.id))
+                                      : clearArchivedWorkflowSelection()
+                              }
+                          />
+                      ),
+                      width: 0,
+                      render: (_: any, item: HogFlow) => (
+                          <LemonCheckbox
+                              checked={selectedArchivedWorkflowIds.has(item.id)}
+                              onChange={() => toggleArchivedWorkflowSelection(item.id)}
+                          />
+                      ),
+                  },
+              ]
+            : []),
         {
             title: 'Name',
             key: 'name',
@@ -323,6 +360,22 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
                             />
                         </div>
                     </div>
+
+                    {isArchived && selectedArchivedCount > 0 && (
+                        <div className="flex items-center gap-2 mb-2">
+                            <span className="text-muted text-sm">
+                                {selectedArchivedCount} workflow{selectedArchivedCount !== 1 ? 's' : ''} selected
+                            </span>
+                            <LemonButton
+                                type="secondary"
+                                status="danger"
+                                size="small"
+                                onClick={deleteSelectedWorkflows}
+                            >
+                                Delete selected
+                            </LemonButton>
+                        </div>
+                    )}
 
                     <LemonTable
                         dataSource={filteredWorkflows}
