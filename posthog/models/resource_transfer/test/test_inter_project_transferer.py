@@ -4,8 +4,7 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from posthog.models import Dashboard, Insight, Project, Team
-from posthog.models.dashboard_tile import DashboardTile, Text
+from posthog.models import Insight, Project, Team
 from posthog.models.resource_transfer.inter_project_transferer import (
     _get_mapped_substitutions,
     build_resource_duplication_graph,
@@ -15,6 +14,9 @@ from posthog.models.resource_transfer.inter_project_transferer import (
 )
 from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
 from posthog.models.resource_transfer.types import ResourceKind, ResourceTransferVertex
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 
 
 class TestBuildResourceDuplicationGraph(BaseTest):

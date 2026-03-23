@@ -15,18 +15,11 @@ from posthog.caching.insight_caching_state import (
     sync_insight_cache_states,
     upsert,
 )
-from posthog.models import (
-    Dashboard,
-    DashboardTile,
-    Insight,
-    InsightCachingState,
-    InsightViewed,
-    SharingConfiguration,
-    Team,
-    Text,
-    User,
-)
+from posthog.models import Insight, InsightCachingState, InsightViewed, SharingConfiguration, Team, User
 from posthog.models.signals import mute_selected_signals
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 
 filter_dict = {
     "events": [{"id": "$pageview"}],

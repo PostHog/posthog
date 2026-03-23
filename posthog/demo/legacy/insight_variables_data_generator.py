@@ -1,4 +1,7 @@
-from posthog.models import Dashboard, DashboardTile, Insight, InsightVariable, Person
+from posthog.models import Insight, InsightVariable, Person
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 from .data_generator import DataGenerator
 

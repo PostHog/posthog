@@ -51,6 +51,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                 name="unique_template_name_per_team",
             ),
         ]
+        db_table = "posthog_dashboardtemplate"
 
     def __str__(self):
         return self.template_name

@@ -15,11 +15,13 @@ from social_core.exceptions import AuthCanceled
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
-from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight
+from posthog.models import Action, Cohort, FeatureFlag, Insight
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import SITE_URL
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 
 class TestAccessMiddleware(APIBaseTest):

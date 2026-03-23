@@ -2,12 +2,13 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.subscription import Subscription
 from posthog.tasks.test.utils_email_tests import mock_email_messages
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription

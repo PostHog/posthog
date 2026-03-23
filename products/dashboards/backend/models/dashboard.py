@@ -110,6 +110,7 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
                 condition=models.Q(deleted=False),
             ),
         ]
+        db_table = "posthog_dashboard"
 
     def __str__(self):
         return self.name or str(self.id)

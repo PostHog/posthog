@@ -11,8 +11,11 @@ from rest_framework import status
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.constants import AvailableFeature
-from posthog.models import Dashboard, DashboardTile, Insight, OrganizationMembership, User
+from posthog.models import Insight, OrganizationMembership, User
 from posthog.test.db_context_capturing import capture_db_queries
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 from ee.api.test.base import APILicensedTest
 from ee.models import DashboardPrivilege

@@ -7,11 +7,14 @@ from parameterized import parameterized
 
 from posthog.schema import PersonsOnEventsMode
 
-from posthog.models import Dashboard, DashboardTile, Organization, Team, User
+from posthog.models import Organization, Team, User
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.project import Project
 from posthog.models.team import get_team_in_cache, util
 from posthog.models.team.team import SessionRecordingRetentionPeriod
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 from .base import BaseTest
 

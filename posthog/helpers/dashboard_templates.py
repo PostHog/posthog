@@ -4,11 +4,12 @@ from typing import Optional
 import structlog
 
 from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER
-from posthog.models.dashboard import Dashboard
-from posthog.models.dashboard_templates import DashboardTemplate
-from posthog.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from posthog.models.insight import Insight
 from posthog.models.tag import Tag
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
+from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 
 DASHBOARD_COLORS: list[str] = ["white", "blue", "green", "purple", "black"]
 

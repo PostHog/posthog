@@ -4,12 +4,14 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Dashboard, Insight, Project, Team
+from posthog.models import Insight, Project, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort import Cohort
-from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.organization import OrganizationMembership
 from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 from ee.models.rbac.access_control import AccessControl
 

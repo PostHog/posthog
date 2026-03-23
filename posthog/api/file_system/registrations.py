@@ -348,7 +348,7 @@ def register_core_file_system_types() -> None:
 
     register_file_system_type(
         "dashboard",
-        "posthog",
+        "dashboards",
         "Dashboard",
         undo_message="Send PATCH /api/projects/@current/dashboards/{id} with deleted=false.",
     )

@@ -6,13 +6,14 @@ from asgiref.sync import sync_to_async
 from urllib3.exceptions import ProtocolError
 
 from posthog.errors import CHQueryErrorS3Error
-from posthog.models.dashboard import Dashboard
-from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 from ee.tasks.subscriptions import deliver_subscription_report_async
 from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT, generate_assets_async

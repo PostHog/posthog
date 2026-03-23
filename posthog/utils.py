@@ -61,7 +61,10 @@ from posthog.redis import get_client
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 
-    from posthog.models import Dashboard, DashboardTile, InsightVariable, Team, User
+    from posthog.models import InsightVariable, Team, User
+
+    from products.dashboards.backend.models.dashboard import Dashboard
+    from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 DATERANGE_MAP = {
     "second": datetime.timedelta(seconds=1),

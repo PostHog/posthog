@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
 
-from posthog.models.dashboard_templates import DashboardTemplate
+from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
 
 class DashboardTemplateAdmin(admin.ModelAdmin):

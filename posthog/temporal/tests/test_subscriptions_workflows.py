@@ -16,8 +16,6 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.models.dashboard import Dashboard
-from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.models.instance_setting import set_instance_setting
@@ -31,6 +29,9 @@ from posthog.temporal.subscriptions.subscription_scheduling_workflow import (
     emit_subscription_delivery_started_activity,
     fetch_due_subscriptions_activity,
 )
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 

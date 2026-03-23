@@ -1,14 +1,15 @@
 from django.db import models
 from django.db.models.signals import post_save
 
-from posthog.models.dashboard import Dashboard
-from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.insight import Insight
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.models.utils import UniqueConstraintByExpression, UUIDTModel
 from posthog.tasks.tasks import sync_insight_caching_state
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 
 class InsightCachingState(UUIDTModel):
@@ -30,7 +31,7 @@ class InsightCachingState(UUIDTModel):
         null=False,
     )
     dashboard_tile = models.ForeignKey(
-        "posthog.DashboardTile",
+        "dashboards.DashboardTile",
         on_delete=models.CASCADE,
         related_name="caching_states",
         null=True,

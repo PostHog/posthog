@@ -3,9 +3,10 @@ from django.db import models
 from django.db.models import Q, QuerySet, UniqueConstraint
 from django.utils import timezone
 
-from posthog.models.dashboard import Dashboard
 from posthog.models.insight import generate_insight_filters_hash
 from posthog.models.utils import UUIDModel, build_unique_relationship_check
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 
 class Text(models.Model):
@@ -22,6 +23,9 @@ class Text(models.Model):
     )
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
+
+    class Meta:
+        db_table = "posthog_text"
 
 
 class ButtonTile(UUIDModel):
@@ -44,6 +48,9 @@ class ButtonTile(UUIDModel):
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
+    class Meta:
+        db_table = "posthog_buttontile"
+
 
 class DashboardTileManager(models.Manager):
     def get_queryset(self):
@@ -52,7 +59,7 @@ class DashboardTileManager(models.Manager):
 
 class DashboardTile(models.Model):
     # Relations
-    dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, related_name="tiles")
+    dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, related_name="tiles")
     insight = models.ForeignKey(
         "posthog.Insight",
         on_delete=models.CASCADE,
@@ -60,13 +67,13 @@ class DashboardTile(models.Model):
         null=True,
     )
     text = models.ForeignKey(
-        "posthog.Text",
+        "dashboards.Text",
         on_delete=models.CASCADE,
         related_name="dashboard_tiles",
         null=True,
     )
     button_tile = models.ForeignKey(
-        "posthog.ButtonTile",
+        "dashboards.ButtonTile",
         on_delete=models.CASCADE,
         related_name="dashboard_tiles",
         null=True,
@@ -114,6 +121,7 @@ class DashboardTile(models.Model):
                 name="dash_tile_exactly_one_related_object",
             ),
         ]
+        db_table = "posthog_dashboardtile"
 
     def save(self, *args, **kwargs) -> None:
         if self.insight is not None:
