@@ -337,7 +337,7 @@ function SessionSummaryKeyActions({
                                     <button
                                         className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium text-primary-3000 hover:bg-primary-alt-highlight cursor-pointer border-0 bg-transparent"
                                         onClick={() => {
-                                            onSeekToTime(timeToSeekTo(event.milliseconds_since_start))
+                                            onSeekToTime(timeToSeekTo(event.milliseconds_since_start!))
                                         }}
                                     >
                                         <IconPlay className="text-sm" />
