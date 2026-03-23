@@ -64,7 +64,7 @@ class TestCheckSignificanceTransition(BaseTest):
             ("previous_significant_new_not_significant", ["test"], [], False),
         ]
     )
-    @patch("posthog.temporal.experiments.activities.produce_internal_event")
+    @patch("posthog.temporal.experiments.utils.produce_internal_event")
     def test_significance_transition(
         self,
         _name: str,
@@ -119,7 +119,7 @@ class TestCheckSignificanceTransition(BaseTest):
         else:
             mock_produce.assert_not_called()
 
-    @patch("posthog.temporal.experiments.activities.produce_internal_event")
+    @patch("posthog.temporal.experiments.utils.produce_internal_event")
     def test_only_newly_significant_variants_fire(self, mock_produce: MagicMock) -> None:
         experiment = self._create_experiment()
         metric_uuid = "metric-123"
@@ -147,7 +147,7 @@ class TestCheckSignificanceTransition(BaseTest):
         )
         assert event.properties["variant_key"] == "control"
 
-    @patch("posthog.temporal.experiments.activities.produce_internal_event")
+    @patch("posthog.temporal.experiments.utils.produce_internal_event")
     def test_metric_name_fallback_to_event_name(self, mock_produce: MagicMock) -> None:
         flag = FeatureFlag.objects.create(
             team=self.team,
