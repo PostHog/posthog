@@ -477,6 +477,7 @@ jobs:
     snapshot-failure-comment:
         name: Post snapshot failure guidance
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         needs: [visual-regression, changes]
         if: >-
             always()
@@ -526,6 +527,7 @@ jobs:
     snapshot-success-cleanup:
         name: Clean up snapshot hint
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         needs: [visual-regression, changes]
         if: >-
             always()
@@ -560,6 +562,7 @@ jobs:
         needs: [visual-regression, handle-snapshots]
         name: Visual regression tests pass
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - name: Check matrix outcome
@@ -581,6 +584,7 @@ jobs:
     handle-snapshots:
         name: Handle snapshot changes
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         needs: [visual-regression, changes]
         if: always() && needs.changes.outputs.mode == 'update' && needs.changes.outputs.frontend == 'true' && github.event.pull_request.head.repo.full_name == github.repository
         permissions:
@@ -650,6 +654,7 @@ jobs:
         name: Calculate running time
         needs: [visual-regression, changes]
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
             always() && github.actor != 'dependabot[bot]' &&
             needs.changes.outputs.frontend == 'true' && (

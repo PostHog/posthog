@@ -1,1 +1,1 @@
-1060_migrate_links_models
+1062_migrate_links_models

@@ -388,3 +388,9 @@ tools:
     data-warehouse-data-ops-dashboard-retrieve:
         operation: data_warehouse_data_ops_dashboard_retrieve
         enabled: false
+    external-data-sources-create-webhook-create:
+        operation: external_data_sources_create_webhook_create
+        enabled: false
+    external-data-sources-update-webhook-inputs-create:
+        operation: external_data_sources_update_webhook_inputs_create
+        enabled: false

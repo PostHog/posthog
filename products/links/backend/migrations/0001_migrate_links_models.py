@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ("posthog", "1060_migrate_links_models"),
+        ("posthog", "1062_migrate_links_models"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

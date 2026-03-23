@@ -36,6 +36,7 @@ from products.data_warehouse.backend.models.external_data_job import ExternalDat
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.models.table import DataWarehouseTable as DataWarehouseTableModel
+from products.early_access_features.backend.models import EarlyAccessFeature
 from products.error_tracking.backend.models import ErrorTrackingIssue
 from products.experiments.backend.models.experiment import Experiment
 from products.notebooks.backend.models import Notebook
@@ -172,6 +173,11 @@ def _create_source_schema(team: Team, label: str) -> ExternalDataSchema:
     )
 
 
+def _create_early_access_feature(team: Team, label: str) -> EarlyAccessFeature:
+    flag = FeatureFlag.objects.create(team=team, key=f"eaf_flag_{label}")
+    return EarlyAccessFeature.objects.create(team=team, name=f"eaf_{label}", stage="draft", feature_flag=flag)
+
+
 def _create_error_tracking_issue(team: Team, label: str) -> ErrorTrackingIssue:
     return ErrorTrackingIssue.objects.create(team=team, name=f"issue_{label}", status="active")
 
@@ -258,6 +264,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("data_modeling_views", _create_data_warehouse_saved_query),
     ("data_warehouse_sources", _create_data_warehouse_source),
     ("data_warehouse_tables", _create_data_warehouse_table),
+    ("early_access_features", _create_early_access_feature),
     ("error_tracking_issue_assignments", _create_error_tracking_issue_assignment),
     ("error_tracking_issue_fingerprints", _create_error_tracking_issue_fingerprint),
     ("source_sync_jobs", _create_source_sync_job),

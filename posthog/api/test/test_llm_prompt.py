@@ -625,3 +625,92 @@ class TestLLMPromptAPI(APIBaseTest):
         assert len(throttles) == 2
         assert isinstance(throttles[0], BurstRateThrottle)
         assert isinstance(throttles[1], SustainedRateThrottle)
+
+    def test_duplicate_prompt_creates_new_prompt_with_latest_content(self, mock_feature_enabled):
+        self.create_prompt_version(name="original", version=1, is_latest=False, prompt="v1")
+        self.create_prompt_version(name="original", version=2, is_latest=True, prompt="v2-latest")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/name/original/duplicate/",
+            data={"new_name": "copy-of-original"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data["name"] == "copy-of-original"
+        assert data["prompt"] == "v2-latest"
+        assert data["version"] == 1
+        assert data["is_latest"] is True
+        assert data["latest_version"] == 1
+        assert data["version_count"] == 1
+
+    def test_duplicate_prompt_returns_404_for_nonexistent_source(self, mock_feature_enabled):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/name/nonexistent/duplicate/",
+            data={"new_name": "copy"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_duplicate_prompt_returns_400_when_target_name_already_exists(self, mock_feature_enabled):
+        self.create_prompt_version(name="original", version=1, is_latest=True, prompt="content")
+        self.create_prompt_version(name="taken-name", version=1, is_latest=True, prompt="other")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/name/original/duplicate/",
+            data={"new_name": "taken-name"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "already exists" in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("spaces", "invalid name with spaces"),
+            ("slash", "has/slash"),
+            ("dot", "has.dot"),
+            ("reserved_new", "new"),
+            ("reserved_new_upper", "NEW"),
+        ]
+    )
+    def test_duplicate_prompt_rejects_invalid_new_name(self, mock_feature_enabled, _label, bad_name):
+        self.create_prompt_version(name="original", version=1, is_latest=True, prompt="content")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/name/original/duplicate/",
+            data={"new_name": bad_name},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_duplicate_prompt_does_not_affect_source_prompt(self, mock_feature_enabled):
+        self.create_prompt_version(name="original", version=1, is_latest=True, prompt="content")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/name/original/duplicate/",
+            data={"new_name": "copy"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        source = LLMPrompt.objects.get(team=self.team, name="original", deleted=False)
+        assert source.is_latest is True
+        assert source.prompt == "content"
+
+    def test_duplicate_prompt_allows_reuse_of_archived_name(self, mock_feature_enabled):
+        self.create_prompt_version(name="original", version=1, is_latest=True, prompt="content")
+        self.create_prompt_version(name="archived-name", version=1, is_latest=False, deleted=True)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/name/original/duplicate/",
+            data={"new_name": "archived-name"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["name"] == "archived-name"
+        assert response.json()["version"] == 1

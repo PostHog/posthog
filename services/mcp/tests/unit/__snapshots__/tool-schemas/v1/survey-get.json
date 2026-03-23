@@ -1,10 +1,11 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-        "surveyId": {
+        "id": {
+            "description": "A UUID string identifying this survey.",
             "type": "string"
         }
     },
-    "required": ["surveyId"],
+    "required": ["id"],
     "type": "object"
 }

@@ -238,6 +238,108 @@ describe('Alerts', { concurrent: false }, () => {
         })
     })
 
+    describe('anomaly detection alerts', () => {
+        const simulateTool = GENERATED_TOOLS['alert-simulate']!()
+
+        it('should create an alert with detector_config', async () => {
+            const params = makeAlertParams({
+                detector_config: {
+                    type: 'zscore',
+                    threshold: 0.9,
+                    window: 30,
+                },
+            })
+            const result = await createTool.handler(context, params)
+            const alert = parseToolResponse(result)
+            createdAlertIds.push(alert.id)
+
+            expect(alert.id).toBeTruthy()
+            expect(alert.detector_config).toBeTruthy()
+            expect(alert.detector_config.type).toBe('zscore')
+            expect(alert.detector_config.threshold).toBe(0.9)
+            expect(alert.detector_config.window).toBe(30)
+        })
+
+        it('should create an ensemble alert with multiple detectors', async () => {
+            const params = makeAlertParams({
+                detector_config: {
+                    type: 'ensemble',
+                    operator: 'or',
+                    detectors: [
+                        { type: 'zscore', threshold: 0.9, window: 30 },
+                        { type: 'mad', threshold: 0.9, window: 30 },
+                    ],
+                },
+            })
+            const result = await createTool.handler(context, params)
+            const alert = parseToolResponse(result)
+            createdAlertIds.push(alert.id)
+
+            expect(alert.detector_config.type).toBe('ensemble')
+            expect(alert.detector_config.operator).toBe('or')
+            expect(alert.detector_config.detectors).toHaveLength(2)
+        })
+
+        it('should update an alert to add detector_config', async () => {
+            const created = await createTool.handler(context, makeAlertParams())
+            const alert = parseToolResponse(created)
+            createdAlertIds.push(alert.id)
+
+            expect(alert.detector_config).toBeNull()
+
+            const result = await updateTool.handler(context, {
+                id: alert.id,
+                detector_config: {
+                    type: 'mad',
+                    threshold: 0.95,
+                    window: 60,
+                },
+            })
+            const updated = parseToolResponse(result)
+
+            expect(updated.detector_config).toBeTruthy()
+            expect(updated.detector_config.type).toBe('mad')
+        })
+
+        it('should simulate a detector on an insight', async () => {
+            const result = await simulateTool.handler(context, {
+                insight: insightId,
+                detector_config: {
+                    type: 'zscore',
+                    threshold: 0.9,
+                    window: 30,
+                },
+                series_index: 0,
+            })
+            const data = parseToolResponse(result)
+
+            expect(Array.isArray(data.data)).toBe(true)
+            expect(Array.isArray(data.dates)).toBe(true)
+            expect(Array.isArray(data.scores)).toBe(true)
+            expect(Array.isArray(data.triggered_indices)).toBe(true)
+            expect(Array.isArray(data.triggered_dates)).toBe(true)
+            expect(typeof data.total_points).toBe('number')
+            expect(typeof data.anomaly_count).toBe('number')
+            expect(data.total_points).toBeGreaterThan(0)
+            expect(data.scores.length).toBe(data.total_points)
+        })
+
+        it('should simulate with a custom date range', async () => {
+            const result = await simulateTool.handler(context, {
+                insight: insightId,
+                detector_config: {
+                    type: 'zscore',
+                    threshold: 0.9,
+                    window: 30,
+                },
+                date_from: '-7d',
+            })
+            const data = parseToolResponse(result)
+
+            expect(data.total_points).toBeGreaterThan(0)
+        })
+    })
+
     describe('Alerts workflow', () => {
         it('should support a full create → retrieve → update → delete lifecycle', async () => {
             const name = `workflow-alert-${generateUniqueKey('lifecycle')}`

@@ -39,6 +39,7 @@ jobs:
     build:
         name: Build Package
         runs-on: ubuntu-latest
+        timeout-minutes: 10
         needs: changes
         if: needs.changes.outputs.mcp == 'true'
 
@@ -98,6 +99,7 @@ jobs:
     unit-tests:
         name: Unit Tests
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         needs: changes
         if: needs.changes.outputs.mcp == 'true'
         steps:
@@ -403,6 +405,7 @@ jobs:
     handle-snapshots:
         name: Commit snapshot changes
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         needs: [changes, unit-tests]
         if: ${{ always() && needs.changes.outputs.mcp == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.actor, '[bot]') && github.actor != 'posthog-bot' && !contains(github.actor, 'github-actions') }}
         permissions:
@@ -470,6 +473,7 @@ jobs:
         needs: [changes, build, unit-tests, integration-tests, handle-snapshots]
         name: MCP Tests Pass
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - name: Check all MCP jobs

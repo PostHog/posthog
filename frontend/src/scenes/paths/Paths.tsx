@@ -32,12 +32,11 @@ export function Paths(): JSX.Element {
     const [canvasHeight, setCanvasHeight] = useState(FALLBACK_CANVAS_HEIGHT)
     const [nodeCards, setNodeCards] = useState<PathNodeData[]>([])
 
-    // Debounce canvas dimension updates to prevent rapid SVG recreation from ResizeObserver
+    // Debounce canvas dimension updates to prevent rapid SVG recreation from ResizeObserver.
+    // We do NOT remove data-stable here — the render effect below removes it only when the SVG
+    // is actually being recreated. Removing it here would cause data-stable to disappear for the
+    // entire debounce window on every resize, making Playwright's waitForSelector time out.
     useEffect(() => {
-        // Immediately mark as unstable when dimensions change
-        if (canvasRef.current) {
-            canvasRef.current.removeAttribute('data-stable')
-        }
         const timer = setTimeout(() => {
             setCanvasWidth(rawCanvasWidth ?? FALLBACK_CANVAS_WIDTH)
             setCanvasHeight(rawCanvasHeight ?? FALLBACK_CANVAS_HEIGHT)

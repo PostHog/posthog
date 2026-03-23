@@ -60,18 +60,20 @@ interface SyncMethodFormProps {
         incrementalFieldType: string | null
     ) => void
     saveButtonIsLoading?: boolean
+    isNewSource?: boolean
 }
 
 const getSaveDisabledReason = (
     syncType: 'full_refresh' | 'incremental' | 'append' | undefined,
     incrementalField: string | null,
-    appendField: string | null
+    appendField: string | null,
+    supportsWebhooks: boolean
 ): string | undefined => {
     if (!syncType) {
         return 'You must select a sync method before saving'
     }
 
-    if (syncType === 'incremental' && !incrementalField) {
+    if (syncType === 'incremental' && !incrementalField && !supportsWebhooks) {
         return 'You must select an incremental field'
     }
 
@@ -97,7 +99,13 @@ const getInitialRadioState = (
     return 'full_refresh'
 }
 
-export const SyncMethodForm = ({ schema, onClose, onSave, saveButtonIsLoading }: SyncMethodFormProps): JSX.Element => {
+export const SyncMethodForm = ({
+    schema,
+    onClose,
+    onSave,
+    saveButtonIsLoading,
+    isNewSource,
+}: SyncMethodFormProps): JSX.Element => {
     const incrementalSyncSupported = getIncrementalSyncSupported(schema)
     const appendSyncSupported = getAppendOnlySyncSupported(schema)
 
@@ -139,36 +147,42 @@ export const SyncMethodForm = ({ schema, onClose, onSave, saveButtonIsLoading }:
                                     You should pick a field that increments or updates each time the row is updated,
                                     such as a <code>updated_at</code> timestamp.
                                 </p>
-                                {!incrementalSyncSupported.disabled && (
-                                    <>
-                                        <LemonSelect
-                                            value={incrementalFieldValue}
-                                            onChange={(newValue) => setIncrementalFieldValue(newValue)}
-                                            options={
-                                                schema.incremental_fields.map((n) => ({
-                                                    value: n.field,
-                                                    label: (
-                                                        <>
-                                                            <span className="leading-5">{n.label}</span>
-                                                            <LemonTag className="ml-2" type="success">
-                                                                {n.type}
-                                                            </LemonTag>
-                                                        </>
-                                                    ),
-                                                })) ?? []
-                                            }
-                                        />
-                                        {radioValue === 'incremental' &&
-                                            incrementalFieldValue &&
-                                            schema.incremental_fields.find((n) => n.field === incrementalFieldValue)
-                                                ?.nullable && (
-                                                <LemonBanner type="warning" className="mt-2">
-                                                    This field is nullable. Any rows where{' '}
-                                                    <code>{incrementalFieldValue}</code> is null will not be synced.
-                                                </LemonBanner>
-                                            )}
-                                    </>
-                                )}
+                                {!incrementalSyncSupported.disabled &&
+                                    (schema.supports_webhooks ? (
+                                        <LemonBanner type="info" className="mt-2">
+                                            This table uses webhooks for incremental sync.
+                                            {isNewSource && ' The webhook will be configured in the next step.'}
+                                        </LemonBanner>
+                                    ) : (
+                                        <>
+                                            <LemonSelect
+                                                value={incrementalFieldValue}
+                                                onChange={(newValue) => setIncrementalFieldValue(newValue)}
+                                                options={
+                                                    schema.incremental_fields.map((n) => ({
+                                                        value: n.field,
+                                                        label: (
+                                                            <>
+                                                                <span className="leading-5">{n.label}</span>
+                                                                <LemonTag className="ml-2" type="success">
+                                                                    {n.type}
+                                                                </LemonTag>
+                                                            </>
+                                                        ),
+                                                    })) ?? []
+                                                }
+                                            />
+                                            {radioValue === 'incremental' &&
+                                                incrementalFieldValue &&
+                                                schema.incremental_fields.find((n) => n.field === incrementalFieldValue)
+                                                    ?.nullable && (
+                                                    <LemonBanner type="warning" className="mt-2">
+                                                        This field is nullable. Any rows where{' '}
+                                                        <code>{incrementalFieldValue}</code> is null will not be synced.
+                                                    </LemonBanner>
+                                                )}
+                                        </>
+                                    ))}
                             </div>
                         ),
                     },
@@ -250,9 +264,19 @@ export const SyncMethodForm = ({ schema, onClose, onSave, saveButtonIsLoading }:
                 <LemonButton
                     type="primary"
                     loading={saveButtonIsLoading}
-                    disabledReason={getSaveDisabledReason(radioValue, incrementalFieldValue, appendFieldValue)}
+                    disabledReason={getSaveDisabledReason(
+                        radioValue,
+                        incrementalFieldValue,
+                        appendFieldValue,
+                        !!schema.supports_webhooks
+                    )}
                     onClick={() => {
                         if (radioValue === 'incremental') {
+                            if (schema.supports_webhooks) {
+                                onSave('incremental', null, null)
+                                return
+                            }
+
                             const fieldSelected = schema.incremental_fields.find(
                                 (n) => n.field === incrementalFieldValue
                             )

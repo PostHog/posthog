@@ -21,7 +21,7 @@ use crate::{
     },
     checkpoint_manager::CheckpointManager,
     config::Config,
-    kafka::{PartitionRouterConfig, PartitionWorkerConfig},
+    kafka::{OffsetTracker, PartitionRouterConfig, PartitionWorkerConfig},
     rebalance_tracker::RebalanceTracker,
     rocksdb::store::init_shared_resources,
     store::DeduplicationStoreConfig,
@@ -37,6 +37,7 @@ use crate::{
 pub struct KafkaDeduplicatorService {
     config: Config,
     store_manager: Arc<StoreManager>,
+    offset_tracker: Arc<OffsetTracker>,
     checkpoint_manager: Option<CheckpointManager>,
     checkpoint_importer: Option<Arc<CheckpointImporter>>,
     cleanup_task_handle: Option<CleanupTaskHandle>,
@@ -112,20 +113,35 @@ impl KafkaDeduplicatorService {
             rebalance_tracker.clone(),
         ));
 
+        // Create offset tracker — shared between CheckpointManager (for writing offsets
+        // into checkpoint metadata) and PipelineBuilder (for tracking committed offsets)
+        let offset_tracker = Arc::new(OffsetTracker::new(rebalance_tracker));
+
         // In fail-open mode, skip store cleanup and checkpoint infrastructure
         let (cleanup_task_handle, checkpoint_manager, importer) = if config.fail_open {
             info!("Fail-open mode enabled — skipping cleanup task, checkpoint export/import");
             let checkpoint_config = CheckpointConfig::default();
-            let checkpoint_manager =
-                CheckpointManager::new(checkpoint_config, store_manager.clone(), None);
+            let checkpoint_manager = CheckpointManager::new_with_offset_tracker(
+                checkpoint_config,
+                store_manager.clone(),
+                None,
+                offset_tracker.clone(),
+            );
             (None, checkpoint_manager, None)
         } else {
-            Self::create_store_infrastructure(&config, &store_config, &store_manager).await?
+            Self::create_store_infrastructure(
+                &config,
+                &store_config,
+                &store_manager,
+                &offset_tracker,
+            )
+            .await?
         };
 
         Ok(Self {
             config,
             store_manager,
+            offset_tracker,
             checkpoint_manager: Some(checkpoint_manager),
             checkpoint_importer: importer,
             cleanup_task_handle,
@@ -143,6 +159,7 @@ impl KafkaDeduplicatorService {
         config: &Config,
         store_config: &DeduplicationStoreConfig,
         store_manager: &Arc<StoreManager>,
+        offset_tracker: &Arc<OffsetTracker>,
     ) -> Result<(
         Option<CleanupTaskHandle>,
         CheckpointManager,
@@ -238,8 +255,12 @@ impl KafkaDeduplicatorService {
             None
         };
 
-        let checkpoint_manager =
-            CheckpointManager::new(checkpoint_config, store_manager.clone(), exporter);
+        let checkpoint_manager = CheckpointManager::new_with_offset_tracker(
+            checkpoint_config,
+            store_manager.clone(),
+            exporter,
+            offset_tracker.clone(),
+        );
 
         Ok((cleanup_task_handle, checkpoint_manager, importer))
     }
@@ -319,7 +340,8 @@ impl KafkaDeduplicatorService {
             self.config.fail_open,
         )
         .with_checkpoint_importer(self.checkpoint_importer.clone())
-        .with_local_checkpoint_staleness(self.config.local_checkpoint_max_staleness());
+        .with_local_checkpoint_staleness(self.config.local_checkpoint_max_staleness())
+        .with_offset_tracker(self.offset_tracker.clone());
 
         // Configure pipeline-specific options for ingestion events
         if self.config.pipeline_type == PipelineType::IngestionEvents {

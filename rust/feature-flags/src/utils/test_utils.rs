@@ -1268,7 +1268,7 @@ impl TestContext {
         let pak_id = format!("test_pak_{}", &uuid::Uuid::new_v4().to_string()[..8]);
         let api_key_value = format!("phx_{}", &uuid::Uuid::new_v4().to_string()[..12]);
 
-        let secure_value = crate::api::auth::hash_key_value(&api_key_value);
+        let secure_value = crate::api::auth::hash_token_value(&api_key_value);
 
         let mut conn = self.non_persons_writer.get_connection().await?;
 
@@ -1323,7 +1323,7 @@ impl TestContext {
         let key_id = format!("test_psk_{}", &uuid::Uuid::new_v4().to_string()[..8]);
         let raw_key = format!("phs_{}", &uuid::Uuid::new_v4().to_string()[..12]);
 
-        let secure_value = crate::api::auth::hash_key_value(&raw_key);
+        let secure_value = crate::api::auth::hash_token_value(&raw_key);
         let mask_value = format!("...{}", &raw_key[raw_key.len().saturating_sub(5)..]);
 
         let mut conn = self.non_persons_writer.get_connection().await?;
@@ -1579,4 +1579,52 @@ pub fn mock_group_type_cache(
         mapping: GroupTypeMapping::new(types_to_indexes),
     };
     Arc::new(GroupTypeCacheManager::new_with_fetcher(fetcher, None, None))
+}
+
+/// Delete a single auth token cache entry from Redis.
+///
+/// Both secret API tokens and personal API keys share the same cache namespace
+/// (`posthog:auth_token:{sha256_hash}`). This helper hashes the raw token/key
+/// value and deletes the corresponding Redis key.
+///
+/// NOTE: Rust's in-memory negative cache is not cleared — tests going from
+/// invalid → valid state need a fresh server or must wait for the negative
+/// cache TTL to expire.
+async fn invalidate_auth_cache_entry(
+    redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+    raw_value: &str,
+) -> Result<(), Error> {
+    let token_hash = crate::api::auth::hash_token_value(raw_value);
+    let cache_key = format!("{}{}", crate::api::auth::TOKEN_CACHE_PREFIX, token_hash);
+    redis_client
+        .del(cache_key)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to delete auth cache key: {e}"))?;
+    Ok(())
+}
+
+/// Simulate Django signal-based auth cache invalidation for a secret API token.
+///
+/// In production, rotating or deleting a team's secret token fires a Django signal
+/// that deletes the token's Redis cache entry via a Celery task. Tests that modify
+/// secret tokens directly bypass those signals, so they must call this helper to
+/// keep the auth cache consistent.
+pub async fn invalidate_secret_token_auth_cache(
+    redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+    token_value: &str,
+) -> Result<(), Error> {
+    invalidate_auth_cache_entry(redis_client, token_value).await
+}
+
+/// Simulate Django signal-based auth cache invalidation for a personal API key.
+///
+/// In production, removing a user from an organization fires a Django signal that
+/// asynchronously deletes the token's Redis cache entry via Celery. Tests that
+/// modify org membership directly bypass those signals, so they must call this
+/// helper to keep the auth cache consistent.
+pub async fn invalidate_personal_api_key_auth_cache(
+    redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+    key_value: &str,
+) -> Result<(), Error> {
+    invalidate_auth_cache_entry(redis_client, key_value).await
 }
