@@ -19,6 +19,7 @@ import (
 )
 
 const metricsSampleInterval = 5 * time.Second
+const flushInterval = 16 * time.Millisecond
 
 type Status int
 
@@ -53,12 +54,12 @@ type StatusMsg struct {
 	Status Status
 }
 
-// New output line from process
+// Notification that a process has new output available.
+// Lines are batched (flushed every ~16ms) to avoid backpressure on the PTY
+// when a process produces output faster than the TUI can render it.
+// The TUI reads actual lines from p.Lines().
 type OutputMsg struct {
-	Name      string
-	Line      string
-	LineIndex int  // index of this line in the buffer after the append
-	Evicted   bool // true when the oldest buffered line was dropped to make room
+	Name string
 }
 
 // Metrics holds the most recent sampled resource usage for a process tree.
@@ -401,39 +402,73 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 	return nil
 }
 
-// Scans line by line, appending to the output buffer and sending OutputMsgs
+// Reads lines from the process output, buffering them internally and sending
+// batched OutputMsg notifications to the TUI. Lines are flushed every
+// ~flushInterval so burst output is coalesced into a single UI update,
+// preventing backpressure on the PTY that would throttle the child process.
 func (p *Process) readLoop(r io.Reader, send func(tea.Msg)) {
-	// Larger buffer to handle long lines (like minified JS error traces)
+	// Scanner goroutine reads lines as fast as possible into a buffered
+	// channel, decoupling I/O from the (potentially slower) TUI send path.
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 256*1024), 256*1024)
 
-	for scanner.Scan() {
-		line := scanner.Text()
-		p.mu.Lock()
-		evicted := len(p.lines) >= p.maxLines
-		if evicted {
-			// Discard oldest line to keep the buffer bounded.
-			p.lines = p.lines[1:]
+	lineCh := make(chan string, 4096)
+	go func() {
+		for scanner.Scan() {
+			lineCh <- scanner.Text()
 		}
-		p.lines = append(p.lines, line)
-		lineIndex := len(p.lines) - 1
+		close(lineCh)
+	}()
 
-		// Check if this line matches the ready pattern
-		shouldNotifyCh := false
-		if !p.ready && p.readyPattern != nil && p.readyPattern.MatchString(line) {
-			p.ready = true
-			p.readyAt = time.Now()
-			p.status = StatusRunning
-			shouldNotifyCh = true
+	for {
+		// Block until at least one line arrives
+		line, ok := <-lineCh
+		if !ok {
+			return
 		}
-		p.mu.Unlock()
+		p.bufferLine(line, send)
 
-		send(OutputMsg{Name: p.Name, Line: line, LineIndex: lineIndex, Evicted: evicted})
-
-		// Send status update if we just became ready
-		if shouldNotifyCh {
-			send(StatusMsg{Name: p.Name, Status: StatusRunning})
+		// Drain any additional lines that arrive within the flush interval
+		deadline := time.After(flushInterval)
+	drain:
+		for {
+			select {
+			case line, ok := <-lineCh:
+				if !ok {
+					// EOF — send final notification and return
+					send(OutputMsg{Name: p.Name})
+					return
+				}
+				p.bufferLine(line, send)
+			case <-deadline:
+				break drain
+			}
 		}
+
+		send(OutputMsg{Name: p.Name})
+	}
+}
+
+// bufferLine appends a single line to the scrollback buffer and checks the
+// ready pattern. Only sends a StatusMsg if the process just became ready.
+func (p *Process) bufferLine(line string, send func(tea.Msg)) {
+	p.mu.Lock()
+	if len(p.lines) >= p.maxLines {
+		p.lines = p.lines[1:]
+	}
+	p.lines = append(p.lines, line)
+
+	shouldNotify := false
+	if !p.ready && p.readyPattern != nil && p.readyPattern.MatchString(line) {
+		p.ready = true
+		p.readyAt = time.Now()
+		p.status = StatusRunning
+		shouldNotify = true
+	}
+	p.mu.Unlock()
+
+	if shouldNotify {
+		send(StatusMsg{Name: p.Name, Status: StatusRunning})
 	}
 }
 
