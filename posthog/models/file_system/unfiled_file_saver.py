@@ -15,11 +15,12 @@ from posthog.models.insight import Insight
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
+
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
+from products.links.backend.models import Link
 from products.notebooks.backend.models import Notebook
 from products.surveys.backend.models import Survey
-from products.links.backend.models import Link
 
 MIXIN_MODELS = {
     "action": Action,
