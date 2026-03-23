@@ -40,23 +40,10 @@ jobs:
         if: |
             github.event_name == 'workflow_dispatch' ||
             (github.event.pull_request.head.repo.full_name == github.repository &&
-             (contains(github.event.pull_request.labels.*.name, 'smoke_test') ||
-              contains(toJson(github.event.pull_request.labels.*.name), 'smoke_test:')))
-        permissions:
-            contents: read
+             contains(toJson(github.event.pull_request.labels.*.name), 'smoke_test'))
+        permissions: {}
         steps:
-            - name: Verify PR author is a PostHog org member
-              if: |
-                  github.event_name != 'workflow_dispatch' &&
-                  github.event.pull_request.author_association != 'OWNER' &&
-                  github.event.pull_request.author_association != 'MEMBER' &&
-                  github.event.pull_request.author_association != 'COLLABORATOR'
-              env:
-                  AUTHOR: ${{ github.event.pull_request.user.login }}
-                  ASSOCIATION: ${{ github.event.pull_request.author_association }}
-              run: |
-                  echo "::error::PR author ($AUTHOR) has association '$ASSOCIATION' — smoke test builds are restricted to org members and collaborators"
-                  exit 1
+            - run: echo "Authorized"
 
     resolve-filter:
         name: resolve image filter
