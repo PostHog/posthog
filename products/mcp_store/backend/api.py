@@ -299,7 +299,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             logger.exception("DCR registration failed", **log_context)
             raise DCRRegistrationFailedError from e
 
-    def _build_dcr_authorize_url(
+    def _build_authorize_url(
         self,
         server: MCPServer,
         *,
@@ -528,7 +528,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         )
 
         try:
-            authorize_url = self._build_dcr_authorize_url(
+            authorize_url = self._build_authorize_url(
                 server,
                 redirect_uri=redirect_uri,
                 state_token=token,
@@ -644,7 +644,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
         mcp_url = installation.url if installation else server.url
 
-        return self._authorize_dcr(
+        return self._authorize_user(
             server,
             mcp_url=mcp_url,
             installation=installation,
@@ -652,7 +652,42 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             posthog_code_callback_url=posthog_code_callback_url,
         )
 
-    def _authorize_dcr(
+    def _ensure_server_credentials(self, server: MCPServer, *, mcp_url: str) -> Response | None:
+        """Register an OAuth client via DCR if the server doesn't have credentials yet.
+
+        Returns an error Response if registration fails, or None on success.
+        """
+        redirect_uri = _get_oauth_redirect_uri()
+        cached_redirect_uri = server.oauth_metadata.get("dcr_redirect_uri", "") if server.oauth_metadata else ""
+        needs_registration = (
+            not server.oauth_metadata or not server.oauth_client_id or cached_redirect_uri != redirect_uri
+        )
+
+        if not needs_registration:
+            return None
+
+        try:
+            # Reuse the existing trusted metadata, if available, to avoid re-discovering the server, which potentially introduces a security risk
+            if server.oauth_metadata:
+                metadata = dict(server.oauth_metadata)
+            else:
+                metadata = discover_oauth_metadata(mcp_url)
+            client_id = self._register_dcr_client_or_raise(metadata, redirect_uri, server_url=server.url)
+        except DCRNotSupportedError:
+            return Response(
+                {"detail": "This MCP server does not support automatic client registration (DCR)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except DCRRegistrationFailedError:
+            return Response({"detail": "OAuth discovery/registration failed."}, status=status.HTTP_400_BAD_REQUEST)
+
+        metadata["dcr_redirect_uri"] = redirect_uri
+        server.oauth_metadata = metadata
+        server.oauth_client_id = client_id
+        server.save(update_fields=["oauth_metadata", "oauth_client_id", "updated_at"])
+        return None
+
+    def _authorize_user(
         self,
         server: MCPServer,
         *,
@@ -661,36 +696,14 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         install_source: str = "posthog",
         posthog_code_callback_url: str = "",
     ) -> HttpResponse:
+        """Redirect the user to the OAuth provider's authorization page."""
         if blocked_response := self._validate_mcp_url_or_error_response(mcp_url):
             return blocked_response
 
+        if error_response := self._ensure_server_credentials(server, mcp_url=mcp_url):
+            return error_response
+
         redirect_uri = _get_oauth_redirect_uri()
-
-        cached_redirect_uri = server.oauth_metadata.get("dcr_redirect_uri", "") if server.oauth_metadata else ""
-        needs_registration = (
-            not server.oauth_metadata or not server.oauth_client_id or cached_redirect_uri != redirect_uri
-        )
-
-        if needs_registration:
-            try:
-                # Reuse the existing trusted metadata, if available, to avoid re-discovering the server, which potentially introduces a security risk
-                if server.oauth_metadata:
-                    metadata = dict(server.oauth_metadata)
-                else:
-                    metadata = discover_oauth_metadata(mcp_url)
-                client_id = self._register_dcr_client_or_raise(metadata, redirect_uri, server_url=server.url)
-            except DCRNotSupportedError:
-                return Response(
-                    {"detail": "This MCP server does not support automatic client registration (DCR)."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            except DCRRegistrationFailedError:
-                return Response({"detail": "OAuth discovery/registration failed."}, status=status.HTTP_400_BAD_REQUEST)
-            metadata["dcr_redirect_uri"] = redirect_uri
-            server.oauth_metadata = metadata
-            server.oauth_client_id = client_id
-            server.save(update_fields=["oauth_metadata", "oauth_client_id", "updated_at"])
-
         code_verifier, code_challenge = generate_pkce()
         token = secrets.token_urlsafe(32)
 
@@ -700,7 +713,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             )
 
         try:
-            authorize_url = self._build_dcr_authorize_url(
+            authorize_url = self._build_authorize_url(
                 server,
                 redirect_uri=redirect_uri,
                 state_token=token,
