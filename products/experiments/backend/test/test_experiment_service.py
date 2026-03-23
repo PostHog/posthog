@@ -1156,6 +1156,18 @@ class TestExperimentService(APIBaseTest):
         kwargs.setdefault("primary_metrics_ordered_uuids", ["m1"])
         return self._service().create_experiment(name=name, feature_flag_key=feature_flag_key, **kwargs)
 
+    def _create_ended_experiment(
+        self,
+        name: str = "Ended",
+        feature_flag_key: str = "ended-flag",
+        **kwargs: Any,
+    ) -> Experiment:
+        experiment = self._create_launchable_experiment(name=name, feature_flag_key=feature_flag_key, **kwargs)
+        service = self._service()
+        service.launch_experiment(experiment)
+        service.update_experiment(experiment, {"end_date": timezone.now()})
+        return experiment
+
     def test_launch_experiment_success(self):
         experiment = self._create_launchable_experiment(name="Launch Test", feature_flag_key="launch-new-flag")
 
@@ -1325,6 +1337,44 @@ class TestExperimentService(APIBaseTest):
             self._service().launch_experiment(experiment)
 
         assert "at least 2 variants" in str(ctx.exception)
+
+    # ------------------------------------------------------------------
+    # Archive
+    # ------------------------------------------------------------------
+
+    def test_archive_experiment_success(self):
+        experiment = self._create_ended_experiment(name="Archive Test", feature_flag_key="archive-flag")
+
+        archived = self._service().archive_experiment(experiment)
+
+        assert archived.archived is True
+        assert archived.status == Experiment.Status.STOPPED
+
+    def test_archive_experiment_already_archived_raises(self):
+        experiment = self._create_ended_experiment(name="Already Archived", feature_flag_key="already-archived-flag")
+        service = self._service()
+        service.archive_experiment(experiment)
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.archive_experiment(experiment)
+
+        assert "already archived" in str(ctx.exception)
+
+    def test_archive_experiment_not_ended_raises(self):
+        service = self._service()
+
+        # Draft experiment (never launched)
+        draft = self._create_launchable_experiment(name="Draft Archive", feature_flag_key="draft-archive-flag")
+        with self.assertRaises(ValidationError) as ctx:
+            service.archive_experiment(draft)
+        assert "must be ended" in str(ctx.exception)
+
+        # Running experiment (launched but not ended)
+        running = self._create_launchable_experiment(name="Running Archive", feature_flag_key="running-archive-flag")
+        service.launch_experiment(running)
+        with self.assertRaises(ValidationError) as ctx:
+            service.archive_experiment(running)
+        assert "must be ended" in str(ctx.exception)
 
     # ------------------------------------------------------------------
     # Exposure cohort
