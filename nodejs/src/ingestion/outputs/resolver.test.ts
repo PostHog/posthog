@@ -14,6 +14,8 @@ describe('resolveIngestionOutputs', () => {
         process.env = OLD_ENV
     })
 
+    type TestProducer = 'PRIMARY' | 'SECONDARY'
+
     function createMockProducer(): KafkaProducerWrapper {
         return {
             produce: jest.fn().mockResolvedValue(undefined),
@@ -23,38 +25,43 @@ describe('resolveIngestionOutputs', () => {
         } as unknown as KafkaProducerWrapper
     }
 
-    function createMockRegistry(): KafkaProducerRegistry<'TEST_PRODUCER'> {
-        const producer = createMockProducer()
+    function createMockRegistry(producers: Record<string, KafkaProducerWrapper> = {}) {
         return {
-            getProducer: jest.fn(async () => Promise.resolve(producer)),
+            getProducer: jest.fn((name: string) => {
+                const producer = producers[name]
+                if (!producer) {
+                    return Promise.reject(new Error(`Unknown producer: ${name}`))
+                }
+                return Promise.resolve(producer)
+            }),
             disconnectAll: jest.fn(),
-        } as unknown as KafkaProducerRegistry<'TEST_PRODUCER'>
+        } as unknown as KafkaProducerRegistry<TestProducer>
     }
 
-    const testDefinitions: Record<string, IngestionOutputDefinition<'TEST_PRODUCER'>> = {
+    const testDefinitions: Record<string, IngestionOutputDefinition<TestProducer>> = {
         events: {
             defaultTopic: 'clickhouse_events',
-            defaultProducerName: 'TEST_PRODUCER',
+            defaultProducerName: 'PRIMARY',
             producerOverrideEnvVar: 'TEST_EVENTS_PRODUCER',
             topicOverrideEnvVar: 'TEST_EVENTS_TOPIC',
         },
         ai_events: {
             defaultTopic: 'clickhouse_ai_events',
-            defaultProducerName: 'TEST_PRODUCER',
+            defaultProducerName: 'PRIMARY',
             producerOverrideEnvVar: 'TEST_AI_EVENTS_PRODUCER',
             topicOverrideEnvVar: 'TEST_AI_EVENTS_TOPIC',
         },
     }
 
     it('resolves outputs with default topics and producers', async () => {
-        const registry = createMockRegistry()
+        const producer = createMockProducer()
+        const registry = createMockRegistry({ PRIMARY: producer })
 
         const outputs = await resolveIngestionOutputs(registry, testDefinitions)
 
-        expect(registry.getProducer).toHaveBeenCalledWith('TEST_PRODUCER')
+        expect(registry.getProducer).toHaveBeenCalledWith('PRIMARY')
 
         await outputs.queueMessages('events', [{ value: 'test' }])
-        const producer = await registry.getProducer('TEST_PRODUCER')
         expect(producer.queueMessages).toHaveBeenCalledWith({
             topic: 'clickhouse_events',
             messages: [{ value: 'test' }],
@@ -63,15 +70,81 @@ describe('resolveIngestionOutputs', () => {
 
     it('overrides topic from env var', async () => {
         process.env.TEST_EVENTS_TOPIC = 'custom_events_topic'
-        const registry = createMockRegistry()
+        const producer = createMockProducer()
+        const registry = createMockRegistry({ PRIMARY: producer })
 
         const outputs = await resolveIngestionOutputs(registry, testDefinitions)
 
         await outputs.queueMessages('events', [{ value: 'test' }])
-        const producer = await registry.getProducer('TEST_PRODUCER')
         expect(producer.queueMessages).toHaveBeenCalledWith({
             topic: 'custom_events_topic',
             messages: [{ value: 'test' }],
         })
+    })
+
+    it('topic override only affects the overridden output', async () => {
+        process.env.TEST_EVENTS_TOPIC = 'custom_events_topic'
+        const producer = createMockProducer()
+        const registry = createMockRegistry({ PRIMARY: producer })
+
+        const outputs = await resolveIngestionOutputs(registry, testDefinitions)
+
+        await outputs.queueMessages('ai_events', [{ value: 'test' }])
+        expect(producer.queueMessages).toHaveBeenCalledWith({
+            topic: 'clickhouse_ai_events',
+            messages: [{ value: 'test' }],
+        })
+    })
+
+    it('overrides producer from env var', async () => {
+        process.env.TEST_EVENTS_PRODUCER = 'SECONDARY'
+        const primary = createMockProducer()
+        const secondary = createMockProducer()
+        const registry = createMockRegistry({ PRIMARY: primary, SECONDARY: secondary })
+
+        const outputs = await resolveIngestionOutputs(registry, testDefinitions)
+
+        expect(registry.getProducer).toHaveBeenCalledWith('SECONDARY')
+
+        await outputs.queueMessages('events', [{ value: 'test' }])
+        expect(secondary.queueMessages).toHaveBeenCalledTimes(1)
+        expect(primary.queueMessages).not.toHaveBeenCalled()
+    })
+
+    it('producer override only affects the overridden output', async () => {
+        process.env.TEST_EVENTS_PRODUCER = 'SECONDARY'
+        const primary = createMockProducer()
+        const secondary = createMockProducer()
+        const registry = createMockRegistry({ PRIMARY: primary, SECONDARY: secondary })
+
+        const outputs = await resolveIngestionOutputs(registry, testDefinitions)
+
+        await outputs.queueMessages('ai_events', [{ value: 'test' }])
+        expect(primary.queueMessages).toHaveBeenCalledTimes(1)
+        expect(secondary.queueMessages).not.toHaveBeenCalled()
+    })
+
+    it('throws when producer creation fails', async () => {
+        const registry = createMockRegistry({})
+
+        await expect(resolveIngestionOutputs(registry, testDefinitions)).rejects.toThrow('Unknown producer: PRIMARY')
+    })
+
+    it('resolves all outputs in parallel', async () => {
+        const producer = createMockProducer()
+        const registry = createMockRegistry({ PRIMARY: producer })
+
+        await resolveIngestionOutputs(registry, testDefinitions)
+
+        expect(registry.getProducer).toHaveBeenCalledTimes(2)
+    })
+
+    it('resolves empty definitions', async () => {
+        const registry = createMockRegistry({})
+
+        const outputs = await resolveIngestionOutputs(registry, {})
+
+        expect(registry.getProducer).not.toHaveBeenCalled()
+        expect(await outputs.checkHealth()).toEqual([])
     })
 })
