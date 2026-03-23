@@ -79,7 +79,7 @@ class ExportAssetWorkflow(PostHogWorkflow):
                     distinct_id=inputs.distinct_id,
                     outcome=outcome,
                     duration_ms=duration_ms,
-                    export_format=inputs.export_format,
+                    export_format=inputs.export_format or "",
                     error=error,
                 ),
                 start_to_close_timeout=timedelta(minutes=2),
