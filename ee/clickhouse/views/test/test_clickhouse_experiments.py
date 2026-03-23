@@ -2198,7 +2198,6 @@ class TestExperimentCRUD(APILicensedTest):
                     {
                         "properties": [],
                         "rollout_percentage": 100,
-                        "aggregation_group_type_index": None,
                     }
                 ],
                 "multivariate": {
@@ -2220,8 +2219,8 @@ class TestExperimentCRUD(APILicensedTest):
                         },
                     ]
                 },
-                "aggregation_group_type_index": None,
                 "holdout": None,
+                "aggregation_group_type_index": None,
             },
         )
 
@@ -2256,7 +2255,6 @@ class TestExperimentCRUD(APILicensedTest):
                     {
                         "properties": [],
                         "rollout_percentage": 100,
-                        "aggregation_group_type_index": None,
                     }
                 ],
                 "multivariate": {
@@ -2278,8 +2276,8 @@ class TestExperimentCRUD(APILicensedTest):
                         },
                     ]
                 },
-                "aggregation_group_type_index": None,
                 "holdout": None,
+                "aggregation_group_type_index": None,
             },
         )
 
@@ -2325,7 +2323,6 @@ class TestExperimentCRUD(APILicensedTest):
                     {
                         "properties": [],
                         "rollout_percentage": 100,
-                        "aggregation_group_type_index": None,
                     }
                 ],
                 "multivariate": {
@@ -2347,8 +2344,8 @@ class TestExperimentCRUD(APILicensedTest):
                         },
                     ]
                 },
-                "aggregation_group_type_index": None,
                 "holdout": None,
+                "aggregation_group_type_index": None,
             },
         )
 
