@@ -1572,10 +1572,7 @@ export const sceneLogic = kea<sceneLogicType>([
 
     afterMount(({ actions, cache, values }) => {
         cache.disposables.add(() => {
-            const onStorage = (event: StorageEvent): void => {
-                if (event.key !== getStorageKey(PINNED_TAB_STATE_KEY)) {
-                    return
-                }
+            const syncPinnedTabsFromStorage = (): void => {
                 const storedPinned = getPersistedPinnedState()
                 const currentTabs = values.tabs
                 const updatedTabs = composeTabsFromStorage(storedPinned, currentTabs)
@@ -1602,6 +1599,13 @@ export const sceneLogic = kea<sceneLogicType>([
                 }
             }
 
+            const onStorage = (event: StorageEvent): void => {
+                if (event.key !== getStorageKey(PINNED_TAB_STATE_KEY)) {
+                    return
+                }
+                syncPinnedTabsFromStorage()
+            }
+
             const addStorageListener = (): void => {
                 window.addEventListener('storage', onStorage)
             }
@@ -1614,7 +1618,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     removeStorageListener()
                 } else {
                     addStorageListener()
-                    onStorage(new StorageEvent('storage', { key: getStorageKey(PINNED_TAB_STATE_KEY) }))
+                    syncPinnedTabsFromStorage()
                 }
             }
 
