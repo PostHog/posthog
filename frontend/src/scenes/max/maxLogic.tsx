@@ -119,6 +119,9 @@ function handleCommandString(options: string, actions: maxLogicType['actions']):
     }
 }
 
+const CHAT_TITLE_NEW = 'New chat'
+const CHAT_TITLE_HISTORY = 'Chat history'
+
 function updateInactiveTab(tabId: string, props: Partial<SceneTab>): void {
     const scene = sceneLogic.findMounted()
     if (!scene) {
@@ -325,12 +328,12 @@ export const maxLogic = kea<maxLogicType>([
             (s) => [s.conversationId, s.conversation, s.conversationHistoryVisible],
             (conversationId, conversation, conversationHistoryVisible) => {
                 if (conversationHistoryVisible) {
-                    return 'Chat history'
+                    return CHAT_TITLE_HISTORY
                 }
 
                 // Existing conversation or the first generation is in progress
                 if (conversationId || conversation) {
-                    return conversation?.title ?? 'New chat'
+                    return conversation?.title ?? CHAT_TITLE_NEW
                 }
 
                 return null
@@ -376,7 +379,7 @@ export const maxLogic = kea<maxLogicType>([
                 return [
                     {
                         key: Scene.Max,
-                        name: hasConversationBreadcrumb ? 'AI' : 'New chat',
+                        name: hasConversationBreadcrumb ? 'AI' : CHAT_TITLE_NEW,
                         path: urls.ai(),
                         iconType: 'chat',
                     },
@@ -384,7 +387,7 @@ export const maxLogic = kea<maxLogicType>([
                         ? [
                               {
                                   key: Scene.Max,
-                                  name: 'Chat history',
+                                  name: CHAT_TITLE_HISTORY,
                                   path: urls.aiHistory(),
                                   iconType: 'chat' as const,
                               },
@@ -540,9 +543,11 @@ export const maxLogic = kea<maxLogicType>([
         },
     })),
 
+    // Active tab titles are updated by sceneLogic's titleAndIcon subscription (reads breadcrumbs).
+    // This subscription covers inactive tabs, which titleAndIcon doesn't reach.
     subscriptions(({ props }) => ({
         chatTitle: (title: string | null) => {
-            if (title && title !== 'New chat' && title !== 'Chat history') {
+            if (title && title !== CHAT_TITLE_NEW && title !== CHAT_TITLE_HISTORY) {
                 updateInactiveTab(props.tabId, { title })
             }
         },
@@ -590,7 +595,7 @@ export const maxLogic = kea<maxLogicType>([
         [urls.ai()]: (_, search) => {
             if (search.ask && !search.chat && !values.question) {
                 // Clear any existing conversation so the tab title updates
-                if (values.conversationId) {
+                if (values.conversationId && values.activeStreamingThreads === 0) {
                     actions.startNewConversation()
                 }
 

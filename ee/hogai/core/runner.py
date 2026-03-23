@@ -149,6 +149,7 @@ class BaseAgentRunner(ABC):
         self._conversation = conversation
         self._latest_message = new_message.model_copy(deep=True, update={"id": str(uuid4())}) if new_message else None
         self._is_new_conversation = is_new_conversation
+        self._pending_conversation_update = False
         self._state = None
         self._state_type = state_type
         self._partial_state_type = partial_state_type
