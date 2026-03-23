@@ -1598,6 +1598,19 @@ class TestResolver(BaseTest):
         assert isinstance(column_expr, ast.Field)
         assert isinstance(column_expr.type, ast.FieldType)
 
+    def test_pivot_join_basic_resolves(self):
+        expr = self._select("SELECT 1 FROM events JOIN events AS e2 ON 1 PIVOT (count() FOR events.event IN ('a'))")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert isinstance(expr.select_from, ast.JoinExpr)
+        assert isinstance(expr.select_from.table, ast.PivotExpr)
+        pivot = expr.select_from.table
+        assert isinstance(pivot.table, ast.JoinExpr)
+        column_expr = pivot.columns[0].column
+        if isinstance(column_expr, ast.Alias):
+            column_expr = column_expr.expr
+        assert isinstance(column_expr, ast.Field)
+        assert isinstance(column_expr.type, ast.FieldType)
+
     def test_pivot_expression_column_resolves(self):
         expr = self._select("SELECT 1 FROM events PIVOT (count() FOR toYear(timestamp) IN (2015))")
         expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))

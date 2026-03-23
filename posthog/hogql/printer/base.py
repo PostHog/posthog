@@ -545,9 +545,23 @@ class HogQLPrinter(Visitor[str]):
             raise QueryError(f"Positional reference must be a positive integer, got {node.index}")
         return f"#{node.index}"
 
+    def _print_join_expr_chain(self, node: ast.JoinExpr) -> str:
+        parts: list[str] = []
+        next_join: ast.JoinExpr | None = node
+        while isinstance(next_join, ast.JoinExpr):
+            visited = self.visit_join_expr(next_join)
+            if visited.where is not None:
+                raise QueryError("JOIN PIVOT/UNPIVOT cannot apply extra WHERE constraints")
+            parts.append(visited.printed_sql)
+            next_join = next_join.next_join
+        return " ".join(parts)
+
     def visit_unpivot_expr(self, node: ast.UnpivotExpr):
-        table_expr = self.visit(node.table)
-        table = table_expr.printed_sql if isinstance(table_expr, JoinExprResponse) else table_expr
+        if isinstance(node.table, ast.JoinExpr):
+            table = self._print_join_expr_chain(node.table)
+        else:
+            table_expr = self.visit(node.table)
+            table = table_expr.printed_sql if isinstance(table_expr, JoinExprResponse) else table_expr
         columns = " ".join(self.visit(col) for col in node.columns)
         include_nulls = "INCLUDE NULLS " if node.include_nulls else ""
         return f"{table} UNPIVOT {include_nulls}({columns})"
@@ -559,7 +573,11 @@ class HogQLPrinter(Visitor[str]):
         return f"{value_cols} FOR {name_cols} IN ({values})"
 
     def visit_pivot_expr(self, node: ast.PivotExpr):
-        table = self.visit(node.table)
+        if isinstance(node.table, ast.JoinExpr):
+            table = self._print_join_expr_chain(node.table)
+        else:
+            table_expr = self.visit(node.table)
+            table = table_expr.printed_sql if isinstance(table_expr, JoinExprResponse) else table_expr
         aggregates = ", ".join(self.visit(agg) for agg in node.aggregates)
         columns = " ".join(self.visit(col) for col in node.columns)
         group_by = f" GROUP BY {', '.join(self.visit(g) for g in node.group_by)}" if node.group_by else ""

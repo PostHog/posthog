@@ -1187,6 +1187,19 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_ignore_nulls_expr(self):
+            self.assertEqual(
+                self._expr("event IGNORE NULLS"),
+                ast.Field(chain=["event"]),
+            )
+            self.assertEqual(
+                self._select("select event IGNORE NULLS from events"),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["event"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                ),
+            )
+
         def test_select_columns_qualified(self):
             self.assertEqual(
                 self._select("select COLUMNS(events.*) from events"),
@@ -3712,6 +3725,35 @@ def parser_test_factory(backend: HogQLParserBackend):
                                 ),
                             ],
                             group_by=[ast.Field(chain=["distinct_id"])],
+                        )
+                    ),
+                ),
+            )
+
+        def test_select_from_join_pivot(self):
+            self.assertEqual(
+                self._select("SELECT 1 FROM events JOIN events AS e2 ON 1 PIVOT (count() FOR events.event IN ('a'))"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(
+                        table=ast.PivotExpr(
+                            table=ast.JoinExpr(
+                                table=ast.Field(chain=["events"]),
+                                next_join=ast.JoinExpr(
+                                    join_type="JOIN",
+                                    table=ast.Field(chain=["events"]),
+                                    alias="e2",
+                                    constraint=ast.JoinConstraint(expr=ast.Constant(value=1), constraint_type="ON"),
+                                ),
+                            ),
+                            aggregates=[ast.Call(name="count", args=[])],
+                            columns=[
+                                ast.PivotColumn(
+                                    column=ast.Field(chain=["events", "event"]),
+                                    values=[ast.Constant(value="a")],
+                                )
+                            ],
+                            group_by=None,
                         )
                     ),
                 ),

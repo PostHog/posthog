@@ -337,6 +337,12 @@ class TestPrinter(BaseTest):
             "LIMIT 50000",
         )
 
+    def test_ignore_nulls_prints(self):
+        self.assertEqual(
+            self._select("SELECT event IGNORE NULLS FROM events"),
+            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000",
+        )
+
     def test_select_set_order_by_prints(self):
         self.assertEqual(
             self._select("select 1 union all select 2 order by 1"),
@@ -4439,6 +4445,12 @@ class TestPostgresPrinter(BaseTest):
                 "SELECT 1 FROM events PIVOT (count() FOR event IN ('a') distinct_id IN (1, 2) GROUP BY timestamp)"
             ),
             "SELECT 1 FROM events PIVOT (count() FOR events.event IN ('a') events.distinct_id IN (1, 2) GROUP BY events.timestamp) LIMIT 50000",
+        )
+
+    def test_pivot_join_prints(self):
+        self.assertEqual(
+            self._select("SELECT 1 FROM events JOIN events AS e2 ON 1 PIVOT (count() FOR events.event IN ('a'))"),
+            "SELECT 1 FROM events JOIN events AS e2 ON 1 PIVOT (count() FOR events.event IN ('a')) LIMIT 50000",
         )
 
     def test_limit_percent_basic(self):
