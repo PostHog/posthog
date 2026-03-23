@@ -446,6 +446,9 @@
                     "$ref": "#/definitions/AssistantRetentionQuery"
                 },
                 {
+                    "$ref": "#/definitions/AssistantLifecycleQuery"
+                },
+                {
                     "$ref": "#/definitions/AssistantHogQLQuery"
                 }
             ],
@@ -1888,6 +1891,160 @@
                     "type": ["number", "null"]
                 }
             },
+            "type": "object"
+        },
+        "AssistantLifecycleActionsNode": {
+            "additionalProperties": false,
+            "description": "Defines the action series for the lifecycle insight. Lifecycle does not support math aggregations. You must provide the action ID in the `id` field and the name in the `name` field.",
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "$ref": "#/definitions/integer"
+                },
+                "kind": {
+                    "const": "ActionsNode",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Action name from the plan.",
+                    "type": "string"
+                },
+                "optionalInFunnel": {
+                    "type": "boolean"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["id", "kind", "name"],
+            "type": "object"
+        },
+        "AssistantLifecycleEventsNode": {
+            "additionalProperties": false,
+            "description": "Defines the event series for the lifecycle insight. Lifecycle does not support math aggregations.",
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "event": {
+                    "description": "The event or `null` for all events.",
+                    "type": ["string", "null"]
+                },
+                "kind": {
+                    "const": "EventsNode",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "optionalInFunnel": {
+                    "type": "boolean"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "AssistantLifecycleFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "showLegend": {
+                    "default": false,
+                    "description": "Whether to show the legend describing series.",
+                    "type": "boolean"
+                },
+                "showValuesOnSeries": {
+                    "default": false,
+                    "description": "Whether to show a value on each data point.",
+                    "type": "boolean"
+                },
+                "stacked": {
+                    "default": true,
+                    "description": "Whether the lifecycle bars should be stacked.",
+                    "type": "boolean"
+                },
+                "toggledLifecycles": {
+                    "description": "Lifecycles that have been removed from display are not included in this array. Available values: `new`, `returning`, `resurrecting`, `dormant`.\n- `new` - users who performed the event for the first time during the period.\n- `returning` - users who were active in the previous period and are active in the current period.\n- `resurrecting` - users who were inactive for one or more periods and became active again.\n- `dormant` - users who were active in the previous period but are inactive in the current period.",
+                    "items": {
+                        "$ref": "#/definitions/LifecycleToggle"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
+        "AssistantLifecycleQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/AssistantDateRangeFilter",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "default": false,
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "default": "day",
+                    "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+                },
+                "kind": {
+                    "const": "LifecycleQuery",
+                    "type": "string"
+                },
+                "lifecycleFilter": {
+                    "$ref": "#/definitions/AssistantLifecycleFilter",
+                    "description": "Properties specific to the lifecycle insight"
+                },
+                "properties": {
+                    "default": [],
+                    "description": "Property filters for all series",
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate from 0 to 1 where 1 is 100% of the data.",
+                    "type": ["number", "null"]
+                },
+                "series": {
+                    "description": "Event or action to analyze. Lifecycle insights only support a single series.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/AssistantLifecycleEventsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/AssistantLifecycleActionsNode"
+                            }
+                        ]
+                    },
+                    "maxLength": 1,
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "series"],
             "type": "object"
         },
         "AssistantMessage": {
@@ -35394,6 +35551,9 @@
                             "$ref": "#/definitions/RetentionQuery"
                         },
                         {
+                            "$ref": "#/definitions/LifecycleQuery"
+                        },
+                        {
                             "$ref": "#/definitions/HogQLQuery"
                         },
                         {
@@ -35440,6 +35600,9 @@
                         },
                         {
                             "$ref": "#/definitions/RetentionQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/LifecycleQuery"
                         },
                         {
                             "$ref": "#/definitions/HogQLQuery"
