@@ -509,3 +509,27 @@ class TestCohort(BaseTest):
             cohort.refresh_from_db()
             self.assertEqual(cohort.cohort_type, "realtime")
             self.assertEqual(cohort.count, REALTIME_COHORT_MAX_PERSON_COUNT)
+
+    @pytest.mark.ee
+    def test_calculate_people_ch_updates_version_even_when_finally_raises(self):
+        from unittest.mock import patch
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="version resilience cohort",
+        )
+
+        with patch("posthog.models.cohort.util.recalculate_cohortpeople") as mock_recalc:
+            mock_recalc.return_value = 42
+
+            with patch.object(
+                Cohort, "_safe_reset_calculating_state", side_effect=Exception("DB connection lost")
+            ):
+                with pytest.raises(Exception, match="DB connection lost"):
+                    cohort.calculate_people_ch(pending_version=1)
+
+        # Version and count should be updated despite the finally block raising
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.version, 1)
+        self.assertEqual(cohort.count, 42)
