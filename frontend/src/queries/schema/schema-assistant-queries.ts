@@ -150,67 +150,58 @@ export type AssistantGroupPropertyFilter = AssistantBasePropertyFilter & {
     group_type_index: integer
 }
 
-/**
- * Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort.
- * The `key` is always `id` and the `value` is the cohort ID (a number).
- *
- * Example: to filter for users in the "Power Users" cohort with ID 42:
- * `{ type: "cohort", key: "id", value: 42, operator: "in" }`
- */
 export interface AssistantCohortPropertyFilter {
+    /**
+     * Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort.
+     * Example: `{ type: "cohort", key: "id", value: 42, operator: "in" }`
+     */
     type: PropertyFilterType.Cohort
     key: 'id'
     /** The cohort ID to filter by. */
-    value: number
+    value: integer
     /** @default in */
     operator: PropertyOperator.In
 }
 
-/**
- * Filter events by autocaptured HTML element properties. Use this to narrow down autocaptured events
- * (`$autocapture`, `$rageclick`) by the DOM element that triggered them.
- *
- * Available keys:
- * - `tag_name` — HTML tag (e.g., `button`, `a`, `input`)
- * - `text` — visible text content of the element
- * - `href` — the `href` attribute for links
- * - `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`)
- *
- * Example: to filter for clicks on buttons with text "Sign Up":
- * `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }`
- */
 export type AssistantElementPropertyFilter = AssistantBasePropertyFilter & {
+    /**
+     * Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`).
+     * Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }`
+     */
     type: PropertyFilterType.Element
+    /**
+     * The element property to filter on.
+     * `tag_name` — HTML tag (e.g., `button`, `a`, `input`).
+     * `text` — visible text content of the element.
+     * `href` — the `href` attribute for links.
+     * `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).
+     */
     key: 'tag_name' | 'text' | 'href' | 'selector'
 }
 
-/**
- * Filter by a HogQL expression. Use this for advanced filtering that can't be expressed
- * with standard property filters. The `key` is a HogQL boolean expression.
- *
- * Examples:
- * - Filter where a property exceeds a threshold: `{ type: "hogql", key: "toFloat(properties.load_time) > 5.0" }`
- * - Filter with string matching: `{ type: "hogql", key: "properties.$current_url LIKE '%/pricing%'" }`
- * - Filter with multiple conditions: `{ type: "hogql", key: "properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30" }`
- */
 export interface AssistantHogQLPropertyFilter {
+    /**
+     * Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters.
+     */
     type: PropertyFilterType.HogQL
-    /** A HogQL boolean expression used as a filter condition. */
+    /**
+     * A HogQL boolean expression used as a filter condition.
+     *
+     * Examples:
+     * - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0`
+     * - Filter with string matching: `properties.$current_url LIKE '%/pricing%'`
+     * - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30`
+     */
     key: string
 }
 
-/**
- * Filter events by feature flag state. Use this to filter events to only those where a specific
- * feature flag evaluated to a given value for the user.
- *
- * The `key` is the feature flag key (string), and the `value` is either a boolean (`true`/`false`)
- * or a multivariate variant name (string).
- *
- * Examples:
- * - Filter for users with a flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }`
- * - Filter for a specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }`
- */
 export interface AssistantFlagPropertyFilter {
+    /**
+     * Filter events by feature flag state — only include events where a specific flag evaluated to a given value.
+     * Examples:
+     * - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }`
+     * - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }`
+     */
     type: PropertyFilterType.Flag
     /** The feature flag key. */
     key: string

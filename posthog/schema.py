@@ -127,16 +127,6 @@ class AssistantBaseMultipleBreakdownFilter(BaseModel):
     property: str = Field(..., description="Property name from the plan to break down by.")
 
 
-class AssistantCohortPropertyFilter(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    key: Literal["id"] = "id"
-    operator: Literal["in"] = "in"
-    type: Literal["cohort"] = "cohort"
-    value: float = Field(..., description="The cohort ID to filter by.")
-
-
 class AssistantDateRange(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -178,12 +168,27 @@ class AssistantElementPropertyFilter3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    key: Key
+    key: Key = Field(
+        ...,
+        description=(
+            "The element property to filter on. `tag_name` — HTML tag (e.g., `button`,"
+            " `a`, `input`). `text` — visible text content of the element. `href` — the"
+            " `href` attribute for links. `selector` — a CSS selector matching the"
+            " element (e.g., `div.main > button.cta`)."
+        ),
+    )
     operator: AssistantArrayPropertyFilterOperator = Field(
         ...,
         description=("`exact` - exact match of any of the values. `is_not` - does not match any of the values."),
     )
-    type: Literal["element"] = "element"
+    type: Literal["element"] = Field(
+        default="element",
+        description=(
+            "Filter by autocaptured HTML element properties (`$autocapture`,"
+            ' `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign'
+            ' Up", operator: "exact" }`'
+        ),
+    )
     value: list[str] = Field(
         ...,
         description=(
@@ -198,9 +203,24 @@ class AssistantElementPropertyFilter4(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    key: Key
+    key: Key = Field(
+        ...,
+        description=(
+            "The element property to filter on. `tag_name` — HTML tag (e.g., `button`,"
+            " `a`, `input`). `text` — visible text content of the element. `href` — the"
+            " `href` attribute for links. `selector` — a CSS selector matching the"
+            " element (e.g., `div.main > button.cta`)."
+        ),
+    )
     operator: AssistantDateTimePropertyFilterOperator
-    type: Literal["element"] = "element"
+    type: Literal["element"] = Field(
+        default="element",
+        description=(
+            "Filter by autocaptured HTML element properties (`$autocapture`,"
+            ' `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign'
+            ' Up", operator: "exact" }`'
+        ),
+    )
     value: str = Field(..., description="Value must be a date in ISO 8601 format.")
 
 
@@ -230,7 +250,16 @@ class AssistantFlagPropertyFilter(BaseModel):
     )
     key: str = Field(..., description="The feature flag key.")
     operator: Literal["flag_evaluates_to"] = "flag_evaluates_to"
-    type: Literal["flag"] = Field(default="flag", description="Feature flag dependency")
+    type: Literal["flag"] = Field(
+        default="flag",
+        description=(
+            "Filter events by feature flag state — only include events where a specific"
+            " flag evaluated to a given value. Examples:\n- Flag enabled: `{ type:"
+            ' "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true'
+            ' }`\n- Specific variant: `{ type: "flag", key: "checkout-experiment",'
+            ' operator: "flag_evaluates_to", value: "variant-a" }`'
+        ),
+    )
     value: bool | str = Field(
         ...,
         description=("`true`/`false` for boolean flags, or a variant name string for multivariate flags."),
@@ -296,8 +325,24 @@ class AssistantHogQLPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    key: str = Field(..., description="A HogQL boolean expression used as a filter condition.")
-    type: Literal["hogql"] = "hogql"
+    key: str = Field(
+        ...,
+        description=(
+            "A HogQL boolean expression used as a filter condition.\n\nExamples:\n-"
+            " Filter where a property exceeds a threshold:"
+            " `toFloat(properties.load_time) > 5.0`\n- Filter with string matching:"
+            " `properties.$current_url LIKE '%/pricing%'`\n- Filter with multiple"
+            " conditions: `properties.$browser = 'Chrome' AND"
+            " toFloat(properties.duration) > 30`"
+        ),
+    )
+    type: Literal["hogql"] = Field(
+        default="hogql",
+        description=(
+            "Filter by a HogQL boolean expression for advanced filtering that can't be"
+            " expressed with standard property filters."
+        ),
+    )
 
 
 class AssistantHogQLQuery(BaseModel):
@@ -4611,6 +4656,23 @@ class AssistantBreakdownFilter(BaseModel):
     breakdown_limit: int | None = Field(default=25, description="How many distinct values to show.")
 
 
+class AssistantCohortPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: Literal["id"] = "id"
+    operator: Literal["in"] = "in"
+    type: Literal["cohort"] = Field(
+        default="cohort",
+        description=(
+            "Filter events by cohort membership. Use this to narrow down results to"
+            ' persons belonging to a specific cohort. Example: `{ type: "cohort", key:'
+            ' "id", value: 42, operator: "in" }`'
+        ),
+    )
+    value: int = Field(..., description="The cohort ID to filter by.")
+
+
 class AssistantDateTimePropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4623,7 +4685,15 @@ class AssistantElementPropertyFilter1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    key: Key
+    key: Key = Field(
+        ...,
+        description=(
+            "The element property to filter on. `tag_name` — HTML tag (e.g., `button`,"
+            " `a`, `input`). `text` — visible text content of the element. `href` — the"
+            " `href` attribute for links. `selector` — a CSS selector matching the"
+            " element (e.g., `div.main > button.cta`)."
+        ),
+    )
     operator: AssistantStringOrBooleanValuePropertyFilterOperator = Field(
         ...,
         description=(
@@ -4632,7 +4702,14 @@ class AssistantElementPropertyFilter1(BaseModel):
             " `not_regex` - does not match the regex pattern."
         ),
     )
-    type: Literal["element"] = "element"
+    type: Literal["element"] = Field(
+        default="element",
+        description=(
+            "Filter by autocaptured HTML element properties (`$autocapture`,"
+            ' `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign'
+            ' Up", operator: "exact" }`'
+        ),
+    )
     value: str = Field(
         ...,
         description=(
@@ -4649,9 +4726,24 @@ class AssistantElementPropertyFilter2(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    key: Key
+    key: Key = Field(
+        ...,
+        description=(
+            "The element property to filter on. `tag_name` — HTML tag (e.g., `button`,"
+            " `a`, `input`). `text` — visible text content of the element. `href` — the"
+            " `href` attribute for links. `selector` — a CSS selector matching the"
+            " element (e.g., `div.main > button.cta`)."
+        ),
+    )
     operator: AssistantNumericValuePropertyFilterOperator
-    type: Literal["element"] = "element"
+    type: Literal["element"] = Field(
+        default="element",
+        description=(
+            "Filter by autocaptured HTML element properties (`$autocapture`,"
+            ' `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign'
+            ' Up", operator: "exact" }`'
+        ),
+    )
     value: float
 
 
@@ -4659,7 +4751,15 @@ class AssistantElementPropertyFilter5(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    key: Key
+    key: Key = Field(
+        ...,
+        description=(
+            "The element property to filter on. `tag_name` — HTML tag (e.g., `button`,"
+            " `a`, `input`). `text` — visible text content of the element. `href` — the"
+            " `href` attribute for links. `selector` — a CSS selector matching the"
+            " element (e.g., `div.main > button.cta`)."
+        ),
+    )
     operator: AssistantSetPropertyFilterOperator = Field(
         ...,
         description=(
@@ -4667,7 +4767,14 @@ class AssistantElementPropertyFilter5(BaseModel):
             " have a value or wasn't collected."
         ),
     )
-    type: Literal["element"] = "element"
+    type: Literal["element"] = Field(
+        default="element",
+        description=(
+            "Filter by autocaptured HTML element properties (`$autocapture`,"
+            ' `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign'
+            ' Up", operator: "exact" }`'
+        ),
+    )
 
 
 class AssistantForm(BaseModel):

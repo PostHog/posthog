@@ -979,7 +979,6 @@
         },
         "AssistantCohortPropertyFilter": {
             "additionalProperties": false,
-            "description": "Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. The `key` is always `id` and the `value` is the cohort ID (a number).\n\nExample: to filter for users in the \"Power Users\" cohort with ID 42: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"in\" }`",
             "properties": {
                 "key": {
                     "const": "id",
@@ -992,11 +991,12 @@
                 },
                 "type": {
                     "const": "cohort",
+                    "description": "Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Example: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"in\" }`",
                     "type": "string"
                 },
                 "value": {
-                    "description": "The cohort ID to filter by.",
-                    "type": "number"
+                    "$ref": "#/definitions/integer",
+                    "description": "The cohort ID to filter by."
                 }
             },
             "required": ["type", "key", "value", "operator"],
@@ -1064,6 +1064,7 @@
                     "additionalProperties": false,
                     "properties": {
                         "key": {
+                            "description": "The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).",
                             "enum": ["tag_name", "text", "href", "selector"],
                             "type": "string"
                         },
@@ -1073,6 +1074,7 @@
                         },
                         "type": {
                             "const": "element",
+                            "description": "Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: \"element\", key: \"text\", value: \"Sign Up\", operator: \"exact\" }`",
                             "type": "string"
                         },
                         "value": {
@@ -1087,6 +1089,7 @@
                     "additionalProperties": false,
                     "properties": {
                         "key": {
+                            "description": "The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).",
                             "enum": ["tag_name", "text", "href", "selector"],
                             "type": "string"
                         },
@@ -1095,6 +1098,7 @@
                         },
                         "type": {
                             "const": "element",
+                            "description": "Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: \"element\", key: \"text\", value: \"Sign Up\", operator: \"exact\" }`",
                             "type": "string"
                         },
                         "value": {
@@ -1108,6 +1112,7 @@
                     "additionalProperties": false,
                     "properties": {
                         "key": {
+                            "description": "The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).",
                             "enum": ["tag_name", "text", "href", "selector"],
                             "type": "string"
                         },
@@ -1117,6 +1122,7 @@
                         },
                         "type": {
                             "const": "element",
+                            "description": "Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: \"element\", key: \"text\", value: \"Sign Up\", operator: \"exact\" }`",
                             "type": "string"
                         },
                         "value": {
@@ -1134,6 +1140,7 @@
                     "additionalProperties": false,
                     "properties": {
                         "key": {
+                            "description": "The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).",
                             "enum": ["tag_name", "text", "href", "selector"],
                             "type": "string"
                         },
@@ -1142,6 +1149,7 @@
                         },
                         "type": {
                             "const": "element",
+                            "description": "Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: \"element\", key: \"text\", value: \"Sign Up\", operator: \"exact\" }`",
                             "type": "string"
                         },
                         "value": {
@@ -1156,6 +1164,7 @@
                     "additionalProperties": false,
                     "properties": {
                         "key": {
+                            "description": "The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).",
                             "enum": ["tag_name", "text", "href", "selector"],
                             "type": "string"
                         },
@@ -1165,14 +1174,14 @@
                         },
                         "type": {
                             "const": "element",
+                            "description": "Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: \"element\", key: \"text\", value: \"Sign Up\", operator: \"exact\" }`",
                             "type": "string"
                         }
                     },
                     "required": ["key", "operator", "type"],
                     "type": "object"
                 }
-            ],
-            "description": "Filter events by autocaptured HTML element properties. Use this to narrow down autocaptured events (`$autocapture`, `$rageclick`) by the DOM element that triggered them.\n\nAvailable keys:\n- `tag_name` — HTML tag (e.g., `button`, `a`, `input`)\n- `text` — visible text content of the element\n- `href` — the `href` attribute for links\n- `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`)\n\nExample: to filter for clicks on buttons with text \"Sign Up\": `{ type: \"element\", key: \"text\", value: \"Sign Up\", operator: \"exact\" }`"
+            ]
         },
         "AssistantEventMultipleBreakdownFilterType": {
             "enum": ["cohort", "person", "event", "event_metadata", "session", "hogql", "revenue_analytics"],
@@ -1184,7 +1193,6 @@
         },
         "AssistantFlagPropertyFilter": {
             "additionalProperties": false,
-            "description": "Filter events by feature flag state. Use this to filter events to only those where a specific feature flag evaluated to a given value for the user.\n\nThe `key` is the feature flag key (string), and the `value` is either a boolean (`true`/`false`) or a multivariate variant name (string).\n\nExamples:\n- Filter for users with a flag enabled: `{ type: \"flag\", key: \"new-onboarding\", operator: \"flag_evaluates_to\", value: true }`\n- Filter for a specific variant: `{ type: \"flag\", key: \"checkout-experiment\", operator: \"flag_evaluates_to\", value: \"variant-a\" }`",
             "properties": {
                 "key": {
                     "description": "The feature flag key.",
@@ -1196,7 +1204,7 @@
                 },
                 "type": {
                     "const": "flag",
-                    "description": "Feature flag dependency",
+                    "description": "Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples:\n- Flag enabled: `{ type: \"flag\", key: \"new-onboarding\", operator: \"flag_evaluates_to\", value: true }`\n- Specific variant: `{ type: \"flag\", key: \"checkout-experiment\", operator: \"flag_evaluates_to\", value: \"variant-a\" }`",
                     "type": "string"
                 },
                 "value": {
@@ -1815,14 +1823,14 @@
         },
         "AssistantHogQLPropertyFilter": {
             "additionalProperties": false,
-            "description": "Filter by a HogQL expression. Use this for advanced filtering that can't be expressed with standard property filters. The `key` is a HogQL boolean expression.\n\nExamples:\n- Filter where a property exceeds a threshold: `{ type: \"hogql\", key: \"toFloat(properties.load_time) > 5.0\" }`\n- Filter with string matching: `{ type: \"hogql\", key: \"properties.$current_url LIKE '%/pricing%'\" }`\n- Filter with multiple conditions: `{ type: \"hogql\", key: \"properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30\" }`",
             "properties": {
                 "key": {
-                    "description": "A HogQL boolean expression used as a filter condition.",
+                    "description": "A HogQL boolean expression used as a filter condition.\n\nExamples:\n- Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0`\n- Filter with string matching: `properties.$current_url LIKE '%/pricing%'`\n- Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30`",
                     "type": "string"
                 },
                 "type": {
                     "const": "hogql",
+                    "description": "Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters.",
                     "type": "string"
                 }
             },
