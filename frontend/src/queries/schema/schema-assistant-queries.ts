@@ -3,6 +3,7 @@ import {
     ChartDisplayType,
     FunnelMathType,
     IntervalType,
+    LifecycleToggle,
     PathType,
     PropertyFilterType,
     PropertyOperator,
@@ -14,6 +15,7 @@ import {
     EventsNode,
     FunnelExclusionSteps,
     FunnelsFilterLegacy,
+    LifecycleFilterLegacy,
     MultipleBreakdownType,
     Node,
     NodeKind,
@@ -1028,6 +1030,105 @@ export interface AssistantPathsQuery extends AssistantInsightsQueryBase {
      * helping identify popular user flows and drop-off points.
      */
     pathsFilter: AssistantPathsFilter
+}
+
+/**
+ * Defines the event series for the lifecycle insight. Lifecycle does not support math aggregations.
+ */
+export interface AssistantLifecycleEventsNode extends Omit<
+    EventsNode,
+    | 'fixedProperties'
+    | 'properties'
+    | 'math'
+    | 'math_property'
+    | 'math_property_type'
+    | 'math_hogql'
+    | 'math_group_type_index'
+    | 'math_multiplier'
+    | 'math_property_revenue_currency'
+    | 'limit'
+    | 'groupBy'
+    | 'orderBy'
+    | 'response'
+> {
+    properties?: AssistantPropertyFilter[]
+}
+
+/**
+ * Defines the action series for the lifecycle insight. Lifecycle does not support math aggregations.
+ * You must provide the action ID in the `id` field and the name in the `name` field.
+ */
+export interface AssistantLifecycleActionsNode extends Omit<
+    ActionsNode,
+    | 'fixedProperties'
+    | 'properties'
+    | 'math'
+    | 'math_property'
+    | 'math_property_type'
+    | 'math_hogql'
+    | 'math_group_type_index'
+    | 'math_multiplier'
+    | 'math_property_revenue_currency'
+    | 'limit'
+    | 'groupBy'
+    | 'orderBy'
+    | 'response'
+    | 'name'
+> {
+    properties?: AssistantPropertyFilter[]
+    /**
+     * Action name from the plan.
+     */
+    name: string
+}
+
+export interface AssistantLifecycleFilter {
+    /**
+     * Whether to show a value on each data point.
+     * @default false
+     */
+    showValuesOnSeries?: LifecycleFilterLegacy['show_values_on_series']
+    /**
+     * Lifecycles that have been removed from display are not included in this array.
+     * Available values: `new`, `returning`, `resurrecting`, `dormant`.
+     * - `new` - users who performed the event for the first time during the period.
+     * - `returning` - users who were active in the previous period and are active in the current period.
+     * - `resurrecting` - users who were inactive for one or more periods and became active again.
+     * - `dormant` - users who were active in the previous period but are inactive in the current period.
+     */
+    toggledLifecycles?: LifecycleToggle[]
+    /**
+     * Whether to show the legend describing series.
+     * @default false
+     */
+    showLegend?: LifecycleFilterLegacy['show_legend']
+    /**
+     * Whether the lifecycle bars should be stacked.
+     * @default true
+     */
+    stacked?: boolean
+}
+
+export interface AssistantLifecycleQuery extends AssistantInsightsQueryBase {
+    kind: NodeKind.LifecycleQuery
+
+    /**
+     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
+     *
+     * @default day
+     */
+    interval?: IntervalType
+
+    /**
+     * Event or action to analyze. Lifecycle insights only support a single series.
+     * @maxLength 1
+     */
+    series: (AssistantLifecycleEventsNode | AssistantLifecycleActionsNode)[]
+
+    /**
+     * Properties specific to the lifecycle insight
+     */
+    lifecycleFilter?: AssistantLifecycleFilter
 }
 
 export interface AssistantHogQLQuery {
