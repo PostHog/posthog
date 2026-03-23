@@ -222,13 +222,12 @@ export class IngestionConsumer {
 
         const outputs = this.deps.outputs
 
-        // Optionally verify all output topics exist on their brokers.
-        // Enable with INGESTION_OUTPUTS_VERIFY_TOPICS=true in production.
-        if (process.env.INGESTION_OUTPUTS_VERIFY_TOPICS === 'true') {
-            const topicFailures = await outputs.checkTopics()
-            if (topicFailures.length > 0) {
-                throw new Error(`Output topic verification failed for: ${topicFailures.join(', ')}`)
-            }
+        // Verify all output topics exist. When auto_create_topics_enabled=true
+        // (hobby/dev), this ensures topics are created before first produce.
+        // When auto-create is off (production), this catches misconfigurations early.
+        const topicFailures = await outputs.checkTopics()
+        if (topicFailures.length > 0) {
+            throw new Error(`Output topic verification failed for: ${topicFailures.join(', ')}`)
         }
 
         const joinedPipelineConfig: JoinedIngestionPipelineConfig = {
