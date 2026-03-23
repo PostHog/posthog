@@ -102,12 +102,13 @@ describe('IngestionConsumer', () => {
         hub: Hub,
         overrides?: ConstructorParameters<typeof IngestionConsumer>[2]
     ) => {
+        const outputs = createTestIngestionOutputs(hub.kafkaProducer)
         const ingester = new IngestionConsumer(
             hub,
             {
                 ...hub,
                 kafkaMetricsProducer: hub.kafkaProducer,
-                outputs: createTestIngestionOutputs(hub.kafkaProducer),
+                outputs,
                 hogTransformer: createHogTransformerService(hub, hub),
             },
             overrides
