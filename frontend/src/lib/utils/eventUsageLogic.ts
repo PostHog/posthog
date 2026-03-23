@@ -468,7 +468,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
         reportExperimentWizardStarted: (guideVisible: boolean) => ({ guideVisible }),
         reportExperimentWizardGuideToggled: (visible: boolean, currentStep: string) => ({ visible, currentStep }),
-        reportExperimentArchived: (experiment: Experiment) => ({ experiment }),
         reportExperimentPaused: (experiment: Experiment) => ({ experiment }),
         reportExperimentResumed: (experiment: Experiment) => ({ experiment }),
         reportExperimentStopped: (experiment: Experiment) => ({ experiment }),
@@ -1399,11 +1398,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                     delay,
                 })
             }
-        },
-        reportExperimentArchived: ({ experiment }) => {
-            posthog.capture('experiment archived', {
-                ...getEventPropertiesForExperiment(experiment),
-            })
         },
         reportExperimentPaused: ({ experiment }) => {
             posthog.capture('experiment paused', {

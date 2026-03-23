@@ -541,7 +541,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentViewed',
                 'reportExperimentCompleted',
                 'reportExperimentStopped',
-                'reportExperimentArchived',
                 'reportExperimentReset',
                 'reportExperimentExposureCohortCreated',
                 'reportExperimentVariantShipped',
@@ -1453,7 +1452,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 )
                 actions.setExperiment(response)
                 refreshTreeItem('experiment', String(values.experimentId))
-                eventUsageLogic.actions.reportExperimentArchived(response)
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to archive experiment')
             }
