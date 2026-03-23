@@ -6,6 +6,7 @@ from django.db.models import Q, QuerySet
 import django_filters
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
+from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, response, serializers, status
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.request import Request
@@ -20,7 +21,6 @@ from posthog.models import OrganizationDomain, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
-from posthog.utils import is_impersonated_session
 
 from ee.api.scim.utils import (
     disable_scim_for_domain,
