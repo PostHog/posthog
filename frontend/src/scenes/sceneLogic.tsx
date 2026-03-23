@@ -1606,31 +1606,9 @@ export const sceneLogic = kea<sceneLogicType>([
                 syncPinnedTabsFromStorage()
             }
 
-            const addStorageListener = (): void => {
-                window.addEventListener('storage', onStorage)
-            }
-            const removeStorageListener = (): void => {
-                window.removeEventListener('storage', onStorage)
-            }
-
-            const onVisibilityChange = (): void => {
-                if (document.hidden) {
-                    removeStorageListener()
-                } else {
-                    addStorageListener()
-                    syncPinnedTabsFromStorage()
-                }
-            }
-
-            if (!document.hidden) {
-                addStorageListener()
-            }
-            document.addEventListener('visibilitychange', onVisibilityChange)
-
-            return () => {
-                removeStorageListener()
-                document.removeEventListener('visibilitychange', onVisibilityChange)
-            }
+            syncPinnedTabsFromStorage()
+            window.addEventListener('storage', onStorage)
+            return () => window.removeEventListener('storage', onStorage)
         }, 'pinnedTabsStorageListener')
     }),
 ])
