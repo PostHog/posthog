@@ -17761,6 +17761,25 @@ export namespace Schemas {
     }
 
     /**
+     * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
+     */
+    export type LogsViewFilters = {[key: string]: unknown};
+
+    export interface LogsView {
+      readonly id: string;
+      readonly short_id: string;
+      /** @maxLength 400 */
+      name: string;
+      /** Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys. */
+      filters?: LogsViewFilters;
+      pinned?: boolean;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    /**
      * * `api_key` - API Key
     * `oauth` - OAuth
      */
@@ -19037,6 +19056,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: LogsAlertConfiguration[];
+    }
+
+    export interface PaginatedLogsViewList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: LogsView[];
     }
 
     export interface PaginatedMCPServerInstallationList {
@@ -22607,6 +22635,25 @@ export namespace Schemas {
       /** @nullable */
       readonly last_checked_at?: string | null;
       readonly consecutive_failures?: number;
+      readonly created_at?: string;
+      readonly created_by?: UserBasic;
+      /** @nullable */
+      readonly updated_at?: string | null;
+    }
+
+    /**
+     * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
+     */
+    export type PatchedLogsViewFilters = {[key: string]: unknown};
+
+    export interface PatchedLogsView {
+      readonly id?: string;
+      readonly short_id?: string;
+      /** @maxLength 400 */
+      name?: string;
+      /** Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys. */
+      filters?: PatchedLogsViewFilters;
+      pinned?: boolean;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
       /** @nullable */
@@ -30909,6 +30956,17 @@ export namespace Schemas {
      * Exact prompt version UUID to resolve. Can be used together with version for extra safety.
      */
     version_id?: string;
+    };
+
+    export type LogsViewsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type MaterializedColumnSlotsListParams = {
