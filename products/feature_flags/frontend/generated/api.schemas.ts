@@ -7,6 +7,47 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface CopyFlagsRequestApi {
+    /** Key of the feature flag to copy */
+    feature_flag_key: string
+    /** Source project ID to copy the flag from */
+    from_project: number
+    /**
+     * List of target project IDs to copy the flag to
+     * @maxItems 50
+     */
+    target_project_ids: number[]
+    /** Whether to also copy scheduled changes for this flag */
+    copy_schedule?: boolean
+}
+
+export interface CopyFlagsSuccessItemApi {
+    /** ID of the created feature flag */
+    id: number
+    /** Key of the feature flag */
+    key: string
+    /** Name of the feature flag */
+    name: string
+    /** Whether the flag is active */
+    active: boolean
+    /** Team ID the flag was copied to */
+    team_id: number
+}
+
+export interface CopyFlagsResultApi {
+    /** Project ID (present on failure) */
+    project_id?: number
+    /** Error message (present on failure) */
+    error_message?: string
+}
+
+export interface CopyFlagsResponseApi {
+    /** List of successfully copied flags */
+    success: CopyFlagsSuccessItemApi[]
+    /** List of failed copy attempts */
+    failed: CopyFlagsResultApi[]
+}
+
 /**
  * * `engineering` - Engineering
  * `data` - Data
@@ -702,6 +743,22 @@ export interface ActivityLogPaginatedResponseApi {
     total_count: number
 }
 
+export interface DependentFlagApi {
+    /** Feature flag ID */
+    id: number
+    /** Feature flag key */
+    key: string
+    /** Feature flag name */
+    name: string
+}
+
+export interface FeatureFlagStatusResponseApi {
+    /** Flag status: active, stale, deleted, or unknown */
+    status: string
+    /** Human-readable explanation of the status */
+    reason: string
+}
+
 export type LocalEvaluationResponseApiGroupTypeMapping = { [key: string]: string }
 
 /**
@@ -755,6 +812,28 @@ export interface LocalEvaluationResponseApi {
 export interface MyFlagsResponseApi {
     feature_flag: MinimalFeatureFlagApi
     value: unknown
+}
+
+/**
+ * The release condition to evaluate
+ */
+export type UserBlastRadiusRequestApiCondition = { [key: string]: unknown }
+
+export interface UserBlastRadiusRequestApi {
+    /** The release condition to evaluate */
+    condition: UserBlastRadiusRequestApiCondition
+    /**
+     * Group type index for group-based flags (null for person-based flags)
+     * @nullable
+     */
+    group_type_index?: number | null
+}
+
+export interface UserBlastRadiusResponseApi {
+    /** Number of users matching the condition */
+    users_affected: number
+    /** Total number of users in the project */
+    total_users: number
 }
 
 export type FeatureFlagsListParams = {

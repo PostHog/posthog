@@ -105,7 +105,7 @@
         }
     },
     "alert-get": {
-        "description": "Get a specific alert by ID. Returns the full alert configuration including the last 5 check results, threshold settings, detector_config (for anomaly detection alerts), and subscribed users. Check results include anomaly_scores, triggered_points, and triggered_dates for detector-based alerts.",
+        "description": "Get a specific alert by ID. Returns the full alert configuration including check results, threshold settings, detector_config (for anomaly detection alerts), and subscribed users. Check results include anomaly_scores, triggered_points, and triggered_dates for detector-based alerts. By default returns the last 5 checks. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, and checks_limit to control the maximum returned (default 5, max 500). When date filters are provided without checks_limit, up to 500 checks are returned. Check history is retained for 14 days.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Get alert",
@@ -899,6 +899,96 @@
             "readOnlyHint": false
         }
     },
+    "feature-flags-activity-retrieve": {
+        "description": "Get the audit trail for a specific feature flag by ID. Returns a paginated list of changes including who made changes, what was changed, and when. Use limit and page query params for pagination.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Get feature flag activity log",
+        "title": "Get feature flag activity log",
+        "required_scopes": ["activity_log:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "feature-flags-dependent-flags-retrieve": {
+        "description": "Get other active feature flags that depend on this flag. Use this to understand flag dependency chains before making changes to a flag's rollout conditions or disabling it.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Get dependent feature flags",
+        "title": "Get dependent feature flags",
+        "required_scopes": ["feature_flag:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "feature-flags-status-retrieve": {
+        "description": "Check the health and evaluation status of a feature flag by ID. Returns a status (active, stale, deleted, or unknown) and a human-readable reason explaining the status.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Get feature flag status",
+        "title": "Get feature flag status",
+        "required_scopes": ["feature_flag:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "feature-flags-evaluation-reasons-retrieve": {
+        "description": "Debug why feature flags evaluate a certain way for a given user. Provide a distinct_id and optionally groups to see each flag's evaluated value and the reason for that evaluation (e.g. condition_match, no_condition_match, disabled).",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Get feature flag evaluation reasons",
+        "title": "Get feature flag evaluation reasons",
+        "required_scopes": ["feature_flag:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "feature-flags-user-blast-radius-create": {
+        "description": "Assess the impact of a feature flag release condition before applying it. Provide a condition object and optionally a group_type_index to see how many users would be affected relative to the total user count.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Get user blast radius",
+        "title": "Get user blast radius",
+        "required_scopes": ["feature_flag:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "feature-flags-copy-flags-create": {
+        "description": "Copy a feature flag from one project to other projects within the same organization. Provide the flag key, source project ID, and a list of target project IDs. Optionally copy scheduled changes with copy_schedule. Returns lists of successful and failed copies.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Copy feature flag across projects",
+        "title": "Copy feature flag across projects",
+        "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "notebooks-list": {
         "description": "List all notebooks in the project. Supports filtering by search term, created_by, last_modified_by, date_from, date_to, and contains. Returns title, short_id, and creation/modification metadata.",
         "category": "Notebooks",
@@ -1357,6 +1447,66 @@
         "title": "Get workflow",
         "required_scopes": ["hog_flow:read"],
         "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "query-trends": {
+        "description": "Run a trends query to analyze metrics over time. Use this to answer questions about event counts, unique users, session counts, or property aggregations with breakdowns and comparisons. Prefer this over raw HogQL for trends analysis. Use 'event-definitions-list' to discover available events, and 'properties-list' to discover available properties for filters and breakdowns.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "Run a trends query",
+        "title": "Run a trends query",
+        "required_scopes": ["query:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "query-funnel": {
+        "description": "Run a funnel query to analyze conversion rates through a sequence of steps. Use this to understand how users progress through multi-step flows like sign-up, onboarding, or purchase funnels. Requires at least two series steps. Use 'event-definitions-list' to discover available events.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "Run a funnel query",
+        "title": "Run a funnel query",
+        "required_scopes": ["query:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "query-retention": {
+        "description": "Run a retention query to analyze how many users return over time after performing an initial action. Use this to measure user engagement and stickiness by cohort. Use 'event-definitions-list' to discover available events.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "Run a retention query",
+        "title": "Run a retention query",
+        "required_scopes": ["query:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "query-traces-list": {
+        "description": "Query LLM traces to inspect AI/LLM usage. Returns a list of traces with their events, latency, token usage, and other metadata. Use dateRange, properties, and limit to filter results.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "List LLM traces",
+        "title": "List LLM traces",
+        "required_scopes": ["query:read"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

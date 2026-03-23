@@ -84,18 +84,76 @@ export type EnabledToolConfig = Omit<ToolConfig, 'scopes' | 'annotations'> & {
  * server_name + tool_name. With server name "posthog" (7 chars), tool names
  * must be <= 52 chars to stay under that limit.
  *
- * Enforced by lint-tool-names.ts rather than here so pre-existing tools
- * that already exceed the limit don't break schema validation.
+ * Length is enforced by lint-tool-names.ts rather than here so pre-existing
+ * tools that already exceed the limit don't break schema validation.
  */
 export const MAX_TOOL_NAME_LENGTH = 52
+
+/** Tool names must be lowercase kebab-case: letters, digits, hyphens. No leading/trailing hyphens. */
+export const TOOL_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/
+
+/** Feature identifiers must be lowercase snake_case: letters, digits, underscores. */
+export const FEATURE_NAME_PATTERN = /^[a-z][a-z0-9_]*$/
 
 export const CategoryConfigSchema = z
     .object({
         category: z.string(),
-        feature: z.string(),
+        feature: z.string().regex(FEATURE_NAME_PATTERN, 'Feature must be lowercase snake_case: [a-z0-9_]'),
         url_prefix: z.string(),
-        tools: z.record(z.string(), ToolConfigSchema),
+        tools: z.record(
+            z
+                .string()
+                .regex(
+                    TOOL_NAME_PATTERN,
+                    'Tool name must be lowercase kebab-case: [a-z0-9-], no leading/trailing hyphens'
+                ),
+            ToolConfigSchema
+        ),
     })
     .strict()
 
 export type CategoryConfig = z.infer<typeof CategoryConfigSchema>
+
+// ------------------------------------------------------------------
+// Query wrapper config — tools generated from frontend/src/queries/schema.json
+// ------------------------------------------------------------------
+
+export const QueryWrapperToolConfigSchema = z
+    .object({
+        /** Name of the definition in schema.json (e.g. "AssistantTrendsQuery") */
+        schema_ref: z.string(),
+        enabled: z.boolean(),
+        scopes: z.array(z.string()).optional(),
+        annotations: z
+            .object({
+                readOnly: z.boolean(),
+                destructive: z.boolean(),
+                idempotent: z.boolean(),
+            })
+            .strict()
+            .optional(),
+        mcp_version: z.number().int().positive().optional(),
+        title: z.string().optional(),
+        description: z.string().optional(),
+        ui_resource_uri: z.string().optional(),
+        /** Properties to exclude from the generated Zod schema */
+        exclude_properties: z.array(z.string()).optional(),
+    })
+    .strict()
+
+export type QueryWrapperToolConfig = z.infer<typeof QueryWrapperToolConfigSchema>
+
+export type EnabledQueryWrapperToolConfig = Omit<QueryWrapperToolConfig, 'scopes' | 'annotations'> & {
+    scopes: string[]
+    annotations: { readOnly: boolean; destructive: boolean; idempotent: boolean }
+}
+
+export const QueryWrappersConfigSchema = z
+    .object({
+        category: z.string(),
+        feature: z.string(),
+        wrappers: z.record(z.string(), QueryWrapperToolConfigSchema),
+    })
+    .strict()
+
+export type QueryWrappersConfig = z.infer<typeof QueryWrappersConfigSchema>

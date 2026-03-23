@@ -191,12 +191,21 @@ fn start_server(config: &Config, liveness: HealthRegistry) -> JoinHandle<()> {
     })
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    // Load configuration first to get OTEL settings
+fn main() -> Result<()> {
+    // Load configuration first (sync) so we can use worker_threads to size the runtime
     let config = Config::init_with_defaults()
         .context("Failed to load configuration from environment variables. Please check your environment setup.")?;
 
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(config.worker_threads)
+        .enable_all()
+        .build()
+        .context("Failed to build tokio runtime")?;
+
+    runtime.block_on(async_main(config))
+}
+
+async fn async_main(config: Config) -> Result<()> {
     // Initialize tracing with structured output similar to feature-flags
     let log_layer = {
         let base = fmt::layer()

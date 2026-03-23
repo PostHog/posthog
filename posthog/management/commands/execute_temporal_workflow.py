@@ -22,6 +22,7 @@ from posthog.temporal.import_recording import WORKFLOWS as IMPORT_RECORDING_WORK
 from posthog.temporal.llm_analytics import WORKFLOWS as LLM_ANALYTICS_WORKFLOWS
 from posthog.temporal.proxy_service import WORKFLOWS as PROXY_SERVICE_WORKFLOWS
 from posthog.temporal.quota_limiting import WORKFLOWS as QUOTA_LIMITING_WORKFLOWS
+from posthog.temporal.rasterize_recording import WORKFLOWS as RASTERIZE_RECORDING_WORKFLOWS
 from posthog.temporal.salesforce_enrichment import WORKFLOWS as SALESFORCE_ENRICHMENT_WORKFLOWS
 from posthog.temporal.tests.utils.workflow import WORKFLOWS as TEST_WORKFLOWS
 from posthog.temporal.usage_reports import WORKFLOWS as USAGE_REPORTS_WORKFLOWS
@@ -149,6 +150,7 @@ class Command(BaseCommand):
             + DATA_MODELING_WORKFLOWS
             + LLM_ANALYTICS_WORKFLOWS
             + EVENT_SCREENSHOTS_WORKFLOWS
+            + RASTERIZE_RECORDING_WORKFLOWS
         )
         try:
             workflow = next(workflow for workflow in WORKFLOWS if workflow.is_named(workflow_name))
