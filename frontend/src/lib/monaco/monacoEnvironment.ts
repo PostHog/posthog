@@ -2,13 +2,13 @@
 // instead of trying to load them from a CDN or different origin.
 // This prevents cross-origin errors with json.worker.js and other language workers.
 self.MonacoEnvironment = {
-    getWorkerUrl(_moduleId: string, label: string): string {
+    getWorker(_moduleId: string, label: string): Worker {
         if (label === 'json') {
-            return '/static/monacoJsonWorker.js'
+            return new Worker('/static/monacoJsonWorker.js', { type: 'module' })
         }
         if (label === 'typescript' || label === 'javascript') {
-            return '/static/monacoTsWorker.js'
+            return new Worker('/static/monacoTsWorker.js', { type: 'module' })
         }
-        return '/static/monacoEditorWorker.js'
+        return new Worker('/static/monacoEditorWorker.js', { type: 'module' })
     },
 }
