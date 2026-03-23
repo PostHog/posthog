@@ -483,7 +483,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
                         )
 
         if group_by_clause := ctx.groupByClause():
-            if group_by_clause.GROUPING():
+            if group_by_clause.ALL():
+                select_query.group_by_mode = "all"
+            elif group_by_clause.GROUPING():
                 select_query.group_by_mode = "grouping_sets"
             elif group_by_clause.CUBE():
                 select_query.group_by_mode = "cube"
@@ -523,6 +525,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.columnExpr())
 
     def visitGroupByClause(self, ctx: HogQLParser.GroupByClauseContext):
+        if ctx.ALL():
+            return None
         if ctx.GROUPING():
             return self.visit(ctx.groupingSetList())
         return self.visit(ctx.columnExprList())

@@ -834,6 +834,7 @@ public:
     virtual size_t getRuleIndex() const override;
     antlr4::tree::TerminalNode *GROUP();
     antlr4::tree::TerminalNode *BY();
+    antlr4::tree::TerminalNode *ALL();
     antlr4::tree::TerminalNode *LPAREN();
     ColumnExprListContext *columnExprList();
     antlr4::tree::TerminalNode *RPAREN();

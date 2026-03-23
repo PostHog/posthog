@@ -1476,6 +1476,21 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_select_group_by_all(self):
+            self.assertEqual(
+                self._select("select distinct_id, event, count(*) from events GROUP BY ALL"),
+                ast.SelectQuery(
+                    select=[
+                        ast.Field(chain=["distinct_id"]),
+                        ast.Field(chain=["event"]),
+                        ast.Call(name="count", args=[ast.Field(chain=["*"])]),
+                    ],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    group_by=None,
+                    group_by_mode="all",
+                ),
+            )
+
         def test_order_by(self):
             self.assertEqual(
                 parse_order_expr("1 ASC"),

@@ -1026,7 +1026,7 @@ class SelectQuery(Expr):
     having: Optional[Expr] = None
     qualify: Optional[Expr] = None
     group_by: Optional[list[Expr]] = None
-    group_by_mode: Optional[str] = None  # None, "grouping_sets", "cube", "rollup"
+    group_by_mode: Optional[str] = None  # None, "all", "grouping_sets", "cube", "rollup"
     order_by: Optional[list[OrderExpr]] = None
     limit: Optional[Expr] = None
     limit_by: Optional[LimitByExpr] = None

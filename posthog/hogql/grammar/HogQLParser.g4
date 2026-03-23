@@ -91,7 +91,8 @@ windowClause: WINDOW identifier AS LPAREN windowExpr RPAREN (COMMA identifier AS
 prewhereClause: PREWHERE columnExpr;
 whereClause: WHERE columnExpr;
 groupByClause: GROUP BY (
-    (CUBE | ROLLUP) LPAREN columnExprList RPAREN
+    ALL
+    | (CUBE | ROLLUP) LPAREN columnExprList RPAREN
     | GROUPING SETS LPAREN groupingSetList RPAREN
     | columnExprList
     );

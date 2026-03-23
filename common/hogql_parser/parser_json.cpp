@@ -697,7 +697,9 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     json["qualify"] = visitAsJSONOrNull(ctx->qualifyClause());
     json["group_by"] = visitAsJSONOrNull(ctx->groupByClause());
     if (const auto group_by_ctx = ctx->groupByClause()) {
-      if (group_by_ctx->GROUPING()) {
+      if (group_by_ctx->ALL()) {
+        json["group_by_mode"] = "all";
+      } else if (group_by_ctx->GROUPING()) {
         json["group_by_mode"] = "grouping_sets";
       } else if (group_by_ctx->CUBE()) {
         json["group_by_mode"] = "cube";
@@ -822,6 +824,9 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
   VISIT(WhereClause) { return visit(ctx->columnExpr()); }
 
   VISIT(GroupByClause) {
+    if (ctx->ALL()) {
+      return Json(nullptr);
+    }
     if (ctx->GROUPING()) {
       return visit(ctx->groupingSetList());
     }

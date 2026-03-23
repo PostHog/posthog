@@ -273,7 +273,9 @@ class HogQLPrinter(Visitor[str]):
             f"PREWHERE{space}" + prewhere if prewhere else None,
             f"WHERE{space}" + where if where else None,
             (
-                f"GROUP BY{space}GROUPING SETS ({comma.join(group_by)})"
+                f"GROUP BY ALL"
+                if node.group_by_mode == "all"
+                else f"GROUP BY{space}GROUPING SETS ({comma.join(group_by)})"
                 if node.group_by_mode == "grouping_sets"
                 else f"GROUP BY{space}CUBE({comma.join(group_by)})"
                 if node.group_by_mode == "cube"
@@ -281,7 +283,7 @@ class HogQLPrinter(Visitor[str]):
                 if node.group_by_mode == "rollup"
                 else f"GROUP BY{space}{comma.join(group_by)}"
             )
-            if group_by and len(group_by) > 0
+            if node.group_by_mode == "all" or (group_by and len(group_by) > 0)
             else None,
             f"HAVING{space}" + having if having else None,
             f"QUALIFY{space}" + qualify if qualify else None,
