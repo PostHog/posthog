@@ -1542,6 +1542,10 @@ class TestPrinter(BaseTest):
             f"SELECT 1, a FROM events INNER ARRAY JOIN [1, 2, 3] AS a WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
+    def test_select_positional_join(self):
+        result = self._select("select 1 from events positional join groups")
+        self.assertIn("POSITIONAL JOIN", result)
+
     def test_select_where(self):
         self.assertEqual(
             self._select("select 1 from events where 1 == 1"),
@@ -1552,6 +1556,10 @@ class TestPrinter(BaseTest):
             self._select("select 1 from events where 1 == 2"),
             f"SELECT 1 FROM events WHERE 0 LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
+
+    def test_function_filter_prints(self):
+        result = self._select("select sum(event) filter (where event = 'a') from events")
+        self.assertIn("FILTER (WHERE", result)
 
         self.assertEqual(
             self._select("select 1 from events where event='name'"),
@@ -4874,6 +4882,12 @@ class TestPostgresPrinter(BaseTest):
             ),
             "SELECT field_name, field_value FROM events UNPIVOT (field_value FOR field_name IN (events.event, events.uuid)) LIMIT 50000",
         )
+
+    def test_unpivot_prints_include_nulls(self):
+        result = self._select(
+            "SELECT field_name, field_value FROM events UNPIVOT INCLUDE NULLS (field_value FOR field_name IN (event))"
+        )
+        self.assertIn("UNPIVOT INCLUDE NULLS", result)
 
     def test_unpivot_prints_with_where_group_order(self):
         result = self._select(

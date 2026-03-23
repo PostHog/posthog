@@ -1638,6 +1638,28 @@ class TestResolver(BaseTest):
         assert isinstance(order_expr, ast.Field)
         assert isinstance(order_expr.type, ast.FieldType)
 
+    def test_function_call_filter_resolves(self):
+        expr = self._select("SELECT sum(event) FILTER (WHERE event = 'a') FROM events")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert isinstance(expr.select[0], ast.Call)
+        call = expr.select[0]
+        assert call.filter_expr is not None
+        assert isinstance(call.filter_expr, ast.CompareOperation)
+        left = call.filter_expr.left
+        if isinstance(left, ast.Alias):
+            left = left.expr
+        assert isinstance(left, ast.Field)
+        assert isinstance(left.type, ast.FieldType)
+
+    def test_unpivot_include_nulls_resolves(self):
+        expr = self._select(
+            "SELECT field_name, field_value FROM events UNPIVOT INCLUDE NULLS (field_value FOR field_name IN (event))"
+        )
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert isinstance(expr.select_from, ast.JoinExpr)
+        assert isinstance(expr.select_from.table, ast.UnpivotExpr)
+        assert expr.select_from.table.include_nulls is True
+
     def test_positional_refs_non_postgres_error(self):
         with self.assertRaisesMessage(QueryError, "Positional references are not allowed in clickhouse dialect"):
             expr = self._select("SELECT #1 FROM events")

@@ -575,6 +575,7 @@ class CloningVisitor(Visitor[Any]):
             type=None if self.clear_types else node.type,
             table=self.visit(node.table),
             columns=[self.visit(col) for col in node.columns],
+            include_nulls=node.include_nulls,
         )
 
     def visit_unpivot_column(self, node: ast.UnpivotColumn):
