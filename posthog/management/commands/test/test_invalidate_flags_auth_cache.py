@@ -8,6 +8,7 @@ from django.core.management.base import CommandError
 from django.test import override_settings
 
 import redis as redis_lib
+from parameterized import parameterized
 
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
@@ -91,31 +92,25 @@ class TestInvalidateFlagsAuthCacheCommand(BaseTest):
         assert not self._cache_exists(pak_hash)
         assert "Personal keys:       1" in output
 
-    def test_skips_pak_scoped_to_different_team(self):
-        other_team = Team.objects.create(organization=self.organization, name="Other Team")
-        pak_hash = hash_key_value("test_cmd_pak_other_team")
-        PersonalAPIKey.objects.create(
-            user=self.user,
-            label="Other Scoped PAK",
-            secure_value=pak_hash,
-            scoped_teams=[other_team.id],
-        )
-        self._seed_cache(pak_hash, {"type": "personal", "user_id": self.user.id})
+    @parameterized.expand(
+        [
+            ("scoped_to_different_team", "other_team", None),
+            ("scoped_to_different_org", None, "other_org"),
+        ]
+    )
+    def test_skips_pak_scoped_to_different(self, _name, scope_team, scope_org):
+        pak_hash = hash_key_value("test_cmd_pak_scoped")
+        pak_kwargs: dict = {"user": self.user, "label": "Scoped PAK", "secure_value": pak_hash}
 
-        output = self._call("--team-id", str(self.team.id))
+        if scope_team == "other_team":
+            other_team = Team.objects.create(organization=self.organization, name="Other Team")
+            pak_kwargs["scoped_teams"] = [other_team.id]
 
-        assert self._cache_exists(pak_hash)
-        assert "Personal keys:       0" in output
+        if scope_org == "other_org":
+            other_org = Organization.objects.create(name="Other Org")
+            pak_kwargs["scoped_organizations"] = [str(other_org.id)]
 
-    def test_skips_pak_scoped_to_different_org(self):
-        other_org = Organization.objects.create(name="Other Org")
-        pak_hash = hash_key_value("test_cmd_pak_other_org")
-        PersonalAPIKey.objects.create(
-            user=self.user,
-            label="Other Org PAK",
-            secure_value=pak_hash,
-            scoped_organizations=[str(other_org.id)],
-        )
+        PersonalAPIKey.objects.create(**pak_kwargs)
         self._seed_cache(pak_hash, {"type": "personal", "user_id": self.user.id})
 
         output = self._call("--team-id", str(self.team.id))
