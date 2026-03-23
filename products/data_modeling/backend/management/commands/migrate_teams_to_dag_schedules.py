@@ -1,0 +1,202 @@
+import time
+import logging
+from dataclasses import asdict
+from datetime import timedelta
+
+from django.conf import settings
+from django.core.management.base import BaseCommand, CommandError
+
+import structlog
+import temporalio
+from temporalio.client import (
+    Schedule,
+    ScheduleActionStartWorkflow,
+    ScheduleOverlapPolicy,
+    SchedulePolicy,
+    ScheduleState,
+)
+from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttributes
+
+from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.schedule import create_schedule, delete_schedule, schedule_exists
+from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY, POSTHOG_ORG_ID_KEY, POSTHOG_TEAM_ID_KEY
+from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
+
+from products.data_modeling.backend.models import DAG, Node
+from products.data_modeling.backend.schedule import build_schedule_spec
+
+logger = structlog.get_logger(__name__)
+
+BATCH_DELAY_SECONDS = 0.5
+
+
+class Command(BaseCommand):
+    help = "Migrate teams from per-node v1 schedules to a single per-DAG v2 schedule"
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--team-ids",
+            default=None,
+            type=str,
+            help="Comma separated list of team IDs to migrate",
+        )
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            default=False,
+            help="Only show what would be done without making changes",
+        )
+
+    def handle(self, **options):
+        logger.setLevel(logging.INFO)
+        dags = DAG.objects.select_related("team").exclude(name__startswith="conflict_")
+        if options.get("team_ids") is not None:
+            try:
+                team_ids = [int(tid) for tid in options["team_ids"].split(",")]
+            except ValueError:
+                raise CommandError("team_ids must be a comma separated list of team IDs")
+            dags = dags.filter(team_id__in=team_ids)
+        dags = dags.order_by("team_id")
+        total = dags.count()
+        if total == 0:
+            raise CommandError("No DAGs found matching filters")
+        logger.info(f"Found {total} DAGs to process")
+        if not options["dry_run"] and not settings.TEST:
+            confirm = input(f"\n\tWill migrate {total} DAGs to v2 schedules. Proceed? (y/n) ")
+            if confirm.strip().lower() != "y":
+                logger.info("Aborting")
+                return
+        migrated = 0
+        skipped = 0
+        failed = 0
+        for dag in dags.iterator():
+            try:
+                result = self._migrate_dag(dag, dry_run=options["dry_run"])
+                if result:
+                    migrated += 1
+                else:
+                    skipped += 1
+            except Exception:
+                failed += 1
+                logger.exception("Failed to migrate DAG", dag_id=str(dag.id), team_id=dag.team_id)
+            time.sleep(BATCH_DELAY_SECONDS)
+        logger.info(f"Done! Migrated: {migrated}, Skipped: {skipped}, Failed: {failed}")
+
+    def _migrate_dag(self, dag: DAG, *, dry_run: bool) -> bool:
+        """Migrate a single DAG to a v2 schedule.
+
+        Returns True if migrated, False if skipped.
+        """
+        team = dag.team
+        # find all materialized nodes in this DAG that have saved queries with sync schedules
+        scheduled_nodes = Node.objects.filter(
+            dag=dag,
+            saved_query__isnull=False,
+            saved_query__sync_frequency_interval__isnull=False,
+            saved_query__deleted=False,
+        ).select_related("saved_query")
+        if not scheduled_nodes.exists():
+            logger.info("No scheduled nodes found, skipping", dag_id=str(dag.id), team_id=team.pk)
+            return False
+        # check that all scheduled saved queries share the same sync frequency
+        distinct_intervals = scheduled_nodes.values_list("saved_query__sync_frequency_interval", flat=True).distinct()
+        intervals = list(distinct_intervals)
+        if len(intervals) != 1:
+            logger.warning(
+                "DAG has multiple sync frequencies, skipping",
+                dag_id=str(dag.id),
+                team_id=team.pk,
+                intervals=[str(i) for i in intervals],
+            )
+            return False
+        interval: timedelta = intervals[0]
+        if dry_run:
+            logger.info(
+                "Would migrate DAG",
+                dag_id=str(dag.id),
+                dag_name=dag.name,
+                team_id=team.pk,
+                interval=str(interval),
+                scheduled_nodes=scheduled_nodes.count(),
+            )
+            return True
+        # rename the DAG to "Default"
+        dag.name = "Default"
+        dag.save(update_fields=["name"])
+        logger.info("Renamed DAG", dag_id=str(dag.id), team_id=team.pk)
+        # create the v2 DAG schedule
+        temporal = sync_connect()
+        schedule_id = str(dag.id)
+        inputs = ExecuteDAGInputs(
+            team_id=team.pk,
+            dag_id=str(dag.id),
+            node_ids=None,
+            duckgres_only=False,
+        )
+        spec = build_schedule_spec(
+            entity_id=dag.id,
+            interval=interval,
+            team_timezone=team.timezone,
+        )
+        schedule = Schedule(
+            action=ScheduleActionStartWorkflow(
+                "data-modeling-execute-dag",
+                asdict(inputs),
+                id=f"execute-dag-{dag.id}",
+                task_queue=str(settings.DATA_MODELING_TASK_QUEUE),
+                retry_policy=RetryPolicy(
+                    initial_interval=timedelta(seconds=10),
+                    maximum_interval=timedelta(seconds=60),
+                    maximum_attempts=3,
+                    non_retryable_error_types=["NondeterminismError", "CancelledError"],
+                ),
+            ),
+            spec=spec,
+            state=ScheduleState(note=f"DAG schedule for team {team.pk}"),
+            policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+        )
+        search_attributes = TypedSearchAttributes(
+            search_attributes=[
+                SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=team.pk),
+                SearchAttributePair(key=POSTHOG_ORG_ID_KEY, value=str(team.organization_id)),
+                SearchAttributePair(key=POSTHOG_DAG_ID_KEY, value=str(dag.id)),
+            ]
+        )
+        create_schedule(
+            temporal,
+            id=schedule_id,
+            schedule=schedule,
+            trigger_immediately=False,
+            search_attributes=search_attributes,
+        )
+        logger.info("Created v2 DAG schedule", dag_id=str(dag.id), team_id=team.pk, interval=str(interval))
+        # delete old per-node schedules
+        if schedule_exists(temporal, schedule_id):
+            deleted_count = 0
+            for node in scheduled_nodes:
+                saved_query = node.saved_query
+                try:
+                    delete_schedule(temporal, schedule_id=str(saved_query.id))
+                    deleted_count += 1
+                except temporalio.service.RPCError as e:
+                    if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+                        logger.warning(
+                            "Old schedule not found (already deleted?)",
+                            saved_query_id=str(saved_query.id),
+                            team_id=team.pk,
+                        )
+                    else:
+                        logger.exception(
+                            "Failed to delete old schedule",
+                            saved_query_id=str(saved_query.id),
+                            team_id=team.pk,
+                        )
+            logger.info(
+                "Deleted old per-node schedules",
+                dag_id=str(dag.id),
+                team_id=team.pk,
+                deleted=deleted_count,
+                total=scheduled_nodes.count(),
+            )
+            return True
+        raise ValueError(f"Failed to create temporal schedule for DAG {dag.id}")
