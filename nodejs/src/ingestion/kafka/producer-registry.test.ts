@@ -123,5 +123,33 @@ describe('KafkaProducerRegistry', () => {
             expect(disconnectDefault).toHaveBeenCalledTimes(1)
             expect(disconnectCustom).toHaveBeenCalledTimes(1)
         })
+
+        it('continues disconnecting remaining producers when one fails', async () => {
+            setupProducerEnv('CUSTOM')
+            let callCount = 0
+            const disconnect = jest.fn().mockImplementation(async () => {
+                callCount++
+                if (callCount === 1) {
+                    throw new Error('flush timeout')
+                }
+                return Promise.resolve()
+            })
+
+            jest.mocked(KafkaProducerWrapper.create).mockResolvedValueOnce({
+                disconnect,
+            } as unknown as KafkaProducerWrapper)
+            jest.mocked(KafkaProducerWrapper.createWithConfig).mockResolvedValueOnce({
+                disconnect,
+            } as unknown as KafkaProducerWrapper)
+
+            const registry = new KafkaProducerRegistry(undefined)
+            await registry.getProducer(undefined)
+            await registry.getProducer('CUSTOM')
+
+            await expect(registry.disconnectAll()).rejects.toThrow('Failed to disconnect producers')
+
+            // Both were attempted despite the first one failing
+            expect(disconnect).toHaveBeenCalledTimes(2)
+        })
     })
 })

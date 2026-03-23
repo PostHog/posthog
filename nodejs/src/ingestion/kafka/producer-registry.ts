@@ -52,13 +52,22 @@ export class KafkaProducerRegistry {
         return producer
     }
 
-    /** Flush and disconnect all producers. */
+    /** Flush and disconnect all producers. Continues on failure to ensure all producers are attempted. */
     async disconnectAll(): Promise<void> {
         const entries = Array.from(this.producers.entries())
+        const errors: [string, unknown][] = []
         for (const [name, producer] of entries) {
             logger.info('🔌', `Disconnecting producer "${name}"`)
-            await producer.disconnect()
+            try {
+                await producer.disconnect()
+            } catch (err) {
+                logger.error('🔌', `Failed to disconnect producer "${name}"`, { err })
+                errors.push([name, err])
+            }
         }
         this.producers.clear()
+        if (errors.length > 0) {
+            throw new Error(`Failed to disconnect producers: ${errors.map(([n]) => n).join(', ')}`)
+        }
     }
 }
