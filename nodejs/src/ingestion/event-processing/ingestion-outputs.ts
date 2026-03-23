@@ -29,18 +29,19 @@ export class IngestionOutputs<O extends string> {
      * Returns the output names of any that fail.
      */
     async checkHealth(timeoutMs = 5000): Promise<string[]> {
-        const failures: string[] = []
-        const checked = new Set<KafkaProducerWrapper>()
+        const checks = new Map<KafkaProducerWrapper, { outputName: string; promise: Promise<void> }>()
 
         for (const outputName in this.outputs) {
             const { producer } = this.outputs[outputName]
-            if (checked.has(producer)) {
-                continue
+            if (!checks.has(producer)) {
+                checks.set(producer, { outputName, promise: producer.checkConnection(timeoutMs) })
             }
-            checked.add(producer)
+        }
 
+        const failures: string[] = []
+        for (const [, { outputName, promise }] of checks) {
             try {
-                await producer.checkConnection(timeoutMs)
+                await promise
             } catch (error) {
                 logger.error('🔴', `Producer health check failed for output "${outputName}"`, { error })
                 failures.push(outputName)
@@ -55,8 +56,8 @@ export class IngestionOutputs<O extends string> {
      * Returns the output names of any that fail.
      */
     async checkTopics(timeoutMs = 10000): Promise<string[]> {
-        const failures: string[] = []
-        const checked = new Map<KafkaProducerWrapper, Set<string>>()
+        const checks: { outputName: string; topic: string; promise: Promise<void> }[] = []
+        const seen = new Map<KafkaProducerWrapper, Set<string>>()
 
         for (const outputName in this.outputs) {
             const { topic, producer } = this.outputs[outputName]
@@ -64,15 +65,20 @@ export class IngestionOutputs<O extends string> {
                 continue
             }
 
-            const producerChecked = checked.get(producer) ?? new Set()
-            if (producerChecked.has(topic)) {
+            const producerSeen = seen.get(producer) ?? new Set()
+            if (producerSeen.has(topic)) {
                 continue
             }
-            producerChecked.add(topic)
-            checked.set(producer, producerChecked)
+            producerSeen.add(topic)
+            seen.set(producer, producerSeen)
 
+            checks.push({ outputName, topic, promise: producer.checkTopicExists(topic, timeoutMs) })
+        }
+
+        const failures: string[] = []
+        for (const { outputName, topic, promise } of checks) {
             try {
-                await producer.checkTopicExists(topic, timeoutMs)
+                await promise
             } catch (error) {
                 logger.error('🔴', `Topic check failed for output "${outputName}" topic "${topic}"`, { error })
                 failures.push(outputName)
