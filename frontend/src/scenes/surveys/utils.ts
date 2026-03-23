@@ -585,7 +585,7 @@ export function buildAggregateQuery(
         return null
     }
 
-    return branches.join('\nUNION ALL\n')
+    return `SELECT question_id, label, cnt FROM (${branches.join('\nUNION ALL\n')})`
 }
 
 export function buildOpenEndedQuery(
