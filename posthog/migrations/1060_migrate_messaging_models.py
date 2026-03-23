@@ -50,9 +50,6 @@ class Migration(migrations.Migration):
                     name="team",
                 ),
                 migrations.DeleteModel(
-                    name="MessagingRecord",
-                ),
-                migrations.DeleteModel(
                     name="MessageCategory",
                 ),
                 migrations.DeleteModel(

@@ -51,4 +51,3 @@ class MessagingRecord(UUIDTModel):
             "email_hash",
             "campaign_key",
         )  # can only send campaign once to each email
-        db_table = "posthog_messagingrecord"

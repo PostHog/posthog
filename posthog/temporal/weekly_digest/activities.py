@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
+from posthog.models.messaging import MessagingRecord, get_email_hash
 from posthog.ph_client import get_client as get_ph_client
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
@@ -59,8 +60,6 @@ from posthog.temporal.weekly_digest.types import (
     TeamDigest,
     UserDigestContext,
 )
-
-from products.messaging.backend.models.messaging import MessagingRecord, get_email_hash
 
 
 def _redis_url(common: CommonInput) -> str:

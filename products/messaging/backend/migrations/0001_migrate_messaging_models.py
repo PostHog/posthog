@@ -9,7 +9,6 @@ import posthog.models.utils
 
 MODELS_TO_MOVE = [
     "messagecategory",
-    "messagingrecord",
     "messagetemplate",
     "messagerecipientpreference",
 ]
@@ -100,29 +99,6 @@ class Migration(migrations.Migration):
                         "verbose_name_plural": "message categories",
                         "db_table": "posthog_messagecategory",
                         "unique_together": {("team", "key")},
-                    },
-                ),
-                migrations.CreateModel(
-                    name="MessagingRecord",
-                    fields=[
-                        (
-                            "id",
-                            models.UUIDField(
-                                default=posthog.models.utils.UUIDT,
-                                editable=False,
-                                primary_key=True,
-                                serialize=False,
-                            ),
-                        ),
-                        ("email_hash", models.CharField(max_length=1024)),
-                        ("campaign_key", models.CharField(max_length=128)),
-                        ("campaign_count", models.IntegerField(null=True)),
-                        ("sent_at", models.DateTimeField(null=True)),
-                        ("created_at", models.DateTimeField(auto_now_add=True)),
-                    ],
-                    options={
-                        "db_table": "posthog_messagingrecord",
-                        "unique_together": {("email_hash", "campaign_key")},
                     },
                 ),
                 migrations.CreateModel(
