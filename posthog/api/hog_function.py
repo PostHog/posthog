@@ -449,7 +449,7 @@ class HogFunctionFilterSet(FilterSet):
         fields = ["type", "enabled", "id", "created_by", "created_at", "updated_at"]
 
 
-@extend_schema(tags=["hog_functions"])
+@extend_schema(tags=["hog_functions", "cdp"])
 class HogFunctionViewSet(
     TeamAndOrgViewSetMixin,
     LogEntryMixin,
@@ -708,7 +708,7 @@ class HogFunctionViewSet(
             "filters": hog_function.filters.get("events", []) if hog_function.filters else [],
             "destination": {
                 "type": "Workflows",
-                "config": {},
+                "config": {"hog_function_id": str(hog_function.id)},
             },
         }
 

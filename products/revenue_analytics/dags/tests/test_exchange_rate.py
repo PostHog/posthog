@@ -11,6 +11,7 @@ from dagster import build_op_context
 
 from products.revenue_analytics.dags.exchange_rate import (
     OPEN_EXCHANGE_RATES_API_BASE_URL,
+    TRANSIENT_ERROR_RETRY_POLICY,
     ExchangeRateConfig,
     daily_exchange_rates,
     daily_exchange_rates_in_clickhouse,
@@ -31,6 +32,14 @@ SAMPLE_EXCHANGE_RATES = {
     "CAD": 1.25,
     "AUD": 1.35,
 }
+
+
+class TestRetryPolicy:
+    def test_retry_policy_is_configured_for_transient_errors(self):
+        assert TRANSIENT_ERROR_RETRY_POLICY.max_retries == 4
+        assert TRANSIENT_ERROR_RETRY_POLICY.delay == 120  # 2 minutes
+        assert TRANSIENT_ERROR_RETRY_POLICY.backoff == dagster.Backoff.EXPONENTIAL
+        assert TRANSIENT_ERROR_RETRY_POLICY.jitter == dagster.Jitter.PLUS_MINUS
 
 
 class TestExchangeRateUtils:

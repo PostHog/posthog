@@ -53,14 +53,6 @@ import generateHogQLFromQuestion from './query/generateHogQLFromQuestion'
 import queryRun from './query/run'
 // Search
 import entitySearch from './search/entitySearch'
-// Surveys
-import createSurvey from './surveys/create'
-import deleteSurvey from './surveys/delete'
-import getSurvey from './surveys/get'
-import getAllSurveys from './surveys/getAll'
-import surveysGlobalStats from './surveys/global-stats'
-import surveyStats from './surveys/stats'
-import updateSurvey from './surveys/update'
 // Misc
 import {
     type ToolFilterOptions,
@@ -125,15 +117,6 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'evaluation-delete': evaluationDelete,
     'evaluation-run': evaluationRun,
 
-    // Surveys
-    'surveys-get-all': getAllSurveys,
-    'survey-get': getSurvey,
-    'survey-create': createSurvey,
-    'survey-update': updateSurvey,
-    'survey-delete': deleteSurvey,
-    'surveys-global-stats': surveysGlobalStats,
-    'survey-stats': surveyStats,
-
     // Search
     'entity-search': entitySearch,
 
@@ -150,9 +133,12 @@ export const getToolsFromContext = async (
     context: Context,
     options?: ToolFilterOptions
 ): Promise<Tool<ZodObjectAny>[]> => {
+    // Check org AI consent to gate tools that use LLMs internally (cached in StateManager)
+    const aiConsentGiven = await context.stateManager.getAiConsentGiven()
+    const effectiveOptions = aiConsentGiven !== undefined ? { ...options, aiConsentGiven } : options
     const effectiveMap = { ...TOOL_MAP, ...GENERATED_TOOL_MAP }
     const excludeTools = options?.excludeTools ?? []
-    const allowedToolNames = getFilteredToolNames(options).filter((name) => !excludeTools.includes(name))
+    const allowedToolNames = getFilteredToolNames(effectiveOptions).filter((name) => !excludeTools.includes(name))
     const toolBases: ToolBase<ZodObjectAny>[] = []
 
     for (const toolName of allowedToolNames) {

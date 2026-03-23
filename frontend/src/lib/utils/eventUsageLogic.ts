@@ -29,7 +29,7 @@ import {
     getInterval,
     getSeries,
     isActionsNode,
-    isDataWarehouseNode,
+    isAnyDataWarehouseNode,
     isEventsNode,
     isFunnelsQuery,
     isInsightQueryNode,
@@ -84,6 +84,9 @@ export enum DashboardEventSource {
     SceneCommonButtons = 'scene_common_buttons',
     CardEdgeHover = 'card_edge_hover',
     CardDragHandle = 'card_drag_handle',
+    DashboardFilters = 'dashboard_filters',
+    DashboardInsightColorsModal = 'dashboard_insight_colors_modal',
+    DashboardVariableOverride = 'dashboard_variable_override',
 }
 
 export enum InsightEventSource {
@@ -210,8 +213,7 @@ function sanitizeQuery(query: Node | null): Record<string, string | number | boo
         payload.series_length = getSeries(querySource)?.length
         payload.event_entity_count = getSeries(querySource)?.filter((e) => isEventsNode(e)).length
         payload.action_entity_count = getSeries(querySource)?.filter((e) => isActionsNode(e)).length
-        payload.data_warehouse_entity_count = getSeries(querySource)?.filter((e) => isDataWarehouseNode(e)).length
-        payload.has_data_warehouse_series = !!getSeries(querySource)?.find((e) => isDataWarehouseNode(e))
+        payload.data_warehouse_entity_count = getSeries(querySource)?.filter((e) => isAnyDataWarehouseNode(e)).length
 
         // properties
         payload.has_properties = !!properties
@@ -236,7 +238,6 @@ function sanitizeQuery(query: Node | null): Record<string, string | number | boo
         // funnels
         payload.funnel_viz_type = isFunnelsQuery(querySource) ? querySource.funnelsFilter?.funnelVizType : undefined
         payload.funnel_order_type = isFunnelsQuery(querySource) ? querySource.funnelsFilter?.funnelOrderType : undefined
-        payload.has_data_warehouse_series = !!getSeries(querySource)?.find((e) => isDataWarehouseNode(e))
     }
 
     return objectClean(payload)
@@ -422,15 +423,21 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         ) => ({ attribute, originalLength, newLength }),
         reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
         reportDashboardWhitelabelToggled: (isWhiteLabelled: boolean) => ({ isWhiteLabelled }),
-        reportDashboardTileRepositioned: (dashboardId: number, action: 'moved' | 'resized') => ({
+        reportDashboardTileRepositioned: (dashboardId: number, action: 'moved' | 'resized', layoutZoom: number) => ({
             dashboardId,
             action,
+            layoutZoom,
         }),
         reportDashboardInsightMetaUpdated: (
             dashboardId: number | undefined,
             insightId: number,
             attribute: 'name' | 'description'
         ) => ({ dashboardId, insightId, attribute }),
+        reportDashboardInsightValuesOnSeriesToggled: (
+            dashboardId: number | undefined,
+            insightId: number,
+            source: DashboardEventSource
+        ) => ({ dashboardId, insightId, source }),
         reportUpgradeModalShown: (featureName: string) => ({ featureName }),
         reportTimezoneComponentViewed: (
             component: 'label' | 'indicator',
@@ -919,6 +926,42 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCustomerAnalyticsAddJoinButtonClicked: ({ table }) => ({ table }),
         reportCustomerAnalyticsDashboardEventsSaved: () => true,
         reportCustomerAnalyticsViewed: (delay?: number) => ({ delay }),
+        // Customer Journeys
+        reportCustomerJourneyViewed: (journeyId: string, journeyName: string, stepCount: number, delay?: number) => ({
+            journeyId,
+            journeyName,
+            stepCount,
+            delay,
+        }),
+        reportCustomerJourneyCreated: (journeyName: string, stepCount: number, creationSource: string | null) => ({
+            journeyName,
+            stepCount,
+            creationSource,
+        }),
+        reportCustomerJourneyUpdated: (journeyId: string, journeyName: string, stepCount: number) => ({
+            journeyId,
+            journeyName,
+            stepCount,
+        }),
+        reportCustomerJourneyDeleted: (journeyId: string) => ({ journeyId }),
+        reportCustomerJourneyTemplateSelected: (templateKey: string) => ({ templateKey }),
+        reportCustomerJourneyExistingFunnelSelected: (insightId: number) => ({ insightId }),
+        reportCustomerJourneyPathExpanded: (pathType: string, dropOff: boolean, stepIndex: number) => ({
+            pathType,
+            dropOff,
+            stepIndex,
+        }),
+        reportCustomerJourneyStepAddedFromPath: (eventName: string, pathType: string, stepIndex: number) => ({
+            eventName,
+            pathType,
+            stepIndex,
+        }),
+        reportCustomerJourneyStepsSavedFromEditor: (stepsAdded: number, journeyId: string | null) => ({
+            stepsAdded,
+            journeyId,
+        }),
+        reportCustomerJourneyBuilderStepAdded: (stepIndex: number, stepCount: number) => ({ stepIndex, stepCount }),
+        reportCustomerJourneyBuilderStepRemoved: (stepIndex: number, stepCount: number) => ({ stepIndex, stepCount }),
         reportGroupProfileViewed: (delay?: number) => ({ delay }),
         reportPersonProfileViewed: (delay?: number) => ({ delay }),
         reportUsageMetricsSettingsViewed: () => true,
@@ -1233,10 +1276,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportDashboardWhitelabelToggled: async ({ isWhiteLabelled }) => {
             posthog.capture(`dashboard whitelabel toggled`, { is_whitelabelled: isWhiteLabelled })
         },
-        reportDashboardTileRepositioned: async ({ dashboardId, action }) => {
+        reportDashboardTileRepositioned: async ({ dashboardId, action, layoutZoom }) => {
             posthog.capture('dashboard tile repositioned', {
                 dashboard_id: dashboardId,
                 action,
+                layout_zoom: layoutZoom,
             })
         },
         reportDashboardInsightMetaUpdated: async ({ dashboardId, insightId, attribute }) => {
@@ -1244,6 +1288,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 dashboard_id: dashboardId,
                 insight_id: insightId,
                 attribute,
+            })
+        },
+        reportDashboardInsightValuesOnSeriesToggled: async ({ dashboardId, insightId, source }) => {
+            posthog.capture('dashboard insight values on series toggled', {
+                dashboard_id: dashboardId,
+                insight_id: insightId,
+                source,
             })
         },
         reportUpgradeModalShown: async (payload) => {
@@ -2223,6 +2274,74 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             }
             const eventName = delay ? 'customer analytics analyzed' : 'customer analytics viewed'
             posthog.capture(eventName, { delay })
+        },
+        // Customer Journeys
+        reportCustomerJourneyViewed: async ({ journeyId, journeyName, stepCount, delay }, breakpoint) => {
+            if (!delay) {
+                await breakpoint(500)
+            }
+            const eventName = delay ? 'customer journey analyzed' : 'customer journey viewed'
+            posthog.capture(eventName, {
+                journey_id: journeyId,
+                journey_name: journeyName,
+                step_count: stepCount,
+                delay,
+            })
+        },
+        reportCustomerJourneyCreated: async ({ journeyName, stepCount, creationSource }) => {
+            posthog.capture('customer journey created', {
+                journey_name: journeyName,
+                step_count: stepCount,
+                creation_source: creationSource,
+            })
+        },
+        reportCustomerJourneyUpdated: async ({ journeyId, journeyName, stepCount }) => {
+            posthog.capture('customer journey updated', {
+                journey_id: journeyId,
+                journey_name: journeyName,
+                step_count: stepCount,
+            })
+        },
+        reportCustomerJourneyDeleted: async ({ journeyId }) => {
+            posthog.capture('customer journey deleted', { journey_id: journeyId })
+        },
+        reportCustomerJourneyTemplateSelected: async ({ templateKey }) => {
+            posthog.capture('customer journey template selected', { template_key: templateKey })
+        },
+        reportCustomerJourneyExistingFunnelSelected: async ({ insightId }) => {
+            posthog.capture('customer journey existing funnel selected', { insight_id: insightId })
+        },
+        reportCustomerJourneyPathExpanded: async ({ pathType, dropOff, stepIndex }) => {
+            posthog.capture('customer journey path expanded', {
+                path_type: pathType,
+                drop_off: dropOff,
+                step_index: stepIndex,
+            })
+        },
+        reportCustomerJourneyStepAddedFromPath: async ({ eventName, pathType, stepIndex }) => {
+            posthog.capture('customer journey step added from path', {
+                event_name: eventName,
+                path_type: pathType,
+                step_index: stepIndex,
+            })
+        },
+        reportCustomerJourneyStepsSavedFromEditor: async ({ stepsAdded, journeyId }) => {
+            posthog.capture('customer journey steps saved from editor', {
+                steps_added: stepsAdded,
+                journey_id: journeyId,
+            })
+        },
+        reportCustomerJourneyBuilderStepAdded: async ({ stepIndex, stepCount }) => {
+            posthog.capture('customer journey builder step added', {
+                step_index: stepIndex,
+                step_count: stepCount,
+            })
+        },
+        reportCustomerJourneyBuilderStepRemoved: async ({ stepIndex, stepCount }) => {
+            posthog.capture('customer journey builder step removed', {
+                step_index: stepIndex,
+                step_count: stepCount,
+            })
         },
         reportGroupProfileViewed: async ({ delay }, breakpoint) => {
             if (!delay) {

@@ -355,9 +355,22 @@ export const BatchExportBackfillStatusEnumApi = {
     Starting: 'Starting',
 } as const
 
+/**
+ * @nullable
+ */
+export type BatchExportBackfillApiProgress = {
+    /** @nullable */
+    readonly total_runs?: number | null
+    /** @nullable */
+    readonly finished_runs?: number | null
+    /** @nullable */
+    readonly progress?: number | null
+} | null | null
+
 export interface BatchExportBackfillApi {
     readonly id: string
-    readonly progress: string
+    /** @nullable */
+    readonly progress: BatchExportBackfillApiProgress
     /**
      * The start of the data interval.
      * @nullable

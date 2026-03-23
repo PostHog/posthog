@@ -551,7 +551,7 @@ class TestTaskRun(TestCase):
         [
             ("background_mode", {"mode": "background"}, True),
             ("default_mode_is_background", {}, True),
-            ("interactive_mode_skips", {"mode": "interactive"}, False),
+            ("interactive_mode", {"mode": "interactive"}, True),
         ]
     )
     @patch("posthog.temporal.common.client.sync_connect")

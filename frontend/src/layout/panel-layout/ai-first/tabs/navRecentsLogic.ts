@@ -8,6 +8,7 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import type { navRecentsLogicType } from './navRecentsLogicType'
 
 const NAV_RECENTS_LIMIT = 15
+const RECENTS_POLL_INTERVAL_MS = 30000
 
 export const navRecentsLogic = kea<navRecentsLogicType>([
     path(['layout', 'panel-layout', 'ai-first', 'tabs', 'navRecentsLogic']),
@@ -27,7 +28,15 @@ export const navRecentsLogic = kea<navRecentsLogicType>([
             },
         ],
     }),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, cache }) => {
         actions.loadRecentItems({})
+        cache.disposables.add(() => {
+            const pollInterval = setInterval(() => {
+                if (document.visibilityState === 'visible') {
+                    actions.loadRecentItems({})
+                }
+            }, RECENTS_POLL_INTERVAL_MS)
+            return () => clearInterval(pollInterval)
+        }, 'recentsPoll')
     }),
 ])

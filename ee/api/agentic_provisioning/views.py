@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import re
 import time
 import secrets
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -20,6 +21,7 @@ import structlog
 import posthoganalytics
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -35,7 +37,7 @@ from ee.settings import BILLING_SERVICE_URL
 
 from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX, RESOURCE_SERVICE_CACHE_PREFIX
 from .region_proxy import stripe_region_proxy
-from .signature import SUPPORTED_VERSIONS, verify_stripe_signature
+from .signature import SUPPORTED_VERSIONS, verify_api_version, verify_stripe_signature
 
 logger = structlog.get_logger(__name__)
 
@@ -48,52 +50,84 @@ DEEP_LINK_RATE_LIMIT_PREFIX = "agentic_login_rate:"
 DEEP_LINK_RATE_LIMIT_MAX_ATTEMPTS = 10
 DEEP_LINK_RATE_LIMIT_WINDOW_SECONDS = 300
 
+_SAFE_STATE_RE = re.compile(r"^[A-Za-z0-9_\-]{1,256}$")
+
 STRIPE_APP_NAME = "PostHog Stripe App"
 
 ACCESS_TOKEN_EXPIRY_SECONDS = 365 * 24 * 3600
 
 
 # ---------------------------------------------------------------------------
-# Service catalog — a parent "posthog" service with component children per
-# product. Users provision "posthog" and get all products; individual products
-# use component pricing with their Stripe price IDs so the orchestrator can
-# display pricing info.
+# Service catalog — two plans (free + pay_as_you_go) and one deployable
+# (analytics). The deployable provisions a PostHog project and defaults to the
+# free plan. When pay_as_you_go is selected, Stripe collects SPT for
+# usage-based billing across all products.
 # ---------------------------------------------------------------------------
 
-SERVICES_CACHE_KEY = "agentic_provisioning:services"
-SERVICES_CACHE_TTL = 3600  # 1 hour
-SERVICES_CACHE_RETRY_TTL = 300  # 5 min retry window when billing is down
+FREE_PLAN_ID = "free"
+PAY_AS_YOU_GO_PLAN_ID = "pay_as_you_go"
+USAGE_BASED_PRICING = {"type": "freeform", "freeform": "Usage-based pricing"}
+ANALYTICS_SERVICE_ID = "analytics"
 
-# Products that shouldn't be listed as provisionable services
+ALL_CATEGORIES: list[str] = ["analytics", "feature_flags", "ai"]
+
+SERVICES_CACHE_KEY = "agentic_provisioning:services"
+SERVICES_CACHE_TTL = 3600
+SERVICES_CACHE_RETRY_TTL = 300
+SERVICES_CACHE_EXPIRES_KEY = "agentic_provisioning:services:expires_at"
+SERVICES_CACHE_STORE_TTL = 86400
+
 _EXCLUDED_PRODUCT_TYPES = {"platform_and_support", "integrations"}
 
-# Billing product type -> APP service categories
-_CATEGORY_MAP: dict[str, list[str]] = {
-    "product_analytics": ["analytics"],
-    "session_replay": ["observability"],
-    "feature_flags": ["feature_flags"],
-    "surveys": ["analytics"],
-    "data_warehouse": ["database"],
-    "error_tracking": ["observability"],
-    "llm_analytics": ["analytics", "ai"],
-    "logs": ["observability"],
-    "posthog_ai": ["ai"],
-    "realtime_destinations": ["messaging"],
-    "workflows_emails": ["email"],
-}
-
-POSTHOG_SERVICE_ID = "posthog"
-
-POSTHOG_PARENT_SERVICE: dict[str, Any] = {
-    "id": POSTHOG_SERVICE_ID,
-    "description": "PostHog — product analytics, session replay, feature flags, A/B testing, surveys, and more",
-    "categories": ["analytics", "observability", "feature_flags", "ai"],
+FREE_PLAN_SERVICE: dict[str, Any] = {
+    "id": FREE_PLAN_ID,
+    "description": "Free — generous free tier across all PostHog products, no credit card required.",
+    "categories": ALL_CATEGORIES,
     "pricing": {"type": "free"},
+    "kind": "plan",
 }
+
+PAY_AS_YOU_GO_PLAN_SERVICE: dict[str, Any] = {
+    "id": PAY_AS_YOU_GO_PLAN_ID,
+    "description": "Pay-as-you-go — usage-based pricing across all PostHog products with no minimum commitment.",
+    "categories": ALL_CATEGORIES,
+    "pricing": {
+        "type": "paid",
+        "paid": USAGE_BASED_PRICING,
+    },
+    "kind": "plan",
+}
+
+_FALLBACK_DESCRIPTION = "PostHog — product analytics, session replay, feature flags, A/B testing, surveys, and more."
+
+
+def _build_analytics_service(description: str) -> dict[str, Any]:
+    return {
+        "id": ANALYTICS_SERVICE_ID,
+        "description": description,
+        "categories": ALL_CATEGORIES,
+        "pricing": {
+            "type": "component",
+            "component": {
+                "options": [
+                    {
+                        "parent_service_ids": [FREE_PLAN_ID],
+                        "type": "free",
+                    },
+                    {
+                        "parent_service_ids": [PAY_AS_YOU_GO_PLAN_ID],
+                        "type": "paid",
+                        "paid": USAGE_BASED_PRICING,
+                    },
+                ]
+            },
+        },
+        "kind": "deployable",
+    }
 
 
 def _fetch_services_from_billing() -> list[dict[str, Any]] | None:
-    """Fetch product catalog from billing. Returns None on failure."""
+    """Fetch product catalog from billing and build the service list."""
     try:
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/products-v2",
@@ -105,46 +139,18 @@ def _fetch_services_from_billing() -> list[dict[str, Any]] | None:
         logger.exception("agentic_provisioning.services.billing_fetch_failed")
         return None
 
-    services: list[dict[str, Any]] = [POSTHOG_PARENT_SERVICE]
-    for product in products:
-        product_type = product.get("type", "")
-        if product_type in _EXCLUDED_PRODUCT_TYPES:
-            continue
-        if product.get("inclusion_only"):
-            continue
+    product_names = [
+        p.get("name", "")
+        for p in products
+        if p.get("type", "") not in _EXCLUDED_PRODUCT_TYPES and not p.get("inclusion_only")
+    ]
+    description = f"PostHog — {', '.join(n for n in product_names if n).lower()}, and more."
 
-        paid_plan = next((p for p in product.get("plans", []) if p.get("price_id")), None)
-        if not paid_plan:
-            continue
-
-        services.append(
-            {
-                "id": product_type,
-                "description": product.get("headline") or product.get("description", ""),
-                "categories": _CATEGORY_MAP.get(product_type, ["analytics"]),
-                "pricing": {
-                    "type": "component",
-                    "component": {
-                        "options": [
-                            {
-                                "parent_service_ids": [POSTHOG_SERVICE_ID],
-                                "type": "paid",
-                                "paid": {
-                                    "type": "stripe_price",
-                                    "stripe_price": paid_plan["price_id"],
-                                },
-                            }
-                        ]
-                    },
-                },
-            }
-        )
-
-    return services
-
-
-SERVICES_CACHE_EXPIRES_KEY = "agentic_provisioning:services:expires_at"
-SERVICES_CACHE_STORE_TTL = 86400  # store data for 24h so stale reads work
+    return [
+        FREE_PLAN_SERVICE,
+        PAY_AS_YOU_GO_PLAN_SERVICE,
+        _build_analytics_service(description),
+    ]
 
 
 def _get_services() -> list[dict[str, Any]]:
@@ -161,20 +167,19 @@ def _get_services() -> list[dict[str, Any]]:
         cache.set(SERVICES_CACHE_EXPIRES_KEY, now + SERVICES_CACHE_TTL, SERVICES_CACHE_STORE_TTL)
         return services
 
-    # Billing failed — serve stale data, retry after SERVICES_CACHE_RETRY_TTL
     if cached is not None:
         logger.warning("agentic_provisioning.services.serving_stale_cache")
         cache.set(SERVICES_CACHE_EXPIRES_KEY, now + SERVICES_CACHE_RETRY_TTL, SERVICES_CACHE_STORE_TTL)
         return cached
 
     logger.warning("agentic_provisioning.services.no_cache_fallback")
-    fallback = [POSTHOG_PARENT_SERVICE]
+    fallback = [FREE_PLAN_SERVICE, PAY_AS_YOU_GO_PLAN_SERVICE, _build_analytics_service(_FALLBACK_DESCRIPTION)]
     cache.set(SERVICES_CACHE_KEY, fallback, SERVICES_CACHE_RETRY_TTL)
     cache.set(SERVICES_CACHE_EXPIRES_KEY, now + SERVICES_CACHE_RETRY_TTL, SERVICES_CACHE_RETRY_TTL)
     return fallback
 
 
-VALID_SERVICE_IDS: set[str] = {POSTHOG_SERVICE_ID} | set(_CATEGORY_MAP.keys())
+VALID_SERVICE_IDS: set[str] = {FREE_PLAN_ID, PAY_AS_YOU_GO_PLAN_ID, ANALYTICS_SERVICE_ID}
 
 
 # ---------------------------------------------------------------------------
@@ -188,6 +193,8 @@ VALID_SERVICE_IDS: set[str] = {POSTHOG_SERVICE_ID} | set(_CATEGORY_MAP.keys())
 def provisioning_health(request: Request) -> Response:
     error = verify_stripe_signature(request)
     if error:
+        return error
+    if error := verify_api_version(request):
         return error
 
     return Response({"supported_versions": SUPPORTED_VERSIONS, "status": "ok"})
@@ -205,6 +212,8 @@ def provisioning_services(request: Request) -> Response:
     error = verify_stripe_signature(request)
     if error:
         return error
+    if error := verify_api_version(request):
+        return error
 
     return Response({"data": _get_services(), "next_cursor": ""})
 
@@ -220,6 +229,9 @@ def provisioning_services(request: Request) -> Response:
 @permission_classes([])
 @stripe_region_proxy(strategy="body_region")
 def account_requests(request: Request) -> Response:
+    if error := verify_api_version(request):
+        return error
+
     data = request.data
     request_id = data.get("id", "")
     email = data.get("email")
@@ -365,7 +377,7 @@ def _build_authorize_url(confirmation_secret: str, scopes: list[str]) -> str:
 @login_required
 def agentic_authorize(request: Any) -> HttpResponseBase:
     state = request.GET.get("state", "")
-    if not state:
+    if not state or not _SAFE_STATE_RE.match(state):
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=missing_state")
 
     pending_key = f"{PENDING_AUTH_CACHE_PREFIX}{state}"
@@ -376,24 +388,85 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
     if request.user.email != pending["email"]:
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=email_mismatch")
 
-    cache.delete(pending_key)
+    scope = " ".join(pending.get("scopes", []))
 
     user = request.user
-    membership = user.organization_memberships.first()
-    if not membership:
+    memberships = list(user.organization_memberships.select_related("organization").all())
+    if not memberships:
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=no_organization")
 
-    organization = membership.organization
-    team = organization.teams.filter(is_demo=False).first() or organization.teams.first()
-    if not team:
+    org_ids = [m.organization_id for m in memberships]
+    non_demo_teams = list(Team.objects.filter(organization_id__in=org_ids, is_demo=False))
+
+    if not non_demo_teams:
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=no_team")
+
+    if len(memberships) == 1 and len(non_demo_teams) == 1:
+        cache.delete(pending_key)
+
+        organization = memberships[0].organization
+        team = non_demo_teams[0]
+
+        code = secrets.token_urlsafe(32)
+        cache.set(
+            f"{AUTH_CODE_CACHE_PREFIX}{code}",
+            {
+                "user_id": user.id,
+                "org_id": str(organization.id),
+                "team_id": team.id,
+                "stripe_account_id": pending.get("stripe_account_id", ""),
+                "scopes": pending.get("scopes", []),
+                "region": pending.get("region", "US"),
+            },
+            timeout=AUTH_CODE_TTL_SECONDS,
+        )
+
+        callback_url = settings.STRIPE_ORCHESTRATOR_CALLBACK_URL
+        sanitized_state = re.sub(r"[^A-Za-z0-9_\-]", "", state)
+        params = urlencode({"code": code, "state": sanitized_state})
+        return HttpResponseRedirect(f"{callback_url}?{params}")
+
+    base = settings.SITE_URL.rstrip("/")
+    sanitized_state = re.sub(r"[^A-Za-z0-9_\-]", "", state)
+    params = urlencode({"state": sanitized_state, "scope": scope})
+    return HttpResponseRedirect(f"{base}/agentic/authorize?{params}")
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def agentic_authorize_confirm(request: Request) -> Response:
+    state = request.data.get("state", "")
+    team_id = request.data.get("team_id")
+
+    if not state or team_id is None or not _SAFE_STATE_RE.match(state):
+        return Response({"error": "state and team_id are required"}, status=400)
+
+    pending_key = f"{PENDING_AUTH_CACHE_PREFIX}{state}"
+    pending = cache.get(pending_key)
+    if pending is None:
+        return Response({"error": "expired_or_invalid_state"}, status=400)
+
+    user = cast(User, request.user)
+
+    if user.email != pending["email"]:
+        return Response({"error": "email_mismatch"}, status=403)
+
+    try:
+        team = Team.objects.get(id=team_id, is_demo=False)
+    except Team.DoesNotExist:
+        return Response({"error": "team_not_found"}, status=404)
+
+    if not user.organization_memberships.filter(organization_id=team.organization_id).exists():
+        return Response({"error": "team_not_accessible"}, status=403)
+
+    cache.delete(pending_key)
 
     code = secrets.token_urlsafe(32)
     cache.set(
         f"{AUTH_CODE_CACHE_PREFIX}{code}",
         {
             "user_id": user.id,
-            "org_id": str(organization.id),
+            "org_id": str(team.organization_id),
             "team_id": team.id,
             "stripe_account_id": pending.get("stripe_account_id", ""),
             "scopes": pending.get("scopes", []),
@@ -403,8 +476,11 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
     )
 
     callback_url = settings.STRIPE_ORCHESTRATOR_CALLBACK_URL
-    params = urlencode({"code": code, "state": state})
-    return HttpResponseRedirect(f"{callback_url}?{params}")
+    sanitized_state = re.sub(r"[^A-Za-z0-9_\-]", "", state)
+    params = urlencode({"code": code, "state": sanitized_state})
+    redirect_url = f"{callback_url}?{params}"
+
+    return Response({"redirect_url": redirect_url})
 
 
 # ---------------------------------------------------------------------------
@@ -558,6 +634,8 @@ def provisioning_resources_create(request: Request) -> Response:
     error = verify_stripe_signature(request)
     if error:
         return error
+    if error := verify_api_version(request):
+        return error
 
     service_id = request.data.get("service_id", "")
     if service_id and service_id not in VALID_SERVICE_IDS:
@@ -574,7 +652,7 @@ def provisioning_resources_create(request: Request) -> Response:
     except Team.DoesNotExist:
         return _error_response("team_not_found", "Team not found", resource_id=str(team_id), status=404)
 
-    resolved_service_id = service_id or POSTHOG_SERVICE_ID
+    resolved_service_id = service_id or ANALYTICS_SERVICE_ID
     cache.set(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}", resolved_service_id, timeout=None)
 
     region = get_instance_region() or "US"
@@ -623,6 +701,8 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
     error = verify_stripe_signature(request)
     if error:
         return error
+    if error := verify_api_version(request):
+        return error
 
     scoped_teams = access_token.scoped_teams or []
 
@@ -649,7 +729,7 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
             "credential_rotation_failed", "Failed to rotate credentials", resource_id=resource_id, status=500
         )
 
-    service_id = cache.get(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}") or POSTHOG_SERVICE_ID
+    service_id = cache.get(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}") or ANALYTICS_SERVICE_ID
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
@@ -675,6 +755,8 @@ def _resolve_resource_response(request: Request, resource_id: str) -> Response:
 
     error = verify_stripe_signature(request)
     if error:
+        return error
+    if error := verify_api_version(request):
         return error
 
     scoped_teams = access_token.scoped_teams or []
@@ -709,7 +791,7 @@ def _resolve_resource_response(request: Request, resource_id: str) -> Response:
             status=404,
         )
 
-    service_id = cache.get(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}") or POSTHOG_SERVICE_ID
+    service_id = cache.get(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}") or ANALYTICS_SERVICE_ID
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
@@ -743,6 +825,8 @@ def deep_links(request: Request) -> Response:
 
     error = verify_stripe_signature(request)
     if error:
+        return error
+    if error := verify_api_version(request):
         return error
 
     purpose = request.data.get("purpose", "dashboard")
@@ -796,6 +880,7 @@ def deep_links(request: Request) -> Response:
 
 
 def _error_response(code: str, message: str, resource_id: str = "", status: int = 400) -> Response:
+    logger.warning("stripe_app.error_response", code=code, message=message, resource_id=resource_id, status=status)
     return Response({"status": "error", "id": resource_id, "error": {"code": code, "message": message}}, status=status)
 
 

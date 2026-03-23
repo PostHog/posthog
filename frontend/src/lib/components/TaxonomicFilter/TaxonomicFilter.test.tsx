@@ -69,6 +69,13 @@ describe('TaxonomicFilter', () => {
         )
     }
 
+    function expectActiveTab(activeTestId: string, inactiveTestId?: string): void {
+        expect(screen.getByTestId(activeTestId)).toHaveClass('LemonTag--primary')
+        if (inactiveTestId) {
+            expect(screen.getByTestId(inactiveTestId)).not.toHaveClass('LemonTag--primary')
+        }
+    }
+
     describe('rendering', () => {
         it('renders search input and loads results from the API', async () => {
             renderFilter()
@@ -213,6 +220,7 @@ describe('TaxonomicFilter', () => {
             await userEvent.click(screen.getByTestId('taxonomic-tab-actions'))
 
             await waitFor(() => {
+                expectActiveTab('taxonomic-tab-actions', 'taxonomic-tab-events')
                 expect(screen.getByTestId('prop-filter-actions-0')).toBeInTheDocument()
             })
         })
@@ -242,8 +250,7 @@ describe('TaxonomicFilter', () => {
                 expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
             })
 
-            const eventsTab = screen.getByTestId('taxonomic-tab-events')
-            expect(eventsTab.closest('[class*="LemonTag--primary"]')).toBeInTheDocument()
+            expectActiveTab('taxonomic-tab-events')
         })
     })
 
@@ -314,7 +321,7 @@ describe('TaxonomicFilter', () => {
     })
 
     describe('keyboard navigation', () => {
-        it('type to search and enter to select', async () => {
+        it('search narrows results and arrow down + enter selects from filtered list', async () => {
             renderFilter()
 
             await waitFor(() => {
@@ -324,7 +331,7 @@ describe('TaxonomicFilter', () => {
             await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), '$click')
 
             await waitFor(() => {
-                expect(screen.getAllByText('$click').length).toBeGreaterThanOrEqual(1)
+                expect(screen.queryByTestId('prop-filter-events-1')).not.toBeInTheDocument()
             })
 
             await userEvent.keyboard('{Enter}')
@@ -332,7 +339,7 @@ describe('TaxonomicFilter', () => {
             await waitFor(() => {
                 expect(onChangeMock).toHaveBeenCalledTimes(1)
             })
-            expect(onChangeMock.mock.calls[0][1]).toBe('event1')
+            expect(onChangeMock.mock.calls[0][1]).toBe('$click')
         })
 
         it('arrow down moves the highlighted index down', async () => {
@@ -345,7 +352,7 @@ describe('TaxonomicFilter', () => {
             const searchInput = screen.getByTestId('taxonomic-filter-searchfield')
             await userEvent.click(searchInput)
 
-            // First item is auto-selected at index 0, arrow down moves to index 1
+            await userEvent.keyboard('{ArrowDown}')
             await userEvent.keyboard('{ArrowDown}')
 
             await userEvent.keyboard('{Enter}')
@@ -354,6 +361,7 @@ describe('TaxonomicFilter', () => {
                 expect(onChangeMock).toHaveBeenCalledTimes(1)
             })
             expect(onChangeMock.mock.calls[0][0].type).toBe(TaxonomicFilterGroupType.Events)
+            expect(onChangeMock.mock.calls[0][1]).toBe('test event')
         })
 
         it('arrow up moves the highlighted index up', async () => {
@@ -366,10 +374,8 @@ describe('TaxonomicFilter', () => {
             const searchInput = screen.getByTestId('taxonomic-filter-searchfield')
             await userEvent.click(searchInput)
 
-            // Move down then up to end on the first item
             await userEvent.keyboard('{ArrowDown}')
             await userEvent.keyboard('{ArrowDown}')
-            await userEvent.keyboard('{ArrowUp}')
             await userEvent.keyboard('{ArrowUp}')
 
             await userEvent.keyboard('{Enter}')
@@ -377,6 +383,7 @@ describe('TaxonomicFilter', () => {
             await waitFor(() => {
                 expect(onChangeMock).toHaveBeenCalledTimes(1)
             })
+            expect(onChangeMock.mock.calls[0][1]).toBe('event1')
         })
 
         it('tab key switches to the next category tab', async () => {
@@ -394,6 +401,7 @@ describe('TaxonomicFilter', () => {
             await userEvent.keyboard('{Tab}')
 
             await waitFor(() => {
+                expectActiveTab('taxonomic-tab-actions', 'taxonomic-tab-events')
                 expect(screen.getByTestId('prop-filter-actions-0')).toBeInTheDocument()
             })
         })
@@ -414,36 +422,19 @@ describe('TaxonomicFilter', () => {
             await userEvent.keyboard('{Tab}')
 
             await waitFor(() => {
-                expect(screen.getByTestId('prop-filter-actions-0')).toBeInTheDocument()
+                expectActiveTab('taxonomic-tab-actions')
             })
 
             await userEvent.keyboard('{Shift>}{Tab}{/Shift}')
 
             await waitFor(() => {
+                expectActiveTab('taxonomic-tab-events', 'taxonomic-tab-actions')
                 expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
             })
         })
     })
 
     describe('multiple group types', () => {
-        it('events and actions load side by side', async () => {
-            renderFilter({
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
-            })
-
-            // Events load initially
-            await waitFor(() => {
-                expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
-            })
-
-            // Switch to actions
-            await userEvent.click(screen.getByTestId('taxonomic-tab-actions'))
-
-            await waitFor(() => {
-                expect(screen.getByTestId('prop-filter-actions-0')).toBeInTheDocument()
-            })
-        })
-
         it('events and person properties can be toggled', async () => {
             renderFilter({
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.PersonProperties],
@@ -609,7 +600,7 @@ describe('TaxonomicFilter', () => {
             await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'zzznonexistentevent12345')
 
             await waitFor(() => {
-                expect(screen.queryByTestId('prop-filter-events-0')).not.toBeInTheDocument()
+                expect(screen.queryAllByTestId(/^prop-filter-events-/)).toHaveLength(0)
             })
         })
     })

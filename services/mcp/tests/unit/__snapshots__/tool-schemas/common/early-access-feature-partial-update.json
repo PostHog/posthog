@@ -1,0 +1,31 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "description": {
+            "description": "A longer description of what this early access feature does, shown to users in the opt-in UI.",
+            "type": "string"
+        },
+        "documentation_url": {
+            "description": "URL to external documentation for this feature. Shown to users in the opt-in UI.",
+            "format": "uri",
+            "maxLength": 800,
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this early access feature.",
+            "type": "string"
+        },
+        "name": {
+            "description": "The name of the early access feature.",
+            "maxLength": 200,
+            "type": "string"
+        },
+        "stage": {
+            "description": "Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha/beta/general-availability) enables the feature flag for opted-in users.\n\n* `draft` - draft\n* `concept` - concept\n* `alpha` - alpha\n* `beta` - beta\n* `general-availability` - general availability\n* `archived` - archived",
+            "enum": ["draft", "concept", "alpha", "beta", "general-availability", "archived"],
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

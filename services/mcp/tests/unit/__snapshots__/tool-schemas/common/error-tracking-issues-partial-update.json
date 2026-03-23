@@ -1,0 +1,126 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "assignee": {
+            "properties": {
+                "id": {
+                    "anyOf": [
+                        {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "type": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "description": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "external_issues": {
+            "items": {
+                "properties": {
+                    "external_url": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "integration": {
+                        "properties": {
+                            "display_name": {
+                                "type": "string"
+                            },
+                            "id": {
+                                "type": "number"
+                            },
+                            "kind": {
+                                "enum": [
+                                    "slack",
+                                    "slack-posthog-code",
+                                    "salesforce",
+                                    "hubspot",
+                                    "google-pubsub",
+                                    "google-cloud-service-account",
+                                    "google-cloud-storage",
+                                    "google-ads",
+                                    "google-sheets",
+                                    "linkedin-ads",
+                                    "snapchat",
+                                    "intercom",
+                                    "email",
+                                    "twilio",
+                                    "linear",
+                                    "github",
+                                    "gitlab",
+                                    "meta-ads",
+                                    "clickup",
+                                    "reddit-ads",
+                                    "databricks",
+                                    "tiktok-ads",
+                                    "bing-ads",
+                                    "vercel",
+                                    "azure-blob",
+                                    "firebase",
+                                    "jira",
+                                    "pinterest-ads"
+                                ],
+                                "type": "string"
+                            }
+                        },
+                        "required": ["display_name", "id", "kind"],
+                        "type": "object"
+                    }
+                },
+                "required": ["external_url", "id", "integration"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "first_seen": {
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this error tracking issue.",
+            "type": "string"
+        },
+        "name": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "status": {
+            "description": "* `archived` - Archived\n* `active` - Active\n* `resolved` - Resolved\n* `pending_release` - Pending release\n* `suppressed` - Suppressed",
+            "enum": ["archived", "active", "resolved", "pending_release", "suppressed"],
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

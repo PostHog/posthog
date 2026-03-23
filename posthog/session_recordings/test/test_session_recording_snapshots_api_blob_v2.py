@@ -84,7 +84,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
-    @patch("posthog.session_recordings.session_recording_api.list_blocks")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks_async", new_callable=AsyncMock)
     @patch("posthog.session_recordings.session_recording_api.recording_api_client")
     def test_blob_v2_with_blob_keys_works(
         self,
@@ -155,7 +155,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
-    @patch("posthog.session_recordings.session_recording_api.list_blocks")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks_async", new_callable=AsyncMock)
     def test_blob_v2_must_send_end_key_if_sending_start_key(
         self,
         start_key,
@@ -284,7 +284,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
-    @patch("posthog.session_recordings.session_recording_api.list_blocks")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks_async", new_callable=AsyncMock)
     def test_blob_v2_block_index_out_of_range_returns_404(
         self,
         mock_list_blocks,
@@ -458,7 +458,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         ]
     )
     @patch("posthog.session_recordings.session_recording_api.recording_api_client")
-    @patch("posthog.session_recordings.session_recording_api.list_blocks")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks_async", new_callable=AsyncMock)
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
@@ -520,7 +520,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             assert call.kwargs["decompress"] == decompress
 
     @patch("posthog.session_recordings.session_recording_api.recording_api_client")
-    @patch("posthog.session_recordings.session_recording_api.list_blocks")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks_async", new_callable=AsyncMock)
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
@@ -561,7 +561,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert mock_storage.fetch_block.await_args.kwargs["decompress"] is True
 
     @patch("posthog.session_recordings.session_recording_api.recording_api_client")
-    @patch("posthog.session_recordings.session_recording_api.list_blocks")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks_async", new_callable=AsyncMock)
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
@@ -611,7 +611,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert response.content == b'{"timestamp": 1000}\n{"timestamp": 2000}\n{"timestamp": 3000}\n{"timestamp": 4000}'
 
     @patch("posthog.session_recordings.session_recording_api.recording_api_client")
-    @patch("posthog.session_recordings.session_recording_api.list_blocks")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks_async", new_callable=AsyncMock)
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
@@ -713,7 +713,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
-    @patch("posthog.session_recordings.session_recording_api.list_blocks")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks_async", new_callable=AsyncMock)
     @patch("posthog.session_recordings.session_recording_api.recording_api_client")
     def test_blob_v2_with_blob_keys_works_via_recording_api(
         self,
@@ -780,7 +780,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         ]
     )
     @patch("posthog.session_recordings.session_recording_api.recording_api_client")
-    @patch("posthog.session_recordings.session_recording_api.list_blocks")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks_async", new_callable=AsyncMock)
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
@@ -842,7 +842,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             assert call.kwargs["decompress"] == decompress
 
     @patch("posthog.session_recordings.session_recording_api.recording_api_client")
-    @patch("posthog.session_recordings.session_recording_api.list_blocks")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks_async", new_callable=AsyncMock)
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
@@ -883,7 +883,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert mock_storage.fetch_block.await_args.kwargs["decompress"] is True
 
     @patch("posthog.session_recordings.session_recording_api.recording_api_client")
-    @patch("posthog.session_recordings.session_recording_api.list_blocks")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks_async", new_callable=AsyncMock)
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
@@ -981,7 +981,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
     # Tests for 410 Gone response when recording is deleted
 
     @patch("posthog.session_recordings.session_recording_api.recording_api_client")
-    @patch("posthog.session_recordings.session_recording_api.list_blocks")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks_async", new_callable=AsyncMock)
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,

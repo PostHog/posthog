@@ -364,18 +364,20 @@ async fn authenticate_flag_definitions(
     team: &Team,
     headers: &HeaderMap,
 ) -> Result<(), FlagError> {
-    // Try team secret token first (from Authorization header only)
-    // Secret tokens have priority over personal API keys
+    // Try team secret token or project secret API key (from Authorization header only)
+    // Both use phs_ prefix and share the same cache; the unified loader handles both.
     if let Some(token) = auth::extract_team_secret_token(headers) {
-        let result = auth::validate_secret_api_token_for_team(state, &token, team.id).await;
-        if result.is_ok() {
-            inc(
-                FLAG_DEFINITIONS_AUTH_COUNTER,
-                &[("method".to_string(), "secret_api_key".to_string())],
-                1,
-            );
-        }
-        return result;
+        let auth_data = auth::validate_secret_api_token_for_team(state, &token, team.id).await?;
+        let method = match &auth_data {
+            auth::TokenAuthData::ProjectSecret { .. } => "project_secret_api_key",
+            _ => "secret_api_key",
+        };
+        inc(
+            FLAG_DEFINITIONS_AUTH_COUNTER,
+            &[("method".to_string(), method.to_string())],
+            1,
+        );
+        return Ok(());
     }
 
     // Try personal API key (with scope validation)

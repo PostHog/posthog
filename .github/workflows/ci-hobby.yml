@@ -623,6 +623,7 @@ jobs:
         name: Cleanup preview on label removal
         needs: changes
         if: needs.changes.outputs.label_removed == 'true'
+        timeout-minutes: 5
         uses: ./.github/workflows/pr-cleanup.yml
         # these permissions are required by pr-cleanup.yml
         permissions:

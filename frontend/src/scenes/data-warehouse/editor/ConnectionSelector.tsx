@@ -8,12 +8,19 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
 import { urls } from 'scenes/urls'
 
+import IconPostHog from 'public/posthog-icon.svg'
+import IconPostgres from 'public/services/postgres.png'
+
 import { sqlEditorLogic } from './sqlEditorLogic'
 
 export const POSTHOG_WAREHOUSE = '__posthog_warehouse__'
 export const LOADING_CONNECTIONS = '__loading_connections__'
 export const ADD_POSTGRES_DIRECT_CONNECTION = '__add_postgres_direct_connection__'
 export const CONFIGURE_SOURCES = '__configure_sources__'
+
+const sourceIcon = (src: string): JSX.Element => (
+    <img src={src} alt="" width={16} height={16} className="object-contain rounded" />
+)
 
 export function ConnectionSelector(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -43,11 +50,15 @@ export function ConnectionSelector(): JSX.Element | null {
             : directPostgresSources.map((source) => ({
                   value: source.id,
                   label: `${source.prefix ? source.prefix : source.id} (Postgres)`,
+                  icon: sourceIcon(IconPostgres),
               }))
 
         return [
             {
-                options: [{ value: POSTHOG_WAREHOUSE, label: 'PostHog (ClickHouse)' }, ...sourceOptions],
+                options: [
+                    { value: POSTHOG_WAREHOUSE, label: 'PostHog (ClickHouse)', icon: sourceIcon(IconPostHog) },
+                    ...sourceOptions,
+                ],
             },
             {
                 options: [

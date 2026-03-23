@@ -12,7 +12,6 @@
 - Environment:
   - Use flox when available — prefer `flox activate -- bash -c "<command>"` if commands fail
     - Never use `flox activate` in interactive sessions (it hangs if you try)
-  - If local hooks fail with missing Husky bootstrap files (for example `.husky/_/husky.sh`) or missing `lint-staged`, run `pnpm install --frozen-lockfile --filter=.` once in the repo root
 - Tests:
   - All tests: `pytest`
   - Single test: `pytest path/to/test.py::TestClass::test_method`
@@ -65,6 +64,10 @@ Follow the PR description template in `.github/pull_request_template.md` when cr
 - Scope is optional but encouraged when the change is specific to a feature area
 - Description should be lowercase and not end with a period
 - Keep the first line under 72 characters
+
+## CI / GitHub Actions
+
+- Every job in `.github/workflows/` must declare `timeout-minutes` — prevents stuck runners from burning credits indefinitely
 
 ## Security
 

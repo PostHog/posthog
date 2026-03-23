@@ -119,19 +119,18 @@ function loadKnownSchemaTypes(spec: OpenApiSpec): Set<string> {
 /**
  * Find an operation by operationId. When the same endpoint exists at both
  * /api/environments/ and /api/projects/, prefers /api/projects/.
- * Also matches _N deduplicated variants (e.g. issues_list matches issues_list_2).
+ * Prefers an exact operationId match, then falls back to matching _N deduplicated
+ * variants (e.g. issues_list matches issues_list_2) for backward compatibility.
  */
 function findOperation(spec: OpenApiSpec, operationId: string): ResolvedOperation | undefined {
     const base = operationId.replace(/_\d+$/, '')
-    let fallback: ResolvedOperation | undefined
+    let exactFallback: ResolvedOperation | undefined
+    let baseFallback: ResolvedOperation | undefined
+    let baseProject: ResolvedOperation | undefined
 
     for (const [urlPath, methods] of Object.entries(spec.paths)) {
         for (const [method, op] of Object.entries(methods)) {
             if (!op?.operationId) {
-                continue
-            }
-            const opBase = op.operationId.replace(/_\d+$/, '')
-            if (opBase !== base) {
                 continue
             }
             const resolved = {
@@ -139,15 +138,33 @@ function findOperation(spec: OpenApiSpec, operationId: string): ResolvedOperatio
                 path: urlPath,
                 operation: op,
             }
-            if (urlPath.startsWith('/api/projects/')) {
-                return resolved
+
+            if (op.operationId === operationId) {
+                if (urlPath.startsWith('/api/projects/')) {
+                    return resolved
+                }
+                if (!exactFallback) {
+                    exactFallback = resolved
+                }
+                continue
             }
-            if (!fallback) {
-                fallback = resolved
+
+            const opBase = op.operationId.replace(/_\d+$/, '')
+            if (opBase !== base) {
+                continue
+            }
+            if (urlPath.startsWith('/api/projects/')) {
+                if (!baseProject) {
+                    baseProject = resolved
+                }
+                continue
+            }
+            if (!baseFallback) {
+                baseFallback = resolved
             }
         }
     }
-    return fallback
+    return exactFallback ?? baseProject ?? baseFallback
 }
 
 function resolveSchema(spec: OpenApiSpec, schemaOrRef: OpenApiSchema | { $ref: string }): OpenApiSchema | undefined {
@@ -236,6 +253,8 @@ interface SchemaComposition {
     pathParamNames: string[]
     queryParamNames: string[]
     bodyFieldNames: string[]
+    /** Maps alias → original field name for renamed params */
+    renamedFields: Record<string, string>
 }
 
 function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec: OpenApiSpec): SchemaComposition {
@@ -248,6 +267,8 @@ function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec
 
     const excludeSet = new Set(config.exclude_params ?? [])
     const includeSet = config.include_params ? new Set(config.include_params) : undefined
+    // original → alias mapping from rename_params config
+    const renameMap = new Map(Object.entries(config.rename_params ?? {}))
 
     // Path params (omit project_id and organization_id — these are auto-resolved)
     const allPathParams = (resolved.operation.parameters ?? []).filter((p) => p.in === 'path')
@@ -346,7 +367,11 @@ function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec
                         continue
                     }
 
-                    bodyFieldNames.push(name)
+                    // If this field is renamed, store the alias instead so the
+                    // handler references params.<alias>. The original→alias
+                    // mapping is tracked in renamedFields for body-building.
+                    const alias = renameMap.get(name)
+                    bodyFieldNames.push(alias ?? name)
                 }
             }
 
@@ -388,6 +413,19 @@ function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec
         }
     }
 
+    // rename_params: swap original field names for MCP-safe aliases in the schema.
+    // The handler maps back to the original name when building the request body.
+    const renamedFields: Record<string, string> = {}
+    if (renameMap.size > 0) {
+        // We need the Body import to reference .shape['original'] for the alias type
+        const bodyImport = `${pascal}Body`
+        for (const [original, alias] of renameMap) {
+            renamedFields[alias] = original
+            schemaExpr += `\n    .omit({ '${original}': true })`
+            schemaExpr += `\n    .extend({ ${alias}: ${bodyImport}.shape['${original}'] })`
+        }
+    }
+
     return {
         orvalImports,
         toolInputsImports,
@@ -395,6 +433,7 @@ function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec
         pathParamNames,
         queryParamNames,
         bodyFieldNames,
+        renamedFields,
     }
 }
 
@@ -506,9 +545,10 @@ function generateToolCode(
         handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
     }
 
-    // Soft-delete overrides the HTTP method: use PATCH { deleted: true } instead of DELETE.
-    // This is necessary for endpoints backed by ForbidDestroyModel (e.g. actions).
-    const isSoftDelete = config.soft_delete === true
+    // Soft-delete overrides the HTTP method: use PATCH instead of DELETE.
+    // `true` sends { deleted: true }, a string value specifies the field name (e.g. "archived").
+    const isSoftDelete = config.soft_delete !== undefined && config.soft_delete !== false
+    const softDeleteField = typeof config.soft_delete === 'string' ? config.soft_delete : 'deleted'
 
     const hasBody = !isSoftDelete && composition.bodyFieldNames.length > 0
     const hasQuery = composition.queryParamNames.length > 0
@@ -516,7 +556,10 @@ function generateToolCode(
     if (hasBody) {
         handlerBody += `        const body: Record<string, unknown> = {}\n`
         for (const bf of composition.bodyFieldNames) {
-            handlerBody += `        if (params.${bf} !== undefined) body['${bf}'] = params.${bf}\n`
+            // If the field was renamed, bf is the alias (used for params access)
+            // and bodyKey is the original name (used as the HTTP body key).
+            const bodyKey = composition.renamedFields[bf] ?? bf
+            handlerBody += `        if (params.${bf} !== undefined) body['${bodyKey}'] = params.${bf}\n`
         }
     }
 
@@ -525,7 +568,7 @@ function generateToolCode(
     handlerBody += `            method: '${httpMethod}',\n`
     handlerBody += `            path: ${pathExpr},\n`
     if (isSoftDelete) {
-        handlerBody += `            body: { deleted: true },\n`
+        handlerBody += `            body: { ${softDeleteField}: true },\n`
     } else if (hasBody) {
         handlerBody += `            body,\n`
     }
@@ -770,6 +813,7 @@ function generateDefinitionsJson(
                     openWorldHint: true,
                     readOnlyHint: toolConfig.annotations.readOnly,
                 },
+                ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
             }
         }
     }

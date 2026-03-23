@@ -116,6 +116,13 @@ export const endpointLogic = kea<endpointLogicType>([
                 createEndpointSuccess: () => null,
             },
         ],
+        // Clear stale endpoint data immediately when loading a new endpoint
+        endpoint: [
+            null as EndpointVersionType | null,
+            {
+                loadEndpoint: () => null,
+            },
+        ],
         // Extend the loader reducer to clear on action
         materializationStatus: [
             null as EndpointType['materialization'] | null,
