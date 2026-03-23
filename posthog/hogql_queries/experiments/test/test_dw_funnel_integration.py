@@ -46,81 +46,37 @@ class TestFunnelDWValidation:
 
         FunnelDWValidator.validate_funnel_metric(metric)
 
-    def test_missing_table_name(self):
-        """Missing table_name should raise ValueError."""
+    @pytest.mark.parametrize(
+        "missing_field,expected_error",
+        [
+            ("table_name", "table_name is required"),
+            ("timestamp_field", "timestamp_field is required"),
+            ("data_warehouse_join_key", "data_warehouse_join_key is required"),
+            ("events_join_key", "events_join_key is required"),
+        ],
+    )
+    def test_missing_required_field(self, missing_field, expected_error):
+        """Missing required field should raise ValidationError with appropriate message."""
+        fields = {
+            "table_name": "revenue",
+            "timestamp_field": "purchase_date",
+            "data_warehouse_join_key": "user_id",
+            "events_join_key": "properties.$user_id",
+        }
+        # Blank out the missing field
+        fields[missing_field] = ""
+
         metric = ExperimentFunnelMetric(
             series=[
                 EventsNode(event="pageview"),
-                ExperimentDataWarehouseNode(
-                    table_name="",  # Missing
-                    timestamp_field="purchase_date",
-                    data_warehouse_join_key="user_id",
-                    events_join_key="properties.$user_id",
-                ),
+                ExperimentDataWarehouseNode(**fields),
             ],
             funnel_order_type=StepOrderValue.ORDERED,
         )
 
         with pytest.raises(ValidationError) as exc_info:
             FunnelDWValidator.validate_funnel_metric(metric)
-        assert "table_name is required" in str(exc_info.value)
-
-    def test_missing_timestamp_field(self):
-        """Missing timestamp_field should raise ValueError."""
-        metric = ExperimentFunnelMetric(
-            series=[
-                EventsNode(event="pageview"),
-                ExperimentDataWarehouseNode(
-                    table_name="revenue",
-                    timestamp_field="",  # Missing
-                    data_warehouse_join_key="user_id",
-                    events_join_key="properties.$user_id",
-                ),
-            ],
-            funnel_order_type=StepOrderValue.ORDERED,
-        )
-
-        with pytest.raises(ValidationError) as exc_info:
-            FunnelDWValidator.validate_funnel_metric(metric)
-        assert "timestamp_field is required" in str(exc_info.value)
-
-    def test_missing_data_warehouse_join_key(self):
-        """Missing data_warehouse_join_key should raise ValueError."""
-        metric = ExperimentFunnelMetric(
-            series=[
-                EventsNode(event="pageview"),
-                ExperimentDataWarehouseNode(
-                    table_name="revenue",
-                    timestamp_field="purchase_date",
-                    data_warehouse_join_key="",  # Missing
-                    events_join_key="properties.$user_id",
-                ),
-            ],
-            funnel_order_type=StepOrderValue.ORDERED,
-        )
-
-        with pytest.raises(ValidationError) as exc_info:
-            FunnelDWValidator.validate_funnel_metric(metric)
-        assert "data_warehouse_join_key is required" in str(exc_info.value)
-
-    def test_missing_events_join_key(self):
-        """Missing events_join_key should raise ValueError."""
-        metric = ExperimentFunnelMetric(
-            series=[
-                EventsNode(event="pageview"),
-                ExperimentDataWarehouseNode(
-                    table_name="revenue",
-                    timestamp_field="purchase_date",
-                    data_warehouse_join_key="user_id",
-                    events_join_key="",  # Missing
-                ),
-            ],
-            funnel_order_type=StepOrderValue.ORDERED,
-        )
-
-        with pytest.raises(ValidationError) as exc_info:
-            FunnelDWValidator.validate_funnel_metric(metric)
-        assert "events_join_key is required" in str(exc_info.value)
+        assert expected_error in str(exc_info.value)
 
     def test_inconsistent_join_keys(self):
         """Different events_join_keys should raise ValueError."""
