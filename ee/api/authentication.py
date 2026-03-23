@@ -283,12 +283,12 @@ class MultitenantSAMLAuth(SAMLAuth):
 class CustomGoogleOAuth2(GoogleOAuth2):
     def auth_extra_arguments(self):
         extra_args = super().auth_extra_arguments()
-        prompt_tokens = [token for token in str(extra_args.get("prompt", "")).split() if token]
-
-        if "select_account" not in prompt_tokens:
-            prompt_tokens.append("select_account")
-
-        extra_args["prompt"] = " ".join(prompt_tokens)
+        is_reauth = self.strategy.request.GET.get("reauth") == "true"
+        if not is_reauth:
+            prompt_tokens = [token for token in str(extra_args.get("prompt", "")).split() if token]
+            if "select_account" not in prompt_tokens:
+                prompt_tokens.append("select_account")
+            extra_args["prompt"] = " ".join(prompt_tokens)
 
         email = self.strategy.request.GET.get("email")
 
