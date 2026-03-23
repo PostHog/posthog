@@ -59,7 +59,7 @@ def log_scim_admin_activity(
     log_activity(
         organization_id=domain.organization_id,
         team_id=None,
-        user=request.user if request else None,
+        user=cast(User, request.user) if request else None,
         was_impersonated=is_impersonated_session(request) if request else False,
         item_id=str(domain.id),
         scope="OrganizationDomain",

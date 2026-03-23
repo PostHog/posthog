@@ -685,6 +685,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         assert log is not None
         assert log.organization_id == self.organization.id
         assert log.user == self.user
+        assert log.detail is not None
         assert log.detail["name"] == "myposthog.com"
 
     def test_disabling_scim_logs_activity(self):
@@ -717,6 +718,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         assert log is not None
         assert log.organization_id == self.organization.id
         assert log.user == self.user
+        assert log.detail is not None
         assert log.detail["name"] == "myposthog.com"
 
     def test_scim_token_rotation_logs_activity(self):
@@ -746,6 +748,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         assert log is not None
         assert log.organization_id == self.organization.id
         assert log.user == self.user
+        assert log.detail is not None
         assert log.detail["name"] == "myposthog.com"
 
 
