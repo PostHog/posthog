@@ -16,6 +16,7 @@ from django.utils import timezone
 import requests as http_requests
 import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse, extend_schema
+from posthog.event_usage import groups
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -980,11 +981,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return method
 
 
-def _activate_code_for_user(user) -> None:
+def _activate_code_for_user(user, organization=None) -> None:
     """Capture an analytics event when a user redeems a Code invite."""
     posthoganalytics.capture(
         distinct_id=str(user.distinct_id),
         event="code_invite_redeemed",
+        groups=groups(organization=organization),
     )
 
 
@@ -1049,7 +1051,7 @@ class CodeInviteViewSet(viewsets.ViewSet):
 
             CodeInvite.objects.filter(id=invite_code.id).update(redemption_count=F("redemption_count") + 1)
 
-            _activate_code_for_user(request.user)
+            _activate_code_for_user(request.user, organization=organization)
 
         return Response({"success": True})
 

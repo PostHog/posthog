@@ -6,7 +6,6 @@ from django.http import HttpRequest, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 
 import structlog
-import posthoganalytics
 
 from posthog.models.instance_setting import get_instance_setting
 
@@ -113,7 +112,7 @@ def github_pr_webhook(request: HttpRequest) -> HttpResponse:
         return HttpResponse(status=200)
 
     # Find TaskRun by pr_url in output field
-    task_run = TaskRun.objects.filter(output__pr_url=pr_url).select_related("task", "task__created_by").first()
+    task_run = TaskRun.objects.filter(output__pr_url=pr_url).select_related("task", "task__created_by", "team").first()
 
     if not task_run:
         logger.debug(
@@ -136,29 +135,6 @@ def github_pr_webhook(request: HttpRequest) -> HttpResponse:
         run_id=str(task_run.id),
     )
 
-    # Emit PostHog analytics event
-    try:
-        # should probably not use a distinct id and send an anon id with person processing off in fail case...
-        distinct_id = (
-            str(task_run.task.created_by.distinct_id) if task_run.task.created_by else f"team_{task_run.team_id}"
-        )
-
-        posthoganalytics.capture(
-            distinct_id=distinct_id,
-            event=analytics_event,
-            properties={
-                "task_id": str(task_run.task_id),
-                "run_id": str(task_run.id),
-                "pr_url": pr_url,
-                "repository": task_run.task.repository,
-                "team_id": task_run.team_id,
-            },
-        )
-    except Exception as e:
-        logger.warning(
-            "github_pr_webhook_analytics_failed",
-            error=str(e),
-            analytics_event=analytics_event,
-        )
+    task_run.capture_event(analytics_event, {"pr_url": pr_url})
 
     return HttpResponse(status=200)

@@ -27,6 +27,7 @@ class TaskProcessingContext:
     task_id: str
     run_id: str
     team_id: int
+    organization_id: str
     github_integration_id: int | None
     repository: str | None
     distinct_id: str
@@ -71,7 +72,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     log_with_activity_context("Fetching task processing context", run_id=run_id)
 
     try:
-        task_run = TaskRun.objects.select_related("task__created_by").get(id=run_id)
+        task_run = TaskRun.objects.select_related("task__created_by", "task__team").get(id=run_id)
     except ObjectDoesNotExist as e:
         raise TaskNotFoundError(f"TaskRun {run_id} not found", {"run_id": run_id}, cause=e)
 
@@ -103,6 +104,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         task_id=str(task.id),
         run_id=run_id,
         team_id=task.team_id,
+        organization_id=str(task.team.organization_id),
         github_integration_id=task.github_integration_id,
         repository=task.repository,
         distinct_id=distinct_id,
