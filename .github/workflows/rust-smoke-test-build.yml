@@ -39,9 +39,9 @@ jobs:
         timeout-minutes: 5
         if: |
             github.event_name == 'workflow_dispatch' ||
-            (contains(github.event.pull_request.labels.*.name, 'smoke_test') &&
-             github.event.pull_request.head.repo.full_name == github.repository) ||
-            contains(toJson(github.event.pull_request.labels.*.name), 'smoke_test:')
+            (github.event.pull_request.head.repo.full_name == github.repository &&
+             (contains(github.event.pull_request.labels.*.name, 'smoke_test') ||
+              contains(toJson(github.event.pull_request.labels.*.name), 'smoke_test:')))
         permissions:
             contents: read
         steps:
@@ -49,18 +49,20 @@ jobs:
               if: |
                   github.event_name != 'workflow_dispatch' &&
                   github.event.pull_request.author_association != 'OWNER' &&
-                  github.event.pull_request.author_association != 'MEMBER'
+                  github.event.pull_request.author_association != 'MEMBER' &&
+                  github.event.pull_request.author_association != 'COLLABORATOR'
               env:
                   AUTHOR: ${{ github.event.pull_request.user.login }}
                   ASSOCIATION: ${{ github.event.pull_request.author_association }}
               run: |
-                  echo "::error::PR author ($AUTHOR) has association '$ASSOCIATION' — smoke test builds are restricted to org members"
+                  echo "::error::PR author ($AUTHOR) has association '$ASSOCIATION' — smoke test builds are restricted to org members and collaborators"
                   exit 1
 
     resolve-filter:
         name: resolve image filter
         runs-on: ubuntu-latest
         timeout-minutes: 2
+        if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
         permissions: {}
         outputs:
             filter: ${{ steps.parse.outputs.filter }}
