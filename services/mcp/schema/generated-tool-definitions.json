@@ -105,7 +105,7 @@
         }
     },
     "alert-get": {
-        "description": "Get a specific alert by ID. Returns the full alert configuration including the last 5 check results, threshold settings, detector_config (for anomaly detection alerts), and subscribed users. Check results include anomaly_scores, triggered_points, and triggered_dates for detector-based alerts.",
+        "description": "Get a specific alert by ID. Returns the full alert configuration including check results, threshold settings, detector_config (for anomaly detection alerts), and subscribed users. Check results include anomaly_scores, triggered_points, and triggered_dates for detector-based alerts. By default returns the last 5 checks. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, and checks_limit to control the maximum returned (default 5, max 500). When date filters are provided without checks_limit, up to 500 checks are returned. Check history is retained for 14 days.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Get alert",
@@ -1357,6 +1357,66 @@
         "title": "Get workflow",
         "required_scopes": ["hog_flow:read"],
         "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "query-trends": {
+        "description": "Run a trends query to analyze metrics over time. Use this to answer questions about event counts, unique users, session counts, or property aggregations with breakdowns and comparisons. Prefer this over raw HogQL for trends analysis. Use 'event-definitions-list' to discover available events, and 'properties-list' to discover available properties for filters and breakdowns.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "Run a trends query",
+        "title": "Run a trends query",
+        "required_scopes": ["query:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "query-funnel": {
+        "description": "Run a funnel query to analyze conversion rates through a sequence of steps. Use this to understand how users progress through multi-step flows like sign-up, onboarding, or purchase funnels. Requires at least two series steps. Use 'event-definitions-list' to discover available events.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "Run a funnel query",
+        "title": "Run a funnel query",
+        "required_scopes": ["query:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "query-retention": {
+        "description": "Run a retention query to analyze how many users return over time after performing an initial action. Use this to measure user engagement and stickiness by cohort. Use 'event-definitions-list' to discover available events.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "Run a retention query",
+        "title": "Run a retention query",
+        "required_scopes": ["query:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "query-traces-list": {
+        "description": "Query LLM traces to inspect AI/LLM usage. Returns a list of traces with their events, latency, token usage, and other metadata. Use dateRange, properties, and limit to filter results.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "List LLM traces",
+        "title": "List LLM traces",
+        "required_scopes": ["query:read"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

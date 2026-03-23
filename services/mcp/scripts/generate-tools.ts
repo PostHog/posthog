@@ -22,10 +22,14 @@ import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
 import { discoverDefinitions } from './lib/definitions.mjs'
+import { type JsonSchemaRoot, generateZodFromSchemaRef, getEntryVarName } from './lib/json-schema-to-zod'
 import {
     type CategoryConfig,
     CategoryConfigSchema,
     type EnabledToolConfig,
+    type EnabledQueryWrapperToolConfig,
+    type QueryWrappersConfig,
+    QueryWrappersConfigSchema,
     type ToolConfig,
 } from './yaml-config-schema'
 
@@ -39,6 +43,7 @@ const ALL_DEFINITIONS_JSON_PATH = path.resolve(MCP_ROOT, 'schema/tool-definition
 const TOOL_DEFINITIONS_V1_PATH = path.resolve(MCP_ROOT, 'schema/tool-definitions.json')
 const TOOL_DEFINITIONS_V2_PATH = path.resolve(MCP_ROOT, 'schema/tool-definitions-v2.json')
 const OPENAPI_PATH = path.resolve(REPO_ROOT, 'frontend/tmp/openapi.json')
+const SCHEMA_JSON_PATH = path.resolve(REPO_ROOT, 'frontend/src/queries/schema.json')
 
 interface OpenApiParam {
     in: 'path' | 'query' | 'header' | 'cookie'
@@ -821,6 +826,144 @@ function generateDefinitionsJson(
 }
 
 // ------------------------------------------------------------------
+// Query wrapper generation — tools backed by schema.json definitions
+// ------------------------------------------------------------------
+
+function loadQuerySchema(): JsonSchemaRoot {
+    if (!fs.existsSync(SCHEMA_JSON_PATH)) {
+        console.error(`Query schema not found at ${SCHEMA_JSON_PATH}. Run schema:build:json first.`)
+        process.exit(1)
+    }
+    return JSON.parse(fs.readFileSync(SCHEMA_JSON_PATH, 'utf-8')) as JsonSchemaRoot
+}
+
+/**
+ * Returns true if the parsed YAML has the shape of a query wrapper config
+ * (has `wrappers` key instead of `tools`).
+ */
+function isQueryWrappersConfig(parsed: unknown): boolean {
+    return typeof parsed === 'object' && parsed !== null && 'wrappers' in parsed && !('tools' in parsed)
+}
+
+function generateQueryWrapperFile(
+    config: QueryWrappersConfig,
+    fileName: string,
+    querySchema: JsonSchemaRoot
+): {
+    code: string
+    enabledWrappers: [string, EnabledQueryWrapperToolConfig][]
+} {
+    const enabledWrappers: [string, EnabledQueryWrapperToolConfig][] = []
+
+    for (const [name, toolConfig] of Object.entries(config.wrappers)) {
+        if (!toolConfig.enabled) {
+            continue
+        }
+        if (!toolConfig.scopes?.length) {
+            console.error(`Enabled query wrapper "${name}" is missing required "scopes"`)
+            process.exit(1)
+        }
+        if (!toolConfig.annotations) {
+            console.error(`Enabled query wrapper "${name}" is missing required "annotations"`)
+            process.exit(1)
+        }
+        if (!querySchema.definitions[toolConfig.schema_ref]) {
+            console.error(`Query wrapper "${name}": schema_ref "${toolConfig.schema_ref}" not found in schema.json`)
+            process.exit(1)
+        }
+        enabledWrappers.push([name, toolConfig as EnabledQueryWrapperToolConfig])
+    }
+
+    // Generate all Zod schemas first, collecting them to deduplicate shared definitions
+    const allZodBlocks: string[] = []
+    const emittedDefs = new Set<string>()
+
+    for (const [, toolConfig] of enabledWrappers) {
+        const zodCode = generateZodFromSchemaRef(
+            querySchema,
+            toolConfig.schema_ref,
+            toolConfig.exclude_properties ?? []
+        )
+        // Split into individual const declarations and only emit new ones
+        const lines = zodCode.split('\n\nconst ')
+        for (let i = 0; i < lines.length; i++) {
+            const block = i === 0 ? lines[i]! : `const ${lines[i]}`
+            const match = block.match(/^const (\w+) =/)
+            if (match && !emittedDefs.has(match[1]!)) {
+                emittedDefs.add(match[1]!)
+                allZodBlocks.push(block)
+            }
+        }
+    }
+
+    const schemasCode = allZodBlocks.join('\n\n')
+
+    // Generate tool registrations using the factory
+    const mapEntries = enabledWrappers
+        .map(([name, toolConfig]) => {
+            const entryVarName = getEntryVarName(toolConfig.schema_ref)
+            const kind = extractKindFromSchemaRef(querySchema, toolConfig.schema_ref)
+            const uiResourceUri = toolConfig.ui_resource_uri ? `, uiResourceUri: '${toolConfig.ui_resource_uri}'` : ''
+            return `    '${name}': createQueryWrapper({ name: '${name}', schema: ${entryVarName}, kind: '${kind}'${uiResourceUri} }),`
+        })
+        .join('\n')
+
+    const code = `// AUTO-GENERATED from ${fileName} + schema.json — do not edit
+import { z } from 'zod'
+
+import type { ZodObjectAny } from '@/tools/types'
+import { createQueryWrapper } from '@/tools/query-wrapper-factory'
+
+// --- Shared Zod schemas generated from schema.json ---
+
+${schemasCode}
+
+// --- Tool registrations ---
+
+export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrapper<ZodObjectAny>>> = {
+${mapEntries}
+}
+`
+
+    return { code, enabledWrappers }
+}
+
+/** Extract the `kind` const value from a schema.json definition */
+function extractKindFromSchemaRef(querySchema: JsonSchemaRoot, schemaRef: string): string {
+    const schema = querySchema.definitions[schemaRef]
+    if (schema?.properties?.kind?.const) {
+        return schema.properties.kind.const as string
+    }
+    // Fallback: derive from the schema ref name (e.g. AssistantTrendsQuery → TrendsQuery)
+    return schemaRef.replace(/^Assistant/, '')
+}
+
+function generateQueryWrapperDefinitionsJson(
+    config: QueryWrappersConfig,
+    enabledWrappers: [string, EnabledQueryWrapperToolConfig][]
+): Record<string, unknown> {
+    const definitions: Record<string, unknown> = {}
+    for (const [name, toolConfig] of enabledWrappers) {
+        definitions[name] = {
+            description: toolConfig.description?.trim() || `Run a ${toolConfig.schema_ref} query`,
+            category: config.category,
+            feature: config.feature,
+            summary: toolConfig.title || name,
+            title: toolConfig.title || name,
+            required_scopes: toolConfig.scopes,
+            new_mcp: toolConfig.mcp_version !== undefined ? toolConfig.mcp_version >= 2 : true,
+            annotations: {
+                destructiveHint: toolConfig.annotations.destructive,
+                idempotentHint: toolConfig.annotations.idempotent,
+                openWorldHint: true,
+                readOnlyHint: toolConfig.annotations.readOnly,
+            },
+        }
+    }
+    return definitions
+}
+
+// ------------------------------------------------------------------
 // Main
 // ------------------------------------------------------------------
 
@@ -843,9 +986,43 @@ function main(): void {
     }[] = []
     const generatedModules: string[] = []
 
+    // Accumulate query wrapper definitions separately
+    const queryWrapperDefinitions: Record<string, unknown> = {}
+    let querySchema: JsonSchemaRoot | undefined
+
     for (const def of definitionSources) {
         const content = fs.readFileSync(def.filePath, 'utf-8')
         const parsed = parseYaml(content)
+
+        // Check if this is a query wrapper config
+        if (isQueryWrappersConfig(parsed)) {
+            const result = QueryWrappersConfigSchema.safeParse(parsed)
+            if (!result.success) {
+                console.error(`Invalid query wrappers YAML in ${def.filePath}:`)
+                for (const issue of result.error.issues) {
+                    console.error(`  ${issue.path.join('.')}: ${issue.message}`)
+                }
+                process.exit(1)
+            }
+
+            // Lazy-load query schema only when needed
+            if (!querySchema) {
+                querySchema = loadQuerySchema()
+            }
+
+            const config = result.data
+            const label = path.relative(REPO_ROOT, def.filePath)
+            const { code, enabledWrappers } = generateQueryWrapperFile(config, label, querySchema)
+
+            if (enabledWrappers.length > 0) {
+                generatedModules.push(def.moduleName)
+                fs.writeFileSync(path.join(GENERATED_DIR, `${def.moduleName}.ts`), code)
+                Object.assign(queryWrapperDefinitions, generateQueryWrapperDefinitionsJson(config, enabledWrappers))
+                process.stdout.write(`Generated ${enabledWrappers.length} query wrapper(s) from ${label}\n`)
+            }
+            continue
+        }
+
         const result = CategoryConfigSchema.safeParse(parsed)
         if (!result.success) {
             console.error(`Invalid YAML config in ${def.filePath}:`)
@@ -881,8 +1058,8 @@ ${spreads}
 `
     fs.writeFileSync(path.join(GENERATED_DIR, 'index.ts'), barrelCode)
 
-    // Tool definitions JSON
-    const definitions = generateDefinitionsJson(allCategories)
+    // Tool definitions JSON (merge OpenAPI-based + query wrapper definitions)
+    const definitions = { ...generateDefinitionsJson(allCategories), ...queryWrapperDefinitions }
     fs.writeFileSync(DEFINITIONS_JSON_PATH, JSON.stringify(definitions, null, 4) + '\n')
 
     // Combined tool definitions for external consumers (docs site)
@@ -892,8 +1069,12 @@ ${spreads}
     fs.writeFileSync(ALL_DEFINITIONS_JSON_PATH, JSON.stringify(allDefinitions, null, 4) + '\n')
 
     const totalTools = allCategories.reduce((sum, c) => sum + c.enabledTools.length, 0)
+    const totalQueryWrappers = Object.keys(queryWrapperDefinitions).length
     const totalAllTools = Object.keys(allDefinitions).length
     process.stdout.write(`Generated ${totalTools} tool(s) from ${allCategories.length} category file(s)\n`)
+    if (totalQueryWrappers > 0) {
+        process.stdout.write(`Generated ${totalQueryWrappers} query wrapper tool(s)\n`)
+    }
     process.stdout.write(`Combined ${totalAllTools} total tool(s) into tool-definitions-all.json\n`)
 
     const generatedTsFiles = [
@@ -908,7 +1089,14 @@ ${spreads}
 }
 
 // Export for testing
-export { composeToolSchema, extractPathParams, generateCategoryFile, generateCustomSchemaToolCode, generateToolCode }
+export {
+    composeToolSchema,
+    extractPathParams,
+    generateCategoryFile,
+    generateCustomSchemaToolCode,
+    generateQueryWrapperFile,
+    generateToolCode,
+}
 export type { OpenApiSpec, ResolvedOperation }
 
 // Run main when executed directly
