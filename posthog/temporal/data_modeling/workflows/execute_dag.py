@@ -395,6 +395,8 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         # DAG-level metrics
         if failed_nodes == 0 and skipped_nodes == 0:
             dag_status = "completed"
+        elif successful_nodes == 0 and failed_nodes == 0:
+            dag_status = "skipped"
         elif successful_nodes == 0:
             dag_status = "failed"
         else:

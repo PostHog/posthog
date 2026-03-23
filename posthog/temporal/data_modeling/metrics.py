@@ -82,7 +82,7 @@ def get_dag_finished_metric(status: str) -> MetricCounter:
         .with_additional_attributes({"status": status})
         .create_counter(
             "data_modeling_dag_finished",
-            "Number of DAG executions finished. Status is completed, partial_failure, or failed.",
+            "Number of DAG executions finished. Status is completed, partial_failure, skipped, or failed.",
         )
     )
 
