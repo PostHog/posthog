@@ -149,7 +149,7 @@ class TestInsightVariable(APIBaseTest):
 
 
 class TestMapStaleToLatest(TestCase):
-    def _make_variable(self, code_name: str) -> MagicMock:
+    def _make_variable(self, code_name: str) -> InsightVariable:
         var = MagicMock(spec=InsightVariable)
         var.id = uuid4()
         var.code_name = code_name
