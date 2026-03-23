@@ -22,6 +22,7 @@ type keyMap struct {
 	Backspace  key.Binding
 	Hedgehog   key.Binding
 	Info       key.Binding
+	LazyDocker key.Binding
 }
 
 func defaultKeyMap() keyMap {
@@ -101,6 +102,11 @@ func defaultKeyMap() keyMap {
 		Info: key.NewBinding(
 			key.WithKeys("i"),
 			key.WithHelp("i:", "info"),
+		),
+		LazyDocker: key.NewBinding(
+			key.WithKeys("d"),
+			key.WithHelp("d:", "lazydocker"),
+			key.WithDisabled(),
 		),
 	}
 }

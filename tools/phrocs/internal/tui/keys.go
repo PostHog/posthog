@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"os/exec"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -286,6 +287,15 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 			m.hedgehogFrame = 0
 			cmds = append(cmds, hedgehogTick())
 		}
+
+	case key.Matches(msg, m.keys.LazyDocker):
+		args := []string{}
+		for _, f := range m.composeArgs.Files {
+			args = append(args, "-f", f)
+		}
+		m.dbg("lazydocker: %v", args)
+		c := exec.Command("lazydocker", args...)
+		return m, tea.ExecProcess(c, nil)
 
 	default:
 		if m.focusedPane == focusOutput {
