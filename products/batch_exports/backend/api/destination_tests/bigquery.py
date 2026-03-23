@@ -409,6 +409,7 @@ class BigQueryDestinationTest(DestinationTest):
         self.table_id: str | None = None
         self.private_key: str | None = None
         self.private_key_id: str | None = None
+        self.token_uri: str | None = None
 
     def configure(self, **kwargs):
         """Configure this test with necessary attributes."""
