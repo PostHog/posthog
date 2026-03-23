@@ -46,15 +46,18 @@ export function slugifyHeading(text: string): string {
 }
 
 /** Extract the plain text from React children (recursively). */
-function extractTextFromChildren(children: any): string {
+function extractTextFromChildren(children: React.ReactNode): string {
     if (typeof children === 'string') {
         return children
+    }
+    if (typeof children === 'number') {
+        return String(children)
     }
     if (Array.isArray(children)) {
         return children.map(extractTextFromChildren).join('')
     }
-    if (children?.props?.children) {
-        return extractTextFromChildren(children.props.children)
+    if (children && typeof children === 'object' && 'props' in children) {
+        return extractTextFromChildren((children as React.ReactElement).props.children)
     }
     return ''
 }

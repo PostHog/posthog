@@ -99,15 +99,14 @@ function OutlineNode({
 
     return (
         <li className="relative">
-            {depth > 0 && (
-                <span className="absolute top-0 bottom-0 border-l border-secondary/30" style={{ left: '-11px' }} />
-            )}
+            {depth > 0 && <span className="absolute top-0 bottom-0 -left-[11px] border-l border-secondary/30" />}
             <div className="flex items-center gap-0.5">
                 {hasChildren ? (
                     <button
                         type="button"
                         className="flex shrink-0 cursor-pointer items-center border-none bg-transparent p-0.5 text-muted hover:text-primary"
                         onClick={() => toggleNode(node.heading.slug)}
+                        data-attr="llma-prompt-outline-toggle"
                     >
                         <IconChevronRight
                             className={`h-3 w-3 transition-transform ${isNodeExpanded ? 'rotate-90' : ''}`}
@@ -121,6 +120,7 @@ function OutlineNode({
                     className="cursor-pointer truncate border-none bg-transparent py-0.5 text-left text-sm text-primary hover:text-link"
                     onClick={() => onHeadingClick(node.heading.slug)}
                     title={node.heading.text}
+                    data-attr="llma-prompt-outline-heading"
                 >
                     {node.heading.text}
                 </button>
@@ -152,7 +152,8 @@ function PromptOutline({
     containerRef: React.RefObject<HTMLDivElement | null>
     className?: string
 }): JSX.Element | null {
-    const [isExpanded, setIsExpanded] = useState(false)
+    const { isOutlineExpanded } = useValues(llmPromptLogic)
+    const { toggleOutlineExpanded } = useActions(llmPromptLogic)
     const headings = useMemo(() => parseMarkdownHeadings(promptText), [promptText])
     const tree = useMemo(() => buildHeadingTree(headings), [headings])
     const allExpandableKeys = useMemo(() => collectNodeKeys(tree), [tree])
@@ -199,25 +200,29 @@ function PromptOutline({
                 <button
                     type="button"
                     className="flex cursor-pointer items-center gap-1.5 border-none bg-transparent p-0 text-left text-xs font-semibold text-secondary"
-                    onClick={() => setIsExpanded(!isExpanded)}
+                    onClick={toggleOutlineExpanded}
+                    data-attr="llma-prompt-outline-expand"
                 >
-                    <IconChevronRight className={`h-3 w-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                    <IconChevronRight
+                        className={`h-3 w-3 transition-transform ${isOutlineExpanded ? 'rotate-90' : ''}`}
+                    />
                     <Tooltip title="Navigate the sections of your prompt. Click a heading to scroll to it.">
                         <span>Prompt outline</span>
                     </Tooltip>
                     <span className="font-normal">({headings.length})</span>
                 </button>
-                {isExpanded && allExpandableKeys.size > 0 && (
+                {isOutlineExpanded && allExpandableKeys.size > 0 && (
                     <button
                         type="button"
                         className="cursor-pointer border-none bg-transparent p-0 text-xs text-muted hover:text-primary"
                         onClick={allExpanded ? collapseAll : expandAll}
+                        data-attr="llma-prompt-outline-expand-all"
                     >
                         {allExpanded ? 'Collapse all' : 'Expand all'}
                     </button>
                 )}
             </div>
-            {isExpanded && (
+            {isOutlineExpanded && (
                 <ul className="m-0 list-none border-t px-3 py-2">
                     {tree.map((node, i) => (
                         <OutlineNode
