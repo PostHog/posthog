@@ -3559,6 +3559,54 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_select_from_pivot(self):
+            self.assertEqual(
+                self._select("SELECT * FROM events PIVOT (count() FOR event IN ('a', 'b'))"),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["*"])],
+                    select_from=ast.JoinExpr(
+                        table=ast.PivotExpr(
+                            table=ast.Field(chain=["events"]),
+                            aggregates=[ast.Call(name="count", args=[])],
+                            columns=[
+                                ast.PivotColumn(
+                                    column=ast.Field(chain=["event"]),
+                                    values=[ast.Constant(value="a"), ast.Constant(value="b")],
+                                )
+                            ],
+                            group_by=None,
+                        )
+                    ),
+                ),
+            )
+
+        def test_select_from_pivot_multiple_columns(self):
+            self.assertEqual(
+                self._select(
+                    "SELECT * FROM events PIVOT (count() FOR event IN ('a') person_id IN (1, 2) GROUP BY distinct_id)"
+                ),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["*"])],
+                    select_from=ast.JoinExpr(
+                        table=ast.PivotExpr(
+                            table=ast.Field(chain=["events"]),
+                            aggregates=[ast.Call(name="count", args=[])],
+                            columns=[
+                                ast.PivotColumn(
+                                    column=ast.Field(chain=["event"]),
+                                    values=[ast.Constant(value="a")],
+                                ),
+                                ast.PivotColumn(
+                                    column=ast.Field(chain=["person_id"]),
+                                    values=[ast.Constant(value=1), ast.Constant(value=2)],
+                                ),
+                            ],
+                            group_by=[ast.Field(chain=["distinct_id"])],
+                        )
+                    ),
+                ),
+            )
+
         def test_select_positional_refs(self):
             self.assertEqual(
                 self._select("SELECT #1, #2 FROM events"),

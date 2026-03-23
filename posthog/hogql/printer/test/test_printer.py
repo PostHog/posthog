@@ -4407,6 +4407,20 @@ class TestPostgresPrinter(BaseTest):
         printed = self._select("SELECT 1 FROM events AS e (event_alias, ts_alias)")
         self.assertIn("AS e (event_alias, ts_alias)", printed)
 
+    def test_pivot_prints_basic(self):
+        self.assertEqual(
+            self._select("SELECT 1 FROM events PIVOT (count() FOR event IN ('a', 'b'))"),
+            "SELECT 1 FROM events PIVOT (count() FOR events.event IN ('a', 'b')) LIMIT 50000",
+        )
+
+    def test_pivot_prints_multiple_columns(self):
+        self.assertEqual(
+            self._select(
+                "SELECT 1 FROM events PIVOT (count() FOR event IN ('a') person_id IN (1, 2) GROUP BY distinct_id)"
+            ),
+            "SELECT 1 FROM events PIVOT (count() FOR events.event IN ('a') events.person_id IN (1, 2) GROUP BY events.distinct_id) LIMIT 50000",
+        )
+
     def test_limit_percent_basic(self):
         printed = self._select("SELECT 1 FROM events LIMIT 10 %")
         self.assertIn("LIMIT 10 %", printed)

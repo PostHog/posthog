@@ -387,6 +387,7 @@ POSTGRES_PASSTHROUGH_FUNCTIONS: frozenset[str] = frozenset(
         # Null
         "coalesce",
         "nullif",
+        "year",
         # Other
         "md5",
     }

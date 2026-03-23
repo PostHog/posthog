@@ -1573,6 +1573,51 @@ class TestResolver(BaseTest):
             expr = self._select("SELECT * FROM events UNPIVOT (field_value FOR field_name IN (does_not_exist))")
             resolve_types(expr, self.context, dialect="postgres")
 
+    def test_pivot_basic_resolves(self):
+        expr = self._select("SELECT 1 FROM events PIVOT (count() FOR event IN ('a'))")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert isinstance(expr.select_from, ast.JoinExpr)
+        assert isinstance(expr.select_from.table, ast.PivotExpr)
+        assert isinstance(expr.select_from.type, ast.SelectQueryType)
+
+        pivot = expr.select_from.table
+        column_expr = pivot.columns[0].column
+        if isinstance(column_expr, ast.Alias):
+            column_expr = column_expr.expr
+        assert isinstance(column_expr, ast.Field)
+        assert isinstance(column_expr.type, ast.FieldType)
+
+    def test_pivot_expression_column_resolves(self):
+        expr = self._select("SELECT 1 FROM events PIVOT (count() FOR toYear(timestamp) IN (2015))")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert isinstance(expr.select_from, ast.JoinExpr)
+        assert isinstance(expr.select_from.table, ast.PivotExpr)
+
+    def test_pivot_expression_unknown_column_error(self):
+        with self.assertRaisesMessage(QueryError, 'PIVOT column "does_not_exist" was not found'):
+            expr = self._select("SELECT 1 FROM events PIVOT (count() FOR toYear(does_not_exist) IN (2015))")
+            resolve_types(expr, self.context, dialect="postgres")
+
+    def test_pivot_aggregate_unknown_column_error(self):
+        with self.assertRaisesMessage(QueryError, 'PIVOT column "thing" was not found'):
+            expr = self._select("SELECT 1 FROM events PIVOT (sum(thing) FOR toYear(timestamp) IN (2015))")
+            resolve_types(expr, self.context, dialect="postgres")
+
+    def test_pivot_non_identifier_column_error(self):
+        with self.assertRaisesMessage(QueryError, "PIVOT columns must be identifiers"):
+            expr = self._select("SELECT 1 FROM events PIVOT (count() FOR event + 1 IN ('a'))")
+            resolve_types(expr, self.context, dialect="postgres")
+
+    def test_pivot_unknown_column_error(self):
+        with self.assertRaisesMessage(QueryError, 'PIVOT column "does_not_exist" was not found'):
+            expr = self._select("SELECT 1 FROM events PIVOT (count() FOR does_not_exist IN ('a'))")
+            resolve_types(expr, self.context, dialect="postgres")
+
+    def test_pivot_non_postgres_dialect_error(self):
+        with self.assertRaisesMessage(QueryError, "PIVOT is not allowed in clickhouse dialect"):
+            expr = self._select("SELECT 1 FROM events PIVOT (count() FOR event IN ('a'))")
+            resolve_types(expr, self.context, dialect="clickhouse")
+
     def test_limit_with_ties_postgres_error(self):
         with self.assertRaisesMessage(QueryError, "WITH TIES is not supported in postgres dialect"):
             expr = self._select("SELECT 1 FROM events ORDER BY 1 LIMIT 1 WITH TIES")
