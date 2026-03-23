@@ -43,19 +43,6 @@ class TestGetSalesforceClient:
         sf_kwargs = mock_sf.call_args[1]
         assert sf_kwargs["session_id"] == "oauth-access-token-xyz"
         assert sf_kwargs["instance_url"] == "https://test.my.salesforce.com"
-
-    @override_settings(
-        SALESFORCE_INTERNAL_CONSUMER_KEY="test-consumer-key",
-        SALESFORCE_INTERNAL_CONSUMER_SECRET="test-consumer-secret",
-        SALESFORCE_INTERNAL_DOMAIN="test.my.salesforce.com",
-    )
-    @patch("ee.billing.salesforce_enrichment.salesforce_client.Salesforce")
-    @patch("ee.billing.salesforce_enrichment.salesforce_client.requests.post")
-    def test_posts_to_correct_token_endpoint(self, mock_post, mock_sf):
-        mock_post.return_value = _mock_token_response()
-
-        get_salesforce_client()
-
         assert mock_post.call_args[0][0] == "https://test.my.salesforce.com/services/oauth2/token"
 
     @override_settings(
