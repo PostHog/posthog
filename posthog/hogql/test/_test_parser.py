@@ -447,6 +447,9 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertEqual(self._expr("'n\null'"), ast.Constant(value="n\null"))  # newline passed into string
             self.assertEqual(self._expr("'n\\null'"), ast.Constant(value="n\null"))  # slash and 'n' passed into string
             self.assertEqual(self._expr("'n\\\\ull'"), ast.Constant(value="n\\ull"))  # slash and 'n' passed into string
+            self.assertEqual(self._expr("'\\x41'"), ast.Constant(value="\\x41"))
+            self.assertEqual(self._expr("'\\x61\\x62'"), ast.Constant(value="\\x61\\x62"))
+            self.assertEqual(self._expr("'\\x5a'"), ast.Constant(value="\\x5a"))
 
             # String literals containing special float names should remain as strings
             self.assertEqual(self._expr("'Infinity'"), ast.Constant(value="Infinity"))
