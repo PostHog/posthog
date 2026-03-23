@@ -254,9 +254,10 @@ def get_incremental_fields() -> dict[str, list[tuple[str, IncrementalFieldType]]
 
 
 class GoogleAdsTable(Table[GoogleAdsColumn]):
-    def __init__(self, *args, requires_filter: bool, primary_key: list[str], **kwargs):
+    def __init__(self, *args, requires_filter: bool, primary_key: list[str], extra_where: str | None = None, **kwargs):
         self.requires_filter = requires_filter
         self.primary_key = [pkey.replace(".", "_") for pkey in primary_key]
+        self.extra_where = extra_where
         super().__init__(*args, **kwargs)
 
 
@@ -290,6 +291,7 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int) -> TableSchema
 
         requires_filter = resource_contents.get("filter_field_names", None) is not None
         primary_key = typing.cast(list[str], resource_contents.get("primary_key", []))
+        extra_where = typing.cast(str | None, resource_contents.get("extra_where", None))
 
         columns = []
 
@@ -319,6 +321,7 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int) -> TableSchema
             alias=table_alias,
             requires_filter=requires_filter,
             primary_key=primary_key,
+            extra_where=extra_where,
             columns=columns,
             parents=None,
         )
@@ -373,6 +376,9 @@ def google_ads_source(
                 # Dates require an upper bound too, so we pick something very in the future.
                 # TODO: Make sure to bump this before 2100-01-01.
                 query += f" AND {incremental_field} < '2100-01-01'"
+
+        if table.extra_where:
+            query += f" {'AND' if 'WHERE' in query else 'WHERE'} {table.extra_where}"
 
         client = google_ads_client(config, team_id)
         service = client.get_service("GoogleAdsService", version="v23")

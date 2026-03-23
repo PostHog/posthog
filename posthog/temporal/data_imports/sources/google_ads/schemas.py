@@ -631,11 +631,13 @@ RESOURCE_SCHEMAS = {
         "resource_name": "geographic_view",
         "primary_key": [
             "geographic_view.country_criterion_id",
+            "geographic_view.location_type",
             "campaign.id",
             "customer.id",
             "segments.date",
         ],
         "filter_field_names": [("segments.date", IncrementalFieldType.Date)],
+        "extra_where": "metrics.impressions > 0",
         "field_names": [
             "geographic_view.country_criterion_id",
             "geographic_view.location_type",
