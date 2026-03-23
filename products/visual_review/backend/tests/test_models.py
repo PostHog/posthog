@@ -6,24 +6,25 @@ import pytest
 
 from products.visual_review.backend.facade.enums import RunStatus, SnapshotResult
 from products.visual_review.backend.models import Artifact, Repo, Run, RunSnapshot
+from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestProject:
     def test_str_returns_name(self, team):
-        repo = Repo.objects.create(team=team, repo_external_id=111, repo_full_name="org/my-repo")
+        repo = Repo.objects.create(team_id=team.id, repo_external_id=111, repo_full_name="org/my-repo")
         assert str(repo) == "org/my-repo"
 
     def test_id_is_uuid(self, team):
-        repo = Repo.objects.create(team=team, repo_external_id=222, repo_full_name="org/test")
+        repo = Repo.objects.create(team_id=team.id, repo_external_id=222, repo_full_name="org/test")
         assert isinstance(repo.id, uuid.UUID)
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestArtifact:
     @pytest.fixture
     def repo(self, team):
-        return Repo.objects.create(team=team, repo_external_id=222, repo_full_name="org/test")
+        return Repo.objects.create(team_id=team.id, repo_external_id=222, repo_full_name="org/test")
 
     def test_str_shows_truncated_hash(self, repo):
         artifact = Artifact.objects.create(repo=repo, content_hash="abcdef123456789", storage_path="visual_review/abc")
@@ -36,11 +37,11 @@ class TestArtifact:
             Artifact.objects.create(repo=repo, content_hash="hash123", storage_path="p/hash123-dup")
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestRun:
     @pytest.fixture
     def repo(self, team):
-        return Repo.objects.create(team=team, repo_external_id=222, repo_full_name="org/test")
+        return Repo.objects.create(team_id=team.id, repo_external_id=222, repo_full_name="org/test")
 
     def test_str_shows_id_and_status(self, repo):
         run = Run.objects.create(repo=repo, commit_sha="abc123", branch="main")
@@ -59,11 +60,11 @@ class TestRun:
         assert runs[1].id == run1.id
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestRunSnapshot:
     @pytest.fixture
     def repo(self, team):
-        return Repo.objects.create(team=team, repo_external_id=222, repo_full_name="org/test")
+        return Repo.objects.create(team_id=team.id, repo_external_id=222, repo_full_name="org/test")
 
     @pytest.fixture
     def run(self, repo):

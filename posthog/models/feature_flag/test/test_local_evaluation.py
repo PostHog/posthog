@@ -26,10 +26,11 @@ from posthog.models.feature_flag.local_evaluation import (
 )
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.project import Project
-from posthog.models.surveys.survey import Survey
 from posthog.models.tag import Tag
 from posthog.models.team.team import Team
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from products.surveys.backend.models import Survey
 
 
 class TestLocalEvaluationCache(BaseTest):
