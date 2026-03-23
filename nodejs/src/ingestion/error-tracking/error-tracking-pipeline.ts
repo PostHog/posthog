@@ -7,7 +7,7 @@ import { TeamManager } from '~/utils/team-manager'
 import { GroupTypeManager } from '~/worker/ingestion/group-type-manager'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
-import { EVENTS_OUTPUT, EventOutput } from '../analytics/outputs'
+import { EVENTS_OUTPUT, EventOutput } from '../common/outputs'
 import {
     createApplyEventRestrictionsStep,
     createOverflowLaneTTLRefreshStep,
