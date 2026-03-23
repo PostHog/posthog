@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -19,7 +19,10 @@ export const hogFunctionBackfillsLogic = kea<hogFunctionBackfillsLogicType>([
     path((key) => ['scenes', 'pipeline', 'hogFunctionBackfillsLogic', key]),
     connect((props: HogFunctionBackfillsLogicProps) => ({
         values: [hogFunctionConfigurationLogic(props), ['configuration']],
-        actions: [hogFunctionConfigurationLogic(props), ['setConfigurationValues', 'loadHogFunction']],
+        actions: [
+            hogFunctionConfigurationLogic(props),
+            ['setConfigurationValues', 'loadHogFunction', 'loadHogFunctionSuccess'],
+        ],
     })),
     actions({
         enableHogFunctionBackfills: () => true,
@@ -41,13 +44,13 @@ export const hogFunctionBackfillsLogic = kea<hogFunctionBackfillsLogicType>([
             },
         ],
     }),
-    listeners(({ actions, props }) => ({
+    listeners(({ actions, props, values }) => ({
         enableHogFunctionBackfills: async () => {
             try {
                 actions.setLoading(true)
                 await api.hogFunctions.enableBackfills(props.id)
 
-                // Reload page to get the updated config and render <BatchExportBackfills />
+                // Reload to get the updated config and render <BatchExportBackfills />
                 actions.loadHogFunction()
 
                 lemonToast.success('Backfills enabled for this destination.')
@@ -57,10 +60,12 @@ export const hogFunctionBackfillsLogic = kea<hogFunctionBackfillsLogicType>([
                 actions.setLoading(false)
             }
         },
+        loadHogFunctionSuccess: () => {
+            // Only enable backfills after the config has loaded and we know
+            // batch_export_id is genuinely missing (not just not-yet-loaded).
+            if (!values.configuration.batch_export_id) {
+                actions.enableHogFunctionBackfills()
+            }
+        },
     })),
-    afterMount(({ actions, values }) => {
-        if (!values.configuration.batch_export_id) {
-            actions.enableHogFunctionBackfills()
-        }
-    }),
 ])
