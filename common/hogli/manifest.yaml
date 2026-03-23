@@ -655,7 +655,7 @@ tools:
         description: 'TODO: add description for generate_personhog_proto.sh'
         hidden: true
     phrocs:build:
-        cmd: cd tools/phrocs && make build && cp dist/phrocs ../../bin/phrocs
+        cmd: cd tools/phrocs && make build
         description: Build the phrocs binary from source
     phrocs:
         bin_script: phrocs

@@ -96,18 +96,16 @@ PROCESS_MANAGER="mprocs"
 
 # Only use phrocs when --phrocs is explicitly passed
 if [[ " $* " == *" --phrocs "* ]]; then
-    PROCESS_MANAGER="$REPOSITORY_ROOT/bin/phrocs"
-
-    # Build phrocs on first run if binary doesn't exist
-    if [[ ! -x "$PROCESS_MANAGER" ]]; then
-        echo "🔨 Building phrocs from source (first run)..."
-        if ! hogli phrocs:build 2>&1; then
-            echo "⚠️ phrocs build failed; falling back to mprocs"
-            PROCESS_MANAGER="mprocs"
+    if ! command -v phrocs &>/dev/null; then
+        if command -v brew &>/dev/null; then
+            echo "🔁 Installing phrocs via Homebrew..."
+            brew tap posthog/tap && brew install phrocs
         else
-            echo "✅ phrocs built successfully"
+            echo "👉 To use --phrocs, install phrocs: brew tap posthog/tap && brew install phrocs"
+            exit 1
         fi
     fi
+    PROCESS_MANAGER="phrocs"
 fi
 
 if [[ "$PROCESS_MANAGER" == "mprocs" ]]; then

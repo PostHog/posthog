@@ -6,7 +6,7 @@ derived from the workspace root (CWD), matching the socket phrocs binds.
 No file-based intermediary — phrocs tracks status, metrics, and logs in-memory.
 
 Run via Claude Code's .mcp.json (invoked automatically by the MCP client):
-  uv run python bin/phrocs-mcp-server.py
+  uv run python tools/phrocs/mcp_server.py
 """
 
 from __future__ import annotations
