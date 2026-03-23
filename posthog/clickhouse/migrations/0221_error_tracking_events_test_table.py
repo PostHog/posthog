@@ -8,10 +8,10 @@ from products.error_tracking.backend.sql import (
 )
 
 operations = [
-    # Data table can run on DATA and COORDINATOR nodes
+    # Data table runs on DATA nodes
     run_sql_with_exceptions(
         ERROR_TRACKING_EVENTS_TEST_TABLE_SQL(),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
     ),
     # Kafka table and MV must run on ingestion layer where Kafka consumers operate
     run_sql_with_exceptions(
