@@ -8,7 +8,13 @@ import { CommonConfig } from '../common/config'
 import { KAFKA_CLICKHOUSE_TOPHOG } from '../config/kafka-topics'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
-import { HealthCheckResult, HealthCheckResultError, PluginServerService, RedisPool } from '../types'
+import {
+    HealthCheckResult,
+    HealthCheckResultError,
+    HealthCheckResultOk,
+    PluginServerService,
+    RedisPool,
+} from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
 import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '../utils/event-schema-enforcement-manager'
@@ -220,8 +226,8 @@ export class IngestionConsumer {
         // Producer creation blocks until the broker is reachable (rdkafka retries
         // indefinitely), so start() will hang if a broker is down — the pod never
         // becomes healthy and Kubernetes will eventually kill it.
-        // TODO: add producer health to the ongoing isHealthy() check so Kubernetes
-        // can detect mid-flight producer disconnections.
+        // After startup, ongoing producer health can be monitored via
+        // INGESTION_OUTPUTS_PRODUCER_HEALTHCHECK=true.
         this.producerRegistry = new KafkaProducerRegistry(this.config.KAFKA_CLIENT_RACK)
         const outputs = await resolveOutputs(this.producerRegistry, {
             [EVENTS_OUTPUT]: {
@@ -310,11 +316,24 @@ export class IngestionConsumer {
         logger.info('👍', `${this.name} - stopped!`)
     }
 
-    public isHealthy(): HealthCheckResult {
+    public async isHealthy(): Promise<HealthCheckResult> {
         if (!this.kafkaConsumer) {
             return new HealthCheckResultError('Kafka consumer not initialized', {})
         }
-        return this.kafkaConsumer.isHealthy()
+
+        const consumerHealth = this.kafkaConsumer.isHealthy()
+        if (consumerHealth.isError()) {
+            return consumerHealth
+        }
+
+        if (process.env.INGESTION_OUTPUTS_PRODUCER_HEALTHCHECK === 'true' && this.producerRegistry) {
+            const failures = await this.producerRegistry.checkAllConnections()
+            if (failures.length > 0) {
+                return new HealthCheckResultError('Kafka producer(s) unhealthy', { failedProducers: failures })
+            }
+        }
+
+        return new HealthCheckResultOk()
     }
 
     private runInstrumented<T>(name: string, func: () => Promise<T>): Promise<T> {
