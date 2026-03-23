@@ -60,8 +60,16 @@ def get_salesforce_client() -> Salesforce:
             session=session,
         )
 
-    raise ValueError(
-        "Missing Salesforce credentials. Configure either OAuth client credentials "
-        "(SF_INTERNAL_CONSUMER_KEY, SF_INTERNAL_CONSUMER_SECRET) or legacy auth "
-        "(SF_USERNAME, SF_PASSWORD, SF_SECURITY_TOKEN)."
-    )
+    missing = []
+    if not settings.SALESFORCE_INTERNAL_CONSUMER_KEY:
+        missing.append("SF_INTERNAL_CONSUMER_KEY")
+    if not settings.SALESFORCE_INTERNAL_CONSUMER_SECRET:
+        missing.append("SF_INTERNAL_CONSUMER_SECRET")
+    if not settings.SALESFORCE_USERNAME:
+        missing.append("SF_USERNAME")
+    if not settings.SALESFORCE_PASSWORD:
+        missing.append("SF_PASSWORD")
+    if not settings.SALESFORCE_SECURITY_TOKEN:
+        missing.append("SF_SECURITY_TOKEN")
+
+    raise ValueError(f"Missing Salesforce credentials: {', '.join(missing)}")
