@@ -206,14 +206,14 @@ export function SavedInsightsFilters({
                             onClick={() => setFilters({ favorited: !favorited })}
                             size="small"
                             icon={
-                                favorited ? (
-                                    isAIFirst ? (
+                                isAIFirst ? (
+                                    favorited ? (
                                         <IconHeartFilled className="text-danger" />
                                     ) : (
-                                        <IconStarFilled className="text-warning" />
+                                        <IconHeart className="text-secondary" />
                                     )
-                                ) : isAIFirst ? (
-                                    <IconHeart className="text-secondary" />
+                                ) : favorited ? (
+                                    <IconStarFilled className="text-warning" />
                                 ) : (
                                     <IconStar className="text-secondary" />
                                 )
