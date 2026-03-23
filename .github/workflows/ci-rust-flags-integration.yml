@@ -175,8 +175,13 @@ jobs:
             - name: Start Django API server
               run: |
                   python manage.py runserver 127.0.0.1:8000 --noreload &
-                  echo "DJANGO_PID=$!" >> $GITHUB_ENV
+                  DJANGO_PID=$!
+                  echo "DJANGO_PID=$DJANGO_PID" >> $GITHUB_ENV
                   for i in {1..15}; do
+                      if ! kill -0 "$DJANGO_PID" 2>/dev/null; then
+                          echo "ERROR: Django server exited unexpectedly"
+                          exit 1
+                      fi
                       if curl -s http://127.0.0.1:8000/_health > /dev/null 2>&1; then
                           echo "Django server is ready"
                           break
