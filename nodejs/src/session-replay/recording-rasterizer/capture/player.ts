@@ -106,6 +106,7 @@ export class PlayerController {
     ): Promise<void> {
         return new Promise<void>((resolve, reject) => {
             const onTimeout = (): void => {
+                this.startedResolve = null
                 this.errorReject = null
                 this.resetStaleTimer = null
                 reject(new RasterizationError(timeoutMsg, true, 'TIMEOUT'))

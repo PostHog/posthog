@@ -74,7 +74,7 @@ async function rasterizeRecordingActivity(
 
         const output: RasterizeRecordingOutput = {
             s3_uri: s3Uri,
-            video_duration_s: Math.round(result.capture_duration_s),
+            video_duration_s: result.capture_duration_s,
             playback_speed: result.playback_speed,
             show_metadata_footer: !!input.show_metadata_footer,
             truncated: result.truncated,

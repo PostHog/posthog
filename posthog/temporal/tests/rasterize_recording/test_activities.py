@@ -133,12 +133,12 @@ class TestBuildRasterizationInput:
 
     @parameterized.expand(
         [
-            ("fractional_speed", {"session_recording_id": "s1", "playback_speed": 1.5}, 1.5),
-            ("integer_speed", {"session_recording_id": "s1", "playback_speed": 8}, 8),
-            ("fractional_trim", {"session_recording_id": "s1", "trim": 30.5}, 30.5),
+            ("fractional_speed", {"session_recording_id": "s1", "playback_speed": 1.5}, "playback_speed", 1.5),
+            ("integer_speed", {"session_recording_id": "s1", "playback_speed": 8}, "playback_speed", 8),
+            ("fractional_trim", {"session_recording_id": "s1", "trim": 30.5}, "trim", 30.5),
         ]
     )
-    def test_fractional_values(self, _name, export_context, expected_value):
+    def test_fractional_values(self, _name, export_context, field, expected_value):
         asset = _make_asset(pk=50, export_context=export_context)
 
         mock_qs = MagicMock()
@@ -151,10 +151,7 @@ class TestBuildRasterizationInput:
         ):
             result = build_rasterization_input(50)
 
-        if "playback_speed" in export_context and export_context["playback_speed"] != 4:
-            assert result.playback_speed == expected_value
-        if "trim" in export_context:
-            assert result.trim == expected_value
+        assert getattr(result, field) == expected_value
 
 
 class TestFinalizeRasterization:

@@ -80,7 +80,7 @@ describe('rasterizeRecordingActivity', () => {
 
         // Verify full output shape
         expect(result.s3_uri).toBe('s3://test-bucket/exports/mp4/team-1/task-1/uuid.mp4')
-        expect(result.video_duration_s).toBe(3)
+        expect(result.video_duration_s).toBe(3.0)
         expect(result.playback_speed).toBe(1)
         expect(result.show_metadata_footer).toBe(false)
         expect(result.truncated).toBe(false)
@@ -128,10 +128,10 @@ describe('rasterizeRecordingActivity', () => {
         expect(result.show_metadata_footer).toBe(true)
     })
 
-    it('rounds video_duration_s to nearest integer', async () => {
+    it('preserves fractional video_duration_s', async () => {
         mockSuccessfulRecording({ capture_duration_s: 39.96 })
         const result = await rasterizeRecordingActivity(baseInput())
-        expect(result.video_duration_s).toBe(40)
+        expect(result.video_duration_s).toBe(39.96)
     })
 
     describe('temp file cleanup', () => {
