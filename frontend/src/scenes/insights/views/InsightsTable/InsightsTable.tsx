@@ -479,9 +479,11 @@ export function InsightsTable({
         <LemonTable
             id={isInDashboardContext ? insight.short_id : undefined}
             dataSource={
-                isLegend || isMainInsightView
+                isMainInsightView
                     ? displayResults
-                    : indexedResults.filter((dataset) => !getTrendsHidden(dataset))
+                    : isLegend
+                      ? indexedResults
+                      : indexedResults.filter((dataset) => !getTrendsHidden(dataset))
             }
             embedded={embedded}
             columns={columns}

@@ -16,7 +16,7 @@ export enum AggregationType {
 }
 
 export function compareResultKey(item: IndexedTrendResult): string {
-    return `${item.action?.order ?? 0}_${item.label ?? ''}_${item.breakdown_value ?? ''}`
+    return JSON.stringify([item.action?.order ?? 0, item.label ?? '', item.breakdown_value ?? ''])
 }
 
 export const insightsTableDataLogic = kea<insightsTableDataLogicType>([

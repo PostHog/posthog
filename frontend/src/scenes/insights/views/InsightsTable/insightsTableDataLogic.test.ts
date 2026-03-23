@@ -162,4 +162,73 @@ describe('insightsTableDataLogic', () => {
             }
         })
     })
+
+    describe('compare selectors', () => {
+        describe('displayResults', () => {
+            it('returns all indexed results when compare is off', async () => {
+                const query: TrendsQuery = {
+                    kind: NodeKind.TrendsQuery,
+                    series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                }
+                insightVizDataLogic(props).actions.updateQuerySource(query)
+
+                await expectLogic(logic).toMatchValues({
+                    displayResults: logic.values.indexedResults,
+                })
+            })
+        })
+
+        describe('previousResultMap', () => {
+            it('returns empty map when compare is off', async () => {
+                const query: TrendsQuery = {
+                    kind: NodeKind.TrendsQuery,
+                    series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                }
+                insightVizDataLogic(props).actions.updateQuerySource(query)
+
+                await expectLogic(logic).toMatchValues({
+                    previousResultMap: new Map(),
+                })
+            })
+        })
+
+        describe('getPreviousResult', () => {
+            it('returns undefined when compare is off', async () => {
+                const query: TrendsQuery = {
+                    kind: NodeKind.TrendsQuery,
+                    series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                }
+                insightVizDataLogic(props).actions.updateQuerySource(query)
+
+                await expectLogic(logic).toFinishAllListeners()
+
+                const item = { action: { order: 0 }, label: '$pageview', breakdown_value: '' } as IndexedTrendResult
+                expect(logic.values.getPreviousResult(item)).toBeUndefined()
+            })
+        })
+    })
+
+    describe('compareResultKey format', () => {
+        const makeResult = (overrides: Partial<IndexedTrendResult>): IndexedTrendResult =>
+            ({
+                action: { order: 0 },
+                label: '$pageview',
+                breakdown_value: '',
+                ...overrides,
+            }) as IndexedTrendResult
+
+        it('produces valid JSON array string', () => {
+            const result = compareResultKey(
+                makeResult({ action: { order: 2 } as any, label: 'test', breakdown_value: 'val' })
+            )
+            expect(JSON.parse(result)).toEqual([2, 'test', 'val'])
+        })
+
+        it('handles nullish fields gracefully', () => {
+            const result = compareResultKey(
+                makeResult({ action: undefined, label: undefined, breakdown_value: undefined } as any)
+            )
+            expect(JSON.parse(result)).toEqual([0, '', ''])
+        })
+    })
 })
