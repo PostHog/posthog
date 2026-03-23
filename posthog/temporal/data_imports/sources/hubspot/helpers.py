@@ -127,6 +127,11 @@ def fetch_data(
     # Make the API request
     try:
         r = requests.get(url, headers=headers, params=params)
+        if r.status_code == 401:
+            # refresh token
+            api_key = hubspot_refresh_access_token(refresh_token)
+            headers = _get_headers(api_key)
+            r = requests.get(url, headers=headers, params=params)
     except requests.exceptions.HTTPError as e:
         if e.response.status_code == 401:
             # refresh token

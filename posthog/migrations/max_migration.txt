@@ -1,1 +1,1 @@
-1060_alter_integration_kind
+1062_migrate_links_models

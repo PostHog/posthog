@@ -1,4 +1,10 @@
+import typing
 import collections.abc
+
+from google.api_core.exceptions import NotFound, PermissionDenied
+from google.cloud import bigquery, iam_admin_v1
+
+from posthog.models.integration import GoogleCloudServiceAccountIntegration
 
 from products.batch_exports.backend.api.destination_tests.base import (
     DestinationTest,
@@ -6,6 +12,165 @@ from products.batch_exports.backend.api.destination_tests.base import (
     DestinationTestStepResult,
     Status,
 )
+from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
+    BigQueryClient,
+    get_our_google_cloud_credentials,
+    impersonate_service_account,
+)
+
+
+class ServiceAccountInfo(typing.TypedDict):
+    private_key: str
+    private_key_id: str
+    token_uri: str
+    client_email: str
+
+
+def get_client(
+    project_id: str | None,
+    integration: GoogleCloudServiceAccountIntegration | None,
+    service_account_info: ServiceAccountInfo | None,
+) -> BigQueryClient:
+    """Get a `BigQueryClient` from an integration or service account information."""
+    if project_id is None:
+        raise ValueError("Project ID not set")
+
+    if integration is not None:
+        client = BigQueryClient.from_service_account_integration(integration=integration)
+    elif service_account_info is not None:
+        client = BigQueryClient.from_service_account_inputs(project_id=project_id, **service_account_info)
+    else:
+        raise ValueError("Either integration or service account information must be defined")
+
+    return client
+
+
+class BigQueryImpersonateServiceAccountTestStep(DestinationTestStep):
+    """Test whether a BigQuery service account exists and we can impersonate it.
+
+    Attributes:
+        project_id: ID of the BigQuery project containing the service account.
+        integration: Integration with service account configuration.
+    """
+
+    name = "Impersonate BigQuery service account"
+    description = "Confirm we can impersonate a BigQuery service account."
+
+    def __init__(
+        self,
+        project_id: str | None = None,
+        integration: GoogleCloudServiceAccountIntegration | None = None,
+    ) -> None:
+        super().__init__()
+        self.project_id = project_id
+        self.integration = integration
+
+    def _is_configured(self) -> bool:
+        """Ensure required configuration parameters are set."""
+        if self.project_id is None or self.integration is None:
+            return False
+        return True
+
+    async def _run_step(self) -> DestinationTestStepResult:
+        """Run this test step."""
+        assert self.integration is not None
+
+        try:
+            their_credentials = impersonate_service_account(self.integration)
+            client = bigquery.Client(
+                project=self.integration.project_id,
+                credentials=their_credentials,
+            )
+            # This triggers an actual credential refresh
+            list(client.query("SELECT 1").result())
+
+        except NotFound:
+            service_account_email = self.integration.service_account_email
+
+            return DestinationTestStepResult(
+                status=Status.FAILED,
+                message=f"Service account '{service_account_email}' was not found and cannot be impersonated. It may not exist or we may not have sufficient permissions.",
+            )
+        except Exception:
+            service_account_email = self.integration.service_account_email
+
+            return DestinationTestStepResult(
+                status=Status.FAILED,
+                message=f"Failed to impersonate Service account '{service_account_email}'.",
+            )
+
+        return DestinationTestStepResult(status=Status.PASSED)
+
+
+class BigQueryVerifyServiceAccountOwnershipTestStep(DestinationTestStep):
+    """Test whether a BigQuery service account is owned by the current organization.
+
+    We require users to set their organization ID as the service account description so
+    that we can verify they own them at runtime. This test reproduces that verification
+    to help debug incorrect descriptions or missing permissions.
+
+    Attributes:
+        project_id: ID of the BigQuery project containing the service account.
+        integration: Integration with service account configuration.
+    """
+
+    name = "Verify BigQuery service account ownership"
+    description = "Confirm that the current PostHog organization owns a BigQuery service account by ensuring its organization ID is set as part of the service account description."
+
+    def __init__(
+        self,
+        project_id: str | None = None,
+        integration: GoogleCloudServiceAccountIntegration | None = None,
+        organization_id: str | None = None,
+    ) -> None:
+        super().__init__()
+        self.project_id = project_id
+        self.integration = integration
+        self.organization_id = organization_id
+
+    def _is_configured(self) -> bool:
+        """Ensure required configuration parameters are set."""
+        if self.project_id is None or self.integration is None or self.organization_id is None:
+            return False
+        return True
+
+    async def _run_step(self) -> DestinationTestStepResult:
+        """Run this test step."""
+        assert self.integration is not None
+
+        service_account_email = self.integration.service_account_email
+
+        try:
+            our_credentials = get_our_google_cloud_credentials()
+            client = iam_admin_v1.IAMClient(credentials=our_credentials)
+            sa = client.get_service_account(
+                request=iam_admin_v1.GetServiceAccountRequest(
+                    name=f"projects/-/serviceAccounts/{self.integration.service_account_email}"
+                )
+            )
+        except PermissionDenied:
+            return DestinationTestStepResult(
+                status=Status.FAILED,
+                message=f"No permission to read service account's '{service_account_email}' description. Have you granted the PostHog service account a role with `iam.serviceAccounts.get`?",
+            )
+        except NotFound:
+            return DestinationTestStepResult(
+                status=Status.FAILED,
+                message=f"Service account '{service_account_email}' was not found. It may not exist or we may not have sufficient permissions.",
+            )
+        except Exception:
+            return DestinationTestStepResult(
+                status=Status.FAILED,
+                message=f"Failed to verify ownership of service account '{service_account_email}'.",
+            )
+
+        if f"posthog:{self.organization_id}" not in sa.description:
+            return DestinationTestStepResult(
+                status=Status.FAILED,
+                message=f"Organization ID not found in service account's '{service_account_email}' description. Ownership could not be verified.",
+            )
+
+        return DestinationTestStepResult(status=Status.PASSED)
 
 
 class BigQueryProjectTestStep(DestinationTestStep):
@@ -30,34 +195,26 @@ class BigQueryProjectTestStep(DestinationTestStep):
         "Ensure the configured BigQuery project exists and that we have the required permissions to access it."
     )
 
-    def __init__(self, project_id: str | None = None, service_account_info: dict[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        project_id: str | None = None,
+        integration: GoogleCloudServiceAccountIntegration | None = None,
+        service_account_info: ServiceAccountInfo | None = None,
+    ) -> None:
         super().__init__()
         self.project_id = project_id
+        self.integration = integration
         self.service_account_info = service_account_info
 
     def _is_configured(self) -> bool:
         """Ensure required configuration parameters are set."""
-        if (
-            self.project_id is None
-            or self.service_account_info is None
-            or not all(
-                param in self.service_account_info
-                for param in ("private_key", "private_key_id", "token_uri", "client_email")
-            )
-        ):
+        if self.project_id is None or (self.integration is None and self.service_account_info is None):
             return False
         return True
 
     async def _run_step(self) -> DestinationTestStepResult:
         """Run this test step."""
-        from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import BigQueryClient
-
-        # This method should be called by `run()` which ensures this test step is configured
-        # with non-`None` values.
-        assert self.service_account_info is not None
-        assert self.project_id is not None
-
-        client = BigQueryClient.from_service_account_inputs(project_id=self.project_id, **self.service_account_info)
+        client = get_client(self.project_id, self.integration, self.service_account_info)
         projects = {p.project_id for p in client.sync_client.list_projects()}
 
         if self.project_id in projects:
@@ -96,12 +253,14 @@ class BigQueryDatasetTestStep(DestinationTestStep):
         self,
         project_id: str | None = None,
         dataset_id: str | None = None,
-        service_account_info: dict[str, str] | None = None,
+        integration: GoogleCloudServiceAccountIntegration | None = None,
+        service_account_info: ServiceAccountInfo | None = None,
     ) -> None:
         super().__init__()
 
         self.dataset_id = dataset_id
         self.project_id = project_id
+        self.integration = integration
         self.service_account_info = service_account_info
 
     def _is_configured(self) -> bool:
@@ -109,11 +268,7 @@ class BigQueryDatasetTestStep(DestinationTestStep):
         if (
             self.project_id is None
             or self.dataset_id is None
-            or self.service_account_info is None
-            or not all(
-                param in self.service_account_info
-                for param in ("private_key", "private_key_id", "token_uri", "client_email")
-            )
+            or (self.service_account_info is None and self.integration is None)
         ):
             return False
         return True
@@ -122,15 +277,11 @@ class BigQueryDatasetTestStep(DestinationTestStep):
         """Run this test step."""
         from google.cloud.exceptions import NotFound
 
-        from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import BigQueryClient
+        client = get_client(self.project_id, self.integration, self.service_account_info)
 
         # This method should be called by `run()` which ensures this test step is configured
         # with non-`None` values.
-        assert self.service_account_info is not None
-        assert self.project_id is not None
         assert self.dataset_id is not None
-
-        client = BigQueryClient.from_service_account_inputs(project_id=self.project_id, **self.service_account_info)
 
         try:
             _ = client.sync_client.get_dataset(self.dataset_id)
@@ -172,12 +323,14 @@ class BigQueryTableTestStep(DestinationTestStep):
         project_id: str | None = None,
         dataset_id: str | None = None,
         table_id: str | None = None,
-        service_account_info: dict[str, str] | None = None,
+        integration: GoogleCloudServiceAccountIntegration | None = None,
+        service_account_info: ServiceAccountInfo | None = None,
     ) -> None:
         super().__init__()
         self.dataset_id = dataset_id
         self.project_id = project_id
         self.table_id = table_id
+        self.integration = integration
         self.service_account_info = service_account_info
 
     def _is_configured(self) -> bool:
@@ -186,11 +339,7 @@ class BigQueryTableTestStep(DestinationTestStep):
             self.project_id is None
             or self.dataset_id is None
             or self.table_id is None
-            or self.service_account_info is None
-            or not all(
-                param in self.service_account_info
-                for param in ("private_key", "private_key_id", "token_uri", "client_email")
-            )
+            or (self.service_account_info is None and self.integration is None)
         ):
             return False
         return True
@@ -201,14 +350,12 @@ class BigQueryTableTestStep(DestinationTestStep):
         from google.cloud import bigquery
         from google.cloud.exceptions import NotFound
 
-        from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import BigQueryClient
+        client = get_client(self.project_id, self.integration, self.service_account_info)
 
         # This method should be called by `run()` which ensures this test step is configured
         # with non-`None` values.
-        assert self.service_account_info is not None
-        assert self.project_id is not None
-
-        client = BigQueryClient.from_service_account_inputs(project_id=self.project_id, **self.service_account_info)
+        assert self.table_id is not None
+        assert self.dataset_id is not None
 
         fully_qualified_name = f"{self.project_id}.{self.dataset_id}.{self.table_id}"
         table = bigquery.Table(fully_qualified_name, schema=[bigquery.SchemaField(name="event", field_type="STRING")])
@@ -255,35 +402,83 @@ class BigQueryDestinationTest(DestinationTest):
     """
 
     def __init__(self):
-        self.project_id = None
-        self.dataset_id = None
-        self.table_id = None
-        self.service_account_info = None
+        self.project_id: str | None = None
+        self.integration: GoogleCloudServiceAccountIntegration | None = None
+        self.service_account_email: str | None = None
+        self.dataset_id: str | None = None
+        self.table_id: str | None = None
+        self.private_key: str | None = None
+        self.private_key_id: str | None = None
+        self.token_uri: str | None = None
 
     def configure(self, **kwargs):
         """Configure this test with necessary attributes."""
         self.project_id = kwargs.get("project_id", None)
+        self.service_account_email = kwargs.get("service_account_email", None) or kwargs.get("client_email", None)
         self.dataset_id = kwargs.get("dataset_id", None)
         self.table_id = kwargs.get("table_id", None)
-        self.service_account_info = {
-            "private_key": kwargs.get("private_key", None),
-            "private_key_id": kwargs.get("private_key_id", None),
-            "token_uri": kwargs.get("token_uri", None),
-            "client_email": kwargs.get("client_email", None),
+
+        self.private_key = kwargs.get("private_key", None)
+        self.private_key_id = kwargs.get("private_key_id", None)
+        self.token_uri = kwargs.get("token_uri", None)
+
+        integration = kwargs.get("integration", None)
+        if integration is not None:
+            self.integration = GoogleCloudServiceAccountIntegration(integration)
+
+    @property
+    def service_account_info(self) -> ServiceAccountInfo | None:
+        if (
+            self.private_key is None
+            or self.private_key_id is None
+            or self.token_uri is None
+            or self.service_account_email is None
+        ):
+            return None
+
+        return {
+            "private_key": self.private_key,
+            "private_key_id": self.private_key_id,
+            "token_uri": self.token_uri,
+            "client_email": self.service_account_email,
         }
 
     @property
     def steps(self) -> collections.abc.Sequence[DestinationTestStep]:
         """Sequence of test steps that make up this destination test."""
+        if self.integration is not None and self.service_account_info is None:
+            # If no service account information is set, then that's the same as
+            # asserting the integration has no keys, so we can check impersonation and
+            # ownership.
+            base_steps: tuple[DestinationTestStep, ...] = (
+                BigQueryImpersonateServiceAccountTestStep(project_id=self.project_id, integration=self.integration),
+                BigQueryVerifyServiceAccountOwnershipTestStep(
+                    project_id=self.project_id,
+                    integration=self.integration,
+                    organization_id=str(self.integration.integration.team.organization_id),
+                ),
+            )
+        else:
+            base_steps = ()
+
         return [
-            BigQueryProjectTestStep(project_id=self.project_id, service_account_info=self.service_account_info),
+            *base_steps,
+            BigQueryProjectTestStep(
+                project_id=self.project_id,
+                integration=self.integration,
+                service_account_info=self.service_account_info,
+            ),
             BigQueryDatasetTestStep(
-                project_id=self.project_id, dataset_id=self.dataset_id, service_account_info=self.service_account_info
+                project_id=self.project_id,
+                dataset_id=self.dataset_id,
+                integration=self.integration,
+                service_account_info=self.service_account_info,
             ),
             BigQueryTableTestStep(
                 project_id=self.project_id,
                 dataset_id=self.dataset_id,
                 table_id=self.table_id,
+                integration=self.integration,
                 service_account_info=self.service_account_info,
             ),
         ]

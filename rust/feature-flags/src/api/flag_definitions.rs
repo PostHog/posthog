@@ -364,33 +364,20 @@ async fn authenticate_flag_definitions(
     team: &Team,
     headers: &HeaderMap,
 ) -> Result<(), FlagError> {
-    // Try team secret token first (from Authorization header only)
-    // Secret tokens have priority over personal API keys
+    // Try team secret token or project secret API key (from Authorization header only)
+    // Both use phs_ prefix and share the same cache; the unified loader handles both.
     if let Some(token) = auth::extract_team_secret_token(headers) {
-        // Try managed project secret API key (posthog_projectsecretapikey) first
-        // TODO: track last_used_at for project secret API keys (similar to PAK path below)
-        if auth::validate_project_secret_api_key_for_team(state, &token, team.id)
-            .await
-            .is_ok()
-        {
-            inc(
-                FLAG_DEFINITIONS_AUTH_COUNTER,
-                &[("method".to_string(), "project_secret_api_key".to_string())],
-                1,
-            );
-            return Ok(());
-        }
-
-        // Fall back to legacy secret_api_token on posthog_team
-        let result = auth::validate_secret_api_token_for_team(state, &token, team.id).await;
-        if result.is_ok() {
-            inc(
-                FLAG_DEFINITIONS_AUTH_COUNTER,
-                &[("method".to_string(), "secret_api_key".to_string())],
-                1,
-            );
-        }
-        return result;
+        let auth_data = auth::validate_secret_api_token_for_team(state, &token, team.id).await?;
+        let method = match &auth_data {
+            auth::TokenAuthData::ProjectSecret { .. } => "project_secret_api_key",
+            _ => "secret_api_key",
+        };
+        inc(
+            FLAG_DEFINITIONS_AUTH_COUNTER,
+            &[("method".to_string(), method.to_string())],
+            1,
+        );
+        return Ok(());
     }
 
     // Try personal API key (with scope validation)

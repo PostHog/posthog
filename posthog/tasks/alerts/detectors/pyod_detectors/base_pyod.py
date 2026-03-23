@@ -40,11 +40,19 @@ class BasePyODDetector(BaseDetector):
 
         train_data, test_data = self.train_test_split(data)
 
-        model = self._build_model(n_samples=len(train_data))
-        model.fit(train_data)
+        # Guard against inf/nan in data (e.g. from preprocessing)
+        if not np.all(np.isfinite(train_data)) or not np.all(np.isfinite(test_data)):
+            return DetectionResult(is_anomaly=False)
 
-        last_point = test_data[-1:]
-        prob = float(model.predict_proba(last_point)[0, 1])
+        try:
+            model = self._build_model(n_samples=len(train_data))
+            model.fit(train_data)
+
+            last_point = test_data[-1:]
+            prob = float(model.predict_proba(last_point)[0, 1])
+        except (ValueError, np.linalg.LinAlgError):
+            return DetectionResult(is_anomaly=False)
+
         is_anomaly = prob > threshold
 
         return DetectionResult(
@@ -76,10 +84,20 @@ class BasePyODDetector(BaseDetector):
                 continue
 
             test_point = data[i : i + 1]
-            model = self._build_model(n_samples=len(train_data))
-            model.fit(train_data)
 
-            prob = float(model.predict_proba(test_point)[0, 1])
+            # Guard against inf/nan in train or test data (e.g. from preprocessing)
+            if not np.all(np.isfinite(train_data)) or not np.all(np.isfinite(test_point)):
+                scores.append(None)
+                continue
+
+            try:
+                model = self._build_model(n_samples=len(train_data))
+                model.fit(train_data)
+                prob = float(model.predict_proba(test_point)[0, 1])
+            except (ValueError, np.linalg.LinAlgError):
+                scores.append(None)
+                continue
+
             scores.append(prob)
 
             if prob > threshold:
