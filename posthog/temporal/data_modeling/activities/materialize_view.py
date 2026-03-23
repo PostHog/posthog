@@ -457,7 +457,6 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             batch, ch_types = res
             batch = _transform_unsupported_decimals(batch)
             batch = _transform_date_and_datetimes(batch, ch_types)
-            # i know this isn't DRY but it was the only way to make type checking shut up
             if index == 0:
                 await logger.adebug(
                     f"Writing batch to delta table: index={index} mode=overwrite schema_mode=overwrite batch_row_count={batch.num_rows}"
@@ -470,23 +469,23 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                     schema_mode="overwrite",
                     storage_options=storage_options,
                 )
+                delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
             else:
                 await logger.adebug(
                     f"Writing batch to delta table: index={index} mode=append batch_row_count={batch.num_rows}"
                 )
                 await asyncio.to_thread(
                     deltalake.write_deltalake,
-                    table_or_uri=table_uri,
+                    table_or_uri=delta_table,  # type: ignore[call-overload]
                     data=batch,
                     mode="append",
                     storage_options=storage_options,
                 )
-            if index == 0:
-                delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
             row_count = row_count + batch.num_rows
             job.rows_materialized = row_count
             await database_sync_to_async(job.save)()
-
+            # explicitly delete batch to free memory after writing
+            del batch, ch_types
     await logger.adebug(f"Finished writing to delta table. row_count={row_count}")
     # row count validation warning
     if job.rows_expected is not None:
@@ -496,17 +495,13 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                 expected=job.rows_expected,
                 actual=row_count,
             )
-
-    if delta_table is None:
-        delta_table = deltalake.DeltaTable(table_uri=table_uri, storage_options=storage_options)
-
-    await logger.adebug("Compacting delta table")
-    delta_table.optimize.compact()
-    await logger.adebug("Vacuuming delta table")
-    delta_table.vacuum(retention_hours=DELTA_TABLE_RETENTION_HOURS, enforce_retention_duration=False, dry_run=False)
-
-    file_uris = delta_table.file_uris()
-
+    file_uris = []
+    if delta_table is not None:
+        await logger.adebug("Compacting delta table")
+        delta_table.optimize.compact()
+        await logger.adebug("Vacuuming delta table")
+        delta_table.vacuum(retention_hours=DELTA_TABLE_RETENTION_HOURS, enforce_retention_duration=False, dry_run=False)
+        file_uris = delta_table.file_uris()
     await logger.ainfo(f"Materialized node {node.name} with {row_count} rows")
     return MaterializeViewResult(
         node_id=node.id,

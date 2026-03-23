@@ -4,7 +4,11 @@ from .get_dag_structure import GetDAGStructureInputs, get_dag_structure_activity
 from .materialize_view import MaterializeViewInputs, MaterializeViewResult, materialize_view_activity
 from .materialize_view_duckgres import DuckgresShadowInputs, DuckgresShadowResult, materialize_view_duckgres_activity
 from .preempt_dag_run import PreemptDAGRunInputs, preempt_dag_run_activity
-from .prepare_queryable_table import PrepareQueryableTableInputs, prepare_queryable_table_activity
+from .prepare_queryable_table import (
+    PrepareQueryableTableInputs,
+    PrepareQueryableTableResult,
+    prepare_queryable_table_activity,
+)
 from .succeed_materialization import SucceedMaterializationInputs, succeed_materialization_activity
 
 __all__ = [
@@ -17,6 +21,7 @@ __all__ = [
     "MaterializeViewResult",
     "PreemptDAGRunInputs",
     "PrepareQueryableTableInputs",
+    "PrepareQueryableTableResult",
     "SucceedMaterializationInputs",
     "create_data_modeling_job_activity",
     "fail_materialization_activity",

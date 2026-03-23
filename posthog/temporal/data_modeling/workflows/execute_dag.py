@@ -18,6 +18,11 @@ from posthog.temporal.data_modeling.activities import (
     preempt_dag_run_activity,
 )
 from posthog.temporal.data_modeling.activities.utils import strip_hostname_from_error
+from posthog.temporal.data_modeling.metrics import (
+    get_dag_duration_metric,
+    get_dag_finished_metric,
+    get_dag_node_count_metric,
+)
 from posthog.temporal.data_modeling.workflows.materialize_view import (
     MaterializeViewWorkflow,
     MaterializeViewWorkflowInputs,
@@ -387,6 +392,18 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 **inputs.properties_to_log,
             },
         )
+        # DAG-level metrics
+        if failed_nodes == 0 and skipped_nodes == 0:
+            dag_status = "completed"
+        elif successful_nodes == 0:
+            dag_status = "failed"
+        else:
+            dag_status = "partial_failure"
+        get_dag_finished_metric(dag_status).add(1)
+        get_dag_duration_metric().record(duration_seconds)
+        get_dag_node_count_metric("successful").record(successful_nodes)
+        get_dag_node_count_metric("failed").record(failed_nodes)
+        get_dag_node_count_metric("skipped").record(skipped_nodes)
 
         return ExecuteDAGResult(
             dag_id=inputs.dag_id,

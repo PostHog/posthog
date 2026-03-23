@@ -26,6 +26,8 @@ class DuckLakeTableResult:
     schema_name: str
     table_name: str
     row_count: int
+    file_size_bytes: int = 0
+    file_size_delta_bytes: int = 0
 
 
 def _make_duckgres_conninfo(team_id: int) -> str:
@@ -107,22 +109,35 @@ def execute_ducklake_create_table(team_id: int, sql: str, schema_name: str, tabl
     safe_schema = sanitize_ducklake_identifier(schema_name, default_prefix="shadow")
     safe_table = sanitize_ducklake_identifier(table_name, default_prefix="model")
     qualified = f"{safe_schema}.{safe_table}"
-
     conninfo = _make_duckgres_conninfo(team_id)
     with psycopg.connect(conninfo) as conn:
         conn.execute("SET search_path TO 'posthog'")
         with conn.cursor() as cur:
-            cur.execute(f"CREATE SCHEMA IF NOT EXISTS {safe_schema}")
-            cur.execute(f"CREATE OR REPLACE TABLE {qualified} AS {sql}")
-
+            cur.execute("CREATE SCHEMA IF NOT EXISTS %s", (safe_schema,))
+            # capture previous table size before replacing
+            cur.execute(
+                "SELECT file_size_bytes FROM posthog.table_info() WHERE schema_name = %s AND table_name = %s",
+                (safe_schema, safe_table),
+            )
+            prev_row = cur.fetchone()
+            prev_file_size_bytes = int(prev_row[0]) if prev_row and prev_row[0] else 0
+            cur.execute("CREATE OR REPLACE TABLE %s AS %s", (qualified, sql))
     with psycopg.connect(conninfo) as conn:
         conn.execute("SET search_path TO 'posthog'")
         with conn.cursor() as cur:
-            cur.execute(f"SELECT count(*) FROM {qualified}")
+            cur.execute("SELECT count(*) FROM %s", (qualified,))
             row = cur.fetchone()
             row_count = int(row[0]) if row else 0
+            cur.execute(
+                "SELECT file_size_bytes FROM posthog.table_info() WHERE schema_name = %s AND table_name = %s",
+                (safe_schema, safe_table),
+            )
+            size_row = cur.fetchone()
+            file_size_bytes = int(size_row[0]) if size_row and size_row[0] else 0
     return DuckLakeTableResult(
         schema_name=safe_schema,
         table_name=safe_table,
         row_count=row_count,
+        file_size_bytes=file_size_bytes,
+        file_size_delta_bytes=file_size_bytes - prev_file_size_bytes,
     )
