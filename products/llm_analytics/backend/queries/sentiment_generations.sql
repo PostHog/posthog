@@ -16,7 +16,8 @@ SELECT
     argMax(ai_input, ts) as ai_input,
     argMax(model, ts) as model,
     argMax(did, ts) as distinct_id,
-    max(ts) as timestamp
+    max(ts) as timestamp,
+    min(ts) as created_at
 FROM (
     SELECT
         uuid,

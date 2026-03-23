@@ -26,6 +26,8 @@ export interface SentimentGeneration {
     model: string | null
     distinctId: string
     timestamp: string
+    /** Earliest event in the trace — used for trace deep-links (matches trace createdAt) */
+    createdAt: string
 }
 
 /** A generation paired with the index of the best matching message for display */
@@ -182,6 +184,7 @@ async function fetchGenerations(values: GenerationsQueryValues, cursor: string |
         model: row[3] as string | null,
         distinctId: row[4] as string,
         timestamp: row[5] as string,
+        createdAt: row[6] as string,
     }))
 }
 
