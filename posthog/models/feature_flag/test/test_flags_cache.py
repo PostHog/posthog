@@ -2872,7 +2872,7 @@ class TestGetReferencedCohorts(BaseTest):
         ]
         result = _get_referenced_cohorts(self.team.id, flags_data)
         # BFS should stop at depth 20, returning fewer than all 25 cohorts
-        assert len(result) <= 21  # root + 20 levels
+        assert len(result) <= 20  # BFS loads at most 20 cohorts
         assert len(result) < 25
 
 

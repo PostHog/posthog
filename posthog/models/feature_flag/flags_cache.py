@@ -125,8 +125,8 @@ def _extract_cohort_ids_from_flag_filters(flags_data: list[dict[str, Any]]) -> s
     properties:
     - ``super_groups`` are early-access enrollment gates that only use person
       properties (``$feature_enrollment/*``).
-    - ``holdout_groups`` use a different schema (``{"id": N,
-      "exclusion_percentage": N}``) with no property filters at all.
+    - ``holdout`` uses a different schema for configuring experiment holdouts
+      with no property filters at all.
     """
     cohort_ids: set[int] = set()
     for flag in flags_data:
