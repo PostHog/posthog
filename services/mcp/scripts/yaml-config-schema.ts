@@ -41,11 +41,12 @@ export const ToolConfigSchema = z
         mcp_version: z.number().int().positive().optional(),
         ui_resource_uri: z.string().optional(),
         /**
-         * When true, the tool issues PATCH { deleted: true } instead of DELETE.
-         * Use for endpoints backed by ForbidDestroyModel where soft-delete is the
-         * correct operation.
+         * When true or a string, the tool issues PATCH instead of DELETE.
+         * `true` sends `{ deleted: true }` (for ForbidDestroyModel endpoints).
+         * A string value specifies a custom field name, e.g. `"archived"` sends
+         * `{ archived: true }` (for models that use a different soft-delete field).
          */
-        soft_delete: z.boolean().optional(),
+        soft_delete: z.union([z.boolean(), z.string()]).optional(),
         /**
          * When true, the tool is only available when the organization has approved
          * AI data processing (`is_ai_data_processing_approved`). Tools that invoke

@@ -5923,6 +5923,7 @@ export interface ReplayInactivityPeriod {
 
 export enum DomainConnectProviderName {
     Cloudflare = 'Cloudflare',
+    Vercel = 'Vercel',
 }
 
 export enum PropertyType {

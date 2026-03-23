@@ -1,1 +1,1 @@
-1060_alter_integration_kind
+1061_add_session_recording_trigger_groups

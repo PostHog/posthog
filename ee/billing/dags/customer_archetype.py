@@ -13,7 +13,7 @@ from typing import Any, Literal, cast
 import polars as pl
 import dagster
 from pydantic import BaseModel, Field
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_exponential, wait_random
 
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
@@ -306,7 +306,7 @@ def _hash_sf_record(record: dict[str, Any]) -> str:
 # --------------------------------------------------------------------------- #
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=30))
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=30) + wait_random(0, 2))
 def _classify_batch(client: Any, batch: list[dict[str, Any]]) -> list[AccountClassification]:
     """Call the LLM for a single batch, with automatic retry on transient errors."""
     user_prompt = json.dumps(batch)
@@ -365,9 +365,12 @@ def archetype_account_data(
 
     if not response.results:
         context.log.info("No data found in PostHog_Customer_Archetype")
-        return pl.DataFrame(schema=dict.fromkeys(COLUMNS, pl.Object))
+        return pl.DataFrame(schema=dict.fromkeys(COLUMNS, pl.Utf8))
 
-    df = pl.DataFrame(response.results, schema=COLUMNS, orient="row")
+    # HogQL returns mixed types (nulls, strings, numbers) so cast everything to
+    # strings to avoid schema inference failures on columns like tech_tag_c.
+    rows = [[str(v) if v is not None else None for v in row] for row in response.results]
+    df = pl.DataFrame(rows, schema=dict.fromkeys(COLUMNS, pl.Utf8), orient="row")
 
     has_usage = df.filter(pl.col("has_llm_analytics").is_not_null() | pl.col("distinct_products_used").is_not_null())
     context.log.info(
@@ -388,7 +391,7 @@ def archetype_account_data(
 @dagster.asset(
     name="archetype_llm_classification",
     group_name="billing",
-    tags={"owner": JobOwners.TEAM_BILLING.value},
+    tags={"owner": JobOwners.TEAM_BILLING.value, "dagster/max_runtime": str(6 * 60 * 60)},
     deps=["archetype_account_data"],
 )
 def archetype_llm_classification(
@@ -440,11 +443,14 @@ def archetype_llm_classification(
         batches = prepare_llm_batches(classify_df, batch_size=config.llm_batch_size)
         client = get_llm_client("customer_archetype_classification")
 
-        context.log.info(f"Classifying {len(batches)} batches concurrently (max_workers={config.llm_max_workers})")
+        total_batches = len(batches)
+        context.log.info(f"Classifying {total_batches} batches concurrently (max_workers={config.llm_max_workers})")
+        completed = 0
         with ThreadPoolExecutor(max_workers=config.llm_max_workers) as pool:
             futures = {pool.submit(_classify_batch, client, batch): i for i, batch in enumerate(batches)}
             for future in as_completed(futures):
                 i = futures[future]
+                completed += 1
                 try:
                     new_classifications.extend(future.result())
                 except Exception:
@@ -453,6 +459,11 @@ def archetype_llm_classification(
                         f"LLM batch {i + 1} failed after retries, skipping {len(batches[i])} accounts: {batch_ids}"
                     )
                     failed_batches.append({"batch": i + 1, "account_ids": batch_ids})
+                if completed % 100 == 0 or completed == total_batches:
+                    context.log.info(
+                        f"Progress: {completed}/{total_batches} batches "
+                        f"({completed * 100 // total_batches}%, {len(failed_batches)} failed so far)"
+                    )
 
     new_classifications = apply_deterministic_archetype(new_classifications)
 
@@ -498,7 +509,11 @@ def archetype_to_salesforce(
         return
 
     # Compute use case adoption from MRR data
-    use_case_df = compute_use_case_adoption(archetype_account_data)
+    mrr_cols = [col for cols in USE_CASE_MRR_MAPPING.values() for col in cols]
+    account_data_typed = archetype_account_data.with_columns(
+        [pl.col(c).cast(pl.Float64, strict=False) for c in mrr_cols]
+    )
+    use_case_df = compute_use_case_adoption(account_data_typed)
 
     # Reconstruct classifications from DataFrame
     classifications = [AccountClassification.model_validate(row) for row in archetype_llm_classification.to_dicts()]

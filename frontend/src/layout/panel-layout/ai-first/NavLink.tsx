@@ -23,11 +23,13 @@ export function NavLink({ to, label, icon, isCollapsed, 'data-attr': dataAttr, o
     const { showConfigurePinnedTabsModal, hideConfigurePinnedTabsTooltip } = useActions(navigationLogic)
     const { isConfigurePinnedTabsTooltipVisible, mobileLayout } = useValues(navigationLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
-    const { pathname } = useValues(panelLayoutLogic)
+    const { pathname, navExperimentActiveTab } = useValues(panelLayoutLogic)
 
     const isHomePage = to === urls.projectRoot()
     const currentPath = removeProjectIdIfPresent(pathname)
     const isActive = currentPath === to || (isHomePage && currentPath === urls.projectHomepage())
+    const isBrowseTabActive = navExperimentActiveTab === 'home'
+    const showTooltip = isConfigurePinnedTabsTooltipVisible && isBrowseTabActive
 
     return (
         <ButtonGroupPrimitive
@@ -71,23 +73,25 @@ export function NavLink({ to, label, icon, isCollapsed, 'data-attr': dataAttr, o
                 <ButtonPrimitive
                     className={cn(
                         'opacity-50 hover:!opacity-100 transition-all duration-50 -outline-offset-2 focus-visible:opacity-100',
-                        isConfigurePinnedTabsTooltipVisible && 'opacity-100 text-primary'
+                        showTooltip && 'opacity-100 text-primary'
                     )}
                     iconOnly
-                    variant={isConfigurePinnedTabsTooltipVisible ? 'panel' : 'default'}
+                    variant={showTooltip ? 'panel' : 'default'}
                     isSideActionRight
-                    forceVariant={isConfigurePinnedTabsTooltipVisible}
+                    forceVariant={showTooltip}
                     onClick={(e) => {
                         e.stopPropagation()
-                        isConfigurePinnedTabsTooltipVisible ? hideConfigurePinnedTabsTooltip() : null
+                        showTooltip ? hideConfigurePinnedTabsTooltip() : null
                         showConfigurePinnedTabsModal()
                     }}
                     tooltip={
-                        isConfigurePinnedTabsTooltipVisible ? (
-                            <div className="flex flex-col gap-1">
+                        showTooltip ? (
+                            <div className="flex gap-1 items-center">
                                 <span>Change your homepage settings here.</span>
                                 <ButtonPrimitive
-                                    className="text-primary-inverse border-none cursor-pointer hover:underline px-0 py-0"
+                                    className="bg-surface-popover text-primary"
+                                    size="xs"
+                                    forceVariant
                                     onClick={(e) => {
                                         e.stopPropagation()
                                         hideConfigurePinnedTabsTooltip()
@@ -96,7 +100,7 @@ export function NavLink({ to, label, icon, isCollapsed, 'data-attr': dataAttr, o
                                         }
                                     }}
                                 >
-                                    Got it
+                                    Dismiss
                                 </ButtonPrimitive>
                             </div>
                         ) : (
@@ -104,8 +108,8 @@ export function NavLink({ to, label, icon, isCollapsed, 'data-attr': dataAttr, o
                         )
                     }
                     tooltipPlacement="right"
-                    tooltipVisible={isConfigurePinnedTabsTooltipVisible || undefined}
-                    tooltipInteractive={isConfigurePinnedTabsTooltipVisible}
+                    tooltipVisible={showTooltip || undefined}
+                    tooltipInteractive={showTooltip}
                 >
                     <IconGear className="size-3 text-secondary" />
                 </ButtonPrimitive>

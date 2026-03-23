@@ -604,6 +604,7 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   CHANGED_FILES: ${{ needs.changes.outputs.migrations_files }}
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: |
                   # If no migration files changed, exit
                   if [ -z "$CHANGED_FILES" ]; then
@@ -611,8 +612,16 @@ jobs:
                     exit 0
                   fi
 
+                  if [ -z "$BASE_SHA" ]; then
+                    echo "::warning::BASE_SHA is empty — all changed migrations will be treated as new"
+                  else
+                    # Ensure the base commit is available for comparison
+                    git fetch --no-tags --prune --depth=1 origin "$BASE_SHA" || echo "::warning::Could not fetch base SHA $BASE_SHA — all changed migrations will be shown as new"
+                  fi
+
                   # Initialize comment body for SQL changes
                   COMMENT_BODY="## Migration SQL Changes\n\nHey 👋, we've detected some migrations on this PR. Here's the SQL output for each migration, make sure they make sense:\n\n"
+                  HAS_NEW_MIGRATIONS=false
 
                   # Process each changed migration file (excluding Rust migrations)
                   for file in $CHANGED_FILES; do
@@ -630,7 +639,15 @@ jobs:
                       else
                         app_name=$(echo $file | sed -E 's|^([^/]+/)*([^/]+)/migrations/.*|\2|')
                       fi
-                        echo "Checking migration $migration_number for app $app_name"
+
+                      # Only show SQL for new migrations, not modifications to existing ones
+                      if git cat-file -e "$BASE_SHA:$file" 2>/dev/null; then
+                        echo "Skipping $file (already exists on base branch)"
+                        continue
+                      fi
+
+                      HAS_NEW_MIGRATIONS=true
+                      echo "Checking migration $migration_number for app $app_name"
 
                       # Get SQL output
                       SQL_OUTPUT=$(python manage.py sqlmigrate $app_name $migration_number)
@@ -640,13 +657,26 @@ jobs:
                     fi
                   done
 
-                  # Get existing comments
+                  # Get existing comments (needed for both update and cleanup)
                   COMMENTS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
                     -H "Accept: application/vnd.github.v3+json" \
                     "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments")
 
                   # Extract comment ID if exists
                   SQL_COMMENT_ID=$(echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## Migration SQL Changes")) | .id' | head -1)
+
+                  # If no new migrations, clean up any stale comment and exit
+                  if [ "$HAS_NEW_MIGRATIONS" = false ]; then
+                    echo "No new migrations to show (all changed files already exist on base branch)"
+                    if [ -n "$SQL_COMMENT_ID" ]; then
+                      echo "Deleting stale SQL comment $SQL_COMMENT_ID"
+                      curl -X DELETE \
+                        -H "Authorization: token $GITHUB_TOKEN" \
+                        -H "Accept: application/vnd.github.v3+json" \
+                        "https://api.github.com/repos/${{ github.repository }}/issues/comments/$SQL_COMMENT_ID"
+                    fi
+                    exit 0
+                  fi
 
                   # Add timestamp and commit SHA to SQL changes
                   TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')

@@ -19,6 +19,7 @@ from posthog.hogql.database.models import (
     LazyTable,
     StringArrayDatabaseField,
     StringJSONDatabaseField,
+    StructDatabaseField,
     Table,
     UnknownDatabaseField,
     VirtualTable,
@@ -57,6 +58,8 @@ VALID_JOIN_TYPES = frozenset(
         "FULL ANY JOIN",
         "FULL ALL JOIN",
         "ASOF LEFT JOIN",
+        "ANTI JOIN",
+        "SEMI JOIN",
     }
 )
 
@@ -64,6 +67,14 @@ VALID_JOIN_TYPES = frozenset(
 @dataclass(kw_only=True)
 class TypeCast(Expr):
     """A type cast expression."""
+
+    expr: Expr
+    type_name: str
+
+
+@dataclass(kw_only=True)
+class TryCast(Expr):
+    """A try-cast expression."""
 
     expr: Expr
     type_name: str
@@ -611,6 +622,8 @@ class FieldType(Type):
             return PropertyType(chain=[name], field_type=self)
         if isinstance(database_field, StringArrayDatabaseField):
             return PropertyType(chain=[name], field_type=self)
+        if isinstance(database_field, StructDatabaseField):
+            return PropertyType(chain=[name], field_type=self)
 
         raise ResolutionError(
             f'Can not access property "{name}" on field "{self.name}" of type: {type(database_field).__name__}'
@@ -652,6 +665,26 @@ class PropertyType(Type):
     def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
         if self.joined_subquery is not None and self.joined_subquery_field_name is not None:
             return self.joined_subquery.resolve_column_constant_type(self.joined_subquery_field_name, context)
+
+        database_field = self.field_type.resolve_database_field(context)
+        if isinstance(database_field, StructDatabaseField):
+            nested_field: DatabaseField = database_field
+            nullable = self.field_type.resolve_constant_type(context).nullable
+
+            for link in self.chain:
+                if not isinstance(nested_field, StructDatabaseField):
+                    return UnknownType(nullable=True)
+
+                child_field = nested_field.fields.get(str(link))
+                if child_field is None:
+                    return UnknownType(nullable=True)
+
+                nullable = nullable or child_field.is_nullable()
+                nested_field = child_field
+
+            constant_type = nested_field.get_constant_type()
+            constant_type.nullable = nullable
+            return constant_type
 
         # PropertyTypes are always nullable
         return dataclasses.replace(self.field_type.resolve_constant_type(context), nullable=True)
@@ -755,6 +788,13 @@ class Not(Expr):
 
 
 @dataclass(kw_only=True)
+class IsDistinctFrom(Expr):
+    left: Expr
+    right: Expr
+    negated: bool = False
+
+
+@dataclass(kw_only=True)
 class BetweenExpr(Expr):
     expr: Expr
     low: Expr
@@ -774,6 +814,13 @@ class ArrayAccess(Expr):
     array: Expr
     property: Expr
     nullish: bool = False
+
+
+@dataclass(kw_only=True)
+class ArraySlice(Expr):
+    array: Expr
+    start_expr: Optional[Expr] = None
+    end_expr: Optional[Expr] = None
 
 
 @dataclass(kw_only=True)
@@ -819,6 +866,9 @@ class Field(Expr):
 class ColumnsExpr(Expr):
     regex: Optional[str] = None
     columns: Optional[list[Expr]] = None
+    all_columns: bool = False
+    exclude: Optional[list[str]] = None
+    replace: Optional[dict[str, Expr]] = None
 
 
 @dataclass(kw_only=True)
@@ -840,6 +890,17 @@ class Placeholder(Expr):
     @property
     def field(self) -> str | None:
         return ".".join(str(chain) for chain in self.chain) if self.chain else None
+
+
+@dataclass(kw_only=True)
+class NamedArgument(Expr):
+    name: str
+    value: Expr
+
+
+@dataclass(kw_only=True)
+class PositionalRef(Expr):
+    index: int
 
 
 @dataclass(kw_only=True)
@@ -873,15 +934,30 @@ class JoinConstraint(Expr):
 
 
 @dataclass(kw_only=True)
+class UnpivotColumn(Expr):
+    value_columns: Expr
+    name_columns: Expr
+    unpivot_values: list[Expr]
+
+
+@dataclass(kw_only=True)
+class UnpivotExpr(Expr):
+    table: Expr
+    columns: list[UnpivotColumn]
+
+
+@dataclass(kw_only=True)
 class JoinExpr(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
     type: Optional[TableOrSelectType] = None
 
     join_type: Optional[str] = None
-    table: Optional[Union["SelectQuery", "SelectSetQuery", "ValuesQuery", "Placeholder", "HogQLXTag", "Field"]] = None
+    table: Optional[
+        Union["SelectQuery", "SelectSetQuery", "ValuesQuery", "UnpivotExpr", "Placeholder", "HogQLXTag", "Field"]
+    ] = None
     table_args: Optional[list[Expr]] = None
     alias: Optional[str] = None
-    alias_columns: Optional[list[str]] = None
+    column_aliases: Optional[list[str]] = None
     table_final: Optional[bool] = None
     constraint: Optional[JoinConstraint] = None
     next_join: Optional["JoinExpr"] = None
@@ -901,7 +977,7 @@ class JoinExpr(Expr):
 @dataclass(kw_only=True)
 class WindowFrameExpr(Expr):
     frame_type: Optional[Literal["CURRENT ROW", "PRECEDING", "FOLLOWING"]] = None
-    frame_value: Optional[int] = None
+    frame_value: Optional[Union[int, Expr]] = None
 
 
 @dataclass(kw_only=True)
@@ -955,6 +1031,7 @@ class SelectQuery(Expr):
     limit: Optional[Expr] = None
     limit_by: Optional[LimitByExpr] = None
     limit_with_ties: Optional[bool] = None
+    limit_percent: Optional[bool] = None
     offset: Optional[Expr] = None
     settings: Optional[HogQLQuerySettings] = None
     view_name: Optional[str] = None
@@ -997,8 +1074,13 @@ SetOperator = Literal[
     "INTERSECT",
     "INTERSECT ALL",
     "INTERSECT DISTINCT",
+    "INTERSECT BY NAME",
+    "INTERSECT ALL BY NAME",
+    "INTERSECT DISTINCT BY NAME",
     "EXCEPT",
     "EXCEPT ALL",
+    "EXCEPT BY NAME",
+    "EXCEPT ALL BY NAME",
 ]
 
 
@@ -1021,6 +1103,10 @@ class SelectSetQuery(Expr):
     type: Optional[SelectSetQueryType] = None
     initial_select_query: Union["SelectQuery", "SelectSetQuery"]
     subsequent_select_queries: list[SelectSetNode]
+    limit: Optional[Expr] = None
+    offset: Optional[Expr] = None
+    limit_percent: Optional[bool] = None
+    limit_with_ties: Optional[bool] = None
 
     def select_queries(self):
         return [self.initial_select_query] + [node.select_query for node in self.subsequent_select_queries]

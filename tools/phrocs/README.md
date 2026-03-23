@@ -3,6 +3,26 @@
 PostHog-branded dev process runner built with [Bubble Tea](https://github.com/charmbracelet/bubbletea).
 Drop-in replacement for `mprocs` — reads the same YAML config that `hogli dev:generate` produces.
 
+## Install
+
+**Homebrew** (macOS and Linux):
+
+```sh
+brew tap posthog/tap && brew install phrocs
+```
+
+**Install script** (macOS and Linux):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/PostHog/posthog/master/tools/phrocs/install.sh | bash
+```
+
+## Build
+
+```sh
+hogli phrocs:build
+```
+
 ## Layout
 
 ```text
