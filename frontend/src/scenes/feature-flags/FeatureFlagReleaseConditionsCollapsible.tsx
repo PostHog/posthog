@@ -593,7 +593,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                         onChange={(value) => updateConditionSet(index, value)}
                                                         min={0}
                                                         max={100}
-                                                        step={1}
+                                                        step={0.01}
                                                         className="w-80"
                                                         ticks={[
                                                             { value: 0, label: '0%' },
@@ -609,8 +609,9 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                         min={0}
                                                         max={100}
                                                         value={group.rollout_percentage ?? 100}
+                                                        step={0.01}
                                                         onChange={(value) => {
-                                                            const numValue = value ? parseInt(value.toString()) : 0
+                                                            const numValue = value ? parseFloat(value.toString()) : 0
                                                             updateConditionSet(
                                                                 index,
                                                                 Math.min(100, Math.max(0, numValue))

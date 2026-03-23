@@ -608,6 +608,19 @@ describe('the feature flag release conditions logic', () => {
             expect(logic.values.propertySelectErrors[1].rollout_percentage).toBeUndefined()
             expect(logic.values.propertySelectErrors[2].rollout_percentage).toBeUndefined()
         })
+
+        it('accepts decimal rollout percentages', () => {
+            const filters = generateFeatureFlagFilters([
+                { properties: [], rollout_percentage: 0.01, variant: null, sort_key: 'A' },
+                { properties: [], rollout_percentage: 0.15, variant: null, sort_key: 'B' },
+                { properties: [], rollout_percentage: 33.33, variant: null, sort_key: 'C' },
+            ])
+            logic.actions.setFilters(filters)
+
+            expect(logic.values.propertySelectErrors[0].rollout_percentage).toBeUndefined()
+            expect(logic.values.propertySelectErrors[1].rollout_percentage).toBeUndefined()
+            expect(logic.values.propertySelectErrors[2].rollout_percentage).toBeUndefined()
+        })
     })
 
     describe('condition set descriptions', () => {
