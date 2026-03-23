@@ -2833,6 +2833,10 @@
                 "type": {
                     "const": "copod",
                     "type": "string"
+                },
+                "window": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                 }
             },
             "required": ["type"],
@@ -12095,6 +12099,10 @@
                 "type": {
                     "const": "ecod",
                     "type": "string"
+                },
+                "window": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                 }
             },
             "required": ["type"],
@@ -17671,6 +17679,10 @@
                 "type": {
                     "const": "hbos",
                     "type": "string"
+                },
+                "window": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                 }
             },
             "required": ["type"],
@@ -19305,6 +19317,10 @@
                 "type": {
                     "const": "isolation_forest",
                     "type": "string"
+                },
+                "window": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                 }
             },
             "required": ["type"],
@@ -19333,6 +19349,10 @@
                 "type": {
                     "const": "knn",
                     "type": "string"
+                },
+                "window": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                 }
             },
             "required": ["type"],
@@ -19465,6 +19485,10 @@
                 "type": {
                     "const": "lof",
                     "type": "string"
+                },
+                "window": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                 }
             },
             "required": ["type"],
@@ -23488,6 +23512,10 @@
                 "type": {
                     "const": "ocsvm",
                     "type": "string"
+                },
+                "window": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                 }
             },
             "required": ["type"],
@@ -23507,6 +23535,10 @@
                 "type": {
                     "const": "pca",
                     "type": "string"
+                },
+                "window": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                 }
             },
             "required": ["type"],

@@ -17,4 +17,4 @@ class PCADetector(BasePyODDetector):
 
     @classmethod
     def get_default_config(cls) -> dict[str, Any]:
-        return {"type": DetectorType.PCA.value, "threshold": 0.9}
+        return {"type": DetectorType.PCA.value, "threshold": cls.DEFAULT_THRESHOLD}

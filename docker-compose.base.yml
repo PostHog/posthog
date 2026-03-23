@@ -450,6 +450,16 @@ services:
             - ES_JAVA_OPTS=-Xms256m -Xmx256m
             - xpack.security.enabled=false
         image: elasticsearch:7.17.28
+        healthcheck:
+            test:
+                [
+                    'CMD-SHELL',
+                    'curl -s http://localhost:9200/_cluster/health | grep -qE "\"status\":\"(green|yellow)\""',
+                ]
+            interval: 10s
+            timeout: 10s
+            retries: 30
+            start_period: 60s
         expose:
             - 9200
         volumes:
@@ -483,7 +493,7 @@ services:
             db:
                 condition: service_healthy
             elasticsearch:
-                condition: service_started
+                condition: service_healthy
     temporal-admin-tools:
         environment:
             - TEMPORAL_CLI_ADDRESS=temporal:7233
