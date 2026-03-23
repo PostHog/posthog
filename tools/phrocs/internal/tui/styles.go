@@ -16,7 +16,6 @@ const (
 	iconCharStopped = sharedpalette.IconStopped
 	iconCharDone    = sharedpalette.IconDone
 	iconCharCrashed = sharedpalette.IconCrashed
-	iconCharWarning = sharedpalette.IconWarning
 )
 
 var (
@@ -125,8 +124,6 @@ func statusIconChar(s process.Status) string {
 		return iconCharDone
 	case process.StatusCrashed:
 		return iconCharCrashed
-	case process.StatusWarning:
-		return iconCharWarning
 	default:
 		return iconCharStopped
 	}
@@ -136,7 +133,7 @@ func statusIconColor(s process.Status) color.Color {
 	switch s {
 	case process.StatusRunning:
 		return colorGreen
-	case process.StatusPending, process.StatusWarning:
+	case process.StatusPending:
 		return colorYellow
 	case process.StatusStopped, process.StatusDone:
 		return colorGrey

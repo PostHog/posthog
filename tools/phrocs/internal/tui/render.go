@@ -71,11 +71,6 @@ func (m Model) renderSidebar() string {
 	for i := start; i < end; i++ {
 		p := m.services[i]
 		status := p.Status()
-		memWarn := p.MemRSSMB() >= highMemoryMB
-		if memWarn {
-			status = process.StatusWarning
-		}
-
 		iconChar := statusIconChar(status)
 		// For pending processes, swap in the current spinner frame. Strip ANSI
 		// from spinner.View() so the raw character can be safely composed inside

@@ -29,7 +29,6 @@ const (
 	StatusStopped
 	StatusDone
 	StatusCrashed
-	StatusWarning
 )
 
 func (s Status) String() string {
@@ -44,8 +43,6 @@ func (s Status) String() string {
 		return "done"
 	case StatusCrashed:
 		return "crashed"
-	case StatusWarning:
-		return "warning"
 	default:
 		return "unknown"
 	}
