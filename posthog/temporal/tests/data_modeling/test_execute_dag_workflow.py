@@ -383,6 +383,11 @@ class TestDAGUtils:
         assert result["e"] == {"f"}
 
 
+@temporal_activity.defn(name="preempt_dag_run_activity")
+async def stub_preempt_dag_run(_: PreemptDAGRunInputs) -> None:
+    pass
+
+
 class TestExecuteDAGWorkflow:
     async def test_handles_empty_dag(self, ateam):
         """Test that the workflow returns early with empty result when no executable nodes exist."""

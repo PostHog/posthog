@@ -475,8 +475,8 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                     f"Writing batch to delta table: index={index} mode=append batch_row_count={batch.num_rows}"
                 )
                 await asyncio.to_thread(
-                    deltalake.write_deltalake,
-                    table_or_uri=delta_table,  # type: ignore[call-overload]
+                    deltalake.write_deltalake,  # type: ignore[arg-type]
+                    table_or_uri=delta_table,
                     data=batch,
                     mode="append",
                     storage_options=storage_options,
