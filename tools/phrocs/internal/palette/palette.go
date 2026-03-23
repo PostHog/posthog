@@ -24,4 +24,5 @@ const (
 	IconStopped = "○"
 	IconDone    = "✓"
 	IconCrashed = "✗"
+	IconWarning = "⚠"
 )

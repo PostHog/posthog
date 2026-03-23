@@ -16,6 +16,7 @@ const (
 	iconCharStopped = sharedpalette.IconStopped
 	iconCharDone    = sharedpalette.IconDone
 	iconCharCrashed = sharedpalette.IconCrashed
+	iconCharWarning = sharedpalette.IconWarning
 )
 
 var (
@@ -104,6 +105,12 @@ var (
 	searchCurrentMatchStyle = lipgloss.NewStyle().
 				Background(colorYellow).
 				Foreground(colorBlack)
+
+	// Info mode
+	warnStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(colorYellow).
+			Background(sharedpalette.ColorBarMid)
 )
 
 func statusIconChar(s process.Status) string {
@@ -118,6 +125,8 @@ func statusIconChar(s process.Status) string {
 		return iconCharDone
 	case process.StatusCrashed:
 		return iconCharCrashed
+	case process.StatusWarning:
+		return iconCharWarning
 	default:
 		return iconCharStopped
 	}
@@ -127,7 +136,7 @@ func statusIconColor(s process.Status) color.Color {
 	switch s {
 	case process.StatusRunning:
 		return colorGreen
-	case process.StatusPending:
+	case process.StatusPending, process.StatusWarning:
 		return colorYellow
 	case process.StatusStopped, process.StatusDone:
 		return colorGrey

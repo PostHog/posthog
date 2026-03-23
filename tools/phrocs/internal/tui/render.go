@@ -7,8 +7,12 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	sharedpalette "github.com/posthog/posthog/phrocs/internal/palette"
 	"github.com/posthog/posthog/phrocs/internal/process"
 )
+
+// Triggers warning icon and banner
+const highMemoryMB = 2048
 
 func (m Model) renderHeader() string {
 	brand := headerBrandStyle.Render("phrocs")
@@ -66,14 +70,20 @@ func (m Model) renderSidebar() string {
 	var rows []string
 	for i := start; i < end; i++ {
 		p := m.services[i]
-		iconChar := statusIconChar(p.Status())
+		status := p.Status()
+		memWarn := p.MemRSSMB() >= highMemoryMB
+		if memWarn {
+			status = process.StatusWarning
+		}
+
+		iconChar := statusIconChar(status)
 		// For pending processes, swap in the current spinner frame. Strip ANSI
 		// from spinner.View() so the raw character can be safely composed inside
 		// the surrounding lipgloss styles without breaking their background colour.
-		if p.Status() == process.StatusPending {
+		if status == process.StatusPending {
 			iconChar = ansi.Strip(m.spinner.View())
 		}
-		iconColor := statusIconColor(p.Status())
+		iconColor := statusIconColor(status)
 
 		name := truncate(p.Name, innerW-3)
 		cpuPct := p.CPUPercent()
@@ -134,6 +144,9 @@ func (m Model) viewportWithIndicator() string {
 	view := m.viewport.View()
 	if m.hedgehogMode {
 		view = m.overlayHedgehog(view)
+	}
+	if m.infoMode {
+		return view
 	}
 	total := m.viewport.TotalLineCount()
 	if total <= m.viewport.Height() {
@@ -238,6 +251,12 @@ func (m Model) renderInfo() string {
 	}
 
 	var lines []string
+
+	// High memory warning banner
+	if snap.MemRSSMB != nil && *snap.MemRSSMB >= highMemoryMB {
+		lines = append(lines, warnStyle.Width(m.viewport.Width()).Render(fmt.Sprintf("  %s High memory usage: %.0f MB", sharedpalette.IconWarning, *snap.MemRSSMB)))
+	}
+
 	lines = append(lines, "")
 
 	// Status

@@ -23,6 +23,7 @@ func TestStatusString(t *testing.T) {
 		{StatusStopped, "stopped"},
 		{StatusDone, "done"},
 		{StatusCrashed, "crashed"},
+		{StatusWarning, "warning"},
 		{Status(99), "unknown"},
 	}
 	for _, tt := range tests {
