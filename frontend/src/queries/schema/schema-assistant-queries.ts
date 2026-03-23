@@ -1,4 +1,4 @@
-import { BreakdownType, FunnelMathType, IntervalType, PropertyFilterType, PropertyOperator } from '~/types'
+import { BreakdownType, ChartDisplayType, FunnelMathType, IntervalType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import {
     ActionsNode,
@@ -763,7 +763,21 @@ export interface AssistantRetentionQuery extends AssistantInsightsQueryBase {
 }
 
 /**
- * Defines the event series for the stickiness insight.
+ * Stickiness display types. Only time-series visualizations are supported:
+ * - `ActionsLineGraph` - line chart (default)
+ * - `ActionsBar` - bar chart
+ * - `ActionsAreaGraph` - area chart
+ */
+export type AssistantStickinessDisplayType =
+    | ChartDisplayType.ActionsLineGraph
+    | ChartDisplayType.ActionsBar
+    | ChartDisplayType.ActionsAreaGraph
+
+/**
+ * Defines the event series for the stickiness insight. Each series measures how many intervals
+ * (e.g. days) within the date range a user performed the event. The X-axis shows the number of
+ * intervals (1, 2, 3, ...) and the Y-axis shows the count of users.
+ * When math is omitted, the default aggregation is by unique persons (person_id).
  */
 export interface AssistantStickinessEventsNode extends Omit<
     EventsNode,
@@ -781,6 +795,7 @@ export interface AssistantStickinessEventsNode extends Omit<
 
 /**
  * Defines the action series for the stickiness insight. You must provide the action ID in the `id` field and the name in the `name` field.
+ * When math is omitted, the default aggregation is by unique persons (person_id).
  */
 export interface AssistantStickinessActionsNode extends Omit<
     ActionsNode,
@@ -803,13 +818,13 @@ export interface AssistantStickinessActionsNode extends Omit<
 
 export interface AssistantStickinessFilter {
     /**
-     * Visualization type. Available values:
-     * `ActionsLineGraph` - time-series line chart showing how many days users performed the event (default).
-     * `ActionsBar` - time-series bar chart.
-     * `ActionsAreaGraph` - time-series area chart.
+     * Visualization type for the stickiness chart.
+     * `ActionsLineGraph` - line chart (default).
+     * `ActionsBar` - bar chart.
+     * `ActionsAreaGraph` - area chart.
      * @default ActionsLineGraph
      */
-    display?: StickinessFilterLegacy['display']
+    display?: AssistantStickinessDisplayType
 
     /**
      * Whether to show the legend describing series.
@@ -828,14 +843,20 @@ export interface AssistantStickinessQuery extends AssistantInsightsQueryBase {
     kind: NodeKind.StickinessQuery
 
     /**
-     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
+     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`.
+     * This determines what counts as one "interval" for stickiness measurement.
+     * For example, with `day` interval over a 30-day range, the X-axis shows 1 through 30 days,
+     * and each bar/point shows how many users performed the event on exactly that many days.
      *
      * @default day
      */
     interval?: IntervalType
 
     /**
-     * Events or actions to include. Each series measures how many intervals (e.g. days) within the date range a user performed the event. Prioritize the more popular and fresh events and actions.
+     * Events or actions to include. Each series measures how many intervals (e.g. days) within
+     * the date range a user performed the event. Prioritize the more popular and fresh events
+     * and actions. When the `math` field is omitted on a series, it defaults to counting
+     * unique persons.
      */
     series: (AssistantStickinessEventsNode | AssistantStickinessActionsNode)[]
 
@@ -845,7 +866,7 @@ export interface AssistantStickinessQuery extends AssistantInsightsQueryBase {
     stickinessFilter?: AssistantStickinessFilter
 
     /**
-     * Compare to date range
+     * Compare to date range. When enabled, shows the current and previous period side by side.
      */
     compareFilter?: CompareFilter
 }
