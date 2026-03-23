@@ -117,7 +117,7 @@ class TestGetSalesforceClient:
     def test_raises_on_token_exchange_failure(self, mock_post, mock_sf):
         response = MagicMock(spec=requests.Response)
         response.status_code = 401
-        response.raise_for_status.side_effect = requests.HTTPError("401 Unauthorized")
+        response.raise_for_status.side_effect = requests.HTTPError("401 Unauthorized", response=response)
         mock_post.return_value = response
 
         with pytest.raises(requests.HTTPError):
