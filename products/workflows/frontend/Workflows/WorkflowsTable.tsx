@@ -18,6 +18,12 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { WorkflowsSceneProps } from '../WorkflowsScene'
+
+const STATUS_CONFIG: Record<string, { label: string; type: 'success' | 'default' | 'muted' }> = {
+    active: { label: 'Active', type: 'success' },
+    draft: { label: 'Draft', type: 'default' },
+    archived: { label: 'Archived', type: 'muted' },
+}
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlow } from './hogflows/types'
 import { newWorkflowLogic } from './newWorkflowLogic'
@@ -202,12 +208,7 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
             title: 'Status',
             width: 0,
             render: (_, item) => {
-                const statusConfig: Record<string, { label: string; type: 'success' | 'default' | 'muted' }> = {
-                    active: { label: 'Active', type: 'success' },
-                    draft: { label: 'Draft', type: 'default' },
-                    archived: { label: 'Archived', type: 'muted' },
-                }
-                const config = statusConfig[item.status] || statusConfig.draft
+                const config = STATUS_CONFIG[item.status] || STATUS_CONFIG.draft
                 return <LemonTag type={config.type}>{config.label}</LemonTag>
             },
         },
