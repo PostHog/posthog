@@ -68,7 +68,7 @@ from posthog.models.feature_flag import (
     set_feature_flags_for_team_in_cache,
 )
 from posthog.models.feature_flag.flag_analytics import increment_request_count
-from posthog.models.feature_flag.flag_status import FeatureFlagStatus, FeatureFlagStatusChecker
+from posthog.models.feature_flag.flag_status import FeatureFlagStatusChecker
 from posthog.models.feature_flag.flag_validation import check_flag_evaluation_query_is_ok
 from posthog.models.feature_flag.local_evaluation import (
     DATABASE_FOR_LOCAL_EVALUATION,
@@ -1730,6 +1730,32 @@ class EvaluationReasonsResponseSerializer(serializers.Serializer):
     pass
 
 
+class FeatureFlagStatusResponseSerializer(serializers.Serializer):
+    status = serializers.CharField(help_text="Flag status: active, stale, deleted, or unknown")
+    reason = serializers.CharField(help_text="Human-readable explanation of the status")
+
+
+class DependentFlagSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="Feature flag ID")
+    key = serializers.CharField(help_text="Feature flag key")
+    name = serializers.CharField(help_text="Feature flag name")
+
+
+class UserBlastRadiusRequestSerializer(serializers.Serializer):
+    condition = serializers.DictField(required=True, help_text="The release condition to evaluate")
+    group_type_index = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Group type index for group-based flags (null for person-based flags)",
+    )
+
+
+class UserBlastRadiusResponseSerializer(serializers.Serializer):
+    users_affected = serializers.IntegerField(help_text="Number of users matching the condition")
+    total_users = serializers.IntegerField(help_text="Total number of users in the project")
+
+
 class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
     filters = serializers.DictField(source="get_filters", required=False)
     evaluation_tags = serializers.SerializerMethodField()
@@ -2091,7 +2117,10 @@ class FeatureFlagViewSet(
 
         return Response({"success": True}, status=200)
 
-    @action(methods=["GET"], detail=True, required_scopes=["feature_flag:read"])
+    @extend_schema(
+        responses={200: DependentFlagSerializer(many=True)},
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["feature_flag:read"], pagination_class=None)
     def dependent_flags(self, request: request.Request, **kwargs):
         """Get other active flags that depend on this flag."""
         feature_flag: FeatureFlag = self.get_object()
@@ -2915,7 +2944,11 @@ class FeatureFlagViewSet(
 
         return Response(flags_with_evaluation_reasons)
 
-    @action(methods=["POST"], detail=False)
+    @extend_schema(
+        request=UserBlastRadiusRequestSerializer,
+        responses={200: UserBlastRadiusResponseSerializer},
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["feature_flag:read"])
     def user_blast_radius(self, request: request.Request, **kwargs):
         if "condition" not in request.data:
             raise exceptions.ValidationError("Missing condition for which to get blast radius")
@@ -2976,6 +3009,9 @@ class FeatureFlagViewSet(
 
         return activity_page_response(activity_page, limit, page, request)
 
+    @extend_schema(
+        responses={200: FeatureFlagStatusResponseSerializer},
+    )
     @action(methods=["GET"], detail=True, required_scopes=["feature_flag:read"])
     def status(self, request: request.Request, **kwargs):
         feature_flag = self.get_object()
@@ -2987,7 +3023,7 @@ class FeatureFlagViewSet(
 
         return Response(
             {"status": flag_status, "reason": reason},
-            status=status.HTTP_404_NOT_FOUND if flag_status == FeatureFlagStatus.UNKNOWN else status.HTTP_200_OK,
+            status=status.HTTP_200_OK,
         )
 
     @action(

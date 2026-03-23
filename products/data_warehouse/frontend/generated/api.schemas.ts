@@ -718,6 +718,13 @@ export interface DataWarehouseSavedQueryMinimalApi {
 * `endpoint` - Endpoint
 * `managed_viewset` - Managed Viewset */
     readonly origin: OriginEnumApi | NullEnumApi | null
+    /** Whether this view is for testing only and will auto-expire. */
+    readonly is_test: boolean
+    /**
+     * When this test view should be automatically deleted.
+     * @nullable
+     */
+    readonly expires_at: string | null
 }
 
 export interface PaginatedDataWarehouseSavedQueryMinimalListApi {
@@ -786,6 +793,13 @@ export interface DataWarehouseSavedQueryApi {
 * `endpoint` - Endpoint
 * `managed_viewset` - Managed Viewset */
     readonly origin: OriginEnumApi | NullEnumApi | null
+    /** Whether this view is for testing only and will auto-expire. */
+    is_test?: boolean
+    /**
+     * When this test view should be automatically deleted.
+     * @nullable
+     */
+    readonly expires_at: string | null
 }
 
 export type PatchedDataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
@@ -845,6 +859,13 @@ export interface PatchedDataWarehouseSavedQueryApi {
 * `endpoint` - Endpoint
 * `managed_viewset` - Managed Viewset */
     readonly origin?: OriginEnumApi | NullEnumApi | null
+    /** Whether this view is for testing only and will auto-expire. */
+    is_test?: boolean
+    /**
+     * When this test view should be automatically deleted.
+     * @nullable
+     */
+    readonly expires_at?: string | null
 }
 
 /**

@@ -25,7 +25,6 @@ import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { Scene } from '~/scenes/sceneTypes'
 
-import { sidePanelOfframpLogic } from '../navigation-3000/sidepanel/sidePanelOfframpLogic'
 import { navigationLogic } from '../navigation/navigationLogic'
 import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
 
@@ -37,9 +36,6 @@ export function SceneTabs(): JSX.Element {
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
-    const { showOfframpModal } = useActions(sidePanelOfframpLogic)
-    const { isSceneTabsOfframpDismissed } = useValues(sidePanelOfframpLogic)
-
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (!over || over.id === 'new' || active.id === over.id) {
             return
@@ -137,17 +133,6 @@ export function SceneTabs(): JSX.Element {
                                 <IconPlus className="!ml-0 size-3" />
                             </Link>
                         </AppShortcut>
-
-                        {!isSceneTabsOfframpDismissed && (
-                            <ButtonPrimitive
-                                onClick={() => {
-                                    showOfframpModal()
-                                }}
-                                className="ml-auto text-tertiary hover:text-primary"
-                            >
-                                Where's the panel? 🤔
-                            </ButtonPrimitive>
-                        )}
                     </div>
                 </SortableContext>
             </DndContext>

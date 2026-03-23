@@ -3064,6 +3064,53 @@ class TestPrinter(BaseTest):
             "SELECT arrayReduce(%(hogql_val_0)s, [1, 2, 3]) AS `arrayReduce('sum', [1, 2, 3])` LIMIT 50000"
         )
 
+    def test_dropped_hidden_alias_still_reserves_type_based_name(self):
+        subquery_type = ast.SelectQueryType(
+            columns={"toDate(period_end)": ast.DateType(), "period_end": ast.DateType()}
+        )
+
+        query = ast.SelectQuery(
+            select=[
+                ast.Alias(
+                    alias="toDate(period_end)",
+                    expr=ast.Field(
+                        chain=["toDate(period_end)"],
+                        type=ast.FieldType(name="toDate(period_end)", table_type=subquery_type),
+                    ),
+                    hidden=True,
+                ),
+                ast.Call(
+                    name="toDate",
+                    args=[
+                        ast.Field(
+                            chain=["period_end"],
+                            type=ast.FieldType(name="period_end", table_type=subquery_type),
+                        )
+                    ],
+                ),
+                ast.Alias(
+                    alias="toDate(period_end)",
+                    expr=ast.Field(
+                        chain=["toDate(period_end)"],
+                        type=ast.FieldType(name="toDate(period_end)", table_type=subquery_type),
+                        from_asterisk=True,
+                    ),
+                    hidden=True,
+                ),
+            ]
+        )
+
+        printed = print_prepared_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="clickhouse",
+        )
+
+        assert (
+            printed
+            == "SELECT `toDate(period_end)`, toDate(period_end), `toDate(period_end)` AS `toDate(period_end)` LIMIT 50000"
+        )
+
     def test_can_call_parametric_function_from_placeholder(self):
         printed = self._print("SELECT arrayReduce({f}, [1, 2, 3])", placeholders={"f": ast.Constant(value="sum")})
         assert printed == (
@@ -4541,6 +4588,21 @@ class TestPostgresPrinter(BaseTest):
             self._expr("toStartOfDay(timestamp, 'UTC')")
 
         self.assertIn("timezone override", str(error.exception))
+
+    @parameterized.expand(
+        [
+            ("date_trunc('second', timestamp)", "date_trunc('second', events.timestamp)"),
+            ("date_trunc('minute', timestamp)", "date_trunc('minute', events.timestamp)"),
+            ("date_trunc('hour', timestamp)", "date_trunc('hour', events.timestamp)"),
+            ("date_trunc('day', timestamp)", "date_trunc('day', events.timestamp)"),
+            ("date_trunc('week', timestamp)", "date_trunc('week', events.timestamp)"),
+            ("date_trunc('month', timestamp)", "date_trunc('month', events.timestamp)"),
+            ("date_trunc('quarter', timestamp)", "date_trunc('quarter', events.timestamp)"),
+            ("date_trunc('year', timestamp)", "date_trunc('year', events.timestamp)"),
+        ]
+    )
+    def test_date_trunc_passthrough_in_postgres(self, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
 
     @parameterized.expand(
         [

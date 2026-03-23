@@ -5,7 +5,6 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/posthog/posthog/phrocs/internal/process"
 )
 
 // Recomputes searchMatches from current process output
@@ -56,13 +55,8 @@ func (m *Model) applySearchStyle() {
 	}
 }
 
-// Incrementally maintains searchMatches when a single new line arrives.
-// Adjusts existing indices for scrollback eviction, then checks the new line.
-// This keeps search O(M) per incoming line rather than O(N).
-func (m *Model) updateSearchForNewLine(msg process.OutputMsg) {
-	m.updateSearchForLine(msg.Line, msg.LineIndex, msg.Evicted)
-}
-
+// Incrementally maintains searchMatches when a single new line arrives
+// (used by docker container log streaming which still delivers individual lines).
 func (m *Model) updateSearchForLine(line string, lineIndex int, evicted bool) {
 	if evicted && len(m.searchMatches) > 0 {
 		// The line at index 0 was dropped; remove it from matches if present.

@@ -21,6 +21,7 @@ import { isEmptyObject, isObject, objectsEqual } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { isDashboardFilterEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -507,9 +508,9 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 tileFiltersOverride: TileFilters | null
             ) => {
                 return (
-                    (isObject(filtersOverride) && !isEmptyObject(filtersOverride)) ||
+                    !isDashboardFilterEmpty(filtersOverride) ||
                     (isObject(variablesOverride) && !isEmptyObject(variablesOverride)) ||
-                    (isObject(tileFiltersOverride) && !isEmptyObject(tileFiltersOverride))
+                    !isDashboardFilterEmpty(tileFiltersOverride)
                 )
             },
         ],

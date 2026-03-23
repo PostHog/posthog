@@ -25,6 +25,9 @@ export class EncryptionCodec implements PayloadCodec {
         // Match Python: pad with null bytes on the left, truncate to 32 bytes
         const padded = Buffer.alloc(32)
         const keyBytes = Buffer.from(secretKey, 'utf-8')
+        if (keyBytes.length > 32) {
+            console.warn(`EncryptionCodec: secret key is ${keyBytes.length} bytes, truncating to 32`)
+        }
         const padLen = Math.max(32 - keyBytes.length, 0)
         keyBytes.copy(padded, padLen, 0, Math.min(keyBytes.length, 32))
 
@@ -69,8 +72,9 @@ export class EncryptionCodec implements PayloadCodec {
         const hmac = crypto.createHmac('sha256', this.signingKey).update(body).digest()
         const raw = Buffer.concat([body, hmac])
 
-        // Python's Fernet stores tokens as base64url-encoded bytes
-        return Buffer.from(raw.toString('base64url'))
+        // Python's Fernet expects base64url with padding — use standard base64
+        // (which includes padding) and swap to URL-safe alphabet
+        return Buffer.from(raw.toString('base64').replace(/\+/g, '-').replace(/\//g, '_'))
     }
 
     private decrypt(token: Uint8Array): Uint8Array {

@@ -9,25 +9,26 @@ import (
 	"github.com/posthog/posthog/phrocs/internal/process"
 )
 
-// testManager creates a Manager with the named stub processes (no autostart).
-func testManager(names ...string) *process.Manager {
+// testConfig creates a Config with the named stub processes (no autostart).
+func testConfig(names ...string) *config.Config {
 	f := false
 	procs := make(map[string]config.ProcConfig, len(names))
 	for _, n := range names {
 		procs[n] = config.ProcConfig{Shell: "true", Autostart: &f}
 	}
-	return process.NewManager(&config.Config{
+	return &config.Config{
 		Procs:            procs,
 		MouseScrollSpeed: 3,
 		Scrollback:       1000,
-	})
+	}
 }
 
 // readyModel returns a model that has processed a WindowSizeMsg and is ready.
 func readyModel(t *testing.T, names ...string) Model {
 	t.Helper()
-	mgr := testManager(names...)
-	m := New(mgr, 3, nil)
+	cfg := testConfig(names...)
+	mgr := process.NewManager(cfg)
+	m := New(mgr, cfg, nil)
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	return next.(Model)
 }
@@ -35,14 +36,15 @@ func readyModel(t *testing.T, names ...string) Model {
 func readyDockerModel(t *testing.T) Model {
 	t.Helper()
 	f := false
-	mgr := process.NewManager(&config.Config{
+	cfg := &config.Config{
 		Procs: map[string]config.ProcConfig{
 			"docker": {Shell: "docker compose -f docker-compose.dev.yml up", Autostart: &f},
 		},
 		MouseScrollSpeed: 3,
 		Scrollback:       1000,
-	})
-	m := New(mgr, 3, nil)
+	}
+	mgr := process.NewManager(cfg)
+	m := New(mgr, cfg, nil)
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	dockerModel := next.(Model)
 	dockerModel.containers = []docker.DockerContainer{{Service: "web"}}
@@ -67,8 +69,9 @@ func update(m Model, msg tea.Msg) Model {
 // ── New() initial state ───────────────────────────────────────────────────────
 
 func TestNew_initialState(t *testing.T) {
-	mgr := testManager("backend", "frontend")
-	m := New(mgr, 3, nil)
+	cfg := testConfig("backend", "frontend")
+	mgr := process.NewManager(cfg)
+	m := New(mgr, cfg, nil)
 	if m.ready {
 		t.Error("model should not be ready before WindowSizeMsg")
 	}
@@ -87,8 +90,9 @@ func TestNew_initialState(t *testing.T) {
 }
 
 func TestUpdate_windowSizeSetsReady(t *testing.T) {
-	mgr := testManager("backend")
-	m := New(mgr, 3, nil)
+	cfg := testConfig("backend")
+	mgr := process.NewManager(cfg)
+	m := New(mgr, cfg, nil)
 	m = update(m, tea.WindowSizeMsg{Width: 120, Height: 40})
 	if !m.ready {
 		t.Error("model should be ready after WindowSizeMsg")
@@ -240,12 +244,10 @@ func TestCopyMode_setAnchor(t *testing.T) {
 func TestCopyMode_navigation(t *testing.T) {
 	m := readyModel(t, "backend")
 	// Populate some lines so the viewport has content to navigate.
-	// AppendLine mirrors the readLoop append step; OutputMsg triggers the TUI
-	// to rebuild the viewport from p.Lines().
 	p, _ := m.mgr.Get("backend")
 	for _, line := range []string{"line 1", "line 2", "line 3"} {
 		p.AppendLine(line)
-		m = update(m, process.OutputMsg{Name: "backend", Line: line})
+		m = update(m, process.OutputMsg{Name: "backend"})
 	}
 	m = update(m, keypress('c')) // enter copy mode
 	initial := m.copyCursor
@@ -331,7 +333,7 @@ func TestSearch_matchesHighlighted(t *testing.T) {
 	p, _ := m.mgr.Get("backend")
 	for _, line := range []string{"hello world", "error here", "another error"} {
 		p.AppendLine(line)
-		m = update(m, process.OutputMsg{Name: "backend", Line: line})
+		m = update(m, process.OutputMsg{Name: "backend"})
 	}
 	m = update(m, keypress('/'))
 	m = update(m, keypress('e'))
@@ -347,7 +349,7 @@ func TestSearch_enterConfirmsAndKeepsMatches(t *testing.T) {
 	p, _ := m.mgr.Get("backend")
 	for _, line := range []string{"foo", "bar", "foo again"} {
 		p.AppendLine(line)
-		m = update(m, process.OutputMsg{Name: "backend", Line: line})
+		m = update(m, process.OutputMsg{Name: "backend"})
 	}
 	m = update(m, keypress('/'))
 	m = update(m, keypress('f'))
@@ -367,7 +369,7 @@ func TestSearch_navigateWithEnter(t *testing.T) {
 	p, _ := m.mgr.Get("backend")
 	for _, line := range []string{"match one", "no match", "match two"} {
 		p.AppendLine(line)
-		m = update(m, process.OutputMsg{Name: "backend", Line: line})
+		m = update(m, process.OutputMsg{Name: "backend"})
 	}
 	// Enter search and confirm
 	m = update(m, keypress('/'))
@@ -393,11 +395,10 @@ func TestSearch_navigateWithEnter(t *testing.T) {
 func TestSearch_incrementalUpdate(t *testing.T) {
 	m := readyModel(t, "backend")
 	p, _ := m.mgr.Get("backend")
-	// Seed two lines, start a search, then deliver a new matching line
-	// incrementally (simulating live output without triggering a full rescan).
-	for i, line := range []string{"error log", "info log"} {
+	// Seed two lines, start a search, then deliver a new matching line.
+	for _, line := range []string{"error log", "info log"} {
 		p.AppendLine(line)
-		m = update(m, process.OutputMsg{Name: "backend", Line: line, LineIndex: i})
+		m = update(m, process.OutputMsg{Name: "backend"})
 	}
 	// Activate search
 	m = update(m, keypress('/'))
@@ -408,9 +409,9 @@ func TestSearch_incrementalUpdate(t *testing.T) {
 	if len(m.searchMatches) != 1 {
 		t.Fatalf("want 1 match for 'error', got %d", len(m.searchMatches))
 	}
-	// New matching line arrives — incremental path should append without full rescan
+	// New matching line arrives — recomputeSearch picks it up
 	p.AppendLine("another error")
-	m = update(m, process.OutputMsg{Name: "backend", Line: "another error", LineIndex: 2})
+	m = update(m, process.OutputMsg{Name: "backend"})
 	if len(m.searchMatches) != 2 {
 		t.Errorf("after new matching line: want 2 matches, got %d", len(m.searchMatches))
 	}
@@ -419,19 +420,20 @@ func TestSearch_incrementalUpdate(t *testing.T) {
 func TestSearch_eviction(t *testing.T) {
 	// Use a tiny scrollback (3 lines) so eviction happens quickly.
 	f := false
-	mgr := process.NewManager(&config.Config{
+	cfg := &config.Config{
 		Procs:            map[string]config.ProcConfig{"svc": {Shell: "true", Autostart: &f}},
 		MouseScrollSpeed: 3,
 		Scrollback:       3,
-	})
-	m := New(mgr, 3, nil)
+	}
+	mgr := process.NewManager(cfg)
+	m := New(mgr, cfg, nil)
 	m = update(m, tea.WindowSizeMsg{Width: 120, Height: 40})
 	p, _ := mgr.Get("svc")
 
 	// Fill the scrollback: lines 0,1,2 = "err0","ok1","err2"
-	for i, line := range []string{"err0", "ok1", "err2"} {
+	for _, line := range []string{"err0", "ok1", "err2"} {
 		p.AppendLine(line)
-		m = update(m, process.OutputMsg{Name: "svc", Line: line, LineIndex: i})
+		m = update(m, process.OutputMsg{Name: "svc"})
 	}
 	// Search for "err" → matches at indices 0 and 2
 	m = update(m, keypress('/'))
@@ -447,7 +449,7 @@ func TestSearch_eviction(t *testing.T) {
 	// Buffer becomes: ["ok1","err2","ok3"] at indices 0,1,2.
 	// "err0" is gone; "err2" shifts to index 1; new line "ok3" at index 2.
 	p.AppendLine("ok3")
-	m = update(m, process.OutputMsg{Name: "svc", Line: "ok3", LineIndex: 2, Evicted: true})
+	m = update(m, process.OutputMsg{Name: "svc"})
 	if len(m.searchMatches) != 1 {
 		t.Errorf("after evicting matching line: want 1 match, got %d", len(m.searchMatches))
 	}
@@ -460,7 +462,7 @@ func TestSearch_escClearsActiveSearch(t *testing.T) {
 	m := readyModel(t, "backend")
 	p, _ := m.mgr.Get("backend")
 	p.AppendLine("something")
-	m = update(m, process.OutputMsg{Name: "backend", Line: "something"})
+	m = update(m, process.OutputMsg{Name: "backend"})
 	// Build a search result, then exit typing mode
 	m = update(m, keypress('/'))
 	m = update(m, keypress('s'))
@@ -545,12 +547,11 @@ func TestCopySelectedText_dockerUsesContainerLogs(t *testing.T) {
 
 func TestOutputMsg_activeProc(t *testing.T) {
 	m := readyModel(t, "backend")
-	// AppendLine puts the line into p.lines so buildContent sees it when the
-	// TUI handles the OutputMsg.
+	// AppendLine puts the line into p.lines; OutputMsg triggers buildContent.
 	p, _ := m.mgr.Get("backend")
 	p.AppendLine("hello world")
 	before := m.viewport.TotalLineCount()
-	m = update(m, process.OutputMsg{Name: "backend", Line: "hello world"})
+	m = update(m, process.OutputMsg{Name: "backend"})
 	after := m.viewport.TotalLineCount()
 	if after != before+1 {
 		t.Errorf("OutputMsg for active proc: line count want %d, got %d", before+1, after)
@@ -561,7 +562,7 @@ func TestOutputMsg_inactiveProc(t *testing.T) {
 	m := readyModel(t, "backend", "frontend")
 	// cursor is on backend (index 0); send output for frontend
 	before := m.viewport.TotalLineCount()
-	m = update(m, process.OutputMsg{Name: "frontend", Line: "not visible"})
+	m = update(m, process.OutputMsg{Name: "frontend"})
 	after := m.viewport.TotalLineCount()
 	if after != before {
 		t.Error("OutputMsg for inactive proc should not update viewport")

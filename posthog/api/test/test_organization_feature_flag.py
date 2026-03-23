@@ -425,7 +425,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response.json()["failed"]), 1)
         self.assertEqual(response.json()["failed"][0]["project_id"], target_project_2.id)
         self.assertEqual(
-            response.json()["failed"][0]["errors"],
+            response.json()["failed"][0]["error_message"],
             "[ErrorDetail(string='Feature flag with this key already exists and is used in an experiment. Please delete the experiment before deleting the flag.', code='invalid')]",
         )
 
@@ -531,7 +531,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response.json()["success"]), 0)
         self.assertEqual(len(response.json()["failed"]), 1)
         self.assertEqual(response.json()["failed"][0]["project_id"], self.team_2.id)
-        self.assertEqual(response.json()["failed"][0]["errors"], "Project not found.")
+        self.assertEqual(response.json()["failed"][0]["error_message"], "Project not found.")
 
     def test_copy_feature_flag_cohort_nonexistent_in_destination(self):
         cohorts = {}
