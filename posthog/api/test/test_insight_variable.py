@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
+from unittest import TestCase
 from unittest.mock import MagicMock
 
 from parameterized import parameterized
@@ -147,7 +148,7 @@ class TestInsightVariable(APIBaseTest):
         assert response.json()["values"] == []
 
 
-class TestMapStaleToLatest(APIBaseTest):
+class TestMapStaleToLatest(TestCase):
     def _make_variable(self, code_name: str) -> MagicMock:
         var = MagicMock(spec=InsightVariable)
         var.id = uuid4()
@@ -190,9 +191,14 @@ class TestMapStaleToLatest(APIBaseTest):
         result = map_stale_to_latest(stale, latest_vars)
 
         result_code_names = [v["code_name"] for v in result.values()]
-        self.assertEqual(sorted(result_code_names), sorted(expected_matched_code_names))
+        assert sorted(result_code_names) == sorted(expected_matched_code_names)
 
         for v in result.values():
             code_name = v["code_name"]
             matched_var = next(lv for lv in latest_vars if lv.code_name == code_name)
-            self.assertEqual(v["variableId"], str(matched_var.id))
+            assert v["variableId"] == str(matched_var.id)
+
+            # original stale values are preserved via spread
+            original = next(sv for sv in stale.values() if sv.get("code_name") == code_name)
+            for key, val in original.items():
+                assert v[key] == val
