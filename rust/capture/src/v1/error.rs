@@ -14,34 +14,169 @@ pub struct ErrorResponse {
     pub error_type: String,
     pub code: String,
     pub detail: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub missing_headers: Option<Vec<String>>,
 }
 
 impl ErrorResponse {
     fn new(error: &Error) -> Self {
+        let detail = if error.status_code().is_server_error() {
+            error
+                .status_code()
+                .canonical_reason()
+                .unwrap_or("server error")
+                .to_string()
+        } else {
+            error.to_string()
+        };
+
+        let missing_headers = match error {
+            Error::MissingRequiredHeaders(headers) => Some(headers.clone()),
+            _ => None,
+        };
+
         Self {
-            error_type: error.tag().to_string(),
-            code: error.status_code().as_str().to_string(),
-            detail: error.to_string(),
+            error_type: error.error_type().to_string(),
+            code: error.tag().to_string(),
+            detail,
+            missing_headers,
         }
     }
 }
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("not implemented")]
-    NotImplemented,
+    // 400 - validation_error
+    #[error("request is missing required headers: {0:?}")]
+    MissingRequiredHeaders(Vec<String>),
+    #[error("invalid header value: {0}")]
+    InvalidHeaderValue(String),
+    #[error("failed to decode request: {0}")]
+    RequestDecodingError(String),
+    #[error("failed to parse request: {0}")]
+    RequestParsingError(String),
+    #[error("request batch is empty")]
+    EmptyBatch,
+    #[error("event submitted without an event name")]
+    MissingEventName,
+    #[error("event submitted without a distinct_id")]
+    MissingDistinctId,
+    #[error("event submitted without a uuid")]
+    MissingEventUuid,
+    #[error("event submitted with invalid timestamp")]
+    InvalidTimestamp,
+
+    // 401 - authentication_error
+    #[error("request is missing an API token")]
+    MissingApiToken,
+    #[error("API token is not valid: {0}")]
+    InvalidApiToken(String),
+
+    // 413 - payload_error
+    #[error("payload too large: {0}")]
+    PayloadTooLarge(String),
+
+    // 415 - payload_error
+    #[error("unsupported content type: {0}")]
+    UnsupportedContentType(String),
+    #[error("unsupported content encoding: {0}")]
+    UnsupportedEncoding(String),
+
+    // 429 - rate_limit_error
+    #[error("billing limit exceeded")]
+    BillingLimitExceeded,
+    #[error("rate limited: {0}")]
+    RateLimited(String),
+
+    // 500 - server_error
+    #[error("internal server error: {0}")]
+    InternalError(String),
+
+    // 503 - server_error
+    #[error("service unavailable: {0}")]
+    ServiceUnavailable(String),
+
+    // 504 - server_error
+    #[error("gateway timeout")]
+    GatewayTimeout,
 }
 
 impl Error {
+    pub fn error_type(&self) -> &'static str {
+        match self {
+            Self::MissingRequiredHeaders(_)
+            | Self::InvalidHeaderValue(_)
+            | Self::RequestDecodingError(_)
+            | Self::RequestParsingError(_)
+            | Self::EmptyBatch
+            | Self::MissingEventName
+            | Self::MissingDistinctId
+            | Self::MissingEventUuid
+            | Self::InvalidTimestamp => "validation_error",
+
+            Self::MissingApiToken | Self::InvalidApiToken(_) => "authentication_error",
+
+            Self::PayloadTooLarge(_)
+            | Self::UnsupportedContentType(_)
+            | Self::UnsupportedEncoding(_) => "payload_error",
+
+            Self::BillingLimitExceeded | Self::RateLimited(_) => "rate_limit_error",
+
+            Self::InternalError(_)
+            | Self::ServiceUnavailable(_)
+            | Self::GatewayTimeout => "server_error",
+        }
+    }
+
     pub fn tag(&self) -> &'static str {
         match self {
-            Self::NotImplemented => "not_implemented",
+            Self::MissingRequiredHeaders(_) => "missing_required_headers",
+            Self::InvalidHeaderValue(_) => "invalid_header_value",
+            Self::RequestDecodingError(_) => "request_decoding_error",
+            Self::RequestParsingError(_) => "request_parsing_error",
+            Self::EmptyBatch => "empty_batch",
+            Self::MissingEventName => "missing_event_name",
+            Self::MissingDistinctId => "missing_distinct_id",
+            Self::MissingEventUuid => "missing_event_uuid",
+            Self::InvalidTimestamp => "invalid_timestamp",
+            Self::MissingApiToken => "missing_api_token",
+            Self::InvalidApiToken(_) => "invalid_api_token",
+            Self::PayloadTooLarge(_) => "payload_too_large",
+            Self::UnsupportedContentType(_) => "unsupported_content_type",
+            Self::UnsupportedEncoding(_) => "unsupported_encoding",
+            Self::BillingLimitExceeded => "billing_limit_exceeded",
+            Self::RateLimited(_) => "rate_limited",
+            Self::InternalError(_) => "internal_error",
+            Self::ServiceUnavailable(_) => "service_unavailable",
+            Self::GatewayTimeout => "gateway_timeout",
         }
     }
 
     pub fn log_level(&self) -> Level {
         match self {
-            Self::NotImplemented => Level::ERROR,
+            // 4xx client errors: warn
+            Self::MissingRequiredHeaders(_)
+            | Self::InvalidHeaderValue(_)
+            | Self::RequestDecodingError(_)
+            | Self::RequestParsingError(_)
+            | Self::EmptyBatch
+            | Self::MissingEventName
+            | Self::MissingDistinctId
+            | Self::MissingEventUuid
+            | Self::InvalidTimestamp
+            | Self::MissingApiToken
+            | Self::InvalidApiToken(_)
+            | Self::PayloadTooLarge(_)
+            | Self::UnsupportedContentType(_)
+            | Self::UnsupportedEncoding(_)
+            | Self::BillingLimitExceeded
+            | Self::RateLimited(_) => Level::WARN,
+
+            // 5xx server errors: error
+            Self::InternalError(_)
+            | Self::ServiceUnavailable(_)
+            | Self::GatewayTimeout => Level::ERROR,
         }
     }
 
@@ -52,22 +187,70 @@ impl Error {
         }
     }
 
-    pub fn log_error(&self) {
-        match self.log_level() {
-            Level::WARN => tracing::warn!("{self}"),
-            _ => tracing::error!("{self}"),
-        }
-    }
-
-    pub fn stat_error(&self) {
+    fn stat_error(&self) {
         let tags = [("error", self.tag()), ("level", self.level_tag())];
         counter!(ERROR_METRIC_KEY, &tags).increment(1);
     }
 
     pub fn status_code(&self) -> StatusCode {
         match self {
-            Self::NotImplemented => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::MissingRequiredHeaders(_)
+            | Self::InvalidHeaderValue(_)
+            | Self::RequestDecodingError(_)
+            | Self::RequestParsingError(_)
+            | Self::EmptyBatch
+            | Self::MissingEventName
+            | Self::MissingDistinctId
+            | Self::MissingEventUuid
+            | Self::InvalidTimestamp => StatusCode::BAD_REQUEST,
+
+            Self::MissingApiToken | Self::InvalidApiToken(_) => StatusCode::UNAUTHORIZED,
+
+            Self::PayloadTooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
+
+            Self::UnsupportedContentType(_) | Self::UnsupportedEncoding(_) => {
+                StatusCode::UNSUPPORTED_MEDIA_TYPE
+            }
+
+            Self::BillingLimitExceeded | Self::RateLimited(_) => StatusCode::TOO_MANY_REQUESTS,
+
+            Self::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+
+            Self::ServiceUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
+
+            Self::GatewayTimeout => StatusCode::GATEWAY_TIMEOUT,
         }
+    }
+}
+
+/// Logs at `warn!` or `error!` based on the error variant's `log_level()`,
+/// then bumps the error metric counter via `stat_error()`.
+///
+/// Accepts the same structured-field syntax as tracing macros:
+///   `log_stat_error!(err)`
+///   `log_stat_error!(err, context=?ctx, token=%tok)`
+#[macro_export]
+macro_rules! log_stat_error {
+    ($err:expr) => {
+        $crate::log_stat_error!(@emit $err,)
+    };
+    ($err:expr, $($fields:tt)+) => {
+        $crate::log_stat_error!(@emit $err, $($fields)+)
+    };
+    (@emit $err:expr, $($fields:tt)*) => {{
+        let err = &$err;
+        let msg = format!("{} ({}): {}", err.error_type(), err.tag(), err);
+        match err.log_level() {
+            ::tracing::Level::WARN => ::tracing::warn!($($fields)* "{}", msg),
+            _ => ::tracing::error!($($fields)* "{}", msg),
+        }
+        err.stat_error();
+    }};
+}
+
+impl From<serde_json::Error> for Error {
+    fn from(e: serde_json::Error) -> Self {
+        Error::RequestParsingError(e.to_string())
     }
 }
 
