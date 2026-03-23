@@ -1,5 +1,3 @@
-import { MessageValue } from 'node-rdkafka'
-
 import { KafkaProducerWrapper, MessageKey, MessageWithoutTopic } from '../../kafka/producer'
 import { logger } from '../../utils/logger'
 
@@ -14,12 +12,10 @@ export class IngestionOutputs<O extends string> {
     constructor(private outputs: Record<O, IngestionOutputConfig>) {}
 
     /** Produce a single message to the given output. */
-    async produce(
-        output: O,
-        message: { value: MessageValue; key: MessageKey; headers?: Record<string, string> }
-    ): Promise<void> {
+    async produce(output: O, message: Omit<MessageWithoutTopic, 'key'> & { key: MessageKey }): Promise<void> {
         const { topic, producer } = this.outputs[output]
-        return producer.produce({ topic, ...message })
+        const value = typeof message.value === 'string' ? Buffer.from(message.value) : message.value
+        return producer.produce({ ...message, topic, value })
     }
 
     /** Queue one or more messages to the given output (parallel, no ordering guarantee). */
