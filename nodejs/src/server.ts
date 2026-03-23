@@ -40,13 +40,13 @@ import {
     createPosthogRedisConnectionConfig,
 } from './config/redis-pools'
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
+import { INGESTION_OUTPUT_DEFINITIONS } from './ingestion/analytics/outputs'
+import { PRODUCER_CONFIG_MAP, ProducerName } from './ingestion/analytics/producers'
 import { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { ErrorTrackingConsumer } from './ingestion/error-tracking/error-tracking-consumer'
-import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT, HEATMAPS_OUTPUT } from './ingestion/event-processing/ingestion-outputs'
 import { IngestionConsumer, IngestionConsumerDeps } from './ingestion/ingestion-consumer'
 import { IngestionTestingConsumer } from './ingestion/ingestion-testing-consumer'
-import { resolveOutputs } from './ingestion/kafka/output-resolver'
-import { DEFAULT_PRODUCER, PRODUCER_CONFIG_MAP, ProducerName } from './ingestion/kafka/producer-definitions'
+import { resolveIngestionOutputs } from './ingestion/kafka/output-resolver'
 import { KafkaProducerRegistry } from './ingestion/kafka/producer-registry'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { onShutdown } from './lifecycle'
@@ -224,20 +224,7 @@ export class PluginServer {
                 )
             }
             const ingestionOutputs = this.ingestionProducerRegistry
-                ? await resolveOutputs(this.ingestionProducerRegistry, {
-                      [EVENTS_OUTPUT]: {
-                          topic: this.config.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-                          defaultProducerName: DEFAULT_PRODUCER,
-                      },
-                      [AI_EVENTS_OUTPUT]: {
-                          topic: this.config.CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC,
-                          defaultProducerName: DEFAULT_PRODUCER,
-                      },
-                      [HEATMAPS_OUTPUT]: {
-                          topic: this.config.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-                          defaultProducerName: DEFAULT_PRODUCER,
-                      },
-                  })
+                ? await resolveIngestionOutputs(this.ingestionProducerRegistry, INGESTION_OUTPUT_DEFINITIONS)
                 : undefined
 
             if (capabilities.ingestionV2Combined) {

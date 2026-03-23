@@ -8,7 +8,7 @@ import {
     EVENTS_OUTPUT,
     HEATMAPS_OUTPUT,
     IngestionOutputs,
-} from '../../src/ingestion/event-processing/ingestion-outputs'
+} from '../../src/ingestion/kafka/ingestion-outputs'
 import { KafkaProducerWrapper } from '../../src/kafka/producer'
 
 export function createTestIngestionOutputs(kafkaProducer: KafkaProducerWrapper) {

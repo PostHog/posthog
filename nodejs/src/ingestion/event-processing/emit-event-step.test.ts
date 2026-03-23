@@ -9,6 +9,7 @@ import { EventHeaders, ISOTimestamp, ProcessedEvent, ProjectId } from '../../typ
 import { MessageSizeTooLarge } from '../../utils/db/error'
 import { eventProcessedAndIngestedCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { captureIngestionWarning } from '../../worker/ingestion/utils'
+import { EVENTS_OUTPUT, EventOutput, IngestionOutputs } from '../kafka/ingestion-outputs'
 import { isOkResult } from '../pipelines/results'
 import {
     EmitEventStepConfig,
@@ -17,7 +18,6 @@ import {
     productTrackHeader,
     serializeEvent,
 } from './emit-event-step'
-import { EVENTS_OUTPUT, EventOutput, IngestionOutputs } from './ingestion-outputs'
 
 // Mock the utils module
 jest.mock('../../worker/ingestion/utils', () => ({

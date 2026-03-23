@@ -9,9 +9,9 @@ import { safeClickhouseString } from '../../utils/db/utils'
 import { castTimestampOrNow, castTimestampToClickhouseFormat } from '../../utils/utils'
 import { eventProcessedAndIngestedCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { captureIngestionWarning } from '../../worker/ingestion/utils'
+import { IngestionOutputs } from '../kafka/ingestion-outputs'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
-import { IngestionOutputs } from './ingestion-outputs'
 
 export interface EventToEmit<O extends string> {
     event: ProcessedEvent

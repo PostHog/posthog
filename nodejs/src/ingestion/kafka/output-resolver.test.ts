@@ -1,9 +1,8 @@
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { resolveOutputs } from './output-resolver'
-import { DEFAULT_PRODUCER } from './producer-definitions'
+import { IngestionOutputDefinition, resolveIngestionOutputs } from './output-resolver'
 import { KafkaProducerRegistry } from './producer-registry'
 
-describe('resolveOutputs', () => {
+describe('resolveIngestionOutputs', () => {
     const OLD_ENV = process.env
 
     beforeEach(() => {
@@ -24,39 +23,55 @@ describe('resolveOutputs', () => {
         } as unknown as KafkaProducerWrapper
     }
 
-    function createMockRegistry(): KafkaProducerRegistry<typeof DEFAULT_PRODUCER> {
+    function createMockRegistry(): KafkaProducerRegistry<'TEST_PRODUCER'> {
         const producer = createMockProducer()
         return {
             getProducer: jest.fn(async () => Promise.resolve(producer)),
             disconnectAll: jest.fn(),
-        } as unknown as KafkaProducerRegistry<typeof DEFAULT_PRODUCER>
+        } as unknown as KafkaProducerRegistry<'TEST_PRODUCER'>
     }
 
-    it('resolves outputs with the correct topics and producers', async () => {
+    const testDefinitions: Record<string, IngestionOutputDefinition<'TEST_PRODUCER'>> = {
+        events: {
+            defaultTopic: 'clickhouse_events',
+            defaultProducerName: 'TEST_PRODUCER',
+            producerOverrideEnvVar: 'TEST_EVENTS_PRODUCER',
+            topicOverrideEnvVar: 'TEST_EVENTS_TOPIC',
+        },
+        ai_events: {
+            defaultTopic: 'clickhouse_ai_events',
+            defaultProducerName: 'TEST_PRODUCER',
+            producerOverrideEnvVar: 'TEST_AI_EVENTS_PRODUCER',
+            topicOverrideEnvVar: 'TEST_AI_EVENTS_TOPIC',
+        },
+    }
+
+    it('resolves outputs with default topics and producers', async () => {
         const registry = createMockRegistry()
 
-        const outputs = await resolveOutputs(registry, {
-            events: { topic: 'clickhouse_events', defaultProducerName: DEFAULT_PRODUCER },
-            ai_events: { topic: 'clickhouse_ai_events', defaultProducerName: DEFAULT_PRODUCER },
-        })
+        const outputs = await resolveIngestionOutputs(registry, testDefinitions)
 
-        expect(registry.getProducer).toHaveBeenCalledWith(DEFAULT_PRODUCER)
+        expect(registry.getProducer).toHaveBeenCalledWith('TEST_PRODUCER')
 
         await outputs.queueMessages('events', [{ value: 'test' }])
-        const producer = await registry.getProducer(DEFAULT_PRODUCER)
+        const producer = await registry.getProducer('TEST_PRODUCER')
         expect(producer.queueMessages).toHaveBeenCalledWith({
             topic: 'clickhouse_events',
             messages: [{ value: 'test' }],
         })
     })
 
-    it('uses defaultProducerName from definition', async () => {
+    it('overrides topic from env var', async () => {
+        process.env.TEST_EVENTS_TOPIC = 'custom_events_topic'
         const registry = createMockRegistry()
 
-        await resolveOutputs(registry, {
-            events: { topic: 'clickhouse_events', defaultProducerName: DEFAULT_PRODUCER },
-        })
+        const outputs = await resolveIngestionOutputs(registry, testDefinitions)
 
-        expect(registry.getProducer).toHaveBeenCalledWith(DEFAULT_PRODUCER)
+        await outputs.queueMessages('events', [{ value: 'test' }])
+        const producer = await registry.getProducer('TEST_PRODUCER')
+        expect(producer.queueMessages).toHaveBeenCalledWith({
+            topic: 'custom_events_topic',
+            messages: [{ value: 'test' }],
+        })
     })
 })

@@ -4,10 +4,10 @@ import { EventHeaders, Team } from '../../types'
 import { createCheckHeatmapOptInStep } from '../event-processing/check-heatmap-opt-in-step'
 import { createDisablePersonProcessingStep } from '../event-processing/disable-person-processing-step'
 import { createExtractHeatmapDataStep } from '../event-processing/extract-heatmap-data-step'
-import { HeatmapsOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
 import { createNormalizeEventStep } from '../event-processing/normalize-event-step'
 import { createPrepareEventStep } from '../event-processing/prepare-event-step'
 import { createSkipEmitEventStep } from '../event-processing/skip-emit-event-step'
+import { HeatmapsOutput, IngestionOutputs } from '../kafka/ingestion-outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 
 export interface TestingHeatmapSubpipelineInput {

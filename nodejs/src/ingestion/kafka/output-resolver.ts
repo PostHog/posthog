@@ -1,38 +1,36 @@
-import { IngestionOutputConfig, IngestionOutputs } from '../event-processing/ingestion-outputs'
-import { ProducerName } from './producer-definitions'
+import { IngestionOutputConfig, IngestionOutputs } from './ingestion-outputs'
 import { KafkaProducerRegistry } from './producer-registry'
 
-export interface OutputDefinition {
-    topic: string
-    defaultProducerName: ProducerName
+export interface IngestionOutputDefinition<P extends string> {
+    defaultTopic: string
+    defaultProducerName: P
+    producerOverrideEnvVar: string
+    topicOverrideEnvVar: string
 }
 
 /**
  * Resolve output definitions into an IngestionOutputs instance.
  *
- * For each output, checks for an env var override:
- *   INGESTION_OUTPUT_{NAME}_PRODUCER — override the producer name
- *
- * Falls back to defaultProducerName from the definition.
+ * For each output, reads the producer and topic override env vars (if set),
+ * otherwise uses defaults from the definition.
  */
-export async function resolveOutputs<O extends string, P extends ProducerName>(
+export async function resolveIngestionOutputs<O extends string, P extends string>(
     registry: KafkaProducerRegistry<P>,
-    definitions: Record<O, OutputDefinition>
+    definitions: Record<O, IngestionOutputDefinition<P>>
 ): Promise<IngestionOutputs<O>> {
     const promises: Promise<{ outputName: O; config: IngestionOutputConfig }>[] = []
 
     for (const outputName in definitions) {
         const definition = definitions[outputName]
-        const envKey = outputName.toUpperCase()
-        const producerNameOverride = process.env[`INGESTION_OUTPUT_${envKey}_PRODUCER`] as P | undefined
-        const producerName = producerNameOverride ?? (definition.defaultProducerName as P)
+        const producerName = (process.env[definition.producerOverrideEnvVar] ?? definition.defaultProducerName) as P
+        const topic = process.env[definition.topicOverrideEnvVar] ?? definition.defaultTopic
 
         // getProducer throws if the producer is not found, so all keys of O
         // are guaranteed to be present in the result or the call fails.
         promises.push(
             registry.getProducer(producerName).then((producer) => ({
                 outputName,
-                config: { topic: definition.topic, producer },
+                config: { topic, producer },
             }))
         )
     }

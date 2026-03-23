@@ -4,10 +4,10 @@ import { PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFormat } from '.
 import { logger } from '../../utils/logger'
 import { castTimestampOrNow } from '../../utils/utils'
 import { isDistinctIdIllegal } from '../../worker/ingestion/persons/person-merge-service'
+import { HEATMAPS_OUTPUT, HeatmapsOutput, IngestionOutputs } from '../kafka/ingestion-outputs'
 import { PipelineWarning } from '../pipelines/pipeline.interface'
 import { PipelineResult, drop, isOkResult, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
-import { HEATMAPS_OUTPUT, HeatmapsOutput, IngestionOutputs } from './ingestion-outputs'
 
 export interface ExtractHeatmapDataStepInput {
     preparedEvent: PreIngestionEvent

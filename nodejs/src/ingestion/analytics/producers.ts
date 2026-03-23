@@ -1,4 +1,4 @@
-import type { AllowedConfigKey } from './producer-config'
+import type { AllowedConfigKey } from '../kafka/producer-config'
 
 /**
  * DEFAULT uses the existing KAFKA_PRODUCER_* env vars — backwards compatible
