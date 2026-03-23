@@ -10,8 +10,8 @@ use crate::flags::flag_group_type_mapping::{
 };
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching_utils::{
-    all_flag_condition_properties_match, all_properties_match, calculate_hash,
-    fetch_and_locally_cache_all_relevant_properties, get_feature_flag_hash_key_overrides,
+    calculate_hash, fetch_and_locally_cache_all_relevant_properties,
+    get_feature_flag_hash_key_overrides, match_flag_value_to_flag_filter,
     populate_missing_initial_properties, set_feature_flag_hash_key_overrides,
     should_write_hash_key_override,
 };
@@ -31,6 +31,7 @@ use crate::metrics::consts::{
     FLAG_REALTIME_COHORT_QUERY_ERROR_COUNTER, FLAG_REALTIME_COHORT_QUERY_TIME,
     PROPERTY_CACHE_HITS_COUNTER, PROPERTY_CACHE_MISSES_COUNTER,
 };
+use crate::properties::property_matching::match_property;
 use crate::properties::property_models::PropertyFilter;
 use crate::rayon_dispatcher::RayonDispatcher;
 use crate::utils::graph_utils::PrecomputedDependencyGraph;
@@ -629,7 +630,7 @@ impl FeatureFlagMatcher {
     /// and evaluates dynamic cohorts based on the provided properties.
     pub fn evaluate_cohort_filters(
         &self,
-        cohort_property_filters: &[PropertyFilter],
+        cohort_property_filters: &[&PropertyFilter],
         target_properties: &HashMap<String, Value>,
         cohorts: Vec<Cohort>,
     ) -> Result<bool, FlagError> {
@@ -1430,35 +1431,35 @@ impl FeatureFlagMatcher {
                 );
             }
 
-            // Separate flag value filters from other filters
-            let (flag_value_filters, other_filters): (Vec<PropertyFilter>, Vec<PropertyFilter>) =
-                flag_property_filters
-                    .iter()
-                    .cloned()
-                    .partition(|prop| prop.depends_on_feature_flag());
-
-            if !flag_value_filters.is_empty()
-                && !all_flag_condition_properties_match(
-                    &flag_value_filters,
-                    &self.flag_evaluation_state.flag_evaluation_results,
-                )
+            // Evaluate filters by type without cloning, ordered cheapest-first:
+            // 1. Flag-value filters (hash lookups against already-evaluated flags)
+            for filter in flag_property_filters
+                .iter()
+                .filter(|f| f.depends_on_feature_flag())
             {
-                return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
+                if !match_flag_value_to_flag_filter(
+                    filter,
+                    &self.flag_evaluation_state.flag_evaluation_results,
+                ) {
+                    return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
+                }
             }
 
-            // Separate cohort and non-cohort filters
-            let (cohort_filters, non_cohort_filters): (Vec<PropertyFilter>, Vec<PropertyFilter>) =
-                other_filters
-                    .iter()
-                    .cloned()
-                    .partition(|prop| prop.is_cohort());
-
-            // Evaluate non-cohort filters first, since they're cheaper to evaluate and we can return early if they don't match
-            if !all_properties_match(&non_cohort_filters, merged_properties) {
-                return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
+            // 2. Non-cohort property filters (person/group property lookups)
+            for filter in flag_property_filters
+                .iter()
+                .filter(|f| !f.depends_on_feature_flag() && !f.is_cohort())
+            {
+                if !match_property(filter, merged_properties, false).unwrap_or(false) {
+                    return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
+                }
             }
 
-            // Evaluate cohort filters, if any.
+            // 3. Cohort filters (most expensive, deferred to last)
+            let cohort_filters: Vec<&PropertyFilter> = flag_property_filters
+                .iter()
+                .filter(|f| f.is_cohort())
+                .collect();
             if !cohort_filters.is_empty() {
                 let cohorts = match &self.flag_evaluation_state.cohorts {
                     Some(cohorts) => cohorts.clone(),
