@@ -46,7 +46,7 @@ function SaveViewModal({ id }: LogsViewsLogicProps): JSX.Element {
                         onClick={saveView}
                         disabledReason={!viewName.trim() ? 'Enter a name' : undefined}
                     >
-                        Save
+                        Save view
                     </LemonButton>
                 </>
             }
