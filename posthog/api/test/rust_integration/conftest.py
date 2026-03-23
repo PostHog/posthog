@@ -155,24 +155,28 @@ class TestDB:
         group_key: str,
         group_properties: dict[str, Any],
     ) -> None:
-        cur = self.main_conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO posthog_grouptypemapping (team_id, project_id, group_type, group_type_index)
-            VALUES (%s, %s, %s, %s)
-            ON CONFLICT DO NOTHING
-            """,
-            (self.team_id, self.team_id, group_type, group_type_index),
-        )
-        cur.execute(
-            """
-            INSERT INTO posthog_group (team_id, group_key, group_type_index,
-                                       group_properties, created_at,
-                                       properties_last_updated_at, properties_last_operation, version)
-            VALUES (%s, %s, %s, %s, now(), '{}', '{}', 0)
-            """,
-            (self.team_id, group_key, group_type_index, json.dumps(group_properties)),
-        )
+        # The Rust flags service reads groups from the persons database, so we
+        # insert into both databases: the main DB (for Django API visibility)
+        # and the persons DB (for Rust service queries).
+        for conn in [self.main_conn, self.persons_conn]:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                INSERT INTO posthog_grouptypemapping (team_id, project_id, group_type, group_type_index)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT DO NOTHING
+                """,
+                (self.team_id, self.team_id, group_type, group_type_index),
+            )
+            cur.execute(
+                """
+                INSERT INTO posthog_group (team_id, group_key, group_type_index,
+                                           group_properties, created_at,
+                                           properties_last_updated_at, properties_last_operation, version)
+                VALUES (%s, %s, %s, %s, now(), '{}', '{}', 0)
+                """,
+                (self.team_id, group_key, group_type_index, json.dumps(group_properties)),
+            )
 
     def add_to_static_cohort(self, person_id: int, cohort_id: int, version: int = 0) -> None:
         cur = self.persons_conn.cursor()
@@ -202,6 +206,7 @@ class TestDB:
 
         for table in ["posthog_group", "posthog_grouptypemapping"]:
             main_cur.execute(f"DELETE FROM {table} WHERE team_id = %s", (self.team_id,))  # noqa: S608
+            persons_cur.execute(f"DELETE FROM {table} WHERE team_id = %s", (self.team_id,))  # noqa: S608
 
 
 @pytest.fixture()
