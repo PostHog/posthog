@@ -61,6 +61,7 @@ from posthog.rate_limit import (
     HogQLQueryThrottle,
 )
 from posthog.rbac.user_access_control import UserAccessControlError
+from posthog.renderers import MCPRenderer, SafeJSONRenderer
 from posthog.schema_migrations.upgrade import upgrade
 
 from common.hogvm.python.utils import HogVMException
@@ -101,6 +102,7 @@ def _process_query_request(
 
 
 class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
+    renderer_classes = [SafeJSONRenderer, MCPRenderer]
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "query"
     # Special case for query - these are all essentially read actions
@@ -304,6 +306,15 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 if result.get("query_status") and result["query_status"].get("complete") is False
                 else status.HTTP_200_OK
             )
+
+            if request.accepted_media_type == MCPRenderer.media_type:
+                formatted = self._try_format_for_llm(query, result)
+                if formatted is not None:
+                    return Response(formatted)
+                # Formatting unavailable — override to JSON renderer for this response
+                request.accepted_renderer = SafeJSONRenderer()
+                request.accepted_media_type = SafeJSONRenderer.media_type
+
             return Response(result, status=response_status)
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
@@ -435,6 +446,17 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return
 
         tag_queries(client_query_id=query_id)
+
+    def _try_format_for_llm(self, query: BaseModel, result: dict) -> str | None:
+        """Try to format query results as LLM-friendly text. Returns None on failure."""
+        if not settings.EE_AVAILABLE:
+            return None
+        try:
+            from ee.hogai.context.insight.format import format_query_results_for_llm
+
+            return format_query_results_for_llm(query, result, self.team)
+        except Exception:
+            return None
 
 
 MAX_QUERY_TIMEOUT = 600

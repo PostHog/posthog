@@ -898,61 +898,29 @@ function generateQueryWrapperFile(
 
     const schemasCode = allZodBlocks.join('\n\n')
 
-    // Generate tool handlers
-    const toolCodes: string[] = []
-
-    for (const [name, toolConfig] of enabledWrappers) {
-        const entryVarName = getEntryVarName(toolConfig.schema_ref)
-        const factoryName = toCamelCase(name)
-        const schemaName = `${toPascalCase(name)}Schema`
-
-        // Build optional _meta block
-        let metaBlock = ''
-        if (toolConfig.ui_resource_uri) {
-            metaBlock = `    _meta: {\n        ui: {\n            resourceUri: '${toolConfig.ui_resource_uri}',\n        },\n    },\n`
-        }
-
-        const code = `
-const ${schemaName} = ${entryVarName}
-
-const ${factoryName} = (): ToolBase<typeof ${schemaName}> => ({
-    name: '${name}',
-    schema: ${schemaName},
-    handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const query = { ...params, kind: '${extractKindFromSchemaRef(querySchema, toolConfig.schema_ref)}' }
-        const result = await context.api.request<{ results: unknown; columns?: unknown }>({
-            method: 'POST',
-            path: \`/api/environments/\${projectId}/query/\`,
-            body: { query },
+    // Generate tool registrations using the factory
+    const mapEntries = enabledWrappers
+        .map(([name, toolConfig]) => {
+            const entryVarName = getEntryVarName(toolConfig.schema_ref)
+            const kind = extractKindFromSchemaRef(querySchema, toolConfig.schema_ref)
+            const uiResourceUri = toolConfig.ui_resource_uri ? `, uiResourceUri: '${toolConfig.ui_resource_uri}'` : ''
+            return `    '${name}': createQueryWrapper({ name: '${name}', schema: ${entryVarName}, kind: '${kind}'${uiResourceUri} }),`
         })
-        const queryParam = encodeURIComponent(JSON.stringify(query))
-        const baseUrl = context.api.getProjectBaseUrl(projectId)
-        return {
-            query,
-            results: result,
-            _posthogUrl: \`\${baseUrl}/insights/new?q=\${queryParam}\`,
-        }
-    },
-${metaBlock}})
-`
-        toolCodes.push(code)
-    }
-
-    const mapEntries = enabledWrappers.map(([name]) => `    '${name}': ${toCamelCase(name)},`).join('\n')
+        .join('\n')
 
     const code = `// AUTO-GENERATED from ${fileName} + schema.json — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import type { ZodObjectAny } from '@/tools/types'
+import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 
 // --- Shared Zod schemas generated from schema.json ---
 
 ${schemasCode}
 
-// --- Tool handlers ---
-${toolCodes.join('')}
-export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+// --- Tool registrations ---
+
+export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrapper<ZodObjectAny>>> = {
 ${mapEntries}
 }
 `

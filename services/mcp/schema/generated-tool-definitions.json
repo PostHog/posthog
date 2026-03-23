@@ -1363,5 +1363,50 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "query-trends": {
+        "description": "Run a trends query to analyze metrics over time. Use this to answer questions about event counts, unique users, session counts, or property aggregations with breakdowns and comparisons. Prefer this over raw HogQL for trends analysis. Use 'event-definitions-list' to discover available events, and 'properties-list' to discover available properties for filters and breakdowns.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "Run a trends query",
+        "title": "Run a trends query",
+        "required_scopes": ["query:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "query-funnel": {
+        "description": "Run a funnel query to analyze conversion rates through a sequence of steps. Use this to understand how users progress through multi-step flows like sign-up, onboarding, or purchase funnels. Requires at least two series steps. Use 'event-definitions-list' to discover available events.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "Run a funnel query",
+        "title": "Run a funnel query",
+        "required_scopes": ["query:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "query-traces-list": {
+        "description": "Query LLM traces to inspect AI/LLM usage. Returns a list of traces with their events, latency, token usage, and other metadata. Use dateRange, properties, and limit to filter results.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "List LLM traces",
+        "title": "List LLM traces",
+        "required_scopes": ["query:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
     }
 }

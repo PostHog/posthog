@@ -1,7 +1,8 @@
 // AUTO-GENERATED from services/mcp/definitions/query-wrappers.yaml + schema.json — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { createQueryWrapper } from '@/tools/query-wrapper-factory'
+import type { ZodObjectAny } from '@/tools/types'
 
 // --- Shared Zod schemas generated from schema.json ---
 
@@ -747,89 +748,20 @@ const TracesQuery = z.object({
         .optional(),
 })
 
-// --- Tool handlers ---
+// --- Tool registrations ---
 
-const QueryTrendsSchema = AssistantTrendsQuery
-
-const queryTrends = (): ToolBase<typeof QueryTrendsSchema> => ({
-    name: 'query-trends',
-    schema: QueryTrendsSchema,
-    handler: async (context: Context, params: z.infer<typeof QueryTrendsSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const query = { ...params, kind: 'TrendsQuery' }
-        const result = await context.api.request<{ results: unknown; columns?: unknown }>({
-            method: 'POST',
-            path: `/api/environments/${projectId}/query/`,
-            body: { query },
-        })
-        const queryParam = encodeURIComponent(JSON.stringify(query))
-        const baseUrl = context.api.getProjectBaseUrl(projectId)
-        return {
-            query,
-            results: result,
-            _posthogUrl: `${baseUrl}/insights/new?q=${queryParam}`,
-        }
-    },
-    _meta: {
-        ui: {
-            resourceUri: 'ui://posthog/query-results.html',
-        },
-    },
-})
-
-const QueryFunnelSchema = AssistantFunnelsQuery
-
-const queryFunnel = (): ToolBase<typeof QueryFunnelSchema> => ({
-    name: 'query-funnel',
-    schema: QueryFunnelSchema,
-    handler: async (context: Context, params: z.infer<typeof QueryFunnelSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const query = { ...params, kind: 'FunnelsQuery' }
-        const result = await context.api.request<{ results: unknown; columns?: unknown }>({
-            method: 'POST',
-            path: `/api/environments/${projectId}/query/`,
-            body: { query },
-        })
-        const queryParam = encodeURIComponent(JSON.stringify(query))
-        const baseUrl = context.api.getProjectBaseUrl(projectId)
-        return {
-            query,
-            results: result,
-            _posthogUrl: `${baseUrl}/insights/new?q=${queryParam}`,
-        }
-    },
-    _meta: {
-        ui: {
-            resourceUri: 'ui://posthog/query-results.html',
-        },
-    },
-})
-
-const QueryTracesListSchema = TracesQuery
-
-const queryTracesList = (): ToolBase<typeof QueryTracesListSchema> => ({
-    name: 'query-traces-list',
-    schema: QueryTracesListSchema,
-    handler: async (context: Context, params: z.infer<typeof QueryTracesListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const query = { ...params, kind: 'TracesQuery' }
-        const result = await context.api.request<{ results: unknown; columns?: unknown }>({
-            method: 'POST',
-            path: `/api/environments/${projectId}/query/`,
-            body: { query },
-        })
-        const queryParam = encodeURIComponent(JSON.stringify(query))
-        const baseUrl = context.api.getProjectBaseUrl(projectId)
-        return {
-            query,
-            results: result,
-            _posthogUrl: `${baseUrl}/insights/new?q=${queryParam}`,
-        }
-    },
-})
-
-export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'query-trends': queryTrends,
-    'query-funnel': queryFunnel,
-    'query-traces-list': queryTracesList,
+export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrapper<ZodObjectAny>>> = {
+    'query-trends': createQueryWrapper({
+        name: 'query-trends',
+        schema: AssistantTrendsQuery,
+        kind: 'TrendsQuery',
+        uiResourceUri: 'ui://posthog/query-results.html',
+    }),
+    'query-funnel': createQueryWrapper({
+        name: 'query-funnel',
+        schema: AssistantFunnelsQuery,
+        kind: 'FunnelsQuery',
+        uiResourceUri: 'ui://posthog/query-results.html',
+    }),
+    'query-traces-list': createQueryWrapper({ name: 'query-traces-list', schema: TracesQuery, kind: 'TracesQuery' }),
 }
