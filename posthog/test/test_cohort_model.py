@@ -523,9 +523,7 @@ class TestCohort(BaseTest):
         with patch("posthog.models.cohort.util.recalculate_cohortpeople") as mock_recalc:
             mock_recalc.return_value = 42
 
-            with patch.object(
-                Cohort, "_safe_reset_calculating_state", side_effect=Exception("DB connection lost")
-            ):
+            with patch.object(Cohort, "_safe_reset_calculating_state", side_effect=Exception("DB connection lost")):
                 with pytest.raises(Exception, match="DB connection lost"):
                     cohort.calculate_people_ch(pending_version=1)
 

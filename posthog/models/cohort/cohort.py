@@ -330,9 +330,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             version_update_fields: dict[str, Any] = {"version": pending_version, "count": count}
             if cohort_type_cleared:
                 version_update_fields["cohort_type"] = None
-            Cohort.objects.filter(pk=self.pk).filter(
-                Q(version__lt=pending_version) | Q(version__isnull=True)
-            ).update(**version_update_fields)
+            Cohort.objects.filter(pk=self.pk).filter(Q(version__lt=pending_version) | Q(version__isnull=True)).update(
+                **version_update_fields
+            )
 
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
