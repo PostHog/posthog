@@ -13,6 +13,22 @@ from products.tasks.backend.models import TaskRun
 
 logger = structlog.get_logger(__name__)
 
+TASK_RUN_SELECT_RELATED = ("task", "task__created_by", "team")
+
+
+def find_task_run(pr_url: str | None = None, branch: str | None = None) -> TaskRun | None:
+    if pr_url:
+        task_run = TaskRun.objects.filter(output__pr_url=pr_url).select_related(*TASK_RUN_SELECT_RELATED).first()
+        if task_run:
+            return task_run
+
+    if branch:
+        task_run = TaskRun.objects.filter(branch=branch).select_related(*TASK_RUN_SELECT_RELATED).first()
+        if task_run:
+            return task_run
+
+    return None
+
 
 def verify_github_signature(payload: bytes, signature: str | None, secret: str) -> bool:
     """
@@ -111,8 +127,8 @@ def github_pr_webhook(request: HttpRequest) -> HttpResponse:
         logger.debug("github_pr_webhook_ignored_action", action=action, pr_url=pr_url)
         return HttpResponse(status=200)
 
-    # Find TaskRun by pr_url in output field
-    task_run = TaskRun.objects.filter(output__pr_url=pr_url).select_related("task", "task__created_by", "team").first()
+    branch = pull_request.get("head", {}).get("ref")
+    task_run = find_task_run(pr_url=pr_url, branch=branch)
 
     if not task_run:
         logger.debug(
