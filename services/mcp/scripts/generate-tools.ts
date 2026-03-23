@@ -800,7 +800,7 @@ ${mapEntries}
  * fallback when neither is set.
  */
 function resolveDescription(
-    config: { description?: string | undefined; description_file?: string | undefined },
+    config: { description?: string; description_file?: string },
     yamlDir: string,
     fallback: string
 ): string {
