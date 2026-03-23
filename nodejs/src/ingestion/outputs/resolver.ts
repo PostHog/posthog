@@ -1,5 +1,5 @@
 import { IngestionOutputConfig, IngestionOutputs } from './ingestion-outputs'
-import { KafkaProducerRegistry } from './producer-registry'
+import { KafkaProducerRegistry } from './kafka-producer-registry'
 
 export interface IngestionOutputDefinition<P extends string> {
     defaultTopic: string

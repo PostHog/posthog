@@ -1,6 +1,6 @@
 import { hostname } from 'os'
 
-import { AllowedConfigKey, getProducerConfig } from './producer-config'
+import { AllowedConfigKey, getProducerConfig } from './kafka-producer-config'
 
 const TEST_CONFIG_MAP: Record<string, AllowedConfigKey> = {
     TEST_BROKER: 'metadata.broker.list',

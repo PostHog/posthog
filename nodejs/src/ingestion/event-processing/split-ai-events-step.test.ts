@@ -1,5 +1,5 @@
 import { ISOTimestamp, ProcessedEvent, ProjectId } from '../../types'
-import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT } from '../kafka/ingestion-outputs'
+import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT } from '../outputs'
 import { isOkResult } from '../pipelines/results'
 import { SplitAiEventsStepConfig, createSplitAiEventsStep, parseSplitAiEventsConfig } from './split-ai-events-step'
 

@@ -7,7 +7,7 @@ import { createExtractHeatmapDataStep } from '../event-processing/extract-heatma
 import { createNormalizeEventStep } from '../event-processing/normalize-event-step'
 import { createPrepareEventStep } from '../event-processing/prepare-event-step'
 import { createSkipEmitEventStep } from '../event-processing/skip-emit-event-step'
-import { HeatmapsOutput, IngestionOutputs } from '../kafka/ingestion-outputs'
+import { HeatmapsOutput, IngestionOutputs } from '../outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 
 export interface TestingHeatmapSubpipelineInput {

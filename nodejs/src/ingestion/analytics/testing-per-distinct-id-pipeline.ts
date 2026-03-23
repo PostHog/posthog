@@ -3,7 +3,7 @@ import { Message } from 'node-rdkafka'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Team } from '../../types'
 import { AI_EVENT_TYPES } from '../ai'
-import { EventOutput, HeatmapsOutput, IngestionOutputs } from '../kafka/ingestion-outputs'
+import { EventOutput, HeatmapsOutput, IngestionOutputs } from '../outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 import {
     ClientIngestionWarningSubpipelineInput,

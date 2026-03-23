@@ -2,7 +2,7 @@ import { KafkaProducerWrapper } from '../../kafka/producer'
 import { ISOTimestamp, PreIngestionEvent, ProjectId } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { cloneObject } from '../../utils/utils'
-import { HEATMAPS_OUTPUT, IngestionOutputs } from '../kafka/ingestion-outputs'
+import { HEATMAPS_OUTPUT, IngestionOutputs } from '../outputs'
 import { PipelineResultType } from '../pipelines/results'
 import { createExtractHeatmapDataStep } from './extract-heatmap-data-step'
 

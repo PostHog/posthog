@@ -10,7 +10,7 @@ import { createDisablePersonProcessingWithFakePersonStep } from '../event-proces
 import { createEmitEventStep } from '../event-processing/emit-event-step'
 import { createNormalizeEventStep } from '../event-processing/normalize-event-step'
 import { createPrepareEventStep } from '../event-processing/prepare-event-step'
-import { EVENTS_OUTPUT, EventOutput, IngestionOutputs } from '../kafka/ingestion-outputs'
+import { EVENTS_OUTPUT, EventOutput, IngestionOutputs } from '../outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 
 export interface TestingAiEventSubpipelineInput {

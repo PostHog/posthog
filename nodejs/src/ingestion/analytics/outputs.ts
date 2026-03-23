@@ -3,8 +3,7 @@ import {
     KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
     KAFKA_EVENTS_JSON,
 } from '../../config/kafka-topics'
-import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT, HEATMAPS_OUTPUT } from '../event-processing/output-types'
-import { IngestionOutputDefinition } from '../kafka/output-resolver'
+import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT, HEATMAPS_OUTPUT, IngestionOutputDefinition } from '../outputs'
 import { DEFAULT_PRODUCER, ProducerName } from './producers'
 
 /** Static config for all analytics ingestion outputs. */

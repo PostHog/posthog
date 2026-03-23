@@ -1,6 +1,6 @@
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { AllowedConfigKey } from './producer-config'
-import { KafkaProducerRegistry } from './producer-registry'
+import { AllowedConfigKey } from './kafka-producer-config'
+import { KafkaProducerRegistry } from './kafka-producer-registry'
 
 jest.mock('../../kafka/producer')
 

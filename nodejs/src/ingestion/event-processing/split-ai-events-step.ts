@@ -1,5 +1,5 @@
 import { ProcessedEvent } from '../../types'
-import { AI_EVENTS_OUTPUT, AiEventOutput, EventOutput } from '../kafka/ingestion-outputs'
+import { AI_EVENTS_OUTPUT, AiEventOutput, EventOutput } from '../outputs'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 import { EventToEmit } from './emit-event-step'

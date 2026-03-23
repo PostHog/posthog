@@ -1,6 +1,6 @@
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { IngestionOutputDefinition, resolveIngestionOutputs } from './output-resolver'
-import { KafkaProducerRegistry } from './producer-registry'
+import { KafkaProducerRegistry } from './kafka-producer-registry'
+import { IngestionOutputDefinition, resolveIngestionOutputs } from './resolver'
 
 describe('resolveIngestionOutputs', () => {
     const OLD_ENV = process.env

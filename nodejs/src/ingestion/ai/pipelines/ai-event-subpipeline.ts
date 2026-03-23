@@ -20,7 +20,7 @@ import { createPrepareEventStep } from '../../event-processing/prepare-event-ste
 import { createProcessPersonlessStep } from '../../event-processing/process-personless-step'
 import { createProcessPersonsStep } from '../../event-processing/process-persons-step'
 import { SplitAiEventsStepConfig, createSplitAiEventsStep } from '../../event-processing/split-ai-events-step'
-import { AiEventOutput, EVENTS_OUTPUT, EventOutput, IngestionOutputs } from '../../kafka/ingestion-outputs'
+import { AiEventOutput, EVENTS_OUTPUT, EventOutput, IngestionOutputs } from '../../outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../../pipelines/builders/pipeline-builders'
 import { TopHogWrapper, sum, sumOk, sumResult, timer } from '../../pipelines/extensions/tophog'
 import { isDropResult } from '../../pipelines/results'

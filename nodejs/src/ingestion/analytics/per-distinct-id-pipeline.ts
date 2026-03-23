@@ -11,7 +11,7 @@ import { AI_EVENT_TYPES } from '../ai'
 import { AiEventSubpipelineInput, createAiEventSubpipeline } from '../ai/pipelines/ai-event-subpipeline'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { SplitAiEventsStepConfig } from '../event-processing/split-ai-events-step'
-import { AiEventOutput, EventOutput, HeatmapsOutput, IngestionOutputs } from '../kafka/ingestion-outputs'
+import { AiEventOutput, EventOutput, HeatmapsOutput, IngestionOutputs } from '../outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 import { TopHogWrapper } from '../pipelines/extensions/tophog'
 import {

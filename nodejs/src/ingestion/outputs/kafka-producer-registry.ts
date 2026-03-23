@@ -1,6 +1,6 @@
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { logger } from '../../utils/logger'
-import { AllowedConfigKey, getProducerConfig } from './producer-config'
+import { AllowedConfigKey, getProducerConfig } from './kafka-producer-config'
 
 /**
  * Typed producer registry. Generic over `P` so the set of producers

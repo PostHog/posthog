@@ -16,7 +16,7 @@ import {
     createTestingJoinedIngestionPipeline,
 } from './analytics/testing-joined-ingestion-pipeline'
 import { latestOffsetTimestampGauge } from './ingestion-consumer'
-import { EVENTS_OUTPUT, HEATMAPS_OUTPUT, IngestionOutputs } from './kafka/ingestion-outputs'
+import { EVENTS_OUTPUT, HEATMAPS_OUTPUT, IngestionOutputs } from './outputs'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
 import { createContext } from './pipelines/helpers'
