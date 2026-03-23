@@ -59,6 +59,7 @@ export interface ErrorTrackingHogTransformer {
     start(): Promise<void>
     stop(): Promise<void>
     transformEventAndProduceMessages(event: PluginEvent): Promise<TransformationResult>
+    processInvocationResults(): Promise<void>
 }
 
 /**
@@ -269,5 +270,8 @@ export class ErrorTrackingConsumer {
             })
             throw error
         }
+
+        // Flush scheduled work and invocation results to prevent memory accumulation
+        await Promise.all([this.promiseScheduler.waitForAll(), this.deps.hogTransformer.processInvocationResults()])
     }
 }

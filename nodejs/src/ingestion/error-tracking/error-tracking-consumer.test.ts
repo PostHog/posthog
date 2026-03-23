@@ -98,6 +98,7 @@ const createMockHogTransformer = (): jest.Mocked<ErrorTrackingHogTransformer> =>
     transformEventAndProduceMessages: jest
         .fn()
         .mockImplementation((event) => Promise.resolve({ event, invocationResults: [] })),
+    processInvocationResults: jest.fn().mockResolvedValue(undefined),
 })
 
 let offsetIncrementer = 0
