@@ -16,18 +16,21 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
         handler: async (context: Context, params: z.infer<T>) => {
             const projectId = await context.stateManager.getProjectId()
             const query = { ...params, kind: config.kind }
-            const result = await context.api.request<string>({
+            const result = await context.api.request<{
+                results: unknown
+                columns?: unknown
+                formatted_results?: string
+            }>({
                 method: 'POST',
                 path: `/api/environments/${projectId}/query/`,
                 body: { query },
-                headers: { Accept: 'text/markdown' },
-                responseType: 'text',
+                headers: { 'X-PostHog-Client': 'mcp' },
             })
             const queryParam = encodeURIComponent(JSON.stringify(query))
             const baseUrl = context.api.getProjectBaseUrl(projectId)
             return {
                 query,
-                results: result,
+                results: result.formatted_results ?? result,
                 _posthogUrl: `${baseUrl}/insights/new?q=${queryParam}`,
             }
         },

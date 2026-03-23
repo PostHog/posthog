@@ -1234,12 +1234,12 @@ class TestQueryUpgrade(APIBaseTest):
         )
 
 
-class TestQueryMarkdownFormatting(ClickhouseTestMixin, APIBaseTest):
+class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
     ENDPOINT = "query"
-    ACCEPT_HEADER = "text/markdown"
+    LLM_FORMAT_HEADER = "HTTP_X_POSTHOG_CLIENT"
 
     @patch("posthog.api.query.process_query_model")
-    def test_trends_query_returns_formatted_markdown(self, mock_process_query_model):
+    def test_trends_query_includes_formatted_results(self, mock_process_query_model):
         mock_process_query_model.return_value = {
             "results": [
                 {
@@ -1261,18 +1261,19 @@ class TestQueryMarkdownFormatting(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(
             f"/api/environments/{self.team.id}/query/",
             {"query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}},
-            HTTP_ACCEPT=self.ACCEPT_HEADER,
+            **{self.LLM_FORMAT_HEADER: "mcp"},
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response["Content-Type"], "text/markdown; charset=utf-8")
-        content = response.content.decode("utf-8")
-        self.assertIn("$pageview", content)
-        self.assertIn("100", content)
-        self.assertIn("|", content)
+        data = response.json()
+        self.assertIn("results", data)
+        self.assertIn("formatted_results", data)
+        self.assertIn("$pageview", data["formatted_results"])
+        self.assertIn("100", data["formatted_results"])
+        self.assertIn("|", data["formatted_results"])
 
     @patch("posthog.api.query.process_query_model")
-    def test_hogql_query_returns_formatted_markdown(self, mock_process_query_model):
+    def test_hogql_query_includes_formatted_results(self, mock_process_query_model):
         mock_process_query_model.return_value = {
             "results": [["sign up", 10], ["sign out", 5]],
             "columns": ["event", "count"],
@@ -1282,17 +1283,17 @@ class TestQueryMarkdownFormatting(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(
             f"/api/environments/{self.team.id}/query/",
             {"query": {"kind": "HogQLQuery", "query": "select event, count() from events group by event"}},
-            HTTP_ACCEPT=self.ACCEPT_HEADER,
+            **{self.LLM_FORMAT_HEADER: "mcp"},
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response["Content-Type"], "text/markdown; charset=utf-8")
-        content = response.content.decode("utf-8")
-        self.assertIn("sign up", content)
-        self.assertIn("10", content)
+        data = response.json()
+        self.assertIn("formatted_results", data)
+        self.assertIn("sign up", data["formatted_results"])
+        self.assertIn("10", data["formatted_results"])
 
     @patch("posthog.api.query.process_query_model")
-    def test_json_returned_without_accept_header(self, mock_process_query_model):
+    def test_no_formatted_results_without_header(self, mock_process_query_model):
         mock_process_query_model.return_value = {
             "results": [
                 {
@@ -1313,12 +1314,12 @@ class TestQueryMarkdownFormatting(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn("application/json", response["Content-Type"])
         data = response.json()
         self.assertIn("results", data)
+        self.assertNotIn("formatted_results", data)
 
     @patch("posthog.api.query.process_query_model")
-    def test_unsupported_query_type_falls_back_to_json(self, mock_process_query_model):
+    def test_unsupported_query_type_omits_formatted_results(self, mock_process_query_model):
         mock_process_query_model.return_value = {
             "results": [{"event": "test"}],
             "columns": ["event"],
@@ -1328,18 +1329,18 @@ class TestQueryMarkdownFormatting(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(
             f"/api/environments/{self.team.id}/query/",
             {"query": {"kind": "EventsQuery", "select": ["event"]}},
-            HTTP_ACCEPT=self.ACCEPT_HEADER,
+            **{self.LLM_FORMAT_HEADER: "mcp"},
         )
 
-        # EventsQuery is not supported by formatters, falls back to JSON
         self.assertEqual(response.status_code, 200)
-        self.assertIn("application/json", response["Content-Type"])
+        data = response.json()
+        self.assertIn("results", data)
+        self.assertNotIn("formatted_results", data)
 
     @patch("posthog.api.query.settings")
     @patch("posthog.api.query.process_query_model")
-    def test_ee_unavailable_falls_back_to_json(self, mock_process_query_model, mock_settings):
+    def test_ee_unavailable_omits_formatted_results(self, mock_process_query_model, mock_settings):
         mock_settings.EE_AVAILABLE = False
-        # Forward other settings attributes to the real module
         for attr in ("TEST", "API_QUERIES_PER_TEAM", "API_QUERIES_ENABLED", "API_QUERIES_LEGACY_TEAM_LIST"):
             setattr(mock_settings, attr, getattr(__import__("posthog").settings, attr))
 
@@ -1360,8 +1361,10 @@ class TestQueryMarkdownFormatting(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(
             f"/api/environments/{self.team.id}/query/",
             {"query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}},
-            HTTP_ACCEPT=self.ACCEPT_HEADER,
+            **{self.LLM_FORMAT_HEADER: "mcp"},
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn("application/json", response["Content-Type"])
+        data = response.json()
+        self.assertIn("results", data)
+        self.assertNotIn("formatted_results", data)

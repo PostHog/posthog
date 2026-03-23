@@ -24,14 +24,3 @@ class ServerSentEventRenderer(BaseRenderer):
 
     def render(self, data, accepted_media_type=None, renderer_context=None):
         return data
-
-
-class MCPRenderer(BaseRenderer):
-    media_type = "text/markdown"
-    format = "md"
-    charset = "utf-8"
-
-    def render(self, data, accepted_media_type=None, renderer_context=None):
-        if isinstance(data, str):
-            return data.encode(self.charset)
-        return str(data).encode(self.charset)

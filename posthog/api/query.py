@@ -61,7 +61,6 @@ from posthog.rate_limit import (
     HogQLQueryThrottle,
 )
 from posthog.rbac.user_access_control import UserAccessControlError
-from posthog.renderers import MCPRenderer, SafeJSONRenderer
 from posthog.schema_migrations.upgrade import upgrade
 
 from common.hogvm.python.utils import HogVMException
@@ -102,7 +101,6 @@ def _process_query_request(
 
 
 class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
-    renderer_classes = [SafeJSONRenderer, MCPRenderer]
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "query"
     # Special case for query - these are all essentially read actions
@@ -307,13 +305,10 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 else status.HTTP_200_OK
             )
 
-            if request.accepted_media_type == MCPRenderer.media_type:
+            if request.META.get("HTTP_X_POSTHOG_CLIENT") == "mcp":
                 formatted = self._try_format_for_llm(query, result)
                 if formatted is not None:
-                    return Response(formatted)
-                # Formatting unavailable — override to JSON renderer for this response
-                request.accepted_renderer = SafeJSONRenderer()
-                request.accepted_media_type = SafeJSONRenderer.media_type
+                    result["formatted_results"] = formatted
 
             return Response(result, status=response_status)
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
