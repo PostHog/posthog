@@ -1,5 +1,8 @@
 # This module is responsible for adding tags/metadata to outgoing clickhouse queries in a thread-safe manner
+import os
+import sys
 import uuid
+import types
 import contextvars
 from collections.abc import Generator
 from contextlib import contextmanager, suppress
@@ -185,6 +188,10 @@ class QueryTags(BaseModel):
     mcp_protocol_version: Optional[str] = None
     mcp_oauth_client_name: Optional[str] = None
 
+    # caller source location (set automatically in sync_execute via stack inspection)
+    source_file: Optional[str] = None
+    source_line: Optional[int] = None
+
     # constant query tags
     git_commit: Optional[str] = None
     container_hostname: Optional[str] = None
@@ -323,3 +330,51 @@ def tags_context(**tags_to_set: Any) -> Generator[None, None, None]:
     finally:
         if tags_copy:
             query_tags.set(tags_copy)
+
+
+# Stack inspection for source_file / source_line tagging
+_THIS_FILE = os.path.abspath(__file__)
+_PROJECT_ROOT = os.path.normpath(os.path.join(os.path.dirname(_THIS_FILE), os.pardir, os.pardir))
+_PROJECT_ROOT_PREFIX = _PROJECT_ROOT + os.sep
+
+# Files/directories in the query execution infrastructure to skip when walking the stack
+_SOURCE_SKIP_PREFIXES: tuple[str, ...] = (
+    os.path.join(_PROJECT_ROOT, "posthog", "clickhouse", "client") + os.sep,
+    _THIS_FILE,
+    os.path.join(_PROJECT_ROOT, "posthog", "hogql", "query.py"),
+    os.path.join(_PROJECT_ROOT, "posthog", "utils.py"),
+)
+
+_MAX_CALLER_STACK_DEPTH = 30
+
+
+def get_caller_source() -> tuple[Optional[str], Optional[int]]:
+    """Walk the call stack to find the first caller outside of query execution infrastructure.
+
+    Returns (source_file, source_line) where source_file is relative to the project root,
+    or (None, None) if no suitable caller is found.
+    """
+    try:
+        frame: Optional[types.FrameType] = sys._getframe(1)
+
+        for _ in range(_MAX_CALLER_STACK_DEPTH):
+            if frame is None:
+                break
+
+            filename = frame.f_code.co_filename
+
+            # Only consider frames within the project
+            if not filename.startswith(_PROJECT_ROOT_PREFIX):
+                frame = frame.f_back
+                continue
+
+            # Skip query execution infrastructure
+            if any(filename.startswith(prefix) for prefix in _SOURCE_SKIP_PREFIXES):
+                frame = frame.f_back
+                continue
+
+            return filename[len(_PROJECT_ROOT_PREFIX) :], frame.f_lineno
+
+        return None, None
+    except Exception:
+        return None, None

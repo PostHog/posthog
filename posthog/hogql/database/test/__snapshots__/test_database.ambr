@@ -2590,6 +2590,74 @@
           "row_count": null,
           "type": "system"
       },
+      "system.activity_logs": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "activity": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "activity",
+                  "id": null,
+                  "name": "activity",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "item_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "item_id",
+                  "id": null,
+                  "name": "item_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "scope": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "scope",
+                  "id": null,
+                  "name": "scope",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "detail": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "detail",
+                  "id": null,
+                  "name": "detail",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.activity_logs",
+          "name": "system.activity_logs",
+          "row_count": null,
+          "type": "system"
+      },
       "system.actions": {
           "fields": {
               "id": {
@@ -6869,6 +6937,74 @@
           },
           "id": "query_log",
           "name": "query_log",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.activity_logs": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "activity": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "activity",
+                  "id": null,
+                  "name": "activity",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "item_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "item_id",
+                  "id": null,
+                  "name": "item_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "scope": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "scope",
+                  "id": null,
+                  "name": "scope",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "detail": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "detail",
+                  "id": null,
+                  "name": "detail",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.activity_logs",
+          "name": "system.activity_logs",
           "row_count": null,
           "type": "system"
       },
