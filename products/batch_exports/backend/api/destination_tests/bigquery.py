@@ -156,12 +156,12 @@ class BigQueryVerifyServiceAccountOwnershipTestStep(DestinationTestStep):
         except NotFound:
             return DestinationTestStepResult(
                 status=Status.FAILED,
-                message=f"Service account '{service_account_email}' was not found and cannot be impersonated. It may not exist or we may not have sufficient permissions.",
+                message=f"Service account '{service_account_email}' was not found. It may not exist or we may not have sufficient permissions.",
             )
         except Exception:
             return DestinationTestStepResult(
                 status=Status.FAILED,
-                message=f"Failed to impersonate Service account '{service_account_email}'.",
+                message=f"Failed to verify ownership of service account '{service_account_email}'.",
             )
 
         if f"posthog:{self.organization_id}" not in sa.description:
