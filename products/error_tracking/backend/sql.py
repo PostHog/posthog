@@ -243,7 +243,7 @@ def ERROR_TRACKING_EVENTS_TEST_TABLE_ENGINE():
 ERROR_TRACKING_EVENTS_TEST_TTL_DAYS = 30
 
 
-def ERROR_TRACKING_EVENTS_TEST_TABLE_SQL(on_cluster=True):
+def ERROR_TRACKING_EVENTS_TEST_TABLE_SQL():
     return (
         EVENTS_TABLE_BASE_SQL
         + """PARTITION BY toYYYYMM(timestamp)
@@ -252,7 +252,7 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
 """
     ).format(
         table_name=ERROR_TRACKING_EVENTS_TEST_TABLE,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster=False),
         engine=ERROR_TRACKING_EVENTS_TEST_TABLE_ENGINE(),
         dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
         materialized_columns="",
@@ -262,7 +262,7 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
     )
 
 
-def KAFKA_ERROR_TRACKING_EVENTS_TEST_TABLE_SQL(on_cluster=True):
+def KAFKA_ERROR_TRACKING_EVENTS_TEST_TABLE_SQL():
     # kafka_skip_broken_messages = 0 ensures malformed messages surface as consumer lag
     # rather than being silently discarded, making pipeline issues visible during validation
     return (
@@ -272,7 +272,7 @@ def KAFKA_ERROR_TRACKING_EVENTS_TEST_TABLE_SQL(on_cluster=True):
 """
     ).format(
         table_name=ERROR_TRACKING_EVENTS_TEST_KAFKA_TABLE,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster=False),
         engine=kafka_engine(KAFKA_ERROR_TRACKING_EVENTS_TEST, group="clickhouse-error-tracking-events-test"),
         dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
         materialized_columns="",
@@ -281,10 +281,10 @@ def KAFKA_ERROR_TRACKING_EVENTS_TEST_TABLE_SQL(on_cluster=True):
     )
 
 
-def ERROR_TRACKING_EVENTS_TEST_MV_SQL(on_cluster=True):
+def ERROR_TRACKING_EVENTS_TEST_MV_SQL():
     return EVENTS_TABLE_JSON_MV_SQL(
         mv_name=ERROR_TRACKING_EVENTS_TEST_MV,
         kafka_table=ERROR_TRACKING_EVENTS_TEST_KAFKA_TABLE,
         target_table=ERROR_TRACKING_EVENTS_TEST_TABLE,
-        on_cluster=on_cluster,
+        on_cluster=False,
     )

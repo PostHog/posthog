@@ -10,16 +10,16 @@ from products.error_tracking.backend.sql import (
 operations = [
     # Data table can run on DATA and COORDINATOR nodes
     run_sql_with_exceptions(
-        ERROR_TRACKING_EVENTS_TEST_TABLE_SQL(on_cluster=False),
+        ERROR_TRACKING_EVENTS_TEST_TABLE_SQL(),
         node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
     ),
     # Kafka table and MV must run on ingestion layer where Kafka consumers operate
     run_sql_with_exceptions(
-        KAFKA_ERROR_TRACKING_EVENTS_TEST_TABLE_SQL(on_cluster=False),
+        KAFKA_ERROR_TRACKING_EVENTS_TEST_TABLE_SQL(),
         node_roles=[NodeRole.INGESTION_SMALL],
     ),
     run_sql_with_exceptions(
-        ERROR_TRACKING_EVENTS_TEST_MV_SQL(on_cluster=False),
+        ERROR_TRACKING_EVENTS_TEST_MV_SQL(),
         node_roles=[NodeRole.INGESTION_SMALL],
     ),
 ]
