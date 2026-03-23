@@ -5542,6 +5542,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     incremental_field_type: string | null
     sync_frequency: DataWarehouseSyncInterval
     description?: string | null
+    should_sync_default?: boolean
 }
 
 export enum ExternalDataSchemaStatus {
