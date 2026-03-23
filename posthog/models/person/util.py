@@ -354,10 +354,14 @@ def _fetch_persons_by_uuids_via_personhog(team_id: int, uuids: list[str]) -> lis
 
 
 def get_persons_by_uuids(team: Team, uuids: list[str]) -> QuerySet | list[Person]:
+    personhog_fn: Callable[[], QuerySet | list[Person]] = lambda: _fetch_persons_by_uuids_via_personhog(team.pk, uuids)
+    orm_fn: Callable[[], QuerySet | list[Person]] = lambda: Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(
+        team_id=team.pk, uuid__in=uuids
+    )
     return _personhog_routed(
         "get_persons_by_uuids",
-        lambda: _fetch_persons_by_uuids_via_personhog(team.pk, uuids),
-        lambda: Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team_id=team.pk, uuid__in=uuids),
+        personhog_fn,
+        orm_fn,
         team_id=team.pk,
     )
 
