@@ -58,7 +58,7 @@ class Migration(migrations.Migration):
                                 blank=True,
                                 null=True,
                                 on_delete=django.db.models.deletion.SET_NULL,
-                                to="user",
+                                to="posthog.user",
                             ),
                         ),
                         (
@@ -68,12 +68,12 @@ class Migration(migrations.Migration):
                                 null=True,
                                 on_delete=django.db.models.deletion.SET_NULL,
                                 related_name="modified_button_tiles",
-                                to="user",
+                                to="posthog.user",
                             ),
                         ),
                         (
                             "team",
-                            models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="team"),
+                            models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
                         ),
                     ],
                     options={
@@ -164,7 +164,7 @@ class Migration(migrations.Migration):
                                 blank=True,
                                 null=True,
                                 on_delete=django.db.models.deletion.SET_NULL,
-                                to="user",
+                                to="posthog.user",
                             ),
                         ),
                         (
@@ -204,7 +204,7 @@ class Migration(migrations.Migration):
                                 blank=True,
                                 null=True,
                                 on_delete=django.db.models.deletion.SET_NULL,
-                                to="user",
+                                to="posthog.user",
                             ),
                         ),
                         (
@@ -214,12 +214,12 @@ class Migration(migrations.Migration):
                                 null=True,
                                 on_delete=django.db.models.deletion.SET_NULL,
                                 related_name="modified_text_tiles",
-                                to="user",
+                                to="posthog.user",
                             ),
                         ),
                         (
                             "team",
-                            models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="team"),
+                            models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
                         ),
                     ],
                     options={
@@ -361,7 +361,7 @@ class Migration(migrations.Migration):
                                 blank=True,
                                 null=True,
                                 on_delete=django.db.models.deletion.SET_NULL,
-                                to="user",
+                                to="posthog.user",
                             ),
                         ),
                         (
@@ -369,7 +369,7 @@ class Migration(migrations.Migration):
                             models.ForeignKey(
                                 null=True,
                                 on_delete=django.db.models.deletion.CASCADE,
-                                to="team",
+                                to="posthog.team",
                             ),
                         ),
                     ],
@@ -390,7 +390,7 @@ class Migration(migrations.Migration):
                 migrations.AddField(
                     model_name="dashboard",
                     name="team",
-                    field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="team"),
+                    field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
                 ),
                 migrations.AddIndex(
                     model_name="dashboardtile",

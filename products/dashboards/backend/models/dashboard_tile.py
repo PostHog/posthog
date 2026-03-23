@@ -11,17 +11,17 @@ from products.dashboards.backend.models.dashboard import Dashboard
 class Text(models.Model):
     body = models.CharField(max_length=4000, null=True, blank=True)
 
-    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     last_modified_at = models.DateTimeField(default=timezone.now)
     last_modified_by = models.ForeignKey(
-        "User",
+        "posthog.User",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name="modified_text_tiles",
     )
 
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 
     class Meta:
         db_table = "posthog_text"
@@ -35,17 +35,17 @@ class ButtonTile(UUIDModel):
         max_length=10, choices=[("primary", "Primary"), ("secondary", "Secondary")], default="primary"
     )
 
-    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     last_modified_at = models.DateTimeField(default=timezone.now)
     last_modified_by = models.ForeignKey(
-        "User",
+        "posthog.User",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name="modified_button_tiles",
     )
 
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 
     class Meta:
         db_table = "posthog_buttontile"
