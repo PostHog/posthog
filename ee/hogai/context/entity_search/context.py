@@ -14,11 +14,12 @@ from posthog.api.search import (
     EntityConfig,
     search_entities as search_entities_fts,
 )
-from posthog.models import Action, Cohort, Dashboard, Experiment, FeatureFlag, Insight, Survey, Team, User
+from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Survey, Team, User
 from posthog.models.alert import AlertConfiguration
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
+from products.experiments.backend.models.experiment import Experiment
 from products.notebooks.backend.models import Notebook
 
 from ee.hogai.artifacts.handlers.base import get_handler_for_content_type

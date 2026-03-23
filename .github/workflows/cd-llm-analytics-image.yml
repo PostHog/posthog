@@ -33,6 +33,7 @@ jobs:
                 contains(github.event.pull_request.labels.*.name, 'build-llm-analytics-image')
             )
         runs-on: depot-ubuntu-latest
+        timeout-minutes: 10
         permissions:
             id-token: write
             contents: read

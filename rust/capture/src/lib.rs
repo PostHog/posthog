@@ -16,6 +16,7 @@ pub mod quota_limiters;
 pub mod router;
 pub mod s3_client;
 pub mod server;
+pub mod setup;
 pub mod sinks;
 pub mod test_endpoint;
 pub mod time;

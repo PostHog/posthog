@@ -616,6 +616,27 @@ export const externalDataSourcesDestroy = async (
 /**
  * Create, Read, Update and Delete External data Sources.
  */
+export const getExternalDataSourcesCreateWebhookCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/create_webhook/`
+}
+
+export const externalDataSourcesCreateWebhookCreate = async (
+    projectId: string,
+    id: string,
+    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSourcesCreateWebhookCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSourceSerializersApi),
+    })
+}
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
 export const getExternalDataSourcesJobsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/external_data_sources/${id}/jobs/`
 }
@@ -691,6 +712,27 @@ export const externalDataSourcesRevenueAnalyticsConfigPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedExternalDataSourceSerializersApi),
+    })
+}
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export const getExternalDataSourcesUpdateWebhookInputsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/update_webhook_inputs/`
+}
+
+export const externalDataSourcesUpdateWebhookInputsCreate = async (
+    projectId: string,
+    id: string,
+    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSourcesUpdateWebhookInputsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSourceSerializersApi),
     })
 }
 

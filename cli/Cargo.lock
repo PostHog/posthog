@@ -1833,7 +1833,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-cli"
-version = "0.7.1"
+version = "0.7.3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1889,12 +1889,13 @@ dependencies = [
 
 [[package]]
 name = "posthog-symbol-data"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe5471c1aad2514de61c8cbfd0c52fb3eb7efa03229737178442c2277d700330"
+checksum = "82e77fd31d8af3c64e6a66e516892dd68321f8df3e77fe519594182409ff92a0"
 dependencies = [
  "serde",
  "thiserror 2.0.17",
+ "zstd",
 ]
 
 [[package]]

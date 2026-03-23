@@ -9,7 +9,7 @@ class TestProvisioningResources(StripeProvisioningTestBase):
         token = self._get_bearer_token()
         res = self._post_signed_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "product_analytics"},
+            data={"service_id": "analytics"},
             token=token,
         )
         assert res.status_code == 200
@@ -47,13 +47,13 @@ class TestProvisioningResources(StripeProvisioningTestBase):
         assert res.status_code == 400
 
     def test_create_resource_missing_bearer_returns_401(self):
-        res = self._post_signed("/api/agentic/provisioning/resources", data={"service_id": "product_analytics"})
+        res = self._post_signed("/api/agentic/provisioning/resources", data={"service_id": "analytics"})
         assert res.status_code == 401
 
     def test_create_resource_invalid_bearer_returns_401(self):
         res = self._post_signed_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "product_analytics"},
+            data={"service_id": "analytics"},
             token="pha_invalid_token",
         )
         assert res.status_code == 401
@@ -66,14 +66,14 @@ class TestProvisioningResources(StripeProvisioningTestBase):
         token = self._get_bearer_token()
         self._post_signed_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "session_replay"},
+            data={"service_id": "pay_as_you_go"},
             token=token,
         )
         res = self._get_signed_with_bearer(
             f"/api/agentic/provisioning/resources/{self.team.id}",
             token=token,
         )
-        assert res.json()["service_id"] == "session_replay"
+        assert res.json()["service_id"] == "pay_as_you_go"
 
     def test_get_resource_defaults_service_id_without_create(self):
         token = self._get_bearer_token()
@@ -81,9 +81,9 @@ class TestProvisioningResources(StripeProvisioningTestBase):
             f"/api/agentic/provisioning/resources/{self.team.id}",
             token=token,
         )
-        assert res.json()["service_id"] == "posthog"
+        assert res.json()["service_id"] == "analytics"
 
-    def test_create_resource_defaults_service_id_to_posthog(self):
+    def test_create_resource_defaults_service_id_to_analytics(self):
         token = self._get_bearer_token()
         res = self._post_signed_with_bearer(
             "/api/agentic/provisioning/resources",
@@ -91,4 +91,4 @@ class TestProvisioningResources(StripeProvisioningTestBase):
             token=token,
         )
         assert res.status_code == 200
-        assert res.json()["service_id"] == "posthog"
+        assert res.json()["service_id"] == "analytics"

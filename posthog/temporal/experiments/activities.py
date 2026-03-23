@@ -15,11 +15,6 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
-from posthog.models.experiment import (
-    Experiment,
-    ExperimentMetricResult as ExperimentMetricResultModel,
-    ExperimentTimeseriesRecalculation,
-)
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.experiments.models import (
@@ -33,6 +28,11 @@ from posthog.temporal.experiments.utils import (
     remove_step_sessions_from_experiment_result,
 )
 
+from products.experiments.backend.models.experiment import (
+    Experiment,
+    ExperimentMetricResult as ExperimentMetricResultModel,
+    ExperimentTimeseriesRecalculation,
+)
 from products.experiments.stats.shared.statistics import StatisticError
 
 logger = structlog.get_logger(__name__)

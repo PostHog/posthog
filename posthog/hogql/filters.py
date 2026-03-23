@@ -58,27 +58,32 @@ class ReplaceFilters(CloningVisitor):
         if node.chain == ["filters"]:
             last_select = self.selects[-1]
             last_join = last_select.select_from
+            all_tables = []
             found_events = False
             found_sessions = False
             found_logs = False
+            found_traces = False
             found_groups = False
             while last_join is not None:
                 if isinstance(last_join.table, ast.Field):
+                    all_tables.append(last_join.table.chain)
                     if last_join.table.chain == ["events"]:
                         found_events = True
                     if last_join.table.chain == ["sessions"]:
                         found_sessions = True
                     if last_join.table.chain == ["logs"] or last_join.table.chain == ["log_attributes"]:
                         found_logs = True
+                    if last_join.table.chain == ["posthog", "trace_spans"]:
+                        found_traces = True
                     if last_join.table.chain == ["groups"]:
                         found_groups = True
                     if found_events and found_sessions or found_groups:
                         break
                 last_join = last_join.next_join
 
-            if not any([found_events, found_sessions, found_logs, found_groups]):
+            if not any([found_events, found_sessions, found_logs, found_traces, found_groups]):
                 raise QueryError(
-                    "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions, logs or groups table."
+                    f"Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions, logs, traces or groups table."
                 )
 
             if no_filters:
@@ -105,7 +110,7 @@ class ReplaceFilters(CloningVisitor):
                     exprs.append(property_to_expr(self.filters.properties, self.team, scope="event"))
 
             timestamp_field = ast.Field(chain=["$start_timestamp"])
-            if found_events or found_logs:
+            if found_events or found_logs or found_traces:
                 timestamp_field = ast.Field(chain=["timestamp"])
             if found_groups:
                 timestamp_field = ast.Field(chain=["created_at"])

@@ -156,6 +156,12 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "session_recording_linked_flag",  # Compat with TeamSerializer
             "session_recording_network_payload_capture_config",  # Compat with TeamSerializer
             "session_recording_masking_config",  # Compat with TeamSerializer
+            "session_recording_url_trigger_config",  # Compat with TeamSerializer
+            "session_recording_url_blocklist_config",  # Compat with TeamSerializer
+            "session_recording_event_trigger_config",  # Compat with TeamSerializer
+            "session_recording_trigger_match_type_config",  # Compat with TeamSerializer
+            "session_recording_trigger_groups",  # Compat with TeamSerializer
+            "session_recording_retention_period",  # Compat with TeamSerializer
             "session_replay_config",  # Compat with TeamSerializer
             "survey_config",  # Compat with TeamSerializer
             "access_control",  # Compat with TeamSerializer
@@ -233,6 +239,12 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "session_recording_linked_flag",
             "session_recording_network_payload_capture_config",
             "session_recording_masking_config",
+            "session_recording_url_trigger_config",
+            "session_recording_url_blocklist_config",
+            "session_recording_event_trigger_config",
+            "session_recording_trigger_match_type_config",
+            "session_recording_trigger_groups",
+            "session_recording_retention_period",
             "session_replay_config",
             "survey_config",
             "access_control",
@@ -277,6 +289,20 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             PosthogJwtAudience.LIVESTREAM,
         )
 
+    @extend_schema_field(
+        {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "product_type": {"type": "string"},
+                    "created_at": {"type": "string", "format": "date-time"},
+                    "onboarding_completed_at": {"type": "string", "format": "date-time", "nullable": True},
+                    "updated_at": {"type": "string", "format": "date-time"},
+                },
+            },
+        }
+    )
     def get_product_intents(self, obj):
         project = obj
         team = project.passthrough_team
@@ -305,6 +331,10 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
     @staticmethod
     def validate_session_recording_masking_config(value) -> dict | None:
         return TeamSerializer.validate_session_recording_masking_config(value)
+
+    @staticmethod
+    def validate_session_recording_trigger_groups(value) -> dict | None:
+        return TeamSerializer.validate_session_recording_trigger_groups(value)
 
     @staticmethod
     def validate_session_replay_config(value) -> dict | None:

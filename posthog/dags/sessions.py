@@ -32,7 +32,7 @@ from posthog.dags.common.common import JobOwners, dagster_tags
 from posthog.git import get_git_commit_short
 from posthog.models.raw_sessions.sessions_v3 import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_V3,
-    GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS,
+    GET_NUM_RAW_SESSIONS_ACTIVE_PARTS,
     RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3,
     RAW_SESSION_TABLE_BACKFILL_SQL_V3,
 )
@@ -183,11 +183,19 @@ def wait_for_parts_to_merge(
     context: AssetExecutionContext,
     config: SessionsBackfillConfig | ExperimentalSessionsBackfillConfig,
     sync_client: Optional[Client] = None,
+    *,
+    table: str | None = None,
+    use_cluster: bool = True,
 ) -> None:
     """Check for unmerged parts and wait if there are too many.
 
-    Queries system.parts using clusterAllReplicas to count active parts in the target partitions,
+    Queries system.parts to count active parts in the target partitions,
     and waits until the count drops below the threshold.
+
+    Args:
+        table: Table name to check parts for. Defaults to the sharded raw sessions table.
+        use_cluster: If True, query across all cluster replicas. If False, query
+            only the local node (useful for standalone/experimental nodes).
     """
     if config.max_unmerged_parts <= 0:
         return
@@ -200,7 +208,7 @@ def wait_for_parts_to_merge(
 
     while True:
         # Check parts across all relevant partitions
-        query = GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS(partitions)
+        query = GET_NUM_RAW_SESSIONS_ACTIVE_PARTS(partitions, table=table, use_cluster=use_cluster)
         result = sync_execute(query, sync_client=sync_client)
         (unmerged_parts_count, max_partition, max_host) = result[0]
 
@@ -445,12 +453,16 @@ def _do_experimental_backfill(
     kwargs = get_kwargs_for_client(
         workload=Workload.OFFLINE, team_id=None, readonly=False, ch_user=ClickHouseUser.DEFAULT
     )
+    # The experimental cluster uses the non-sharded table name (raw_sessions_v3),
+    # and is a standalone node not in the main ClickHouse cluster
+    target_table = DISTRIBUTED_RAW_SESSIONS_TABLE_V3()
+
     with get_http_client(**kwargs, **config.client_overrides) as client:
         tags = dagster_tags(context)
         with tags_context(kind="dagster", dagster=tags):
             # this loop is largely copied from _do_backfill, but not writing per shard
             for chunk_i in range(team_id_chunks):
-                wait_for_parts_to_merge(context, config, sync_client=client)
+                wait_for_parts_to_merge(context, config, sync_client=client, table=target_table, use_cluster=False)
 
                 if team_id_chunks > 1:
                     chunk_where_clause = f"({where_clause}) AND team_id % {team_id_chunks} = {chunk_i}"
@@ -462,7 +474,7 @@ def _do_experimental_backfill(
 
                 backfill_sql = sql_template(
                     where=chunk_where_clause,
-                    target_table=DISTRIBUTED_RAW_SESSIONS_TABLE_V3(),  # this is just what the table is called in the experimental cluster, it's not actually distributed
+                    target_table=target_table,
                     include_session_timestamp=True,
                 )
                 context.log.info(backfill_sql)

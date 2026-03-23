@@ -77,6 +77,7 @@ export function ConversationMessagesDisplay({
     displayOption,
     traceId,
     generationEventId,
+    highlightMessageIndex,
 }: {
     inputNormalized: CompatMessage[]
     outputNormalized: CompatMessage[]
@@ -90,6 +91,8 @@ export function ConversationMessagesDisplay({
     displayOption?: ConversationDisplayOption
     traceId?: string | null
     generationEventId?: string
+    /** Original $ai_input index to auto-expand and highlight (e.g. from sentiment tab deep link) */
+    highlightMessageIndex?: number | null
 }): JSX.Element {
     const [messageShowStates, setMessageShowStates] = React.useState(() =>
         getInitialMessageShowStates(inputNormalized, outputNormalized, displayOption)
@@ -141,7 +144,15 @@ export function ConversationMessagesDisplay({
     // Initialize message states when message counts or display option changes.
     React.useEffect(() => {
         setMessageShowStates(getInitialMessageShowStates(inputNormalized, outputNormalized, displayOption))
-    }, [inputNormalized.length, outputNormalized.length, inputRolesSignature, outputRolesSignature, displayOption])
+    }, [
+        inputNormalized.length,
+        outputNormalized.length,
+        inputRolesSignature,
+        outputRolesSignature,
+        displayOption,
+        outputNormalized,
+        inputNormalized,
+    ])
 
     // Expand only messages matching the current search query.
     React.useEffect(() => {
@@ -161,6 +172,26 @@ export function ConversationMessagesDisplay({
         }
         previousSearchQueryRef.current = trimmedSearchQuery
     }, [searchQuery, inputNormalized, outputNormalized, inputNormalized.length, outputNormalized.length, displayOption])
+
+    // Auto-expand the highlighted message (e.g. from sentiment tab deep link)
+    const highlightedMessageRef = React.useRef<HTMLDivElement | null>(null)
+    React.useEffect(() => {
+        if (highlightMessageIndex == null || !inputSourceIndices) {
+            return
+        }
+        const normalizedIndex = inputSourceIndices.indexOf(highlightMessageIndex)
+        if (normalizedIndex >= 0) {
+            setMessageShowStates((state) => {
+                const nextInput = [...state.input]
+                nextInput[normalizedIndex] = true
+                return { ...state, input: nextInput }
+            })
+            // Scroll into view after render
+            requestAnimationFrame(() => {
+                highlightedMessageRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+            })
+        }
+    }, [highlightMessageIndex, inputSourceIndices])
 
     const allInputsExpanded = inputMessageShowStates.every(Boolean)
     const allInputsCollapsed = inputMessageShowStates.every((state: boolean) => !state)
@@ -215,20 +246,26 @@ export function ConversationMessagesDisplay({
     const inputDisplay =
         inputNormalized.length > 0 ? (
             inputNormalized.map((message, i) => {
+                const isHighlighted = highlightMessageIndex != null && inputSourceIndices?.[i] === highlightMessageIndex
                 return (
                     <React.Fragment key={i}>
-                        <LLMMessageDisplay
-                            message={message}
-                            show={inputMessageShowStates[i] || false}
-                            onToggle={() => toggleMessage('input', i)}
-                            searchQuery={searchQuery}
-                            traceId={traceId}
-                            isRenderingMarkdown={isRenderingMarkdown}
-                            isRenderingXml={isRenderingXml}
-                            onToggleMarkdownRendering={() => setIsRenderingMarkdown((state) => !state)}
-                            onToggleXmlRendering={() => setIsRenderingXml((state) => !state)}
-                            messageSentiment={getMessageSentiment(message.role, inputSourceIndices?.[i])}
-                        />
+                        <div
+                            ref={isHighlighted ? highlightedMessageRef : undefined}
+                            className={isHighlighted ? 'ring-2 ring-primary/30 rounded' : undefined}
+                        >
+                            <LLMMessageDisplay
+                                message={message}
+                                show={inputMessageShowStates[i] || false}
+                                onToggle={() => toggleMessage('input', i)}
+                                searchQuery={searchQuery}
+                                traceId={traceId}
+                                isRenderingMarkdown={isRenderingMarkdown}
+                                isRenderingXml={isRenderingXml}
+                                onToggleMarkdownRendering={() => setIsRenderingMarkdown((state) => !state)}
+                                onToggleXmlRendering={() => setIsRenderingXml((state) => !state)}
+                                messageSentiment={getMessageSentiment(message.role, inputSourceIndices?.[i])}
+                            />
+                        </div>
                         {i < inputNormalized.length - 1 && (
                             <div className="border-l ml-2 h-2" /> /* Spacer connecting messages visually */
                         )}

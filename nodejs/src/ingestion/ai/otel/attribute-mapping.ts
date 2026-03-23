@@ -18,6 +18,8 @@ const ATTRIBUTE_MAP: Record<string, string> = {
 const FALLBACK_ATTRIBUTE_MAP: Record<string, string> = {
     'gen_ai.system': '$ai_provider',
     'gen_ai.request.model': '$ai_model',
+    'gen_ai.usage.prompt_tokens': '$ai_input_tokens',
+    'gen_ai.usage.completion_tokens': '$ai_output_tokens',
 }
 
 const STRIP_ATTRIBUTES = new Set([
@@ -26,14 +28,34 @@ const STRIP_ATTRIBUTES = new Set([
     'posthog.ai.debug',
     'user.id',
     'posthog.distinct_id',
+    'llm.request.type',
 ])
 
 const JSON_PARSE_PROPERTIES = new Set(['$ai_input', '$ai_output_choices'])
+
+const REQUEST_TYPE_TO_EVENT: Record<string, string> = {
+    chat: '$ai_generation',
+    completion: '$ai_generation',
+    embedding: '$ai_embedding',
+    embeddings: '$ai_embedding',
+}
+
+function reclassifyByRequestType(event: PluginEvent): void {
+    if (event.event !== '$ai_span') {
+        return
+    }
+    const requestType = event.properties!['llm.request.type']
+    if (typeof requestType === 'string' && requestType in REQUEST_TYPE_TO_EVENT) {
+        event.event = REQUEST_TYPE_TO_EVENT[requestType]
+    }
+}
 
 export function mapOtelAttributes(event: PluginEvent): void {
     if (!event.properties) {
         return
     }
+
+    reclassifyByRequestType(event)
 
     for (const [otelKey, phKey] of Object.entries(ATTRIBUTE_MAP)) {
         if (event.properties[otelKey] !== undefined) {

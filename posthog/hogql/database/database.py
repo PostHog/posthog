@@ -48,6 +48,7 @@ from posthog.hogql.database.models import (
     StringArrayDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
+    StructDatabaseField,
     Table,
     TableNode,
     UnknownDatabaseField,
@@ -113,6 +114,7 @@ from posthog.hogql.database.schema.sessions_v3 import (
     SessionsTableV3,
     join_events_table_to_sessions_table_v3,
 )
+from posthog.hogql.database.schema.spans import TraceAttributesTable, TraceSpansTable
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
@@ -247,10 +249,13 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
         children = {
             **root_tables,
             "posthog": TableNode(
+                name="posthog",
                 children={
-                    **clone_root_tables()
+                    **clone_root_tables(),
                     # Add new tables here
-                }
+                    "trace_spans": TableNode(name="trace_spans", table=TraceSpansTable()),
+                    "trace_attributes": TableNode(name="trace_attributes", table=TraceAttributesTable()),
+                },
             ),
             "system": SystemTables(),
             **children,
@@ -1691,6 +1696,16 @@ def serialize_fields(
                         hogql_value=hogql_value,
                         type=DatabaseSerializedFieldType.JSON,
                         schema_valid=schema_valid,
+                    )
+                )
+            elif isinstance(field, StructDatabaseField):
+                field_output.append(
+                    DatabaseSchemaField(
+                        name=field_key,
+                        hogql_value=hogql_value,
+                        type=DatabaseSerializedFieldType.JSON,
+                        schema_valid=schema_valid,
+                        fields=list(field.fields.keys()),
                     )
                 )
             elif isinstance(field, StringArrayDatabaseField):
