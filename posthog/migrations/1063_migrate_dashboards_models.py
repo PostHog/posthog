@@ -205,6 +205,17 @@ class Migration(migrations.Migration):
                         to="dashboards.dashboard",
                     ),
                 ),
+                migrations.AlterField(
+                    model_name="grouptypemapping",
+                    name="detail_dashboard",
+                    field=models.ForeignKey(
+                        blank=True,
+                        db_constraint=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.DO_NOTHING,
+                        to="dashboards.dashboard",
+                    ),
+                ),
                 migrations.DeleteModel(
                     name="ButtonTile",
                 ),
