@@ -337,9 +337,6 @@ function SessionSummaryKeyActions({
                                     <button
                                         className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium text-primary-3000 hover:bg-primary-alt-highlight cursor-pointer border-0 bg-transparent"
                                         onClick={() => {
-                                            if (!isValidTimestamp(event.milliseconds_since_start)) {
-                                                return
-                                            }
                                             onSeekToTime(timeToSeekTo(event.milliseconds_since_start))
                                         }}
                                     >
@@ -360,17 +357,19 @@ function SessionSummaryKeyActions({
                                             </span>
                                         </Tooltip>
                                     ) : null}
-                                    <Tooltip title={formatEventMetaInfo(event)} placement="top">
-                                        <span
-                                            className="font-mono text-xs text-muted-alt cursor-pointer hover:text-primary-3000"
-                                            onClick={() => {
-                                                const meta = `Event: ${event.event}\nEvent type: ${event.event_type}\nTimestamp: ${event.timestamp}\nCurrent URL: ${event.current_url}`
-                                                void copyToClipboard(meta, 'event metadata')
-                                            }}
-                                        >
-                                            meta
-                                        </span>
-                                    </Tooltip>
+                                    {event.event ? (
+                                        <Tooltip title={formatEventMetaInfo(event)} placement="top">
+                                            <span
+                                                className="font-mono text-xs text-muted-alt cursor-pointer hover:text-primary-3000"
+                                                onClick={() => {
+                                                    const meta = `Event: ${event.event}\nEvent type: ${event.event_type}\nTimestamp: ${event.timestamp}${event.current_url ? `\nCurrent URL: ${event.current_url}` : ''}`
+                                                    void copyToClipboard(meta, 'event metadata')
+                                                }}
+                                            >
+                                                meta
+                                            </span>
+                                        </Tooltip>
+                                    ) : null}
                                 </div>
                             </div>
 

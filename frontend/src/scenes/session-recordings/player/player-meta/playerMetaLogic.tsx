@@ -32,6 +32,7 @@ import { PersonType, PropertyFilterType, SessionRecordingType } from '~/types'
 
 import { SimpleTimeLabel } from '../../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../../playlist/sessionRecordingsListPropertiesLogic'
+import { SeekbarSegmentRange } from '../controller/SeekbarSegments'
 import type { playerMetaLogicType } from './playerMetaLogicType'
 import { sessionRecordingPinnedPropertiesLogic } from './sessionRecordingPinnedPropertiesLogic'
 import { HARDCODED_DISPLAY_LABELS } from './sessionRecordingPinnedPropertiesLogic'
@@ -397,13 +398,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 if (!sessionSummary?.segments || !sessionSummary?.key_actions) {
                     return null
                 }
-                const ranges: {
-                    index: number
-                    name: string
-                    startMs: number
-                    endMs: number
-                    success: boolean | null
-                }[] = []
+                const ranges: SeekbarSegmentRange[] = []
                 for (const segment of sessionSummary.segments) {
                     if (segment.index == null || !segment.name) {
                         continue
