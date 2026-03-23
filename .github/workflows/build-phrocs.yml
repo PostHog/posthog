@@ -96,6 +96,8 @@ jobs:
               with:
                   app-id: ${{ secrets.GH_APP_HOMEBREW_TAP_RELEASER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_HOMEBREW_TAP_RELEASER_PRIVATE_KEY }}
+                  owner: PostHog
+                  repositories: homebrew-tap
 
             - name: Prepare Homebrew formula
               if: github.event_name == 'workflow_dispatch'
