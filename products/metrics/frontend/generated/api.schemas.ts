@@ -23,9 +23,10 @@ export const GroupUsageMetricFormatEnumApi = {
  * * `number` - number
  * `sparkline` - sparkline
  */
-export type DisplayEnumApi = (typeof DisplayEnumApi)[keyof typeof DisplayEnumApi]
+export type GroupUsageMetricDisplayEnumApi =
+    (typeof GroupUsageMetricDisplayEnumApi)[keyof typeof GroupUsageMetricDisplayEnumApi]
 
-export const DisplayEnumApi = {
+export const GroupUsageMetricDisplayEnumApi = {
     Number: 'number',
     Sparkline: 'sparkline',
 } as const
@@ -41,7 +42,7 @@ export interface GroupUsageMetricApi {
      * @maximum 2147483647
      */
     interval?: number
-    display?: DisplayEnumApi
+    display?: GroupUsageMetricDisplayEnumApi
     filters: unknown
 }
 
@@ -65,7 +66,7 @@ export interface PatchedGroupUsageMetricApi {
      * @maximum 2147483647
      */
     interval?: number
-    display?: DisplayEnumApi
+    display?: GroupUsageMetricDisplayEnumApi
     filters?: unknown
 }
 

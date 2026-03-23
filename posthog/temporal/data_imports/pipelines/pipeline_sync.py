@@ -34,7 +34,7 @@ LOGGER = get_logger(__name__)
 def merge_columns(
     db_columns: dict[str, str],
     table_schema_dict: dict[str, str],
-    existing_columns: dict[str, dict[str, str]],
+    existing_columns: dict[str, Any],
 ) -> dict[str, dict[str, str]]:
     """Build column metadata, preserving StringJSONDatabaseField from prior runs"""
     columns: dict[str, dict[str, str]] = {}
@@ -45,7 +45,8 @@ def merge_columns(
             capture_exception(Exception(f"HogQL type not found for column: {column_name}"))
             continue
 
-        existing_hogql_type = existing_columns.get(column_name, {}).get("hogql")
+        existing_column = existing_columns.get(column_name)
+        existing_hogql_type = existing_column.get("hogql") if isinstance(existing_column, dict) else None
         if existing_hogql_type == "StringJSONDatabaseField" and hogql_type == "StringDatabaseField":
             hogql_type = "StringJSONDatabaseField"
 
@@ -198,10 +199,10 @@ async def validate_schema_and_update_table(
 
                 assert isinstance(table_created, DataWarehouseTable) and table_created is not None
 
-                raw_db_columns: dict[str, dict[str, str]] = table_created.get_columns()
-                db_columns = {key: column.get("clickhouse", "") for key, column in raw_db_columns.items()}
+                raw_db_columns = table_created.get_columns()
+                db_columns = {key: str(column.get("clickhouse", "")) for key, column in raw_db_columns.items()}
 
-                existing_columns: dict[str, dict[str, str]] = table_created.columns or {}
+                existing_columns = table_created.columns or {}
                 columns = merge_columns(db_columns, table_schema_dict or {}, existing_columns)
                 table_created.columns = columns
                 table_created.save()

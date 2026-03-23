@@ -655,9 +655,8 @@ tools:
         description: 'TODO: add description for generate_personhog_proto.sh'
         hidden: true
     phrocs:build:
-        cmd: cd tools/phrocs && go build -o ../../bin/phrocs .
-        description: Build the phrocs binary from source (Go required; run once or after
-            changing tools/phrocs/)
+        cmd: cd tools/phrocs && make build && cp dist/phrocs ../../bin/phrocs
+        description: Build the phrocs binary from source
     phrocs:
         bin_script: phrocs
         description: Run phrocs directly with a custom mprocs-format YAML config

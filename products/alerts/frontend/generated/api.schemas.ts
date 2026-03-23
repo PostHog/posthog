@@ -626,6 +626,46 @@ export interface PatchedAlertApi {
     readonly last_value?: number | null
 }
 
+export interface AlertSimulateApi {
+    /** Insight ID to simulate the detector on. */
+    insight: number
+    /** Detector configuration to simulate. */
+    detector_config: DetectorConfigApi
+    /** Zero-based index of the series to analyze. */
+    series_index?: number
+    /**
+     * Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). If not provided, uses the detector's minimum required samples.
+     * @nullable
+     */
+    date_from?: string | null
+}
+
+export type AlertSimulateResponseApiSubDetectorScoresItem = { [key: string]: unknown }
+
+export interface AlertSimulateResponseApi {
+    /** Data values for each point. */
+    data: number[]
+    /** Date labels for each point. */
+    dates: string[]
+    /** Anomaly score for each point (null if insufficient data). */
+    scores: (number | null)[]
+    /** Indices of points flagged as anomalies. */
+    triggered_indices: number[]
+    /** Dates of points flagged as anomalies. */
+    triggered_dates: string[]
+    /**
+     * Interval of the trends query (hour, day, week, month).
+     * @nullable
+     */
+    interval: string | null
+    /** Total number of data points analyzed. */
+    total_points: number
+    /** Number of anomalies detected. */
+    anomaly_count: number
+    /** Per-sub-detector scores for ensemble detectors. Each entry has 'type' and 'scores' fields. */
+    sub_detector_scores?: AlertSimulateResponseApiSubDetectorScoresItem[]
+}
+
 export type AlertsListParams = {
     /**
      * Number of results to return per page.

@@ -116,7 +116,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             sandbox_id = sandbox_output.sandbox_id
 
             # TODO(tasks): Re-enable snapshot creation
-            # if sandbox_output.should_create_snapshot:
+            # if sandbox_output.should_create_snapshot and self.context.repository and self.context.github_integration_id:
             #     await self._trigger_snapshot_workflow()
 
             await self._post_slack_update()
@@ -374,16 +374,19 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             workflow.logger.warning(f"Resume snapshot failed (non-fatal): {e}")
 
     async def _trigger_snapshot_workflow(self) -> None:
-        workflow_id = (
-            f"create-snapshot-for-repository-{self.context.github_integration_id}-"
-            f"{self.context.repository.replace('/', '-')}"
-        )
+        github_integration_id = self.context.github_integration_id
+        repository = self.context.repository
+        if github_integration_id is None or repository is None:
+            workflow.logger.info("Skipping snapshot workflow — no repository configured")
+            return
+
+        workflow_id = f"create-snapshot-for-repository-{github_integration_id}-{repository.replace('/', '-')}"
 
         await workflow.start_child_workflow(
             workflow="create-snapshot-for-repository",
             arg=CreateSnapshotForRepositoryInput(
-                github_integration_id=self.context.github_integration_id,
-                repository=self.context.repository,
+                github_integration_id=github_integration_id,
+                repository=repository,
                 team_id=self.context.team_id,
             ),
             id=workflow_id,

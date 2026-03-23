@@ -25,6 +25,8 @@ from products.data_warehouse.backend.data_load.service import (
 from products.data_warehouse.backend.s3 import get_s3_client
 from products.data_warehouse.backend.types import IncrementalFieldType
 
+type IncrementalFieldValue = str | int | float | None
+
 
 class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
     class Status(models.TextChoices):
@@ -107,14 +109,14 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     @property
-    def incremental_field_last_value(self) -> str | None:
+    def incremental_field_last_value(self) -> IncrementalFieldValue:
         if self.sync_type_config:
             return self.sync_type_config.get("incremental_field_last_value", None)
 
         return None
 
     @property
-    def incremental_field_earliest_value(self) -> str | None:
+    def incremental_field_earliest_value(self) -> IncrementalFieldValue:
         if self.sync_type_config:
             return self.sync_type_config.get("incremental_field_earliest_value", None)
 
@@ -447,6 +449,8 @@ def sync_frequency_to_sync_frequency_interval(frequency: str) -> timedelta | Non
         return None
     if frequency == "5min":
         return timedelta(minutes=5)
+    if frequency == "15min":
+        return timedelta(minutes=15)
     if frequency == "30min":
         return timedelta(minutes=30)
     if frequency == "1hour":
@@ -470,6 +474,8 @@ def sync_frequency_interval_to_sync_frequency(sync_frequency_interval: timedelta
         return None
     if sync_frequency_interval == timedelta(minutes=5):
         return "5min"
+    if sync_frequency_interval == timedelta(minutes=15):
+        return "15min"
     if sync_frequency_interval == timedelta(minutes=30):
         return "30min"
     if sync_frequency_interval == timedelta(hours=1):

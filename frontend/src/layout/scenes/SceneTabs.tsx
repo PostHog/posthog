@@ -326,13 +326,18 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                     tooltipPlacement="bottom"
                     aria-label={isPinned ? tab.customTitle || tab.title : undefined}
                 >
-                    {tab.iconType === 'blank' ? (
-                        <></>
-                    ) : tab.iconType === 'loading' ? (
-                        <Spinner />
-                    ) : (
-                        iconForType(tab.iconType as FileSystemIconType)
-                    )}
+                    <span className="relative">
+                        {tab.iconType === 'blank' ? (
+                            <></>
+                        ) : tab.iconType === 'loading' ? (
+                            <Spinner className="-mt-[2px]" />
+                        ) : (
+                            iconForType(tab.iconType as FileSystemIconType)
+                        )}
+                        {tab.badge && tab.iconType !== 'loading' && (
+                            <span className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-accent" />
+                        )}
+                    </span>
 
                     {isPinned ? (
                         <span className="sr-only">{tab.customTitle || tab.title}</span>

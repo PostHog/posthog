@@ -1,1 +1,1 @@
-1057_personalapikey_scopes_not_null
+1061_add_session_recording_trigger_groups

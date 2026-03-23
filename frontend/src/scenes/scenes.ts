@@ -784,6 +784,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.dashboards()]: [Scene.Dashboards, 'dashboards'],
     [urls.dashboard(':id')]: [Scene.Dashboard, 'dashboard'],
     [urls.dashboardTextTile(':id', ':textTileId')]: [Scene.Dashboard, 'dashboardTextTile'],
+    [urls.dashboardButtonTile(':id', ':buttonTileId')]: [Scene.Dashboard, 'dashboardButtonTile'],
     [urls.dashboardSharing(':id')]: [Scene.Dashboard, 'dashboardSharing'],
     [urls.dashboardSubscriptions(':id')]: [Scene.Dashboard, 'dashboardSubscriptions'],
     [urls.dashboardSubscription(':id', ':subscriptionId')]: [Scene.Dashboard, 'dashboardSubscription'],

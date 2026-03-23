@@ -268,6 +268,7 @@ pub async fn evaluate_for_request(
         non_persons_reader: state.database_pools.non_persons_reader.clone(),
         non_persons_writer: state.database_pools.non_persons_writer.clone(),
         cohort_cache: state.cohort_cache_manager.clone(),
+        group_type_cache: state.group_type_cache_manager.clone(),
         person_property_overrides,
         group_property_overrides,
         groups,

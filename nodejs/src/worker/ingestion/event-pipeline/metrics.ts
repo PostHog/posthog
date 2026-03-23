@@ -29,7 +29,7 @@ export const eventProcessedAndIngestedCounter = new Counter({
 export const ingestionPipelineResultCounter = new Counter({
     name: 'ingestion_pipeline_results',
     help: 'Count of pipeline results by type',
-    labelNames: ['result', 'step_name', 'details'],
+    labelNames: ['result', 'last_step_name', 'details'],
 })
 
 export const invalidTimestampCounter = new Counter({
