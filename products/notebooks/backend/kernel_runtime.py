@@ -1561,8 +1561,15 @@ class KernelRuntimeService:
         return payload
 
 
-notebook_kernel_runtime_service = KernelRuntimeService()
+_notebook_kernel_runtime_service: KernelRuntimeService | None = None
+
+
+def _get_service() -> KernelRuntimeService:
+    global _notebook_kernel_runtime_service
+    if _notebook_kernel_runtime_service is None:
+        _notebook_kernel_runtime_service = KernelRuntimeService()
+    return _notebook_kernel_runtime_service
 
 
 def get_kernel_runtime(notebook: Notebook, user: User | None) -> KernelRuntimeSession:
-    return notebook_kernel_runtime_service.get_kernel_runtime(notebook, user)
+    return _get_service().get_kernel_runtime(notebook, user)
