@@ -14116,8 +14116,6 @@ export namespace Schemas {
       readonly sync_time_of_day: string | null;
       /** @nullable */
       readonly description: string | null;
-      /** @nullable */
-      readonly selected_properties: readonly string[] | null;
     }
 
     export interface ExternalDataSourceRevenueAnalyticsConfig {
@@ -22014,8 +22012,6 @@ export namespace Schemas {
       readonly sync_time_of_day?: string | null;
       /** @nullable */
       readonly description?: string | null;
-      /** @nullable */
-      readonly selected_properties?: readonly string[] | null;
     }
 
     export type PatchedExternalDataSourceSerializersSchemasItem = {[key: string]: unknown};
