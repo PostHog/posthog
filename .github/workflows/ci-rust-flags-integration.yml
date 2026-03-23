@@ -183,7 +183,9 @@ jobs:
                   # (not executed synchronously) and don't try to reach ClickHouse.
                   TEST: '0'
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
-                  PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog_persons'
+                  # Django reads PERSONS_DB_WRITER_URL (not PERSONS_DATABASE_URL) to
+                  # configure the persons_db_writer database alias.
+                  PERSONS_DB_WRITER_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog_persons'
 
             - name: Run integration tests
               run: |
@@ -194,6 +196,7 @@ jobs:
                   DJANGO_API_URL: 'http://127.0.0.1:8000'
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
                   PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog_persons'
+                  PERSONS_DB_WRITER_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog_persons'
 
             - name: Stop services
               if: always()
