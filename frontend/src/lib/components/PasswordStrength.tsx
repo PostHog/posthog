@@ -15,9 +15,13 @@ let zxcvbnLoading = false
 function ensureZxcvbnLoaded(): void {
     if (!zxcvbnFn && !zxcvbnLoading) {
         zxcvbnLoading = true
-        void import('zxcvbn').then(({ default: zxcvbn }) => {
-            zxcvbnFn = zxcvbn
-        })
+        void import('zxcvbn')
+            .then(({ default: zxcvbn }) => {
+                zxcvbnFn = zxcvbn
+            })
+            .catch(() => {
+                zxcvbnLoading = false
+            })
     }
 }
 
@@ -37,7 +41,7 @@ export function validatePassword(password: string = ''): ValidatedPasswordResult
             return { score: 0 }
         }
         if (password.length < 8) {
-            return { score: 1, feedback: 'Must be at least 8 characters long' }
+            return { score: 2, feedback: 'Must be at least 8 characters long' }
         }
         return { score: 3, feedback: '' }
     }

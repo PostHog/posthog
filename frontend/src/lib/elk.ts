@@ -1,11 +1,10 @@
-import type ELK from 'elkjs/lib/elk.bundled.js'
+import { type ELK } from 'elkjs'
 
-let instance: InstanceType<typeof ELK> | null = null
+let elkPromise: Promise<ELK> | null = null
 
-export async function getElk(): Promise<InstanceType<typeof ELK>> {
-    if (!instance) {
-        const { default: ELK } = await import('elkjs/lib/elk.bundled.js')
-        instance = new ELK()
+export function getElk(): Promise<ELK> {
+    if (!elkPromise) {
+        elkPromise = import('elkjs/lib/elk.bundled.js').then(({ default: ELK }) => new ELK())
     }
-    return instance
+    return elkPromise
 }
