@@ -127,7 +127,6 @@ def box_start(
             else:
                 click.echo("Connecting via SSH...")
                 cs.ssh_into(name)
-            return
 
     # Create new codespace
     click.echo(f"Creating codespace (machine: {machine})...")
