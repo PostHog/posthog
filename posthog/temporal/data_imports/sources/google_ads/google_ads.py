@@ -261,12 +261,14 @@ class GoogleAdsTable(Table[GoogleAdsColumn]):
         primary_key: list[str],
         should_sync_default: bool,
         description: str | None,
+        partition_keys: list[str] | None = None,
         **kwargs,
     ):
         self.requires_filter = requires_filter
         self.primary_key = [pkey.replace(".", "_") for pkey in primary_key]
         self.should_sync_default = should_sync_default
         self.description = description
+        self.partition_keys = [pkey.replace(".", "_") for pkey in partition_keys] if partition_keys else None
         super().__init__(*args, **kwargs)
 
 
@@ -300,6 +302,7 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int) -> TableSchema
 
         requires_filter = resource_contents.get("filter_field_names", None) is not None
         primary_key = typing.cast(list[str], resource_contents.get("primary_key", []))
+        partition_keys = typing.cast(list[str] | None, resource_contents.get("partition_keys", None))
 
         should_sync_default = resource_contents.get("should_sync_default", True)
         description = resource_contents.get("description", None)
@@ -332,6 +335,7 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int) -> TableSchema
             alias=table_alias,
             requires_filter=requires_filter,
             primary_key=primary_key,
+            partition_keys=partition_keys,
             columns=columns,
             parents=None,
             should_sync_default=should_sync_default,
@@ -403,7 +407,7 @@ def google_ads_source(
         partition_size=1 if table.requires_filter else None,  # this enables partitioning
         partition_mode="datetime" if table.requires_filter else None,
         partition_format="day" if table.requires_filter else None,
-        partition_keys=["segments_date"] if table.requires_filter else None,
+        partition_keys=table.partition_keys or (["segments_date"] if table.requires_filter else None),
     )
 
 
