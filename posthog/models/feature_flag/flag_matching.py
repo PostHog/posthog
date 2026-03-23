@@ -792,10 +792,12 @@ def get_feature_flag_hash_key_overrides(
     # Priority to the first distinctID's values, to keep this function deterministic
 
     if not person_id_to_distinct_id_mapping:
-        from posthog.models.person.util import get_persons_by_distinct_ids
-
-        persons = get_persons_by_distinct_ids(team_id, distinct_ids, operation="hash_key_override_person_lookup")
-        person_id_to_distinct_id = {p.id: p.distinct_ids[0] for p in persons if p.distinct_ids}
+        person_and_distinct_ids = list(
+            PersonDistinctId.objects.db_manager(using_database)
+            .filter(distinct_id__in=distinct_ids, team_id=team_id)
+            .values_list("person_id", "distinct_id")
+        )
+        person_id_to_distinct_id = dict(person_and_distinct_ids)
     else:
         person_id_to_distinct_id = person_id_to_distinct_id_mapping
 

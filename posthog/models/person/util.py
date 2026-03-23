@@ -1,7 +1,8 @@
 import json
 import datetime
+from collections.abc import Callable
 from contextlib import ExitStack
-from typing import Optional, Union
+from typing import Optional, TypeVar, Union
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -251,14 +252,25 @@ def _fetch_persons_by_distinct_ids_via_personhog(team_id: int, distinct_ids: lis
     ]
 
 
-def get_persons_by_distinct_ids(
-    team_id: int, distinct_ids: list[str], *, operation: str = "get_persons_by_distinct_ids"
-) -> list[Person]:
+_T = TypeVar("_T")
+
+
+def _personhog_routed(
+    operation: str,
+    personhog_fn: Callable[[], _T],
+    orm_fn: Callable[[], _T],
+    *,
+    team_id: int,
+) -> _T:
+    """Try personhog first, fall back to ORM on failure or when disabled.
+
+    Handles gate check, metrics, and error logging for all personhog routing.
+    """
     from posthog.personhog_client.gate import use_personhog
 
     if use_personhog():
         try:
-            result = _fetch_persons_by_distinct_ids_via_personhog(team_id, distinct_ids)
+            result = personhog_fn()
             PERSONHOG_ROUTING_TOTAL.labels(operation=operation, source="personhog", client_name=get_client_name()).inc()
             return result
         except Exception:
@@ -270,27 +282,40 @@ def get_persons_by_distinct_ids(
             ).inc()
             logger.warning("personhog_%s_failure", operation, team_id=team_id, exc_info=True)
 
+    PERSONHOG_ROUTING_TOTAL.labels(operation=operation, source="django_orm", client_name=get_client_name()).inc()
+    return orm_fn()
+
+
+def get_persons_by_distinct_ids(
+    team_id: int, distinct_ids: list[str], *, operation: str = "get_persons_by_distinct_ids"
+) -> list[Person]:
     from django.db.models.query import Prefetch
 
-    persons = (
-        Person.objects.db_manager(READ_DB_FOR_PERSONS)
-        .filter(
-            team_id=team_id,
-            persondistinctid__team_id=team_id,
-            persondistinctid__distinct_id__in=distinct_ids,
-        )
-        .prefetch_related(
-            Prefetch(
-                "persondistinctid_set",
-                queryset=PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
-                .filter(team_id=team_id)
-                .order_by("id"),
-                to_attr="distinct_ids_cache",
+    def orm_fn() -> list[Person]:
+        return list(
+            Person.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(
+                team_id=team_id,
+                persondistinctid__team_id=team_id,
+                persondistinctid__distinct_id__in=distinct_ids,
+            )
+            .prefetch_related(
+                Prefetch(
+                    "persondistinctid_set",
+                    queryset=PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+                    .filter(team_id=team_id)
+                    .order_by("id"),
+                    to_attr="distinct_ids_cache",
+                )
             )
         )
+
+    return _personhog_routed(
+        operation,
+        lambda: _fetch_persons_by_distinct_ids_via_personhog(team_id, distinct_ids),
+        orm_fn,
+        team_id=team_id,
     )
-    PERSONHOG_ROUTING_TOTAL.labels(operation=operation, source="django_orm", client_name=get_client_name()).inc()
-    return list(persons)
 
 
 def _fetch_persons_by_uuids_via_personhog(team_id: int, uuids: list[str]) -> list[Person]:
@@ -329,28 +354,12 @@ def _fetch_persons_by_uuids_via_personhog(team_id: int, uuids: list[str]) -> lis
 
 
 def get_persons_by_uuids(team: Team, uuids: list[str]) -> QuerySet | list[Person]:
-    from posthog.personhog_client.gate import use_personhog
-
-    if use_personhog():
-        try:
-            result = _fetch_persons_by_uuids_via_personhog(team.pk, uuids)
-            PERSONHOG_ROUTING_TOTAL.labels(
-                operation="get_persons_by_uuids", source="personhog", client_name=get_client_name()
-            ).inc()
-            return result
-        except Exception:
-            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-                operation="get_persons_by_uuids",
-                source="personhog",
-                error_type="grpc_error",
-                client_name=get_client_name(),
-            ).inc()
-            logger.warning("personhog_get_persons_by_uuids_failure", team_id=team.pk, exc_info=True)
-
-    PERSONHOG_ROUTING_TOTAL.labels(
-        operation="get_persons_by_uuids", source="django_orm", client_name=get_client_name()
-    ).inc()
-    return Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team_id=team.pk, uuid__in=uuids)
+    return _personhog_routed(
+        "get_persons_by_uuids",
+        lambda: _fetch_persons_by_uuids_via_personhog(team.pk, uuids),
+        lambda: Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team_id=team.pk, uuid__in=uuids),
+        team_id=team.pk,
+    )
 
 
 def _fetch_person_by_uuid_via_personhog(team_id: int, uuid: str) -> Optional[Person]:
@@ -380,28 +389,12 @@ def _fetch_person_by_uuid_via_personhog(team_id: int, uuid: str) -> Optional[Per
 
 
 def get_person_by_uuid(team_id: int, uuid: str) -> Optional[Person]:
-    from posthog.personhog_client.gate import use_personhog
-
-    if use_personhog():
-        try:
-            result = _fetch_person_by_uuid_via_personhog(team_id, uuid)
-            PERSONHOG_ROUTING_TOTAL.labels(
-                operation="get_person_by_uuid", source="personhog", client_name=get_client_name()
-            ).inc()
-            return result
-        except Exception:
-            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-                operation="get_person_by_uuid",
-                source="personhog",
-                error_type="grpc_error",
-                client_name=get_client_name(),
-            ).inc()
-            logger.warning("personhog_get_person_by_uuid_failure", team_id=team_id, exc_info=True)
-
-    PERSONHOG_ROUTING_TOTAL.labels(
-        operation="get_person_by_uuid", source="django_orm", client_name=get_client_name()
-    ).inc()
-    return Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team_id=team_id, uuid=uuid).first()
+    return _personhog_routed(
+        "get_person_by_uuid",
+        lambda: _fetch_person_by_uuid_via_personhog(team_id, uuid),
+        lambda: Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team_id=team_id, uuid=uuid).first(),
+        team_id=team_id,
+    )
 
 
 def _fetch_person_by_distinct_id_via_personhog(team_id: int, distinct_id: str) -> Optional[Person]:
@@ -431,31 +424,13 @@ def _fetch_person_by_distinct_id_via_personhog(team_id: int, distinct_id: str) -
 
 
 def get_person_by_distinct_id(team_id: int, distinct_id: str) -> Optional[Person]:
-    from posthog.personhog_client.gate import use_personhog
-
-    if use_personhog():
-        try:
-            result = _fetch_person_by_distinct_id_via_personhog(team_id, distinct_id)
-            PERSONHOG_ROUTING_TOTAL.labels(
-                operation="get_person_by_distinct_id", source="personhog", client_name=get_client_name()
-            ).inc()
-            return result
-        except Exception:
-            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-                operation="get_person_by_distinct_id",
-                source="personhog",
-                error_type="grpc_error",
-                client_name=get_client_name(),
-            ).inc()
-            logger.warning("personhog_get_person_by_distinct_id_failure", team_id=team_id, exc_info=True)
-
-    PERSONHOG_ROUTING_TOTAL.labels(
-        operation="get_person_by_distinct_id", source="django_orm", client_name=get_client_name()
-    ).inc()
-    return (
-        Person.objects.db_manager(READ_DB_FOR_PERSONS)
+    return _personhog_routed(
+        "get_person_by_distinct_id",
+        lambda: _fetch_person_by_distinct_id_via_personhog(team_id, distinct_id),
+        lambda: Person.objects.db_manager(READ_DB_FOR_PERSONS)
         .filter(team_id=team_id, persondistinctid__distinct_id=distinct_id)
-        .first()
+        .first(),
+        team_id=team_id,
     )
 
 
@@ -484,33 +459,17 @@ def _validate_uuids_via_personhog(team_id: int, uuids: list[str]) -> list[str]:
 
 
 def validate_person_uuids_exist(team_id: int, uuids: list[str]) -> list[str]:
-    from posthog.personhog_client.gate import use_personhog
-
-    if use_personhog():
-        try:
-            result = _validate_uuids_via_personhog(team_id, uuids)
-            PERSONHOG_ROUTING_TOTAL.labels(
-                operation="validate_person_uuids_exist", source="personhog", client_name=get_client_name()
-            ).inc()
-            return result
-        except Exception:
-            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-                operation="validate_person_uuids_exist",
-                source="personhog",
-                error_type="grpc_error",
-                client_name=get_client_name(),
-            ).inc()
-            logger.warning("personhog_validate_person_uuids_exist_failure", team_id=team_id, exc_info=True)
-
-    PERSONHOG_ROUTING_TOTAL.labels(
-        operation="validate_person_uuids_exist", source="django_orm", client_name=get_client_name()
-    ).inc()
-    return [
-        str(u)
-        for u in Person.objects.db_manager(READ_DB_FOR_PERSONS)
-        .filter(team_id=team_id, uuid__in=uuids)
-        .values_list("uuid", flat=True)
-    ]
+    return _personhog_routed(
+        "validate_person_uuids_exist",
+        lambda: _validate_uuids_via_personhog(team_id, uuids),
+        lambda: [
+            str(u)
+            for u in Person.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(team_id=team_id, uuid__in=uuids)
+            .values_list("uuid", flat=True)
+        ],
+        team_id=team_id,
+    )
 
 
 def delete_person(person: Person, sync: bool = False) -> None:

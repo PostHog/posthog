@@ -1898,6 +1898,7 @@ def list_recordings_from_query(
         from posthog.personhog_client.gate import use_personhog
 
         distinct_id_to_person: dict[str, Person] = {}
+        person_distinct_ids = None
         if use_personhog():
             # personhog returns persons with _distinct_ids already populated
             persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
@@ -1907,8 +1908,10 @@ def list_recordings_from_query(
                     if did in distinct_ids_set:
                         distinct_id_to_person[did] = person
         else:
-            # ORM path: intentionally set _distinct_ids to a single ID per person
-            # to avoid loading all distinct_ids (which can be very large)
+            # ORM path: define queryset here, iterate in process_persons to preserve
+            # the original timing attribution (DB round-trip in process_persons span).
+            # Intentionally set _distinct_ids to a single ID per person to avoid
+            # loading all distinct_ids (which can be very large).
             from django.db.models import Prefetch
 
             from posthog.models.person.person import READ_DB_FOR_PERSONS
@@ -1923,11 +1926,12 @@ def list_recordings_from_query(
                     )
                 )
             )
+
+    with timer("process_persons"), tracer.start_as_current_span("process_persons"):
+        if person_distinct_ids is not None:
             for pdi in person_distinct_ids:
                 pdi.person._distinct_ids = [pdi.distinct_id]
                 distinct_id_to_person[pdi.distinct_id] = pdi.person
-
-    with timer("process_persons"), tracer.start_as_current_span("process_persons"):
         for recording in recordings:
             recording.viewed = recording.session_id in viewed_session_recordings
             recording.viewers = other_viewers.get(recording.session_id, [])
