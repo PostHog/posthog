@@ -56,7 +56,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     status = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     sync_type = models.CharField(max_length=128, choices=SyncType.choices, null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "selected_properties": list[str] | None }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -190,12 +190,6 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     @property
-    def selected_properties(self) -> list[str] | None:
-        if self.sync_type_config:
-            return self.sync_type_config.get("selected_properties", None)
-        return None
-
-    @property
     def schema_metadata(self) -> dict[str, Any] | None:
         if self.sync_type_config:
             metadata = self.sync_type_config.get("schema_metadata")
@@ -240,7 +234,6 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config.pop("backfilled_partition_format", None)
         # We don't reset partition_format
         # We don't reset chunk_size_override
-        # We don't reset selected_properties (user configuration)
 
         self.initial_sync_complete = False
 

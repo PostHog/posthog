@@ -5539,17 +5539,6 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     incremental_field_type: string | null
     sync_frequency: DataWarehouseSyncInterval
     description?: string | null
-    selected_properties?: string[] | null
-}
-
-export interface SchemaAvailablePropertiesResponse {
-    default_properties: string[] | null
-    selected_properties: string[] | null
-}
-
-export interface SchemaProperty {
-    name: string
-    is_default: boolean
 }
 
 export enum ExternalDataSchemaStatus {
