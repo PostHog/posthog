@@ -12,6 +12,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="externaldatasource",
             name="connection_metadata",
-            field=models.JSONField(blank=True, default=dict),
+            field=models.JSONField(blank=True, default=dict, null=True),
         ),
     ]
