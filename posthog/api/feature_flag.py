@@ -831,11 +831,6 @@ class FeatureFlagSerializer(
                 f"groups[{group_index}].aggregation_group_type_index",
             )
 
-            _validate_integer(
-                group.get("aggregation_group_type_index"),
-                f"groups[{group_index}].aggregation_group_type_index",
-            )
-
             for prop_index, prop in enumerate(group.get("properties", [])):
                 _validate_integer(
                     prop.get("group_type_index"),
@@ -876,7 +871,7 @@ class FeatureFlagSerializer(
             resolved_aggregation is not None
             and self.instance is not None
             and hasattr(self.instance, "features")
-            and self.instance.features.count() > 0
+            and self.instance.features.exists()
         ):
             raise serializers.ValidationError(
                 "Cannot change this flag to a group-based when linked to an Early Access Feature."
@@ -896,6 +891,8 @@ class FeatureFlagSerializer(
                         raise serializers.ValidationError(
                             "Filters are not valid (person-aggregated conditions can only use person, cohort, and flag properties)"
                         )
+                    if prop.type == "flag" and prop.operator != PropertyOperator.FLAG_EVALUATES_TO:
+                        raise serializers.ValidationError("Flag properties must use the 'flag_evaluates_to' operator")
                 else:
                     # Group-aggregated condition: only allow group properties matching the
                     # condition's group type
@@ -908,16 +905,7 @@ class FeatureFlagSerializer(
                             "Filters are not valid (group properties must match the condition set's group type)"
                         )
 
-        # Validate flag property operators across all condition sets
         if resolved_aggregation is None:
-            flag_props_valid = all(
-                (p := Property(**prop_dict)).type != "flag" or p.operator == PropertyOperator.FLAG_EVALUATES_TO
-                for condition in filters["groups"]
-                for prop_dict in condition.get("properties", [])
-            )
-            if not flag_props_valid:
-                raise serializers.ValidationError("Flag properties must use the 'flag_evaluates_to' operator")
-
             self._check_flag_circular_dependencies(filters)
 
         variant_list = (filters.get("multivariate") or {}).get("variants", [])
