@@ -26,9 +26,7 @@ async function setupHogFunctionBackfillRoutes(page: Page): Promise<void> {
         created_at: '2026-01-01T00:00:00Z',
         created_by: { id: 1, uuid: 'user-001', distinct_id: 'user-001', first_name: 'Test', email: 'test@posthog.com' },
         updated_at: '2026-01-01T00:00:00Z',
-        configuration: {
-            batch_export_id: MOCK_BATCH_EXPORT_ID,
-        },
+        batch_export_id: MOCK_BATCH_EXPORT_ID,
     }
 
     // Mock hog function API
