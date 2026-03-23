@@ -9,6 +9,10 @@ import {
 } from './surveys'
 import { getRegisteredTriggerTypes } from './triggerTypeRegistry'
 
+// Partial mock — getSurveyResponsePropertyKeys only accesses survey.questions
+const makeSurvey = (questions: { question: string; type: SurveyQuestionType }[]): Survey =>
+    ({ questions: questions.map((q) => ({ ...q, id: 'q-id' })) }) as unknown as Survey
+
 describe('surveys', () => {
     const getSurveyTriggerType = (): ReturnType<typeof getRegisteredTriggerTypes>[number] => {
         const types = getRegisteredTriggerTypes()
@@ -166,59 +170,70 @@ describe('surveys', () => {
     })
 
     describe('getUserProperties', () => {
-        it('filters out managed properties', () => {
-            const config = {
-                type: 'event' as const,
-                filters: {
-                    properties: [
-                        { key: '$survey_id', value: 'survey-123', operator: 'exact', type: 'event' },
-                        { key: '$survey_completed', value: true, operator: 'exact', type: 'event' },
-                        { key: '$survey_response', value: '5', operator: 'exact', type: 'event' },
-                        { key: '$survey_response_1', value: 'price', operator: 'exact', type: 'event' },
-                    ],
+        it.each([
+            {
+                name: 'filters out managed properties',
+                config: {
+                    type: 'event' as const,
+                    filters: {
+                        properties: [
+                            { key: '$survey_id', value: 'survey-123', operator: 'exact', type: 'event' },
+                            { key: '$survey_completed', value: true, operator: 'exact', type: 'event' },
+                            { key: '$survey_response', value: '5', operator: 'exact', type: 'event' },
+                            { key: '$survey_response_1', value: 'price', operator: 'exact', type: 'event' },
+                        ],
+                    },
                 },
-            }
-            expect(getUserProperties(config)).toEqual([
-                { key: '$survey_response', value: '5', operator: 'exact', type: 'event' },
-                { key: '$survey_response_1', value: 'price', operator: 'exact', type: 'event' },
-            ])
-        })
-
-        it('returns empty array when no properties', () => {
-            expect(getUserProperties({ type: 'event', filters: {} })).toEqual([])
+                expected: [
+                    { key: '$survey_response', value: '5', operator: 'exact', type: 'event' },
+                    { key: '$survey_response_1', value: 'price', operator: 'exact', type: 'event' },
+                ],
+            },
+            {
+                name: 'returns empty array when no properties',
+                config: { type: 'event' as const, filters: {} },
+                expected: [],
+            },
+        ])('$name', ({ config, expected }) => {
+            expect(getUserProperties(config)).toEqual(expected)
         })
     })
 
     describe('buildProperties', () => {
-        it('builds properties for specific survey with user properties', () => {
-            const userProps = [{ key: '$survey_response', value: '5', operator: 'exact', type: 'event' }]
-            const result = buildProperties('survey-123', false, userProps)
-            expect(result).toEqual([
-                { key: '$survey_id', value: 'survey-123', operator: 'exact', type: 'event' },
-                { key: '$survey_response', value: '5', operator: 'exact', type: 'event' },
-            ])
-        })
-
-        it('builds properties for "any" survey', () => {
-            const result = buildProperties('any', true, [])
-            expect(result).toEqual([
-                { key: '$survey_id', operator: 'is_set', type: 'event' },
-                { key: '$survey_completed', value: true, operator: 'exact', type: 'event' },
-            ])
-        })
-
-        it('builds properties with no survey selected', () => {
-            const result = buildProperties(null, false, [])
-            expect(result).toEqual([])
+        it.each([
+            {
+                name: 'specific survey with user properties',
+                surveyId: 'survey-123' as string | null | 'any',
+                completedOnly: false,
+                userProps: [{ key: '$survey_response', value: '5', operator: 'exact', type: 'event' }],
+                expected: [
+                    { key: '$survey_id', value: 'survey-123', operator: 'exact', type: 'event' },
+                    { key: '$survey_response', value: '5', operator: 'exact', type: 'event' },
+                ],
+            },
+            {
+                name: '"any" survey with completed filter',
+                surveyId: 'any' as string | null | 'any',
+                completedOnly: true,
+                userProps: [],
+                expected: [
+                    { key: '$survey_id', operator: 'is_set', type: 'event' },
+                    { key: '$survey_completed', value: true, operator: 'exact', type: 'event' },
+                ],
+            },
+            {
+                name: 'no survey selected',
+                surveyId: null as string | null | 'any',
+                completedOnly: false,
+                userProps: [],
+                expected: [],
+            },
+        ])('$name', ({ surveyId, completedOnly, userProps, expected }) => {
+            expect(buildProperties(surveyId, completedOnly, userProps)).toEqual(expected)
         })
     })
 
     describe('getSurveyResponsePropertyKeys', () => {
-        const makeSurvey = (questions: { question: string; type: SurveyQuestionType }[]): Survey =>
-            ({
-                questions: questions.map((q) => ({ ...q, id: 'q-id' })),
-            }) as unknown as Survey
-
         it('generates correct keys for multiple questions', () => {
             const survey = makeSurvey([
                 { question: 'How likely are you to recommend us?', type: SurveyQuestionType.Rating },

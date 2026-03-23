@@ -105,6 +105,21 @@ function StepTriggerConfigurationSurvey({ node }: { node: any }): JSX.Element {
     const userProperties = getUserProperties(config)
     const filterTestAccounts = config.filters?.filter_test_accounts ?? false
 
+    const updateTriggerConfig = (
+        surveyId: string | null | 'any',
+        completedResponsesOnly: boolean,
+        newUserProperties: any[]
+    ): void => {
+        setWorkflowActionConfig(node.data.id, {
+            type: 'event',
+            filters: {
+                events: [{ id: SurveyEventName.SENT, type: 'events', name: 'Survey sent' }],
+                properties: buildProperties(surveyId, completedResponsesOnly, newUserProperties),
+                filter_test_accounts: filterTestAccounts,
+            },
+        })
+    }
+
     const selectedSurvey =
         selectedSurveyId && selectedSurveyId !== 'any' ? allSurveys.find((s) => s.id === selectedSurveyId) : null
     const selectedSurveyLabel =
@@ -221,14 +236,7 @@ function StepTriggerConfigurationSurvey({ node }: { node: any }): JSX.Element {
                             return
                         }
                         setSearchTerm('')
-                        setWorkflowActionConfig(node.data.id, {
-                            type: 'event',
-                            filters: {
-                                events: [{ id: SurveyEventName.SENT, type: 'events', name: 'Survey sent' }],
-                                properties: buildProperties(surveyId, completedOnly, userProperties),
-                                filter_test_accounts: filterTestAccounts,
-                            },
-                        })
+                        updateTriggerConfig(surveyId, completedOnly, userProperties)
                     }}
                     placeholder="Select a survey"
                 />
@@ -241,15 +249,7 @@ function StepTriggerConfigurationSurvey({ node }: { node: any }): JSX.Element {
                 <LemonRadio
                     value={completedOnly ? 'completed' : 'any'}
                     onChange={(value) => {
-                        const newCompletedOnly = value === 'completed'
-                        setWorkflowActionConfig(node.data.id, {
-                            type: 'event',
-                            filters: {
-                                events: [{ id: SurveyEventName.SENT, type: 'events', name: 'Survey sent' }],
-                                properties: buildProperties(selectedSurveyId, newCompletedOnly, userProperties),
-                                filter_test_accounts: filterTestAccounts,
-                            },
-                        })
+                        updateTriggerConfig(selectedSurveyId, value === 'completed', userProperties)
                     }}
                     options={[
                         {
@@ -313,15 +313,7 @@ function StepTriggerConfigurationSurvey({ node }: { node: any }): JSX.Element {
                         filtersKey={`survey-trigger-${node.data.id}`}
                         filters={{ properties: userProperties }}
                         setFilters={(filters) => {
-                            const newUserProperties = filters?.properties ?? []
-                            setWorkflowActionConfig(node.data.id, {
-                                type: 'event',
-                                filters: {
-                                    events: [{ id: SurveyEventName.SENT, type: 'events', name: 'Survey sent' }],
-                                    properties: buildProperties(selectedSurveyId, completedOnly, newUserProperties),
-                                    filter_test_accounts: filterTestAccounts,
-                                },
-                            })
+                            updateTriggerConfig(selectedSurveyId, completedOnly, filters?.properties ?? [])
                         }}
                     />
                     {selectedSurvey && selectedSurvey.questions.length > 0 && (
@@ -336,25 +328,10 @@ function StepTriggerConfigurationSurvey({ node }: { node: any }): JSX.Element {
                                         icon={<IconPlusSmall />}
                                         tooltip={question}
                                         onClick={() => {
-                                            const newUserProperties = [...userProperties, { key, type: 'event' }]
-                                            setWorkflowActionConfig(node.data.id, {
-                                                type: 'event',
-                                                filters: {
-                                                    events: [
-                                                        {
-                                                            id: SurveyEventName.SENT,
-                                                            type: 'events',
-                                                            name: 'Survey sent',
-                                                        },
-                                                    ],
-                                                    properties: buildProperties(
-                                                        selectedSurveyId,
-                                                        completedOnly,
-                                                        newUserProperties
-                                                    ),
-                                                    filter_test_accounts: filterTestAccounts,
-                                                },
-                                            })
+                                            updateTriggerConfig(selectedSurveyId, completedOnly, [
+                                                ...userProperties,
+                                                { key, type: 'event' },
+                                            ])
                                         }}
                                     >
                                         {buttonLabel}
