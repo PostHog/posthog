@@ -1,1 +1,1 @@
-0221_error_tracking_events_test_table
+0222_add_session_id_uuid_minmax_index
