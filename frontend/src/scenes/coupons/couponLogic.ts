@@ -41,11 +41,14 @@ export const couponLogic = kea<couponLogicType>([
         setClaimed: (claimed: boolean) => ({ claimed }),
         setClaimedDetails: (details: any) => ({ details }),
     }),
-    loaders(() => ({
+    loaders(({ values }) => ({
         couponsOverview: [
             null as CouponsOverview | null,
             {
                 loadCouponsOverview: async () => {
+                    if (!values.isAdminOrOwner) {
+                        return null
+                    }
                     return await api.get('api/billing/coupons/overview')
                 },
             },
