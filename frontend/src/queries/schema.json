@@ -12805,9 +12805,11 @@
             "additionalProperties": false,
             "properties": {
                 "date_from": {
+                    "description": "Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).",
                     "type": ["string", "null"]
                 },
                 "date_to": {
+                    "description": "End of the date range. Same format as date_from. Omit or null for \"now\".",
                     "type": ["string", "null"]
                 },
                 "explicitDate": {
@@ -14343,10 +14345,12 @@
                     "type": "array"
                 },
                 "orderBy": {
+                    "description": "Field to sort results by.",
                     "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
                     "type": "string"
                 },
                 "orderDirection": {
+                    "description": "Sort direction.",
                     "enum": ["ASC", "DESC"],
                     "type": "string"
                 },
@@ -14357,10 +14361,12 @@
                     "type": "array"
                 },
                 "searchQuery": {
+                    "description": "Free-text search across exception type, message, and stack frames.",
                     "type": "string"
                 },
                 "status": {
-                    "$ref": "#/definitions/ErrorTrackingQueryStatus"
+                    "$ref": "#/definitions/ErrorTrackingQueryStatus",
+                    "description": "Filter by issue status."
                 }
             },
             "required": ["orderBy"],
@@ -14398,12 +14404,14 @@
                     ]
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange"
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range to filter results."
                 },
                 "filterGroup": {
                     "$ref": "#/definitions/PropertyGroupFilter"
                 },
                 "filterTestAccounts": {
+                    "description": "Whether to filter out test accounts.",
                     "type": "boolean"
                 },
                 "groupKey": {
@@ -14413,6 +14421,7 @@
                     "$ref": "#/definitions/integer"
                 },
                 "issueId": {
+                    "description": "Filter to a specific error tracking issue by ID.",
                     "type": "string"
                 },
                 "kind": {
@@ -14430,10 +14439,12 @@
                     "$ref": "#/definitions/integer"
                 },
                 "orderBy": {
+                    "description": "Field to sort results by.",
                     "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
                     "type": "string"
                 },
                 "orderDirection": {
+                    "description": "Sort direction.",
                     "enum": ["ASC", "DESC"],
                     "type": "string"
                 },
@@ -14444,10 +14455,12 @@
                     "$ref": "#/definitions/ErrorTrackingQueryResponse"
                 },
                 "searchQuery": {
+                    "description": "Free-text search across exception type, message, and stack frames.",
                     "type": "string"
                 },
                 "status": {
-                    "$ref": "#/definitions/ErrorTrackingQueryStatus"
+                    "$ref": "#/definitions/ErrorTrackingQueryStatus",
+                    "description": "Filter by issue status."
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"

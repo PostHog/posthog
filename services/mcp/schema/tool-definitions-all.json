@@ -15,10 +15,10 @@
         }
     },
     "error-details": {
-        "description": "Use this tool to get the details of an error in the project.",
+        "description": "Get aggregated details for a specific error tracking issue by ID. Returns occurrence count, affected users, sessions, and volume data for the given date range.",
         "category": "Error tracking",
         "feature": "error_tracking",
-        "summary": "Get the details of an error in the project.",
+        "summary": "Get error details",
         "title": "Get error details",
         "required_scopes": ["error_tracking:read"],
         "new_mcp": true,
@@ -30,10 +30,10 @@
         }
     },
     "list-errors": {
-        "description": "Use this tool to list errors in the project.",
+        "description": "List error tracking issues with filtering by status, date range, and sorting. Returns aggregated metrics per issue including occurrence count, affected users, and sessions.",
         "category": "Error tracking",
         "feature": "error_tracking",
-        "summary": "List errors in the project.",
+        "summary": "List errors",
         "title": "List errors",
         "required_scopes": ["error_tracking:read"],
         "new_mcp": true,

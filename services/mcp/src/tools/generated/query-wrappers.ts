@@ -1053,8 +1053,11 @@ const AssistantLifecycleQuery = z.object({
 })
 
 const AssistantTracesQuery = z.object({
-    dateRange: AssistantDateRangeFilter.describe('Date range for the query.').optional(),
-    filterSupportTraces: z.coerce.boolean().describe('Exclude support impersonation traces.').default(false).optional(),
+    dateRange: AssistantDateRangeFilter.describe('Date range for the query.')
+        .optional(),
+    filterSupportTraces: z.coerce.boolean().describe('Exclude support impersonation traces.')
+        .default(false)
+        .optional(),
     filterTestAccounts: z.coerce
         .boolean()
         .describe('Exclude internal and test users by applying the respective filters.')

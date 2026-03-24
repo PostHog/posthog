@@ -266,3 +266,95 @@ tools:
     error-tracking-symbol-sets-bulk-delete-create:
         operation: error_tracking_symbol_sets_bulk_delete_create
         enabled: false
+
+# Query wrapper tools — execute ErrorTrackingQuery via the query API.
+wrappers:
+    list-errors:
+        schema_ref: ErrorTrackingQuery
+        enabled: true
+        scopes:
+            - error_tracking:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List errors
+        description: >
+            List error tracking issues with filtering by status, date range,
+            and sorting. Returns aggregated metrics per issue including occurrence
+            count, affected users, and sessions.
+        ui_resource_uri: ui://posthog/error-issue-list.html
+        url_prefix: /error_tracking
+        exclude_properties:
+            - response
+            - modifiers
+            - tags
+            - version
+            - useQueryV2
+            - groupTypeIndex
+            - personId
+            - groupKey
+            - withAggregations
+            - withFirstEvent
+            - withLastEvent
+            - filterGroup
+            - assignee
+            - kind
+            - limit
+            - offset
+            - searchQuery
+        fixed_properties:
+            volumeResolution: 1
+        property_defaults:
+            orderBy: occurrences
+            dateRange:
+                date_from: '-7d'
+            filterTestAccounts: true
+            status: active
+            orderDirection: DESC
+
+    error-details:
+        schema_ref: ErrorTrackingQuery
+        enabled: true
+        scopes:
+            - error_tracking:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get error details
+        description: >
+            Get aggregated details for a specific error tracking issue by ID.
+            Returns occurrence count, affected users, sessions, and volume data
+            for the given date range.
+        ui_resource_uri: ui://posthog/error-details.html
+        url_prefix: /error_tracking
+        exclude_properties:
+            - response
+            - modifiers
+            - tags
+            - version
+            - useQueryV2
+            - groupTypeIndex
+            - personId
+            - groupKey
+            - withAggregations
+            - withFirstEvent
+            - withLastEvent
+            - searchQuery
+            - filterGroup
+            - offset
+            - limit
+            - assignee
+            - kind
+            - status
+            - filterTestAccounts
+            - orderDirection
+        fixed_properties:
+            volumeResolution: 0
+            orderBy: occurrences
+        property_defaults:
+            dateRange:
+                date_from: '-7d'
+        required_properties:
+            - issueId

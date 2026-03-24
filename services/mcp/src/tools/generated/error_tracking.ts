@@ -9,6 +9,7 @@ import {
     ErrorTrackingIssuesRetrieveParams,
 } from '@/generated/error_tracking/api'
 import { withUiApp } from '@/resources/ui-apps'
+import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -104,8 +105,82 @@ const errorTrackingIssuesPartialUpdate = (): ToolBase<
         },
     })
 
+// --- Query wrapper schemas from schema.json ---
+
+const DateRange = z.object({
+    date_from: z
+        .string()
+        .nullable()
+        .describe(
+            'Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).'
+        )
+        .optional(),
+    date_to: z
+        .string()
+        .nullable()
+        .describe('End of the date range. Same format as date_from. Omit or null for "now".')
+        .optional(),
+    explicitDate: z.coerce
+        .boolean()
+        .nullable()
+        .describe(
+            'Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.'
+        )
+        .default(false)
+        .optional(),
+})
+
+const ErrorTrackingIssueStatus = z.enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
+
+const ErrorTrackingQueryStatus = z.union([ErrorTrackingIssueStatus, z.literal('all')])
+
+const ErrorTrackingQuery = z.object({
+    dateRange: DateRange.describe('Date range to filter results.'),
+    filterTestAccounts: z.coerce.boolean().describe('Whether to filter out test accounts.').optional(),
+    issueId: z.string().describe('Filter to a specific error tracking issue by ID.').optional(),
+    orderBy: z
+        .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions'])
+        .describe('Field to sort results by.'),
+    orderDirection: z.enum(['ASC', 'DESC']).describe('Sort direction.').optional(),
+    status: ErrorTrackingQueryStatus.describe('Filter by issue status.').optional(),
+})
+
+const ListErrorsSchema = ErrorTrackingQuery.extend({
+    orderBy: ErrorTrackingQuery.shape.orderBy.default('occurrences').optional(),
+    dateRange: ErrorTrackingQuery.shape.dateRange.default({ date_from: '-7d' }).optional(),
+    filterTestAccounts: ErrorTrackingQuery.shape.filterTestAccounts.default(true).optional(),
+    status: ErrorTrackingQuery.shape.status.default('active').optional(),
+    orderDirection: ErrorTrackingQuery.shape.orderDirection.default('DESC').optional(),
+})
+
+const ErrorDetailsSchema = ErrorTrackingQuery.omit({
+    orderBy: true,
+    status: true,
+    filterTestAccounts: true,
+    orderDirection: true,
+}).extend({
+    dateRange: ErrorTrackingQuery.shape.dateRange.default({ date_from: '-7d' }).optional(),
+    issueId: ErrorTrackingQuery.shape.issueId.unwrap(),
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'error-tracking-issues-list': errorTrackingIssuesList,
     'error-tracking-issues-retrieve': errorTrackingIssuesRetrieve,
     'error-tracking-issues-partial-update': errorTrackingIssuesPartialUpdate,
+    'list-errors': createQueryWrapper({
+        name: 'list-errors',
+        schema: ListErrorsSchema,
+        kind: 'ErrorTrackingQuery',
+        uiResourceUri: 'ui://posthog/error-issue-list.html',
+        fixedProperties: { volumeResolution: 1 },
+        urlPrefix: '/error_tracking',
+    }),
+    'error-details': createQueryWrapper({
+        name: 'error-details',
+        schema: ErrorDetailsSchema,
+        kind: 'ErrorTrackingQuery',
+        uiResourceUri: 'ui://posthog/error-details.html',
+        fixedProperties: { volumeResolution: 0, orderBy: 'occurrences' },
+        urlPrefix: '/error_tracking',
+    }),
 }

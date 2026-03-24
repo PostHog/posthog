@@ -824,6 +824,36 @@
             "readOnlyHint": false
         }
     },
+    "list-errors": {
+        "description": "List error tracking issues with filtering by status, date range, and sorting. Returns aggregated metrics per issue including occurrence count, affected users, and sessions.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "List errors",
+        "title": "List errors",
+        "required_scopes": ["error_tracking:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "error-details": {
+        "description": "Get aggregated details for a specific error tracking issue by ID. Returns occurrence count, affected users, sessions, and volume data for the given date range.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Get error details",
+        "title": "Get error details",
+        "required_scopes": ["error_tracking:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "feature-flag-get-all": {
         "description": "Get feature flags in the current project. Supports list filters including search by feature flag key or name (case-insensitive), then use the returned ID for get/update/delete tools.",
         "category": "Feature flags",

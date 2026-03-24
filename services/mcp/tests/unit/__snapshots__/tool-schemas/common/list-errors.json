@@ -1,30 +1,83 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-        "dateFrom": {
-            "format": "date-time",
-            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
-            "type": "string"
-        },
-        "dateTo": {
-            "format": "date-time",
-            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
-            "type": "string"
+        "dateRange": {
+            "default": {
+                "date_from": "-7d"
+            },
+            "description": "Date range to filter results.",
+            "properties": {
+                "date_from": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year)."
+                },
+                "date_to": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "End of the date range. Same format as date_from. Omit or null for \"now\"."
+                },
+                "explicitDate": {
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": false,
+                    "description": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period."
+                }
+            },
+            "type": "object"
         },
         "filterTestAccounts": {
+            "default": true,
+            "description": "Whether to filter out test accounts.",
             "type": "boolean"
         },
+        "issueId": {
+            "description": "Filter to a specific error tracking issue by ID.",
+            "type": "string"
+        },
         "orderBy": {
-            "enum": ["occurrences", "first_seen", "last_seen", "users", "sessions"],
+            "default": "occurrences",
+            "description": "Field to sort results by.",
+            "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
             "type": "string"
         },
         "orderDirection": {
+            "default": "DESC",
+            "description": "Sort direction.",
             "enum": ["ASC", "DESC"],
             "type": "string"
         },
         "status": {
-            "enum": ["active", "resolved", "archived", "suppressed", "pending_release", "all"],
-            "type": "string"
+            "anyOf": [
+                {
+                    "enum": ["archived", "active", "resolved", "pending_release", "suppressed"],
+                    "type": "string"
+                },
+                {
+                    "const": "all",
+                    "type": "string"
+                }
+            ],
+            "default": "active",
+            "description": "Filter by issue status."
         }
     },
     "type": "object"

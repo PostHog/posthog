@@ -2534,14 +2534,21 @@ export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
 /* Error Tracking */
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
+    /** Filter to a specific error tracking issue by ID. */
     issueId?: ErrorTrackingIssue['id']
+    /** Field to sort results by. */
     orderBy: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
+    /** Sort direction. */
     orderDirection?: 'ASC' | 'DESC'
+    /** Date range to filter results. */
     dateRange: DateRange
+    /** Filter by issue status. */
     status?: ErrorTrackingQueryStatus
     assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
+    /** Whether to filter out test accounts. */
     filterTestAccounts?: boolean
+    /** Free-text search across exception type, message, and stack frames. */
     searchQuery?: string
     volumeResolution: integer
     withAggregations?: boolean
@@ -3857,7 +3864,13 @@ export type HogQLExpression = string
 // Various utility types below
 
 export interface DateRange {
+    /**
+     * Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z)
+     * or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),
+     * -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).
+     */
     date_from?: string | null
+    /** End of the date range. Same format as date_from. Omit or null for "now". */
     date_to?: string | null
     /** Whether the date_from and date_to should be used verbatim. Disables
      * rounding to the start and end of period.

@@ -9,15 +9,20 @@ interface QueryWrapperConfig<T extends ZodObjectAny> {
     uiResourceUri?: string
     /** Return JSON instead of TOON-encoded text. */
     responseFormat?: 'json'
+    /** Values merged into the query body alongside agent-provided params. */
+    fixedProperties?: Record<string, unknown>
+    /** When set, `_posthogUrl` uses `{baseUrl}{urlPrefix}` instead of `/insights/new?q=...`. */
+    urlPrefix?: string
 }
 
 export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperConfig<T>): () => ToolBase<T> {
     return () => ({
         name: config.name,
         schema: config.schema,
-        handler: async (context: Context, params: z.infer<T>) => {
+        handler: async (context: Context, rawParams: z.infer<T>) => {
             const projectId = await context.stateManager.getProjectId()
-            const query = { ...params, kind: config.kind }
+            const params = config.schema.parse(rawParams)
+            const query = { ...params, ...config.fixedProperties, kind: config.kind }
             const result = await context.api.request<{
                 results: unknown
                 columns?: unknown
@@ -27,11 +32,13 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
                 path: `/api/environments/${projectId}/query/`,
                 body: { query },
             })
-            const queryParam = encodeURIComponent(JSON.stringify(query))
             const baseUrl = context.api.getProjectBaseUrl(projectId)
+            const posthogUrl = config.urlPrefix
+                ? `${baseUrl}${config.urlPrefix}`
+                : `${baseUrl}/insights/new?q=${encodeURIComponent(JSON.stringify(query))}`
             return {
                 results: result.formatted_results ?? result.results,
-                _posthogUrl: `${baseUrl}/insights/new?q=${queryParam}`,
+                _posthogUrl: posthogUrl,
             }
         },
         _meta: {

@@ -1185,8 +1185,19 @@ class DateRange(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    date_from: str | None = None
-    date_to: str | None = None
+    date_from: str | None = Field(
+        default=None,
+        description=(
+            "Start of the date range. Accepts ISO 8601 timestamps (e.g.,"
+            " 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks"
+            " ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last"
+            " month), -1yStart (start of last year)."
+        ),
+    )
+    date_to: str | None = Field(
+        default=None,
+        description=('End of the date range. Same format as date_from. Omit or null for "now".'),
+    )
     explicitDate: bool | None = Field(
         default=False,
         description=(
@@ -12755,11 +12766,18 @@ class ErrorTrackingIssueFilteringToolOutput(BaseModel):
         ]
         | None
     ) = None
-    orderBy: OrderBy1
-    orderDirection: OrderDirection1 | None = None
+    orderBy: OrderBy1 = Field(..., description="Field to sort results by.")
+    orderDirection: OrderDirection1 | None = Field(default=None, description="Sort direction.")
     removedFilterIndexes: list[int] | None = None
-    searchQuery: str | None = None
-    status: ErrorTrackingIssueStatus | str | None = Field(default=None, title="ErrorTrackingQueryStatus")
+    searchQuery: str | None = Field(
+        default=None,
+        description=("Free-text search across exception type, message, and stack frames."),
+    )
+    status: ErrorTrackingIssueStatus | str | None = Field(
+        default=None,
+        description="Filter by issue status.",
+        title="ErrorTrackingQueryStatus",
+    )
 
 
 class ErrorTrackingQueryResponse(BaseModel):
@@ -19028,22 +19046,29 @@ class ErrorTrackingQuery(BaseModel):
         extra="forbid",
     )
     assignee: ErrorTrackingIssueAssignee | None = None
-    dateRange: DateRange
+    dateRange: DateRange = Field(..., description="Date range to filter results.")
     filterGroup: PropertyGroupFilter | None = None
-    filterTestAccounts: bool | None = None
+    filterTestAccounts: bool | None = Field(default=None, description="Whether to filter out test accounts.")
     groupKey: str | None = None
     groupTypeIndex: int | None = None
-    issueId: str | None = None
+    issueId: str | None = Field(default=None, description="Filter to a specific error tracking issue by ID.")
     kind: Literal["ErrorTrackingQuery"] = "ErrorTrackingQuery"
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    orderBy: OrderBy1
-    orderDirection: OrderDirection1 | None = None
+    orderBy: OrderBy1 = Field(..., description="Field to sort results by.")
+    orderDirection: OrderDirection1 | None = Field(default=None, description="Sort direction.")
     personId: str | None = None
     response: ErrorTrackingQueryResponse | None = None
-    searchQuery: str | None = None
-    status: ErrorTrackingIssueStatus | str | None = Field(default=None, title="ErrorTrackingQueryStatus")
+    searchQuery: str | None = Field(
+        default=None,
+        description=("Free-text search across exception type, message, and stack frames."),
+    )
+    status: ErrorTrackingIssueStatus | str | None = Field(
+        default=None,
+        description="Filter by issue status.",
+        title="ErrorTrackingQueryStatus",
+    )
     tags: QueryLogTags | None = None
     useQueryV2: bool | None = Field(
         default=None,
