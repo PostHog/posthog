@@ -6,7 +6,11 @@ from django.conf import settings
 from posthog.models import Team
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.models.hog_functions.hog_function import HogFunction
-from posthog.temporal.data_imports.sources.common.base import WebhookCreationResult, WebhookSource
+from posthog.temporal.data_imports.sources.common.base import (
+    WebhookCreationResult,
+    WebhookDeletionResult,
+    WebhookSource,
+)
 from posthog.temporal.data_imports.sources.common.config import Config
 
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
@@ -144,4 +148,43 @@ def create_and_register_webhook(
         success=result.success,
         webhook_url=hog_fn_result.webhook_url,
         error=result.error,
+    )
+
+
+@dataclasses.dataclass
+class WebhookDeletionSetupResult:
+    success: bool
+    external_deleted: bool = False
+    error: str | None = None
+
+
+def delete_webhook_and_hog_function(
+    team: Team,
+    source: WebhookSource,
+    config: Config,
+    source_id: str,
+) -> WebhookDeletionSetupResult:
+    """Delete the HogFunction and attempt to remove the external webhook."""
+
+    try:
+        hog_function = HogFunction.objects.get(
+            team=team,
+            type="warehouse_source_webhook",
+            inputs__source_id__value=source_id,
+        )
+    except HogFunction.DoesNotExist:
+        return WebhookDeletionSetupResult(success=True, external_deleted=False)
+
+    webhook_url = get_webhook_url(hog_function.id)
+
+    external_result: WebhookDeletionResult = source.delete_webhook(config, webhook_url)
+
+    hog_function.deleted = True
+    hog_function.enabled = False
+    hog_function.save(update_fields=["deleted", "enabled"])
+
+    return WebhookDeletionSetupResult(
+        success=True,
+        external_deleted=external_result.success,
+        error=external_result.error if not external_result.success else None,
     )

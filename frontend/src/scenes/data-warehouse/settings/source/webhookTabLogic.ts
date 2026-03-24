@@ -28,6 +28,8 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
             result,
         }),
         submitWebhookFields: true,
+        deleteWebhook: true,
+        setWebhookDeleting: (deleting: boolean) => ({ deleting }),
     }),
     reducers({
         webhookCreating: [
@@ -42,6 +44,13 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
             {
                 createWebhook: () => null,
                 setCreateWebhookResult: (_, { result }) => result,
+            },
+        ],
+        webhookDeleting: [
+            false,
+            {
+                deleteWebhook: () => true,
+                setWebhookDeleting: (_, { deleting }) => deleting,
             },
         ],
     }),
@@ -118,6 +127,21 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
                 }
             },
         ],
+        hasIncrementalSchemas: [
+            (s) => [s.source],
+            (source: ExternalDataSource | null): boolean => {
+                if (!source?.schemas) {
+                    return false
+                }
+                return source.schemas.some((s) => s.sync_type === 'incremental' && s.should_sync)
+            },
+        ],
+        canDeleteWebhook: [
+            (s) => [s.webhookInfo, s.hasIncrementalSchemas],
+            (webhookInfo: WebhookInfo | null, hasIncrementalSchemas: boolean): boolean => {
+                return !!webhookInfo?.exists && !hasIncrementalSchemas
+            },
+        ],
         mappedTables: [
             (s) => [s.webhookInfo, s.source],
             (
@@ -182,6 +206,27 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
                     lemonToast.error(e.data?.message ?? e.message ?? 'Failed to update webhook inputs')
                 }
             }
+        },
+        deleteWebhook: async () => {
+            try {
+                const result = await api.externalDataSources.deleteWebhook(props.id)
+                if (result.success) {
+                    lemonToast.success(
+                        result.external_deleted
+                            ? 'Webhook deleted from source and PostHog'
+                            : 'Webhook deleted from PostHog'
+                    )
+                    if (result.error) {
+                        lemonToast.warning(result.error)
+                    }
+                } else {
+                    lemonToast.error(result.error ?? 'Failed to delete webhook')
+                }
+            } catch (e: any) {
+                lemonToast.error(e.data?.message ?? e.message ?? 'Failed to delete webhook')
+            }
+            actions.setWebhookDeleting(false)
+            actions.loadWebhookInfo()
         },
     })),
     afterMount(({ actions }) => {
