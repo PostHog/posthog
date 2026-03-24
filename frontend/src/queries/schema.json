@@ -2386,18 +2386,6 @@
             "required": ["kind", "retentionFilter"],
             "type": "object"
         },
-        "AssistantSeriesProperties": {
-            "additionalProperties": false,
-            "properties": {
-                "properties": {
-                    "items": {
-                        "$ref": "#/definitions/AssistantPropertyFilter"
-                    },
-                    "type": "array"
-                }
-            },
-            "type": "object"
-        },
         "AssistantSetPropertyFilter": {
             "additionalProperties": false,
             "properties": {
