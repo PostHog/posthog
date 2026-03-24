@@ -143,8 +143,10 @@ class VercelSSOViewSet(VercelErrorResponseMixin, VercelRegionProxyMixin, viewset
                 logger.warning("Failed to decrypt cross-region SSO claims token", error=str(e), integration="vercel")
 
         if not params.resource_id and self.current_region == "us" and not self.is_dev_env:
+            from ee.api.vercel.types import VercelUserClaims
+
             existing_claims = VercelIntegration._get_sso_claims_from_code(params.code, params.state)
-            if hasattr(existing_claims, "installation_id") and self._should_redirect_to_eu(
+            if isinstance(existing_claims, VercelUserClaims) and self._should_redirect_to_eu(
                 None, installation_id=existing_claims.installation_id
             ):
                 token = _encrypt_claims(existing_claims)
@@ -157,7 +159,8 @@ class VercelSSOViewSet(VercelErrorResponseMixin, VercelRegionProxyMixin, viewset
                     integration="vercel",
                 )
                 return HttpResponseRedirect(redirect_to=eu_url)
-            VercelIntegration.set_cached_claims(params.code, existing_claims, timeout=300)
+            if isinstance(existing_claims, VercelUserClaims):
+                VercelIntegration.set_cached_claims(params.code, existing_claims, timeout=300)
 
         redirect_url = VercelIntegration.authenticate_sso(request=request._request, params=params)
         return HttpResponseRedirect(redirect_to=redirect_url)
