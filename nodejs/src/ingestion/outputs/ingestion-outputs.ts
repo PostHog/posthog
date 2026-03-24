@@ -1,5 +1,12 @@
-import { KafkaProducerWrapper, MessageKey, MessageWithoutTopic } from '../../kafka/producer'
+import { KafkaProducerWrapper, MessageKey } from '../../kafka/producer'
 import { logger } from '../../utils/logger'
+import {
+    ingestionOutputsBatchSize,
+    ingestionOutputsErrors,
+    ingestionOutputsLatency,
+    ingestionOutputsMessageValueBytes,
+} from './metrics'
+import { IngestionOutputMessage } from './types'
 
 /** A resolved output: the Kafka topic and the producer to write to it. */
 export interface IngestionOutput {
@@ -25,10 +32,11 @@ export class IngestionOutputs<O extends string> {
      * @param output - The output name to produce to.
      * @param message - The message to produce. Key is required for partitioning.
      */
-    async produce(output: O, message: Omit<MessageWithoutTopic, 'key'> & { key: MessageKey }): Promise<void> {
+    async produce(output: O, message: IngestionOutputMessage & { key: MessageKey }): Promise<void> {
         const { topic, producer } = this.outputs[output]
-        const value = typeof message.value === 'string' ? Buffer.from(message.value) : message.value
-        return producer.produce({ ...message, topic, value })
+        ingestionOutputsMessageValueBytes.observe({ output }, message.value?.length ?? 0)
+        ingestionOutputsBatchSize.observe({ output, method: 'produce' }, 1)
+        return this.withMetrics(output, 'produce', () => producer.produce({ ...message, topic }))
     }
 
     /**
@@ -39,9 +47,25 @@ export class IngestionOutputs<O extends string> {
      * @param output - The output name to produce to.
      * @param messages - The messages to produce.
      */
-    async queueMessages(output: O, messages: MessageWithoutTopic[]): Promise<void> {
+    async queueMessages(output: O, messages: IngestionOutputMessage[]): Promise<void> {
         const { topic, producer } = this.outputs[output]
-        return producer.queueMessages({ topic, messages })
+        for (const m of messages) {
+            ingestionOutputsMessageValueBytes.observe({ output }, m.value?.length ?? 0)
+        }
+        ingestionOutputsBatchSize.observe({ output, method: 'queueMessages' }, messages.length)
+        return this.withMetrics(output, 'queueMessages', () => producer.queueMessages({ topic, messages }))
+    }
+
+    private async withMetrics<T>(output: O, method: string, fn: () => Promise<T>): Promise<T> {
+        const end = ingestionOutputsLatency.startTimer({ output, method })
+        try {
+            return await fn()
+        } catch (error) {
+            ingestionOutputsErrors.inc({ output, method })
+            throw error
+        } finally {
+            end()
+        }
     }
 
     /**

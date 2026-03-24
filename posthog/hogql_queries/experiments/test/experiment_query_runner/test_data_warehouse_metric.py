@@ -1133,3 +1133,147 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         # The test validates that queries with different join keys execute successfully
         # and produce ratio metric results with all required statistical fields
+
+    @parameterized.expand(
+        [
+            [
+                "mean_metric",
+                lambda usage_table, subscriptions_table: ExperimentMeanMetric(
+                    source=ExperimentDataWarehouseNode(
+                        table_name=usage_table,
+                        events_join_key="properties.$user_id",
+                        data_warehouse_join_key="userid",
+                        timestamp_field="ds",
+                        math=ExperimentMetricMathType.TOTAL,
+                        math_property=None,
+                    ),
+                ),
+                datetime(2023, 1, 31),
+                {"control_sum": 6, "test_sum": 7, "control_samples": 7, "test_samples": 9},
+            ],
+            [
+                "ratio_metric",
+                lambda usage_table, subscriptions_table: ExperimentRatioMetric(
+                    numerator=ExperimentDataWarehouseNode(
+                        table_name=usage_table,
+                        events_join_key="properties.$user_id",
+                        data_warehouse_join_key="userid",
+                        timestamp_field="ds",
+                        math=ExperimentMetricMathType.SUM,
+                        math_property="usage",
+                    ),
+                    denominator=ExperimentDataWarehouseNode(
+                        table_name=subscriptions_table,
+                        events_join_key="person.properties.email",
+                        data_warehouse_join_key="subscription_customer.customer_email",
+                        timestamp_field="subscription_created_at",
+                        math=ExperimentMetricMathType.TOTAL,
+                        math_property=None,
+                    ),
+                ),
+                datetime(2023, 1, 10),
+                {
+                    "control_sum": 650,
+                    "test_sum": 1150,
+                    "control_samples": 7,
+                    "test_samples": 9,
+                    "control_denominator": 1,
+                    "test_denominator": 3,
+                },
+            ],
+        ]
+    )
+    @snapshot_clickhouse_queries
+    def test_data_warehouse_metric_skips_precomputation(self, name, metric_factory, end_date, expected):
+        """Test that data warehouse metrics skip precomputation even when enabled"""
+        usage_table = self.create_data_warehouse_table_with_usage()
+        subscriptions_table = self.create_data_warehouse_table_with_subscriptions()
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag, start_date=datetime(2023, 1, 1), end_date=end_date
+        )
+
+        # Enable precomputation
+        experiment.exposure_preaggregation_enabled = True
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        metric = metric_factory(usage_table, subscriptions_table)
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+        experiment.exposure_criteria = {"filterTestAccounts": False}
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # Populate exposure events
+        for variant, count in [("control", 7), ("test", 9)]:
+            for i in range(count):
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_{variant}_{i}",
+                    properties={
+                        "$feature_flag_response": variant,
+                        feature_flag_property: variant,
+                        "$feature_flag": feature_flag.key,
+                        "$user_id": f"user_{variant}_{i}",
+                    },
+                    timestamp=datetime(2023, 1, i + 1),
+                )
+
+        # Create persons for ratio metric denominator
+        if name == "ratio_metric":
+            _create_person(
+                team=self.team,
+                distinct_ids=["user_control_0"],
+                properties={"email": "john.doe@example.com"},
+            )
+            _create_person(
+                team=self.team,
+                distinct_ids=["user_test_1"],
+                properties={"email": "jane.doe@example.com"},
+            )
+            _create_person(
+                team=self.team,
+                distinct_ids=["user_test_2"],
+                properties={"email": "john.smith@example.com"},
+            )
+            _create_person(
+                team=self.team,
+                distinct_ids=["user_test_3"],
+                properties={"email": "jane.smith@example.com"},
+            )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        with freeze_time(end_date):
+            result = query_runner.calculate()
+
+        # Verify that precomputation was NOT used
+        self.assertFalse(result.is_precomputed)
+
+        # Verify results are still correct
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_result = result.baseline
+        assert control_result is not None
+        test_result = result.variant_results[0]
+        assert test_result is not None
+
+        # Assert exact values
+        self.assertEqual(control_result.sum, expected["control_sum"])
+        self.assertEqual(test_result.sum, expected["test_sum"])
+        self.assertEqual(control_result.number_of_samples, expected["control_samples"])
+        self.assertEqual(test_result.number_of_samples, expected["test_samples"])
+
+        # Additional assertions for ratio metrics
+        if "control_denominator" in expected:
+            self.assertEqual(control_result.denominator_sum, expected["control_denominator"])
+            self.assertEqual(test_result.denominator_sum, expected["test_denominator"])

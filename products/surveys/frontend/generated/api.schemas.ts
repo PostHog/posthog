@@ -797,6 +797,11 @@ export interface FeatureFlagFiltersSchemaApi {
     payloads?: FeatureFlagFiltersSchemaApiPayloads
     /** Additional super condition groups used by experiments. */
     super_groups?: FeatureFlagFiltersSchemaApiSuperGroupsItem[]
+    /**
+     * Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.
+     * @nullable
+     */
+    feature_enrollment?: boolean | null
 }
 
 /**
