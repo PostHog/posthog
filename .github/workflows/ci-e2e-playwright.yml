@@ -690,7 +690,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         needs: [playwright, changes]
-        if: always() && needs.changes.outputs.mode == 'update' && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+        if: always() && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
         permissions:
             contents: write
             pull-requests: write
@@ -748,12 +748,13 @@ jobs:
                   VR_BRANCH: ${{ github.event.pull_request.head.ref }}
                   VR_COMMIT: ${{ github.event.pull_request.head.sha }}
                   VR_PR: ${{ github.event.pull_request.number }}
+                  VR_AUTO_APPROVE: ${{ needs.changes.outputs.mode == 'update' && '--auto-approve' || '' }}
               run: |
                   npx tsx products/visual_review/cli/src/index.ts submit \
                     --dir playwright/__snapshots__/ \
                     --type playwright \
                     --baseline playwright/snapshots.yml \
-                    --auto-approve \
+                    $VR_AUTO_APPROVE \
                     --token "$VR_TOKEN" \
                     --branch "$VR_BRANCH" \
                     --commit "$VR_COMMIT" \
