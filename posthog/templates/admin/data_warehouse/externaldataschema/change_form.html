@@ -13,8 +13,8 @@
     </fieldset>
 
     <fieldset class="module aligned">
-        <h2>Jobs (recent 50)</h2>
-        {% if jobs %}
+        <h2>Jobs ({{ jobs_page.paginator.count }} total)</h2>
+        {% if jobs_page %}
         <table style="width: 100%; border-collapse: collapse;">
             <thead>
                 <tr style="background: #f5f5f5;">
@@ -29,16 +29,16 @@
                 </tr>
             </thead>
             <tbody>
-                {% for job in jobs %}
+                {% for job in jobs_page %}
                 <tr style="border-bottom: 1px solid #eee;">
                     <td style="padding: 8px; font-family: monospace; font-size: 12px;">{{ job.id }}</td>
                     <td style="padding: 8px;">
                         {% if job.status == "Running" %}
-                            <span class="status-badge status-running" style="color: blue;">Running</span>
+                            <span style="color: blue;">Running</span>
                         {% elif job.status == "Completed" %}
-                            <span class="status-badge status-completed" style="color: green;">Completed</span>
+                            <span style="color: green;">Completed</span>
                         {% elif job.status == "Failed" %}
-                            <span class="status-badge status-failed" style="color: red;">Failed</span>
+                            <span style="color: red;">Failed</span>
                         {% elif job.status == "BillingLimitReached" %}
                             <span style="color: orange;">Billing limit reached</span>
                         {% elif job.status == "BillingLimitTooLow" %}
@@ -51,14 +51,12 @@
                     <td style="padding: 8px;">{% if job.finished_at %}{{ job.finished_at|date:"Y-m-d H:i:s" }}{% else %}&mdash;{% endif %}</td>
                     <td style="padding: 8px; text-align: right;">{% if job.rows_synced is not None %}{{ job.rows_synced }}{% else %}&mdash;{% endif %}</td>
                     <td style="padding: 8px;">
-                    <td style="padding: 8px;">
                         {% if job.workflow_id and job.workflow_run_id %}
                             <a href="{{ temporal_ui_host }}/namespaces/{{ temporal_namespace }}/workflows/{{ job.workflow_id }}/{{ job.workflow_run_id }}"
                                target="_blank">View workflow</a>
                         {% else %}
                             &mdash;
                         {% endif %}
-                    </td>
                     </td>
                     <td style="padding: 8px;">
                         {% if job.workflow_id %}
@@ -84,6 +82,25 @@
                 {% endfor %}
             </tbody>
         </table>
+
+        {% if jobs_page.has_other_pages %}
+        <div style="padding: 10px; text-align: center; border-top: 1px solid #ddd;">
+            {% if jobs_page.has_previous %}
+                <a href="?jobs_page=1" style="margin: 0 4px;">&laquo; first</a>
+                <a href="?jobs_page={{ jobs_page.previous_page_number }}" style="margin: 0 4px;">&lsaquo; prev</a>
+            {% endif %}
+
+            <span style="margin: 0 8px;">
+                Page {{ jobs_page.number }} of {{ jobs_page.paginator.num_pages }}
+            </span>
+
+            {% if jobs_page.has_next %}
+                <a href="?jobs_page={{ jobs_page.next_page_number }}" style="margin: 0 4px;">next &rsaquo;</a>
+                <a href="?jobs_page={{ jobs_page.paginator.num_pages }}" style="margin: 0 4px;">last &raquo;</a>
+            {% endif %}
+        </div>
+        {% endif %}
+
         {% else %}
             <div class="form-row" style="padding: 10px; color: #666;">No jobs found for this schema.</div>
         {% endif %}

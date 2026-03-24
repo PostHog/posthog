@@ -1,10 +1,13 @@
 from django.conf import settings
 from django.contrib import admin
+from django.core.paginator import Paginator
 from django.urls import reverse
 from django.utils.html import format_html
 
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+
+JOBS_PER_PAGE = 20
 
 
 class ExternalDataSchemaAdmin(admin.ModelAdmin):
@@ -33,7 +36,15 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
         extra_context = extra_context or {}
         obj = self.get_object(request, object_id)
         if obj:
-            extra_context["jobs"] = ExternalDataJob.objects.filter(schema=obj).order_by("-created_at")[:50]
+            jobs_qs = ExternalDataJob.objects.filter(schema=obj).order_by("-created_at")
+            paginator = Paginator(jobs_qs, JOBS_PER_PAGE)
+            try:
+                page_number = int(request.GET.get("jobs_page", 1))
+            except (ValueError, TypeError):
+                page_number = 1
+            jobs_page = paginator.get_page(page_number)
+
+            extra_context["jobs_page"] = jobs_page
             extra_context["temporal_ui_host"] = settings.TEMPORAL_UI_HOST
             extra_context["temporal_namespace"] = settings.TEMPORAL_NAMESPACE
             extra_context["site_url"] = settings.SITE_URL
