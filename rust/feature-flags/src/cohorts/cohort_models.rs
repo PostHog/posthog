@@ -350,7 +350,7 @@ mod tests {
             c
         };
 
-        let cohorts = vec![
+        let cohorts = [
             make_cohort(1, Some(CohortType::Static), None),
             make_cohort(2, Some(CohortType::PersonProperty), backfill_ts),
             make_cohort(3, Some(CohortType::Realtime), None), // no backfill
