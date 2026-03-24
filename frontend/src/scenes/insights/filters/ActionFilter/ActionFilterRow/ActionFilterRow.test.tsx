@@ -6,16 +6,17 @@ import { Provider } from 'kea'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
-import { EntityTypes, FilterType, HogQLMathType, InsightType, PropertyMathType } from '~/types'
+import { AvailableFeature, EntityTypes, FilterType, HogQLMathType, InsightType, PropertyMathType } from '~/types'
+import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
+import { MOCK_GROUP_TYPES } from '~/lib/api.mock'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { initKeaTests } from '~/test/init'
-import { mockGetEventDefinitions, mockGetPropertyDefinitions } from '~/test/mocks'
+import { setupInsightMocks } from '~/test/insight-testing'
 
 import filtersJson from '../__mocks__/filters.json'
-import eventDefinitionsJson from '../__mocks__/event_definitions.json'
 
 import { ActionFilterRow, MathAvailability, taxonomicFilterGroupTypeToEntityType } from './ActionFilterRow'
 
@@ -94,31 +95,24 @@ describe('ActionFilterRow', () => {
     afterEach(cleanup)
 
     beforeEach(() => {
+        initKeaTests()
+
+        // setupInsightMocks provides realistic event/property definitions with search
+        // support, person properties, and query response handling
+        setupInsightMocks()
+
+        // Supplement with endpoints specific to ActionFilterRow
         useMocks({
             get: {
                 '/api/projects/:team/actions/': { results: filtersJson.actions },
-                '/api/projects/:team/event_definitions/': eventDefinitionsJson,
-                '/api/projects/:team/event_definitions': mockGetEventDefinitions,
-                '/api/projects/:team/property_definitions': mockGetPropertyDefinitions,
-                '/api/environments/:team/groups_types/': [],
-                '/api/environments/:team/persons/properties': [
-                    { id: 1, name: 'location', count: 1 },
-                    { id: 2, name: 'role', count: 2 },
-                ],
-                '/api/environments/:team/events/values': {
-                    results: [{ name: 'Chrome' }, { name: 'Firefox' }],
-                    refreshing: false,
-                },
+                '/api/environments/:team/groups_types/': MOCK_GROUP_TYPES,
                 '/api/projects/:team/warehouse_tables/': { results: [] },
                 '/api/projects/:team/warehouse_saved_queries/': { results: [] },
                 '/api/projects/:team/warehouse_view_links/': { results: [] },
             },
-            post: {
-                '/api/environments/:team/query/': { results: [] },
-                '/api/environments/:team/query': { results: [] },
-            },
         })
-        initKeaTests()
+
+        useAvailableFeatures([AvailableFeature.GROUP_ANALYTICS])
         actionsModel.mount()
         groupsModel.mount()
         propertyDefinitionsModel.mount()
@@ -513,6 +507,21 @@ describe('ActionFilterRow', () => {
             // MathSelector should NOT be in the center section (it's in the popup menu instead)
             expect(screen.queryByTestId('math-selector-0')).not.toBeInTheDocument()
         })
+
+        it('shows group math options when GROUP_ANALYTICS is enabled', async () => {
+            const { logic } = setup()
+            renderRow(logic, { mathAvailability: MathAvailability.All })
+
+            await userEvent.click(screen.getByTestId('math-selector-0'))
+
+            await waitFor(() => {
+                // MOCK_GROUP_TYPES provides organization, instance, project — the "Unique"
+                // dropdown in the math selector should contain group options derived from them
+                expect(screen.getByText('Unique users')).toBeInTheDocument()
+                expect(screen.getByText('Count per user')).toBeInTheDocument()
+                expect(screen.getByText('Property value')).toBeInTheDocument()
+            })
+        })
     })
 
     describe('funnel popup menu contents', () => {
@@ -614,20 +623,29 @@ describe('ActionFilterRow', () => {
     })
 
     describe('event selection onChange handler', () => {
-        it('selecting a standard event calls setFilters', async () => {
+        it('selecting an event updates the filter with the chosen event', async () => {
             const { logic, setFilters } = setup()
             renderRow(logic, INLINE_CONTEXT)
 
-            const popoverButton = screen.getByTestId('trend-element-subject-0')
-            await userEvent.click(popoverButton)
+            await userEvent.click(screen.getByTestId('trend-element-subject-0'))
 
+            // setupInsightMocks provides realistic event definitions with search support
             await waitFor(() => {
                 expect(screen.getByTestId('prop-filter-events-1')).toBeInTheDocument()
             })
             await userEvent.click(screen.getByTestId('prop-filter-events-1'))
 
             await waitFor(() => {
-                expect(setFilters).toHaveBeenCalled()
+                expect(setFilters).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        events: expect.arrayContaining([
+                            expect.objectContaining({
+                                type: EntityTypes.EVENTS,
+                                order: 0,
+                            }),
+                        ]),
+                    })
+                )
             })
         })
     })
