@@ -537,3 +537,6 @@ class TestCohort(BaseTest):
         cohort.refresh_from_db()
         self.assertEqual(cohort.version, 1)
         self.assertEqual(cohort.count, 42)
+        # is_calculating stays True because neither save() nor
+        # _safe_reset_calculating_state() completed the reset
+        self.assertTrue(cohort.is_calculating)
