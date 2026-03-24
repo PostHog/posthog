@@ -15,10 +15,11 @@ import {
     toCloudRegion,
 } from '@/lib/constants'
 import { handleToolError } from '@/lib/errors'
+import { buildInstructionsV2 } from '@/lib/instructions'
 import { formatResponse } from '@/lib/response'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
-import { formatPrompt, sanitizeHeaderValue } from '@/lib/utils'
+import { sanitizeHeaderValue } from '@/lib/utils'
 import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
@@ -27,19 +28,8 @@ import INSTRUCTIONS_TEMPLATE_V2 from '@/templates/instructions-v2.md'
 import type { CloudRegion, Context, State, Tool } from '@/tools/types'
 import type { AnalyticsMetadata, WithAnalytics } from '@/ui-apps/types'
 
-function buildInstructionsV2(groupTypes?: GroupType[]): string {
-    let groupTypesBlock = ''
-    if (groupTypes && groupTypes.length > 0) {
-        const lines = groupTypes.map(
-            (gt) =>
-                `- Index ${gt.group_type_index}: "${gt.group_type}"${gt.name_singular ? ` (${gt.name_singular})` : ''}`
-        )
-        groupTypesBlock = `### Group type mapping\n\nGroups aggregate events based on entities, such as organizations or sellers. This project has the following group types. Instead of a group's name, always use its numeric index.\n\n${lines.join('\n')}`
-    }
-    return formatPrompt(INSTRUCTIONS_TEMPLATE_V2, {
-        guidelines: guidelines.trim(),
-        group_types: groupTypesBlock,
-    })
+function buildInstructions(groupTypes?: GroupType[]): string {
+    return buildInstructionsV2(INSTRUCTIONS_TEMPLATE_V2, guidelines, groupTypes)
 }
 
 export type RequestProperties = {
@@ -438,7 +428,7 @@ export class MCP extends McpAgent<Env> {
 
         // Resolve group types (started above in parallel with cache seeding)
         const groupTypes = await groupTypesPromise
-        const instructions = version === 2 ? buildInstructionsV2(groupTypes) : INSTRUCTIONS_TEMPLATE_V1
+        const instructions = version === 2 ? buildInstructions(groupTypes) : INSTRUCTIONS_TEMPLATE_V1
 
         this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
 
