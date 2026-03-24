@@ -80,7 +80,7 @@ jobs:
             - name: Install uv
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
-                  version: '0.10.12'
+                  version: '0.10.2'
                   enable-cache: true
 
             - name: Install system dependencies
