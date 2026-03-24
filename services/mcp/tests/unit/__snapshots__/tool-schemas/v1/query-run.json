@@ -308,9 +308,6 @@
                                                         "const": "EventsNode",
                                                         "type": "string"
                                                     },
-                                                    "limit": {
-                                                        "type": "number"
-                                                    },
                                                     "math": {
                                                         "anyOf": [
                                                             {
@@ -863,9 +860,6 @@
                                                     "kind": {
                                                         "const": "EventsNode",
                                                         "type": "string"
-                                                    },
-                                                    "limit": {
-                                                        "type": "number"
                                                     },
                                                     "math": {
                                                         "anyOf": [
