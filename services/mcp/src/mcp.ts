@@ -433,7 +433,7 @@ export class MCP extends McpAgent<Env> {
                 (gt) =>
                     `- Index ${gt.group_type_index}: "${gt.group_type}"${gt.name_singular ? ` (${gt.name_singular})` : ''}`
             )
-            instructions += `\n\n### Group type mapping\n\nThis project has the following group types. Use the index when setting \`group_type_index\`, \`aggregation_group_type_index\`, \`breakdown_group_type_index\`, or \`math_group_type_index\`.\n\n${lines.join('\n')}\n`
+            instructions += `\n\n### Group type mapping\n\nGroups aggregate events based on entities, such as organizations or sellers. This project has the following group types. Instead of a group's name, always use its numeric index.\n\n${lines.join('\n')}\n`
         }
 
         this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
