@@ -199,19 +199,21 @@ SF_DATETIME_FORMAT = "%Y-%m-%dT%H:%M:%S.000+0000"
 # batches running in parallel so the total in-flight LLM requests stays bounded
 # regardless of how many batches the executor runs concurrently.
 _llm_semaphore: threading.Semaphore | None = None
+_llm_semaphore_limit: int | None = None
 _llm_semaphore_lock = threading.Lock()
 
 
 def _get_llm_semaphore(max_concurrent: int) -> threading.Semaphore:
-    global _llm_semaphore
+    global _llm_semaphore, _llm_semaphore_limit
     if _llm_semaphore is None:
         with _llm_semaphore_lock:
             if _llm_semaphore is None:
                 _llm_semaphore = threading.Semaphore(max_concurrent)
-    elif _llm_semaphore._value != max_concurrent:
+                _llm_semaphore_limit = max_concurrent
+    elif _llm_semaphore_limit != max_concurrent:
         dagster.get_dagster_logger().warning(
-            f"LLM semaphore already initialized with a different limit; "
-            f"requested {max_concurrent}, using existing. Restart the process to apply the new value."
+            f"LLM semaphore already initialized with limit {_llm_semaphore_limit}; "
+            f"requested {max_concurrent}. Restart the process to apply the new value."
         )
     return _llm_semaphore
 
