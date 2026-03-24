@@ -3,11 +3,11 @@ import { PluginServerMode } from '~/common/config'
 import { initTracing } from '~/common/tracing/otel'
 import { defaultConfig } from '~/config/config'
 import { PluginServer } from '~/server'
-import { BaseServer } from '~/servers/base-server'
+import { NodeServer } from '~/servers/base-server'
 import { IngestionGeneralServer } from '~/servers/ingestion-general-server'
 import { initSuperProperties } from '~/utils/posthog'
 
-function createServer(): BaseServer {
+function createServer(): NodeServer {
     switch (defaultConfig.PLUGIN_SERVER_MODE) {
         case PluginServerMode.ingestion_v2:
         case PluginServerMode.ingestion_v2_testing:

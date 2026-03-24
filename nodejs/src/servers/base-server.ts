@@ -5,7 +5,6 @@ import { Counter } from 'prom-client'
 import express from 'ultimate-express'
 
 import { setupCommonRoutes, setupExpressApp } from '../api/router'
-import { CookielessManager } from '../ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { onShutdown } from '../lifecycle'
 import { PluginServerService, RedisPool } from '../types'
@@ -34,7 +33,13 @@ export interface CleanupResources {
     redisPools: RedisPool[]
     postgres?: PostgresRouter
     pubsub?: PubSub
-    cookielessManager?: CookielessManager
+    additionalCleanup?: () => void
+}
+
+/** Minimal interface used by index.ts to interact with any server type. */
+export interface NodeServer {
+    start(): Promise<void>
+    stop(error?: Error): Promise<void>
 }
 
 const serverStartupTimeMs = new Counter({
@@ -42,29 +47,37 @@ const serverStartupTimeMs = new Counter({
     help: 'Time taken to start the nodejs service, in milliseconds',
 })
 
-export abstract class BaseServer {
+/**
+ * Manages the lifecycle concerns shared by all server types: HTTP server,
+ * process signals, profiling, pod termination, and graceful shutdown.
+ *
+ * Concrete servers (PluginServer, IngestionGeneralServer) compose this rather
+ * than inheriting from it — they own their domain logic and delegate
+ * infrastructure lifecycle here.
+ */
+export class ServerLifecycle {
     services: PluginServerService[] = []
     httpServer?: Server
     expressApp: express.Application
     stopping = false
 
-    protected nodeInstrumentation: NodeInstrumentation
+    private nodeInstrumentation: NodeInstrumentation
     private podTerminationTimer?: NodeJS.Timeout
     private processListeners: Map<string, (...args: any[]) => void> = new Map()
 
-    constructor(protected config: BaseServerConfig) {
+    constructor(private config: BaseServerConfig) {
         this.expressApp = setupExpressApp({ internalApiSecret: this.config.INTERNAL_API_SECRET })
         this.nodeInstrumentation = new NodeInstrumentation(this.config.INSTRUMENT_THREAD_PERFORMANCE)
         this.setupContinuousProfiling()
     }
 
-    async start(): Promise<void> {
+    async start(startServices: () => Promise<void>, getCleanupResources: () => CleanupResources): Promise<void> {
         const startupTimer = new Date()
-        this.setupListeners()
+        this.setupListeners(getCleanupResources)
         this.nodeInstrumentation.setupThreadPerformanceInterval()
 
         try {
-            await this.startServices()
+            await startServices()
 
             setupCommonRoutes(this.expressApp, this.services)
 
@@ -78,20 +91,17 @@ export abstract class BaseServer {
             logger.info('🚀', `All systems go in ${Date.now() - startupTimer.valueOf()}ms`)
 
             if (this.config.POD_TERMINATION_ENABLED) {
-                this.setupPodTermination()
+                this.setupPodTermination(getCleanupResources)
             }
         } catch (error: any) {
             captureException(error)
             logger.error('💥', 'Launchpad failure!', { error: error.stack ?? error })
             logger.error('💥', 'Exception while starting server, shutting down!', { error })
-            await this.stop(error)
+            await this.stop(getCleanupResources, error)
         }
     }
 
-    protected abstract startServices(): Promise<void>
-    protected abstract getCleanupResources(): CleanupResources
-
-    async stop(error?: Error): Promise<void> {
+    async stop(getCleanupResources: () => CleanupResources, error?: Error): Promise<void> {
         for (const [event, handler] of this.processListeners) {
             process.removeListener(event, handler)
         }
@@ -121,7 +131,7 @@ export abstract class BaseServer {
             job.cancel()
         })
 
-        const resources = this.getCleanupResources()
+        const resources = getCleanupResources()
 
         logger.info('💤', ' Shutting down services...')
         await Promise.allSettled([
@@ -145,14 +155,14 @@ export abstract class BaseServer {
         for (const pool of resources.redisPools) {
             await pool.clear()
         }
-        resources.cookielessManager?.shutdown()
+        resources.additionalCleanup?.()
 
         logger.info('💤', ' Shutting down completed. Exiting...')
 
         process.exit(error ? 1 : 0)
     }
 
-    private setupPodTermination(): void {
+    private setupPodTermination(getCleanupResources: () => CleanupResources): void {
         const baseTimeoutMs = this.config.POD_TERMINATION_BASE_TIMEOUT_MINUTES * 60 * 1000
         const jitterMs = Math.random() * this.config.POD_TERMINATION_JITTER_MINUTES * 60 * 1000
         const totalTimeoutMs = baseTimeoutMs + jitterMs
@@ -161,15 +171,15 @@ export abstract class BaseServer {
 
         this.podTerminationTimer = setTimeout(() => {
             logger.info('⏰', 'Pod termination timeout reached, shutting down gracefully...')
-            void this.stop()
+            void this.stop(getCleanupResources)
         }, totalTimeoutMs)
     }
 
-    private setupListeners(): void {
+    private setupListeners(getCleanupResources: () => CleanupResources): void {
         for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
             const handler = async () => {
                 logger.info('👋', `process handling ${signal} event. Stopping...`)
-                await this.stop()
+                await this.stop(getCleanupResources)
             }
             this.processListeners.set(signal, handler)
             process.on(signal, handler)
@@ -179,16 +189,16 @@ export abstract class BaseServer {
             logger.error('🤮', `Unhandled Promise Rejection`, { error: String(error) })
 
             captureException(error, {
-                extra: { detected_at: `pluginServer.ts on unhandledRejection` },
+                extra: { detected_at: `ServerLifecycle on unhandledRejection` },
             })
 
-            void this.stop(error)
+            void this.stop(getCleanupResources, error)
         }
         this.processListeners.set('unhandledRejection', rejectionHandler)
         process.on('unhandledRejection', rejectionHandler)
 
         const exceptionHandler = async (error: Error) => {
-            await this.stop(error)
+            await this.stop(getCleanupResources, error)
         }
         this.processListeners.set('uncaughtException', exceptionHandler)
         process.on('uncaughtException', exceptionHandler)

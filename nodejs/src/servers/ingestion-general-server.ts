@@ -33,7 +33,7 @@ import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
 import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { PostgresGroupRepository } from '../worker/ingestion/groups/repositories/postgres-group-repository'
 import { PostgresPersonRepository } from '../worker/ingestion/persons/repositories/postgres-person-repository'
-import { BaseServer, BaseServerConfig, CleanupResources } from './base-server'
+import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 
 /**
  * Complete config type for an ingestion-v2 deployment.
@@ -112,8 +112,9 @@ export type IngestionGeneralServerConfig = BaseServerConfig &
         | 'KAFKA_HEALTHCHECK_SECONDS'
     >
 
-export class IngestionGeneralServer extends BaseServer {
-    declare config: IngestionGeneralServerConfig
+export class IngestionGeneralServer implements NodeServer {
+    readonly lifecycle: ServerLifecycle
+    private config: IngestionGeneralServerConfig
 
     private postgres?: PostgresRouter
     private kafkaProducer?: KafkaProducerWrapper
@@ -124,14 +125,22 @@ export class IngestionGeneralServer extends BaseServer {
     private pubsub?: PubSub
 
     constructor(config: Partial<IngestionGeneralServerConfig> = {}) {
-        const fullConfig = {
-            ...defaultConfig,
-            ...config,
-        }
-        super(fullConfig)
+        this.config = { ...defaultConfig, ...config }
+        this.lifecycle = new ServerLifecycle(this.config)
     }
 
-    protected async startServices(): Promise<void> {
+    async start(): Promise<void> {
+        return this.lifecycle.start(
+            () => this.startServices(),
+            () => this.getCleanupResources()
+        )
+    }
+
+    async stop(error?: Error): Promise<void> {
+        return this.lifecycle.stop(() => this.getCleanupResources(), error)
+    }
+
+    private async startServices(): Promise<void> {
         initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
 
         // 1. Shared infrastructure
@@ -261,21 +270,21 @@ export class IngestionGeneralServer extends BaseServer {
         // ServerCommands is always created
         serviceLoaders.push(() => {
             const serverCommands = new ServerCommands(this.pubsub!)
-            this.expressApp.use('/', serverCommands.router())
+            this.lifecycle.expressApp.use('/', serverCommands.router())
             return Promise.resolve(serverCommands.service)
         })
 
         const readyServices = await Promise.all(serviceLoaders.map((loader) => loader()))
-        this.services.push(...readyServices)
+        this.lifecycle.services.push(...readyServices)
     }
 
-    protected getCleanupResources(): CleanupResources {
+    private getCleanupResources(): CleanupResources {
         return {
             kafkaProducers: [this.kafkaProducer, this.kafkaMetricsProducer].filter(Boolean) as KafkaProducerWrapper[],
             redisPools: [this.redisPool, this.cookielessRedisPool].filter(Boolean) as RedisPool[],
             postgres: this.postgres,
             pubsub: this.pubsub,
-            cookielessManager: this.cookielessManager,
+            additionalCleanup: () => this.cookielessManager?.shutdown(),
         }
     }
 }

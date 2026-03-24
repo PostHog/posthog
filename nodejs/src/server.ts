@@ -29,7 +29,7 @@ import { ErrorTrackingConsumer } from './ingestion/error-tracking/error-tracking
 import { KafkaProducerWrapper } from './kafka/producer'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
 import { TracesIngestionConsumer } from './logs-ingestion/traces-ingestion-consumer'
-import { BaseServer, CleanupResources } from './servers/base-server'
+import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
 import { SessionRecordingIngester } from './session-recording/consumer'
 import { RecordingApi } from './session-replay/recording-api/recording-api'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
@@ -48,8 +48,9 @@ import { PostgresPersonRepository } from './worker/ingestion/persons/repositorie
  * PluginServer handles CDP, recordings, logs, evaluation scheduler, and local-dev combined modes.
  * Ingestion (ingestion-v2, ingestion-v2-testing) is handled by IngestionGeneralServer — see index.ts.
  */
-export class PluginServer extends BaseServer {
-    declare config: PluginsServerConfig
+export class PluginServer implements NodeServer {
+    readonly lifecycle: ServerLifecycle
+    private config: PluginsServerConfig
 
     // Infrastructure resources (tracked for shutdown cleanup)
     private kafkaProducer?: KafkaProducerWrapper
@@ -59,20 +60,23 @@ export class PluginServer extends BaseServer {
     private posthogRedisPool?: RedisPool
     private pubsub?: PubSub
 
-    constructor(
-        config: Partial<PluginsServerConfig> = {},
-        private options: {
-            disableHttpServer?: boolean
-        } = {}
-    ) {
-        const fullConfig: PluginsServerConfig = {
-            ...defaultConfig,
-            ...config,
-        }
-        super(fullConfig)
+    constructor(config: Partial<PluginsServerConfig> = {}) {
+        this.config = { ...defaultConfig, ...config }
+        this.lifecycle = new ServerLifecycle(this.config)
     }
 
-    protected async startServices(): Promise<void> {
+    async start(): Promise<void> {
+        return this.lifecycle.start(
+            () => this.startServices(),
+            () => this.getCleanupResources()
+        )
+    }
+
+    async stop(error?: Error): Promise<void> {
+        return this.lifecycle.stop(() => this.getCleanupResources(), error)
+    }
+
+    private async startServices(): Promise<void> {
         initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
 
         const capabilities = getPluginServerCapabilities(this.config)
@@ -222,7 +226,7 @@ export class PluginServer extends BaseServer {
         if (capabilities.cdpApi) {
             serviceLoaders.push(async () => {
                 const api = new CdpApi(this.config, cdpDeps!)
-                this.expressApp.use('/', api.router())
+                this.lifecycle.expressApp.use('/', api.router())
                 await api.start()
                 return api.service
             })
@@ -269,7 +273,7 @@ export class PluginServer extends BaseServer {
         // ServerCommands is always created
         serviceLoaders.push(() => {
             const serverCommands = new ServerCommands(this.pubsub!)
-            this.expressApp.use('/', serverCommands.router())
+            this.lifecycle.expressApp.use('/', serverCommands.router())
             return Promise.resolve(serverCommands.service)
         })
 
@@ -367,17 +371,17 @@ export class PluginServer extends BaseServer {
         if (capabilities.recordingApi) {
             serviceLoaders.push(async () => {
                 const api = new RecordingApi(this.config, this.postgres!)
-                this.expressApp.use('/', api.router())
+                this.lifecycle.expressApp.use('/', api.router())
                 await api.start()
                 return api.service
             })
         }
 
         const readyServices = await Promise.all(serviceLoaders.map((loader) => loader()))
-        this.services.push(...readyServices)
+        this.lifecycle.services.push(...readyServices)
     }
 
-    protected getCleanupResources(): CleanupResources {
+    private getCleanupResources(): CleanupResources {
         return {
             kafkaProducers: [this.kafkaProducer, this.kafkaMetricsProducer].filter(Boolean) as KafkaProducerWrapper[],
             redisPools: [this.redisPool, this.posthogRedisPool].filter(Boolean) as RedisPool[],
