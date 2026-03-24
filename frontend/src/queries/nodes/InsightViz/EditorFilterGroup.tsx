@@ -18,7 +18,7 @@ export interface EditorFilterGroupProps {
 }
 
 export function EditorFilterGroup({ insightProps, editorFilterGroup, asTile }: EditorFilterGroupProps): JSX.Element {
-    const { title, defaultExpanded, editorFilters, collapsedSummary, headerExtra: HeaderExtra } = editorFilterGroup
+    const { title, defaultExpanded, editorFilters, collapsedSummary } = editorFilterGroup
     const hasContent = !!collapsedSummary
     const [isRowExpanded, setIsRowExpanded] = useState(() => {
         // Snapshots will display all editor filter groups by default
@@ -58,9 +58,8 @@ export function EditorFilterGroup({ insightProps, editorFilterGroup, asTile }: E
                         </div>
                     </LemonButton>
                 ) : (
-                    <div className="px-3 py-2 flex items-center justify-between">
+                    <div className="px-3 py-2">
                         <span className="text-[13px] font-semibold text-secondary">{title}</span>
-                        {HeaderExtra && <HeaderExtra insightProps={insightProps} />}
                     </div>
                 )}
                 {isRowExpanded && (
