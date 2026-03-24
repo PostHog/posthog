@@ -19,7 +19,7 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.event_usage import get_event_source, groups
+from posthog.event_usage import EventSource, get_event_source, groups
 from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.exported_asset import ExportedAsset, get_content_response
@@ -289,7 +289,8 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
     def _start_export_workflow(
         self, instance: ExportedAsset, team: Any, user: User | None, force_async: bool = False
     ) -> None:
-        source = get_event_source(self.context["request"])
+        request = self.context.get("request")
+        source = get_event_source(request) if request else EventSource.EXPORT
         distinct_id = str(user.distinct_id) if user else str(team.id)
 
         emit_slo_started(
