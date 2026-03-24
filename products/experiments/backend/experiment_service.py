@@ -278,10 +278,12 @@ class ExperimentService:
             self._sync_saved_metrics(experiment, saved_metrics_ids, serializer_context)
 
         self._validate_metric_ordering_on_create(experiment)
-        self._report_experiment_created(
-            experiment,
-            serializer_context=serializer_context,
-            event_source=event_source,
+        transaction.on_commit(
+            lambda: self._report_experiment_created(
+                experiment,
+                serializer_context=serializer_context,
+                event_source=event_source,
+            )
         )
 
         return experiment
@@ -594,7 +596,7 @@ class ExperimentService:
 
         experiment.save()
 
-        self._report_experiment_launched(experiment, request=request)
+        transaction.on_commit(lambda: self._report_experiment_launched(experiment, request=request))
 
         return experiment
 
@@ -613,7 +615,7 @@ class ExperimentService:
         experiment.archived = True
         experiment.save()
 
-        self._report_experiment_archived(experiment, request=request)
+        transaction.on_commit(lambda: self._report_experiment_archived(experiment, request=request))
 
         return experiment
 
