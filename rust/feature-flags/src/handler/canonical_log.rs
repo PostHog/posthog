@@ -210,12 +210,20 @@ pub struct FlagsCanonicalLogLine {
     pub group_queries: usize,
     /// Number of static cohort membership queries made to the database.
     pub static_cohort_queries: usize,
+    /// Number of realtime cohort membership queries made to the behavioral cohorts database.
+    pub realtime_cohort_queries: usize,
+    /// Count of realtime cohort IDs encountered during evaluation.
+    /// Incremented even for anonymous users (no person UUID), where no DB query is made.
+    /// Use `realtime_cohort_queries` to distinguish how many queries actually reached the DB.
+    pub realtime_cohorts_evaluated: usize,
     /// Time spent on person property queries in milliseconds.
     pub person_query_time_ms: u64,
     /// Time spent on group property queries in milliseconds.
     pub group_query_time_ms: u64,
     /// Time spent on static cohort membership queries in milliseconds.
     pub cohort_query_time_ms: u64,
+    /// Time spent on realtime cohort membership queries in milliseconds.
+    pub realtime_cohort_query_time_ms: u64,
     /// Number of flags whose evaluation returned an error. Not in `EvalCounters` because it is
     /// incremented in `process_flag_result`, which runs on the tokio task after rayon returns.
     pub flags_errored: usize,
@@ -276,9 +284,12 @@ impl Default for FlagsCanonicalLogLine {
             person_queries: 0,
             group_queries: 0,
             static_cohort_queries: 0,
+            realtime_cohort_queries: 0,
+            realtime_cohorts_evaluated: 0,
             person_query_time_ms: 0,
             group_query_time_ms: 0,
             cohort_query_time_ms: 0,
+            realtime_cohort_query_time_ms: 0,
             flags_errored: 0,
             dependency_graph_errors: 0,
             hash_key_override_status: None,
@@ -332,9 +343,12 @@ impl FlagsCanonicalLogLine {
             person_queries = self.person_queries,
             group_queries = self.group_queries,
             static_cohort_queries = self.static_cohort_queries,
+            realtime_cohort_queries = self.realtime_cohort_queries,
+            realtime_cohorts_evaluated = self.realtime_cohorts_evaluated,
             person_query_time_ms = self.person_query_time_ms,
             group_query_time_ms = self.group_query_time_ms,
             cohort_query_time_ms = self.cohort_query_time_ms,
+            realtime_cohort_query_time_ms = self.realtime_cohort_query_time_ms,
             property_cache_hits = self.eval.property_cache_hits,
             property_cache_misses = self.eval.property_cache_misses,
             person_properties_not_cached = self.eval.person_properties_not_cached,
@@ -396,6 +410,21 @@ impl FlagsCanonicalLogLine {
                 self.static_cohort_queries as f64,
             );
         }
+
+        // Emit realtime cohort query count
+        if self.realtime_cohort_queries > 0 {
+            common_metrics::histogram(
+                FLAG_DB_OPERATIONS_PER_REQUEST,
+                &[
+                    ("team_id".to_string(), team_id.clone()),
+                    (
+                        "operation_type".to_string(),
+                        "realtime_cohort_query".to_string(),
+                    ),
+                ],
+                self.realtime_cohort_queries as f64,
+            );
+        }
     }
 
     /// Merge evaluation counters accumulated on a rayon thread back into this log.
@@ -454,6 +483,9 @@ mod tests {
         assert_eq!(log.person_queries, 0);
         assert_eq!(log.group_queries, 0);
         assert_eq!(log.static_cohort_queries, 0);
+        assert_eq!(log.realtime_cohort_queries, 0);
+        assert_eq!(log.realtime_cohorts_evaluated, 0);
+        assert_eq!(log.realtime_cohort_query_time_ms, 0);
         assert_eq!(log.eval.property_cache_hits, 0);
         assert_eq!(log.eval.property_cache_misses, 0);
         assert!(!log.eval.person_properties_not_cached);

@@ -8,6 +8,7 @@ class DirectPostgresTable(FunctionCallTable):
     postgres_schema: str
     postgres_table_name: str
     external_data_source_id: str
+    connection_metadata: dict[str, object] | None = None
 
     def to_printed_hogql(self) -> str:
         return escape_hogql_identifier(self.name)

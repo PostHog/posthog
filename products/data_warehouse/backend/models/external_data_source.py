@@ -54,6 +54,7 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     status = models.CharField(max_length=400)
     source_type = models.CharField(max_length=128, choices=ExternalDataSourceType.choices)
     job_inputs = EncryptedJSONField(null=True, blank=True)
+    connection_metadata = models.JSONField(default=dict, blank=True, null=True)
     are_tables_created = models.BooleanField(default=False)
     prefix = models.CharField(max_length=100, null=True, blank=True)
     description = models.CharField(max_length=400, null=True, blank=True)

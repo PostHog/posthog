@@ -93,7 +93,8 @@ func main() {
 			usePubSub = false
 		} else {
 			defer cleanup()
-			log.Printf("Redis pub/sub event transport enabled")
+			log.Printf("Redis pub/sub event transport enabled (publish_workers=%d, publish_buffer_size=%d)",
+				config.Redis.PublishWorkers, config.Redis.PublishBufferSize)
 		}
 	}
 
@@ -118,6 +119,17 @@ func main() {
 		}
 	}
 
+	if config.Kafka.NotificationEnabled && statsRedis != nil {
+		notifConsumer, err := events.NewNotificationKafkaConsumer(config.Kafka, statsRedis.Client())
+		if err != nil {
+			log.Printf("Failed to create notification Kafka consumer: %v", err)
+		} else {
+			defer notifConsumer.Close()
+			go notifConsumer.Consume(ctx)
+			log.Printf("Notification Kafka consumer enabled (topic: %s)", config.Kafka.NotificationTopic)
+		}
+	}
+
 	go func() {
 		ticker := time.NewTicker(7127 * time.Millisecond)
 		defer ticker.Stop()
@@ -133,6 +145,9 @@ func main() {
 				metrics.SessionRecordingStatsQueue.Set(float64(len(sessionStatsChan)) / float64(cap(sessionStatsChan)))
 				metrics.SubQueue.Set(float64(len(subChan)) / float64(cap(subChan)))
 				metrics.UnSubQueue.Set(float64(len(unSubChan)) / float64(cap(unSubChan)))
+				if consumer.Broker != nil {
+					metrics.RedisPublishQueue.Set(consumer.Broker.BufferRatio())
+				}
 			}
 		}
 	}()
@@ -208,6 +223,10 @@ func main() {
 	e.GET("/stats", handlers.StatsHandler(stats, sessionStats, statsRedis))
 
 	e.GET("/events", handlers.StreamEventsHandler(e.Logger, subChan, unSubChan))
+
+	if statsRedis != nil {
+		e.GET("/notifications", handlers.NotificationsHandler(statsRedis.Client()))
+	}
 
 	if config.Debug {
 		e.GET("/served", handlers.ServedHandler(stats))
@@ -296,6 +315,7 @@ func setupRedisPubSub(
 	tokenRouter := events.NewTokenRouter(subscriberClient, subChan, unSubChan)
 
 	consumer.Broker = broker
+	go broker.Run(ctx)
 	go tokenRouter.Run(ctx)
 
 	cleanup = func() {

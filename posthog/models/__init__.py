@@ -26,7 +26,7 @@ from .dashboard import Dashboard
 from .dashboard_templates import DashboardTemplate
 from .data_color_theme import DataColorTheme
 from ..ducklake.models import DuckgresServer, DuckLakeCatalog
-from .dashboard_tile import DashboardTile, Text
+from .dashboard_tile import ButtonTile, DashboardTile, Text
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
@@ -35,12 +35,9 @@ from .event.event import Event
 from .event_buffer import EventBuffer
 from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models import EventProperty
-from .experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric, ExperimentToSavedMetric
 from .exported_asset import ExportedAsset
 from .exported_recording import ExportedRecording
 from .feature_flag import FeatureFlag
-from .surveys.survey import Survey
-from .surveys.survey_response_archive import SurveyResponseArchive
 from .file_system.file_system import FileSystem
 from .file_system.file_system_view_log import FileSystemViewLog
 from .filters import Filter, RetentionFilter
@@ -58,7 +55,6 @@ from .insight_caching_state import InsightCachingState
 from .insight_variable import InsightVariable
 from .instance_setting import InstanceSetting
 from .integration import Integration
-from .link import Link
 from .llm_prompt import LLMPrompt
 from .materialized_column_slots import MaterializedColumnSlot, MaterializedColumnSlotState
 from .message_template import MessageTemplate
@@ -99,8 +95,6 @@ from .user_repo_preference import UserRepoPreference
 from .user_scene_personalisation import UserScenePersonalisation
 from .user_home_settings import UserHomeSettings
 from .web_analytics_filter_preset import WebAnalyticsFilterPreset
-from .web_experiment import WebExperiment
-
 from .oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
 
 from ..approvals.models import Approval, ApprovalPolicy, ChangeRequest
@@ -122,6 +116,7 @@ __all__ = [
     "BatchExportDestination",
     "BatchExportRun",
     "BatchImport",
+    "ButtonTile",
     "Cohort",
     "CohortPeople",
     "CohortCalculationHistory",
@@ -144,10 +139,6 @@ __all__ = [
     "EventBuffer",
     "EventDefinition",
     "EventProperty",
-    "Experiment",
-    "ExperimentHoldout",
-    "ExperimentSavedMetric",
-    "ExperimentToSavedMetric",
     "ExportedAsset",
     "ExportedRecording",
     "FeatureFlag",
@@ -162,7 +153,6 @@ __all__ = [
     "HogFlow",
     "HogFunction",
     "HogFunctionTemplate",
-    "Link",
     "LLMPrompt",
     "HostDefinition",
     "Insight",
@@ -222,8 +212,6 @@ __all__ = [
     "SharePassword",
     "SharingConfiguration",
     "Subscription",
-    "Survey",
-    "SurveyResponseArchive",
     "Tag",
     "TaggedItem",
     "Team",
@@ -243,7 +231,6 @@ __all__ = [
     "DataWarehouseTable",
     "ScheduledChange",
     "WebAnalyticsFilterPreset",
-    "WebExperiment",
     "Comment",
     # Deprecated models here for backwards compatibility
     "Prompt",

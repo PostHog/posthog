@@ -410,6 +410,35 @@ class JwtAuthentication(authentication.BaseAuthentication):
         return cls.keyword
 
 
+class ExportRendererAuthentication(authentication.BaseAuthentication):
+    """
+    Scoped JWT auth for the export renderer. Only accepted on viewsets that opt in.
+    """
+
+    keyword = "Bearer"
+
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        if request.method not in ("GET", "HEAD"):
+            return None
+        if "authorization" not in request.headers:
+            return None
+        authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.headers["authorization"])
+        if not authorization_match:
+            return None
+        try:
+            token = authorization_match.group(1).strip()
+            info = decode_jwt(token, PosthogJwtAudience.EXPORT_RENDERER)
+            user = User.objects.get(pk=info["id"])
+            return user, None
+        except (jwt.DecodeError, jwt.InvalidAudienceError):
+            return None
+        except Exception:
+            raise AuthenticationFailed(detail="Token invalid.")
+
+    def authenticate_header(self, request) -> str:
+        return self.keyword
+
+
 class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
     """Limited access for sharing views e.g. insights/dashboards for refreshing.
     Remember to add access restrictions based on `sharing_configuration` using `SharingTokenPermission` or manually.

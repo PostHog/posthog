@@ -87,6 +87,7 @@ export function PropertyValue({
     const isDurationProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Duration
 
+    // Assignee values come from membersLogic/rolesLogic, not from the property values API
     const isAssigneeProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Assignee
 
@@ -129,25 +130,27 @@ export function PropertyValue({
     useEffect(() => {
         if (
             !isGroupKeyProperty &&
+            !isAssigneeProperty &&
             preloadValues &&
             propertyOptions?.status !== 'loading' &&
             propertyOptions?.status !== 'loaded'
         ) {
             load('')
         }
-    }, [preloadValues, load, propertyOptions?.status, isGroupKeyProperty])
+    }, [preloadValues, load, propertyOptions?.status, isGroupKeyProperty, isAssigneeProperty])
 
     // load options when propertyKey changes, unless it's a date/time property (since those don't have options to load)
     useEffect(() => {
         if (
             !isGroupKeyProperty &&
+            !isAssigneeProperty &&
             !isDateTimeProperty &&
             propertyOptions?.status !== 'loading' &&
             propertyOptions?.status !== 'loaded'
         ) {
             load('')
         }
-    }, [propertyKey, isDateTimeProperty, isGroupKeyProperty, load, propertyOptions?.status])
+    }, [propertyKey, isDateTimeProperty, isGroupKeyProperty, isAssigneeProperty, load, propertyOptions?.status])
 
     // set initial suggested values when options are loaded, but only if there is no search input
     // (to avoid overwriting suggestions based on search input)

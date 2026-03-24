@@ -1,7 +1,7 @@
 use crate::{
     api::{errors::FlagError, types::FlagsResponse},
     database::PostgresRouter,
-    flags::{flag_group_type_mapping::GroupTypeMappingCache, flag_matching::FeatureFlagMatcher},
+    flags::flag_matching::FeatureFlagMatcher,
 };
 use uuid::Uuid;
 
@@ -12,8 +12,6 @@ pub async fn evaluate_feature_flags(
     context: FeatureFlagEvaluationContext,
     request_id: Uuid,
 ) -> Result<FlagsResponse, FlagError> {
-    let group_type_mapping_cache = GroupTypeMappingCache::new(context.team_id);
-
     // Create router from the context
     let router = PostgresRouter::new(
         context.persons_reader,
@@ -28,12 +26,14 @@ pub async fn evaluate_feature_flags(
         context.team_id,
         router,
         context.cohort_cache,
-        Some(group_type_mapping_cache),
+        context.group_type_cache,
         context.groups,
     )
+    .with_cohort_membership_provider(context.cohort_membership_provider)
     .with_parallel_eval_threshold(context.parallel_eval_threshold)
     .with_rayon_dispatcher(context.rayon_dispatcher)
-    .with_skip_writes(context.skip_writes);
+    .with_skip_writes(context.skip_writes)
+    .with_realtime_cohort_evaluation(context.enable_realtime_cohort_evaluation);
 
     matcher
         .evaluate_all_feature_flags(

@@ -64,6 +64,7 @@ rules:
                               |BatchExport
                               |BatchExportBackfill
                               |BatchImport
+                              |ButtonTile
                               |ChangeRequest
                               |ClusteringConfig
                               |ClusteringJob
@@ -90,6 +91,7 @@ rules:
                               |DataWarehouseTable
                               |DesktopRecording
                               |EarlyAccessFeature
+                              |EmailMessageMapping
                               |EvaluationContext
                               |Edge
                               |Endpoint
@@ -129,6 +131,7 @@ rules:
                               |Link
                               |LiveDebuggerBreakpoint
                               |LogsAlertConfiguration
+                              |LogsView
                               |LLMModelConfiguration
                               |LLMPrompt
                               |LLMProviderKey
@@ -138,6 +141,7 @@ rules:
                               |MessageRecipientPreference
                               |MessageTemplate
                               |Node
+                              |NotificationEvent
                               |Notebook
                               |ObjectMediaPreview
                               |PluginConfig
@@ -167,9 +171,12 @@ rules:
                               |Tag
                               |Task
                               |TaskRun
+                              |TeamConversationsEmailConfig
                               |Text
                               |Threshold
                               |Ticket
+                              |ReviewQueue
+                              |ReviewQueueItem
                               |TraceReview
                               |TraceReviewScore
                               |UploadedMedia
@@ -237,6 +244,7 @@ rules:
                         |BatchExport
                         |BatchExportBackfill
                         |BatchImport
+                        |ButtonTile
                         |ChangeRequest
                         |ClusteringConfig
                         |ClusteringJob
@@ -263,6 +271,7 @@ rules:
                         |DataWarehouseTable
                         |DesktopRecording
                         |EarlyAccessFeature
+                        |EmailMessageMapping
                         |EvaluationContext
                         |Edge
                         |Endpoint
@@ -310,6 +319,7 @@ rules:
                         |MessageRecipientPreference
                         |MessageTemplate
                         |Node
+                        |NotificationEvent
                         |Notebook
                         |ObjectMediaPreview
                         |PluginConfig
@@ -339,9 +349,12 @@ rules:
                         |Tag
                         |Task
                         |TaskRun
+                        |TeamConversationsEmailConfig
                         |Text
                         |Threshold
                         |Ticket
+                        |ReviewQueue
+                        |ReviewQueueItem
                         |TraceReview
                         |TraceReviewScore
                         |UploadedMedia

@@ -1,5 +1,6 @@
 from django.db import connection, transaction
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 
@@ -32,6 +33,7 @@ class QuickFilterSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
     def get_contexts(self, obj):
         return list(obj.context_memberships.values_list("context", flat=True))
 

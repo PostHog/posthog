@@ -214,6 +214,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "$set_once": {"email": self.user.email},
                 },
                 groups=ANY,
+                send_feature_flags=False,
             )
             mock_capture.reset_mock()
 
@@ -259,6 +260,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "$set_once": {"email": self.user.email},
                 },
                 groups=ANY,
+                send_feature_flags=False,
             )
             mock_capture.reset_mock()
 
@@ -1007,6 +1009,60 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "user": {"email": "user1@posthog.com", "first_name": ""},
                 },
             ],
+        )
+
+    @parameterized.expand(
+        [
+            ("legacy_filters_funnels", {"insight": "FUNNELS"}, None, "funnels"),
+            (
+                "query_trends",
+                None,
+                InsightVizNode(source=TrendsQuery(series=[EventsNode(event="$pageview")])).model_dump(),
+                "trends",
+            ),
+        ]
+    )
+    @patch("posthog.api.insight.report_user_action")
+    def test_creating_insight_with_dashboard_fires_tile_added_event(
+        self,
+        _name: str,
+        filters: dict | None,
+        query: dict | None,
+        expected_insight_type: str,
+        mock_report_user_action: mock.Mock,
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
+        mock_report_user_action.reset_mock()
+
+        data: dict = {"dashboards": [dashboard_id]}
+        if filters:
+            data["filters"] = filters
+        if query:
+            data["query"] = query
+        self.dashboard_api.create_insight(data)
+
+        mock_report_user_action.assert_any_call(
+            self.user,
+            "dashboard tile added",
+            {"tile_type": "insight", "insight_type": expected_insight_type, "dashboard_id": dashboard_id},
+            team=ANY,
+            request=ANY,
+        )
+
+    @patch("posthog.api.insight.report_user_action")
+    def test_adding_insight_to_dashboard_fires_tile_added_event(self, mock_report_user_action: mock.Mock) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
+        insight_id, _ = self.dashboard_api.create_insight({"filters": {"insight": "STICKINESS"}})
+        mock_report_user_action.reset_mock()
+
+        self.dashboard_api.add_insight_to_dashboard([dashboard_id], insight_id)
+
+        mock_report_user_action.assert_any_call(
+            self.user,
+            "dashboard tile added",
+            {"tile_type": "insight", "insight_type": "stickiness", "dashboard_id": dashboard_id},
+            team=ANY,
+            request=ANY,
         )
 
     def test_can_update_insight_dashboards_without_deleting_tiles(self) -> None:

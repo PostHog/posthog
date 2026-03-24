@@ -10,14 +10,16 @@ from dateutil import parser
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Organization, Team, WebExperiment
+from posthog.models import Organization, Team
 from posthog.models.action.action import Action
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort.cohort import Cohort
-from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
 from posthog.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
 from posthog.models.user import User
 from posthog.test.test_journeys import journeys_for
+
+from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
+from products.experiments.backend.models.web_experiment import WebExperiment
 
 from ee.api.test.base import APILicensedTest
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
@@ -581,10 +583,6 @@ class TestExperimentCRUD(APILicensedTest):
 
         self.assertEqual(created_ff.key, ff_key)
         self.assertEqual(
-            created_ff.filters["holdout_groups"],
-            [{"properties": [], "rollout_percentage": 20, "variant": f"holdout-{holdout_id}"}],
-        )
-        self.assertEqual(
             created_ff.filters["holdout"],
             {"id": holdout_id, "exclusion_percentage": 20},
         )
@@ -619,10 +617,6 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(experiment.holdout_id, holdout_2_id)
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
-        self.assertEqual(
-            created_ff.filters["holdout_groups"],
-            [{"properties": [], "rollout_percentage": 5, "variant": f"holdout-{holdout_2_id}"}],
-        )
         self.assertEqual(
             created_ff.filters["holdout"],
             {"id": holdout_2_id, "exclusion_percentage": 5},
@@ -659,10 +653,6 @@ class TestExperimentCRUD(APILicensedTest):
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
         self.assertEqual(
-            created_ff.filters["holdout_groups"],
-            [{"properties": [], "rollout_percentage": 5, "variant": f"holdout-{holdout_2_id}"}],
-        )
-        self.assertEqual(
             created_ff.filters["holdout"],
             {"id": holdout_2_id, "exclusion_percentage": 5},
         )
@@ -687,7 +677,6 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(experiment.holdout_id, None)
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
-        self.assertEqual(created_ff.filters["holdout_groups"], None)
         self.assertEqual(created_ff.filters["holdout"], None)
 
         # try adding invalid holdout
@@ -722,10 +711,6 @@ class TestExperimentCRUD(APILicensedTest):
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
         self.assertEqual(
-            created_ff.filters["holdout_groups"],
-            [{"properties": [], "rollout_percentage": 5, "variant": f"holdout-{holdout_2_id}"}],
-        )
-        self.assertEqual(
             created_ff.filters["holdout"],
             {"id": holdout_2_id, "exclusion_percentage": 5},
         )
@@ -737,11 +722,9 @@ class TestExperimentCRUD(APILicensedTest):
                 "name": "Test Experiment saved metric",
                 "description": "Test description",
                 "query": {
-                    "kind": "ExperimentTrendsQuery",
-                    "count_query": {
-                        "kind": "TrendsQuery",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    },
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
                 },
             },
         )
@@ -755,8 +738,9 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(
             response.json()["query"],
             {
-                "kind": "ExperimentTrendsQuery",
-                "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
                 "uuid": saved_metric_uuid,
             },
         )
@@ -798,8 +782,9 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(
             saved_metric.query,
             {
-                "kind": "ExperimentTrendsQuery",
-                "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
                 "uuid": saved_metric_uuid,
             },
         )
@@ -811,8 +796,9 @@ class TestExperimentCRUD(APILicensedTest):
                 "name": "Test Experiment saved metric 2",
                 "description": "Test description 2",
                 "query": {
-                    "kind": "ExperimentTrendsQuery",
-                    "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageleave"}]},
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageleave"},
                 },
             },
         )
@@ -900,8 +886,9 @@ class TestExperimentCRUD(APILicensedTest):
                 "name": "Test Experiment saved metric",
                 "description": "Test description",
                 "query": {
-                    "kind": "ExperimentTrendsQuery",
-                    "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
                 },
             },
         )
@@ -2233,7 +2220,6 @@ class TestExperimentCRUD(APILicensedTest):
                     ]
                 },
                 "aggregation_group_type_index": None,
-                "holdout_groups": None,
                 "holdout": None,
             },
         )
@@ -2291,7 +2277,6 @@ class TestExperimentCRUD(APILicensedTest):
                     ]
                 },
                 "aggregation_group_type_index": None,
-                "holdout_groups": None,
                 "holdout": None,
             },
         )
@@ -2360,7 +2345,6 @@ class TestExperimentCRUD(APILicensedTest):
                     ]
                 },
                 "aggregation_group_type_index": None,
-                "holdout_groups": None,
                 "holdout": None,
             },
         )
@@ -3036,17 +3020,16 @@ class TestExperimentCRUD(APILicensedTest):
                 "filters": {"events": [{"order": 0, "id": "$pageview"}]},
                 "metrics": [
                     {
-                        "kind": "ExperimentTrendsQuery",
-                        "count_query": {
-                            "kind": "TrendsQuery",
-                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                        },
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
                     }
                 ],
                 "metrics_secondary": [
                     {
-                        "kind": "ExperimentTrendsQuery",
-                        "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$click"}]},
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$click"},
                     }
                 ],
                 "stats_config": {"method": "bayesian"},
@@ -3157,17 +3140,16 @@ class TestExperimentCRUD(APILicensedTest):
                 "filters": {"events": [{"order": 0, "id": "$pageview"}]},
                 "metrics": [
                     {
-                        "kind": "ExperimentTrendsQuery",
-                        "count_query": {
-                            "kind": "TrendsQuery",
-                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                        },
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
                     }
                 ],
                 "metrics_secondary": [
                     {
-                        "kind": "ExperimentTrendsQuery",
-                        "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$click"}]},
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$click"},
                     }
                 ],
             },
@@ -3536,6 +3518,145 @@ class TestExperimentCRUD(APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["status"], "draft")
+
+    # ------------------------------------------------------------------
+    # Launch endpoint
+    # ------------------------------------------------------------------
+
+    def test_launch_experiment_endpoint(self):
+        # Create a draft experiment with metrics
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Launch Endpoint Test",
+                "feature_flag_key": "launch-endpoint-flag",
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    }
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+        self.assertEqual(response.json()["status"], "draft")
+
+        # Verify flag is inactive
+        flag = FeatureFlag.objects.get(key="launch-endpoint-flag", team=self.team)
+        self.assertFalse(flag.active)
+
+        # Launch the experiment
+        launch_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/launch/",
+        )
+        self.assertEqual(launch_response.status_code, status.HTTP_200_OK)
+
+        data = launch_response.json()
+        self.assertEqual(data["status"], "running")
+        self.assertIsNotNone(data["start_date"])
+
+        # Verify flag is now active
+        flag.refresh_from_db()
+        self.assertTrue(flag.active)
+
+    def test_launch_experiment_endpoint_already_running(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Already Running Endpoint",
+                "feature_flag_key": "already-running-endpoint",
+                "start_date": "2024-01-01T10:00",
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    }
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        launch_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/launch/",
+        )
+        self.assertEqual(launch_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_launch_experiment_endpoint_without_metrics(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "No Metrics Endpoint",
+                "feature_flag_key": "no-metrics-endpoint",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        launch_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/launch/",
+        )
+        self.assertEqual(launch_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(launch_response.json()["status"], "running")
+
+    def test_archive_experiment_endpoint(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Archive Endpoint Test",
+                "feature_flag_key": "archive-endpoint-flag",
+                "start_date": "2024-01-01T10:00",
+                "end_date": "2024-01-15T10:00",
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    }
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+        self.assertFalse(response.json()["archived"])
+
+        archive_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/archive/",
+        )
+        self.assertEqual(archive_response.status_code, status.HTTP_200_OK)
+        self.assertTrue(archive_response.json()["archived"])
+
+    def test_archive_experiment_endpoint_not_ended(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Archive Running Endpoint",
+                "feature_flag_key": "archive-running-endpoint",
+                "start_date": "2024-01-01T10:00",
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    }
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        archive_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/archive/",
+        )
+        self.assertEqual(archive_response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
 class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
@@ -4232,8 +4353,9 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
                 "name": "Activity Logging Test Metric",
                 "description": "Testing saved metric activity logging fix",
                 "query": {
-                    "kind": "ExperimentTrendsQuery",
-                    "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
                 },
             },
             format="json",

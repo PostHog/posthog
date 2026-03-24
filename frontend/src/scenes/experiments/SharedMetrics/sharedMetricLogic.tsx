@@ -10,6 +10,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
@@ -53,7 +54,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
 
     connect(() => ({
         actions: [sharedMetricsLogic, ['loadSharedMetrics'], eventUsageLogic, ['reportExperimentSharedMetricCreated']],
-        values: [featureFlagLogic, ['featureFlags'], billingLogic, ['billing']],
+        values: [featureFlagLogic, ['featureFlags'], billingLogic, ['billing'], teamLogic, ['currentProjectId']],
     })),
 
     actions({
@@ -69,7 +70,9 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
                 const { sharedMetricId } = props
 
                 if (sharedMetricId) {
-                    const response = await api.get(`api/projects/@current/experiment_saved_metrics/${sharedMetricId}`)
+                    const response = await api.get(
+                        `api/projects/${values.currentProjectId}/experiment_saved_metrics/${sharedMetricId}`
+                    )
                     return response as SharedMetric
                 }
 
@@ -101,7 +104,10 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             }
         },
         createSharedMetric: async () => {
-            const response = await api.create(`api/projects/@current/experiment_saved_metrics/`, values.sharedMetric)
+            const response = await api.create(
+                `api/projects/${values.currentProjectId}/experiment_saved_metrics/`,
+                values.sharedMetric
+            )
             if (response.id) {
                 lemonToast.success('Shared metric created successfully')
                 actions.reportExperimentSharedMetricCreated(response as SharedMetric)
@@ -111,7 +117,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
         },
         updateSharedMetric: async ({ redirect = true }: { redirect?: boolean } = {}) => {
             const response = await api.update(
-                `api/projects/@current/experiment_saved_metrics/${values.sharedMetricId}`,
+                `api/projects/${values.currentProjectId}/experiment_saved_metrics/${values.sharedMetricId}`,
                 values.sharedMetric
             )
             if (response.id) {
@@ -124,7 +130,9 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
         },
         deleteSharedMetric: async () => {
             try {
-                await api.delete(`api/projects/@current/experiment_saved_metrics/${values.sharedMetricId}`)
+                await api.delete(
+                    `api/projects/${values.currentProjectId}/experiment_saved_metrics/${values.sharedMetricId}`
+                )
                 lemonToast.success('Shared metric deleted successfully')
                 actions.loadSharedMetrics()
                 router.actions.push('/experiments?tab=shared-metrics')

@@ -676,26 +676,33 @@ class Fix204Middleware:
         return response
 
 
-class ToolbarOAuthCoopMiddleware:
+class OAuthCoopMiddleware:
     """
-    Override Cross-Origin-Opener-Policy for popup pages that need cross-origin communication.
+    Override Cross-Origin-Opener-Policy for OAuth pages that need cross-origin communication.
 
     Django's SecurityMiddleware sets COOP to "same-origin" by default. This severs
     window.opener when a cross-origin popup navigates to our pages — breaking
-    Vercel's popup monitoring.
+    popup-based OAuth flows that rely on the opener reference to detect completion.
 
-    We set COOP to "unsafe-none" on the specific paths involved in popup flows
-    so the opener reference is preserved.
+    We set COOP to "unsafe-none" on all OAuth-related paths so the opener
+    reference is preserved.
     """
+
+    OAUTH_PATH_PREFIXES = (
+        "/toolbar_oauth/",
+        "/oauth/",
+        "/connect/vercel/",
+        "/login/vercel/",
+        "/api/agentic/authorize",
+        "/api/agentic/oauth/",
+    )
 
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
         response = self.get_response(request)
-        is_toolbar_flow = request.path.startswith("/toolbar_oauth/")
-        is_vercel_connect = request.path.startswith("/connect/vercel/")
-        if is_toolbar_flow or is_vercel_connect:
+        if any(request.path.startswith(prefix) for prefix in self.OAUTH_PATH_PREFIXES):
             response["Cross-Origin-Opener-Policy"] = "unsafe-none"
         return response
 
@@ -893,6 +900,8 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[str | re.Pattern] = [
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/[^/]+/run/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/last_execution_times/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/persons/batch_by_distinct_ids/?$"),
+    # POST but read-only: loads stack frame records (source context) for error tracking UI
+    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/error_tracking/stack_frames/batch_get/?$"),
     # Allow upgrading from read-only to read-write impersonation
     "/admin/impersonation/upgrade/",
 ]
