@@ -680,7 +680,7 @@ class TestSSOCrossRegionClaimsToken:
         token = _encrypt_claims(claims)
 
         mark_results = []
-        original_mark = __import__("ee.api.vercel.vercel_crypto", fromlist=["mark_token_used"]).mark_token_used
+        original_mark = __import__("ee.api.vercel.crypto", fromlist=["mark_token_used"]).mark_token_used
 
         def tracking_mark(jti, ttl):
             result = original_mark(jti, ttl)

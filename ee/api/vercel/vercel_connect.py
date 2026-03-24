@@ -16,7 +16,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.user import User
 
-from ee.api.vercel.vercel_crypto import decrypt_payload, encrypt_payload, mark_token_used
+from ee.api.vercel.crypto import decrypt_payload, encrypt_payload, mark_token_used
 from ee.vercel.client import VercelAPIClient
 
 logger = structlog.get_logger(__name__)
