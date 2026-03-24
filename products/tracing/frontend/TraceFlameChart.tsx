@@ -68,14 +68,41 @@ function flattenTree(nodes: SpanNode[]): SpanNode[] {
 }
 
 export function formatDuration(durationNano: number): string {
-    const ms = durationNano / 1_000_000
-    if (ms < 0.1) {
-        return `${(ms * 1000).toFixed(0)}\u00B5s`
+    const us = durationNano / 1_000
+    if (us < 100) {
+        return `${us.toFixed(1)}\u00B5s`
     }
+    const ms = us / 1_000
     if (ms < 1000) {
-        return `${ms.toFixed(1)}ms`
+        return `${ms.toFixed(ms < 10 ? 2 : 1)}ms`
     }
     return `${(ms / 1000).toFixed(2)}s`
+}
+
+/**
+ * Parse an ISO 8601 timestamp string to microseconds since epoch.
+ * `Date.getTime()` only gives millisecond resolution, losing sub-ms
+ * precision from timestamps like "2024-01-15T10:30:00.123456Z".
+ */
+function parseTimestampUs(iso: string): number {
+    const ms = new Date(iso).getTime()
+    // Extract fractional seconds beyond milliseconds
+    const dot = iso.indexOf('.')
+    if (dot === -1) {
+        return ms * 1_000
+    }
+    // Find the end of fractional digits (before 'Z' or '+'/'-' timezone)
+    const fracEnd = iso.search(/[Z+-]/i)
+    if (fracEnd === -1) {
+        return ms * 1_000
+    }
+    const fracStr = iso.slice(dot + 1, fracEnd)
+    // Pad or truncate to 6 digits (microseconds)
+    const padded = fracStr.padEnd(6, '0').slice(0, 6)
+    const totalUs = parseInt(padded, 10)
+    // ms already includes the first 3 fractional digits, so add the remaining sub-ms part
+    const subMsUs = totalUs % 1_000
+    return ms * 1_000 + subMsUs
 }
 
 function buildServiceColorMap(spans: Span[]): Map<string, number> {
@@ -85,18 +112,18 @@ function buildServiceColorMap(spans: Span[]): Map<string, number> {
     return map
 }
 
-/** Generate evenly spaced tick marks for the timeline */
-function getTimelineTicks(durationMs: number): number[] {
-    if (durationMs <= 0) {
+/** Generate evenly spaced tick marks for the timeline (in microseconds) */
+function getTimelineTicks(durationUs: number): number[] {
+    if (durationUs <= 0) {
         return []
     }
     const targetTickCount = 5
-    const rawInterval = durationMs / targetTickCount
+    const rawInterval = durationUs / targetTickCount
     const magnitude = Math.pow(10, Math.floor(Math.log10(rawInterval)))
     const niceIntervals = [1, 2, 5, 10]
     const interval = niceIntervals.find((n) => n * magnitude >= rawInterval)! * magnitude
     const ticks: number[] = []
-    for (let t = interval; t < durationMs; t += interval) {
+    for (let t = interval; t < durationUs; t += interval) {
         ticks.push(t)
     }
     return ticks
@@ -230,9 +257,9 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
         if (spans.length === 0) {
             return []
         }
-        const timestamps = spans.map((s) => new Date(s.timestamp).getTime())
-        const endTimes = spans.map((s) => new Date(s.end_time).getTime())
-        const start = Math.min(...timestamps)
+        const startTimes = spans.map((s) => parseTimestampUs(s.timestamp))
+        const endTimes = spans.map((s) => parseTimestampUs(s.timestamp) + s.duration_nano / 1_000)
+        const start = Math.min(...startTimes)
         const end = Math.max(...endTimes)
         const duration = end - start
         if (duration <= 0) {
@@ -240,8 +267,9 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
         }
         const points = new Set<number>()
         for (const s of spans) {
-            points.add(((new Date(s.timestamp).getTime() - start) / duration) * 100)
-            points.add(((new Date(s.end_time).getTime() - start) / duration) * 100)
+            const spanStartUs = parseTimestampUs(s.timestamp)
+            points.add(((spanStartUs - start) / duration) * 100)
+            points.add(((spanStartUs + s.duration_nano / 1_000 - start) / duration) * 100)
         }
         return [...points].sort((a, b) => a - b)
     }, [spans])
@@ -284,14 +312,14 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
         return <div className="text-muted p-4">No spans in this trace</div>
     }
 
-    const timestamps = spans.map((s) => new Date(s.timestamp).getTime())
-    const endTimes = spans.map((s) => new Date(s.end_time).getTime())
-    const traceStart = Math.min(...timestamps)
-    const traceEnd = Math.max(...endTimes)
-    const traceDurationMs = traceEnd - traceStart
-    const ticks = getTimelineTicks(traceDurationMs)
+    const startTimesUs = spans.map((s) => parseTimestampUs(s.timestamp))
+    const endTimesUs = spans.map((s) => parseTimestampUs(s.timestamp) + s.duration_nano / 1_000)
+    const traceStartUs = Math.min(...startTimesUs)
+    const traceEndUs = Math.max(...endTimesUs)
+    const traceDurationUs = traceEndUs - traceStartUs
+    const ticks = getTimelineTicks(traceDurationUs)
 
-    const cursorTimeMs = cursorPct !== null ? (cursorPct / 100) * traceDurationMs : null
+    const cursorTimeUs = cursorPct !== null ? (cursorPct / 100) * traceDurationUs : null
 
     return (
         <div
@@ -319,33 +347,33 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
                 </div>
                 <div className="relative grow h-7" ref={timelineRef}>
                     {(cursorPct === null || cursorPct > 5) && (
-                        <span className="absolute left-1 top-1/2 -translate-y-1/2 text-[10px] text-muted">0ms</span>
+                        <span className="absolute left-1 top-1/2 -translate-y-1/2 text-[10px] text-muted">0</span>
                     )}
                     {ticks
-                        .filter((tickMs) => {
-                            const pct = (tickMs / traceDurationMs) * 100
+                        .filter((tickUs) => {
+                            const pct = (tickUs / traceDurationUs) * 100
                             return pct > 5 && pct < 90
                         })
-                        .map((tickMs) => {
-                            const pct = (tickMs / traceDurationMs) * 100
+                        .map((tickUs) => {
+                            const pct = (tickUs / traceDurationUs) * 100
                             return (
                                 <span
-                                    key={tickMs}
+                                    key={tickUs}
                                     className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 text-[10px] text-muted"
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{ left: `${pct}%` }}
                                 >
-                                    {formatDuration(tickMs * 1_000_000)}
+                                    {formatDuration(tickUs * 1_000)}
                                 </span>
                             )
                         })}
                     {(cursorPct === null || cursorPct < 95) && (
                         <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] text-muted">
-                            {formatDuration(traceDurationMs * 1_000_000)}
+                            {formatDuration(traceDurationUs * 1_000)}
                         </span>
                     )}
                     {/* Cursor time label in header */}
-                    {cursorPct !== null && cursorTimeMs !== null && (
+                    {cursorPct !== null && cursorTimeUs !== null && (
                         <span
                             className={`absolute bottom-0 text-[10px] font-mono font-medium pointer-events-none ${
                                 cursorPct < 50 ? 'translate-x-1' : '-translate-x-full -ml-1'
@@ -353,7 +381,7 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ left: `${cursorPct}%` }}
                         >
-                            {formatDuration(cursorTimeMs * 1_000_000)}
+                            {formatDuration(cursorTimeUs * 1_000)}
                         </span>
                     )}
                 </div>
@@ -362,11 +390,12 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
             {/* Span rows */}
             {flatSpans.map((node) => {
                 const { span } = node
-                const spanStart = new Date(span.timestamp).getTime()
-                const spanEnd = new Date(span.end_time).getTime()
-                const leftPct = traceDurationMs > 0 ? ((spanStart - traceStart) / traceDurationMs) * 100 : 0
-                const widthPct =
-                    traceDurationMs > 0 ? Math.max(((spanEnd - spanStart) / traceDurationMs) * 100, 0.3) : 100
+                const spanStartUs = parseTimestampUs(span.timestamp)
+                const spanDurationUs = span.duration_nano / 1_000
+                const leftPct =
+                    traceDurationUs > 0 ? Math.max(((spanStartUs - traceStartUs) / traceDurationUs) * 100, 0) : 0
+                const rawWidthPct = traceDurationUs > 0 ? (spanDurationUs / traceDurationUs) * 100 : 100
+                const widthPct = Math.max(Math.min(rawWidthPct, 100 - leftPct), 0.3)
 
                 const isError = span.status_code === 2
                 const seriesIndex = serviceColorMap.get(span.service_name) ?? 0
@@ -420,11 +449,11 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
                                 style={{ height: ROW_HEIGHT - 8 }}
                             >
                                 {/* Grid lines */}
-                                {ticks.map((tickMs) => {
-                                    const pct = (tickMs / traceDurationMs) * 100
+                                {ticks.map((tickUs) => {
+                                    const pct = (tickUs / traceDurationUs) * 100
                                     return (
                                         <span
-                                            key={tickMs}
+                                            key={tickUs}
                                             className="absolute top-0 bottom-0 border-l border-border"
                                             // eslint-disable-next-line react/forbid-dom-props
                                             style={{ left: `${pct}%` }}
