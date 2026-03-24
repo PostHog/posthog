@@ -3,18 +3,40 @@
 import django.db.models.deletion
 from django.db import migrations, models
 
+MODELS_TO_MOVE = ("dashboard", "dashboardtile", "text", "buttontile", "dashboardtemplate")
+
+
+def _move_content_types(apps, schema_editor, from_label, to_label):
+    """Move ContentTypes between apps, handling duplicates idempotently.
+
+    If the target (app_label, model) already exists (e.g., Django auto-created
+    it before migration ran, or a prior failed attempt), merges permissions
+    onto the target and deletes the source to avoid unique constraint violations.
+
+    Uses schema_editor.connection.alias for multi-DB safety.
+    """
+    db_alias = schema_editor.connection.alias
+    ContentType = apps.get_model("contenttypes", "ContentType")
+    Permission = apps.get_model("auth", "Permission")
+
+    for model_name in MODELS_TO_MOVE:
+        source = ContentType.objects.using(db_alias).filter(app_label=from_label, model=model_name).first()
+        target = ContentType.objects.using(db_alias).filter(app_label=to_label, model=model_name).first()
+
+        if source and target:
+            Permission.objects.using(db_alias).filter(content_type=source).update(content_type=target)
+            source.delete(using=db_alias)
+        elif source:
+            source.app_label = to_label
+            source.save(using=db_alias)
+
 
 def update_content_types(apps, schema_editor):
-    ContentType = apps.get_model("contenttypes", "ContentType")
-    # Update content types from posthog to dashboards app
-    for model_name in ("dashboard", "dashboardtile", "text", "buttontile", "dashboardtemplate"):
-        ContentType.objects.filter(app_label="posthog", model=model_name).update(app_label="dashboards")
+    _move_content_types(apps, schema_editor, "posthog", "dashboards")
 
 
 def reverse_content_types(apps, schema_editor):
-    ContentType = apps.get_model("contenttypes", "ContentType")
-    for model_name in ("dashboard", "dashboardtile", "text", "buttontile", "dashboardtemplate"):
-        ContentType.objects.filter(app_label="dashboards", model=model_name).update(app_label="posthog")
+    _move_content_types(apps, schema_editor, "dashboards", "posthog")
 
 
 class Migration(migrations.Migration):

@@ -83,6 +83,7 @@ from products.messaging.backend.api.message_categories import MessageCategoryVie
 from products.messaging.backend.api.message_preferences import MessagePreferencesViewSet
 from products.messaging.backend.api.message_templates import MessageTemplatesViewSet
 from products.notebooks.backend.api.notebook import NotebookViewSet
+from products.notifications.backend.presentation.views import NotificationsViewSet
 from products.posthog_ai.backend.api import MCPToolsViewSet
 from products.product_tours.backend.api import ProductTourViewSet
 from products.signals.backend.views import SignalViewSet
@@ -570,6 +571,13 @@ environments_router.register(
     r"data_modeling_edges",
     EdgeViewSet,
     "environment_data_modeling_edges",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"notifications",
+    NotificationsViewSet,
+    "environment_notifications",
     ["team_id"],
 )
 

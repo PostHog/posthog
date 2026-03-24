@@ -18240,6 +18240,22 @@ export namespace Schemas {
       _create_in_folder?: string;
     }
 
+    export interface NotificationEvent {
+      id: string;
+      notification_type: string;
+      priority: string;
+      title: string;
+      body: string;
+      read: boolean;
+      /** @nullable */
+      read_at: string | null;
+      /** @nullable */
+      resource_type: string | null;
+      resource_id: string;
+      source_url: string;
+      created_at: string;
+    }
+
     export interface NumericScoreDefinitionConfig {
       /**
        * Optional inclusive minimum score.
@@ -19236,6 +19252,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: NotebookMinimal[];
+    }
+
+    export interface PaginatedNotificationEventList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: NotificationEvent[];
     }
 
     export interface PaginatedObjectMediaPreviewList {
@@ -31205,6 +31230,17 @@ export namespace Schemas {
     };
 
     export type MessagingTemplatesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type NotificationsListParams = {
     /**
      * Number of results to return per page.
      */
