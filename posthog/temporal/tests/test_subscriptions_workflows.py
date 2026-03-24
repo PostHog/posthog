@@ -21,9 +21,10 @@ from posthog.errors import CHQueryErrorS3Error
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.models.instance_setting import set_instance_setting
-from posthog.slo.types import SloOutcome
+from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.tasks.exports.failure_handler import ExcelColumnLimitExceeded
-from posthog.temporal.exports.activities import emit_delivery_outcome, emit_delivery_started, export_asset_activity
+from posthog.temporal.common.slo_interceptor import SloInterceptor
+from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.subscriptions.activities import (
     advance_next_delivery_date,
     create_export_assets,
@@ -67,10 +68,9 @@ async def subscriptions_worker(temporal_client: Client):
             create_export_assets,
             export_asset_activity,
             deliver_subscription,
-            emit_delivery_started,
-            emit_delivery_outcome,
             advance_next_delivery_date,
         ],
+        interceptors=[SloInterceptor()],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
         yield  # allow the test to run while the worker is active
@@ -138,10 +138,9 @@ async def test_subscription_delivery_scheduling(
                 create_export_assets,
                 export_asset_activity,
                 deliver_subscription,
-                emit_delivery_started,
-                emit_delivery_outcome,
                 advance_next_delivery_date,
             ],
+            interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=50),
             debug_mode=True,
@@ -212,10 +211,9 @@ async def test_does_not_schedule_subscription_if_item_is_deleted(
                 create_export_assets,
                 export_asset_activity,
                 deliver_subscription,
-                emit_delivery_started,
-                emit_delivery_outcome,
                 advance_next_delivery_date,
             ],
+            interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=50),
             debug_mode=True,  # turn off sandbox/deadlock detector
@@ -269,10 +267,9 @@ async def test_handle_subscription_value_change_email(
                 create_export_assets,
                 export_asset_activity,
                 deliver_subscription,
-                emit_delivery_started,
-                emit_delivery_outcome,
                 advance_next_delivery_date,
             ],
+            interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=50),
             debug_mode=True,
@@ -281,6 +278,8 @@ async def test_handle_subscription_value_change_email(
                 HandleSubscriptionValueChangeWorkflow.run,
                 ProcessSubscriptionWorkflowInputs(
                     subscription_id=subscription.id,
+                    team_id=subscription.team_id,
+                    distinct_id=str(subscription.created_by.distinct_id),
                     previous_value="test_existing@posthog.com",
                     invite_message="My invite message",
                 ),
@@ -333,17 +332,20 @@ async def test_deliver_subscription_report_slack(
                 create_export_assets,
                 export_asset_activity,
                 deliver_subscription,
-                emit_delivery_started,
-                emit_delivery_outcome,
                 advance_next_delivery_date,
             ],
+            interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=50),
             debug_mode=True,
         ):
             await activity_environment.client.execute_workflow(
                 HandleSubscriptionValueChangeWorkflow.run,
-                ProcessSubscriptionWorkflowInputs(subscription_id=subscription.id),
+                ProcessSubscriptionWorkflowInputs(
+                    subscription_id=subscription.id,
+                    team_id=subscription.team_id,
+                    distinct_id=str(subscription.created_by.distinct_id),
+                ),
                 id=str(uuid.uuid4()),
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             )
@@ -377,7 +379,7 @@ async def test_create_export_assets_creates_exported_assets(
     assert asset.insight_id == insight.id
     assert asset.export_format == "image/png"
 
-    # SLO started is emitted by the workflow (emit_delivery_started), not this activity
+    # SLO started is emitted by the interceptor, not this activity
     mock_analytics.capture.assert_not_called()
 
 
@@ -404,7 +406,7 @@ async def test_create_export_assets_dashboard_with_multiple_insights(
     )
 
     assert len(result.exported_asset_ids) == 3
-    # SLO started is emitted by the workflow, not this activity
+    # SLO started is emitted by the interceptor, not this activity
     mock_analytics.capture.assert_not_called()
 
 
@@ -546,17 +548,27 @@ async def test_deliver_subscription_workflow_end_to_end(
                 create_export_assets,
                 export_asset_activity,
                 deliver_subscription,
-                emit_delivery_started,
-                emit_delivery_outcome,
                 advance_next_delivery_date,
             ],
+            interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=10),
             debug_mode=True,
         ):
             await env.client.execute_workflow(
                 ProcessSubscriptionWorkflow.run,
-                ProcessSubscriptionWorkflowInputs(subscription_id=subscription.id),
+                ProcessSubscriptionWorkflowInputs(
+                    subscription_id=subscription.id,
+                    team_id=subscription.team_id,
+                    distinct_id=str(subscription.created_by.distinct_id),
+                    slo=SloConfig(
+                        operation=SloOperation.SUBSCRIPTION_DELIVERY,
+                        area=SloArea.ANALYTIC_PLATFORM,
+                        team_id=subscription.team_id,
+                        resource_id=str(subscription.id),
+                        distinct_id=str(subscription.created_by.distinct_id),
+                    ),
+                ),
                 id=str(uuid.uuid4()),
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             )
@@ -616,10 +628,9 @@ async def test_new_subscription_sends_invite_email(
                 create_export_assets,
                 export_asset_activity,
                 deliver_subscription,
-                emit_delivery_started,
-                emit_delivery_outcome,
                 advance_next_delivery_date,
             ],
+            interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=50),
             debug_mode=True,
@@ -628,6 +639,8 @@ async def test_new_subscription_sends_invite_email(
                 HandleSubscriptionValueChangeWorkflow.run,
                 ProcessSubscriptionWorkflowInputs(
                     subscription_id=subscription.id,
+                    team_id=subscription.team_id,
+                    distinct_id=str(subscription.created_by.distinct_id),
                     previous_value="",
                     invite_message="Welcome!",
                 ),
@@ -679,17 +692,27 @@ async def test_scheduled_delivery_updates_next_delivery_date(
                 create_export_assets,
                 export_asset_activity,
                 deliver_subscription,
-                emit_delivery_started,
-                emit_delivery_outcome,
                 advance_next_delivery_date,
             ],
+            interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=10),
             debug_mode=True,
         ):
             await env.client.execute_workflow(
                 ProcessSubscriptionWorkflow.run,
-                ProcessSubscriptionWorkflowInputs(subscription_id=subscription.id),
+                ProcessSubscriptionWorkflowInputs(
+                    subscription_id=subscription.id,
+                    team_id=subscription.team_id,
+                    distinct_id=str(subscription.created_by.distinct_id),
+                    slo=SloConfig(
+                        operation=SloOperation.SUBSCRIPTION_DELIVERY,
+                        area=SloArea.ANALYTIC_PLATFORM,
+                        team_id=subscription.team_id,
+                        resource_id=str(subscription.id),
+                        distinct_id=str(subscription.created_by.distinct_id),
+                    ),
+                ),
                 id=str(uuid.uuid4()),
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             )
@@ -739,17 +762,27 @@ async def test_export_user_error_counts_as_slo_success(
                 create_export_assets,
                 export_asset_activity,
                 deliver_subscription,
-                emit_delivery_started,
-                emit_delivery_outcome,
                 advance_next_delivery_date,
             ],
+            interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=10),
             debug_mode=True,
         ):
             await env.client.execute_workflow(
                 ProcessSubscriptionWorkflow.run,
-                ProcessSubscriptionWorkflowInputs(subscription_id=subscription.id),
+                ProcessSubscriptionWorkflowInputs(
+                    subscription_id=subscription.id,
+                    team_id=subscription.team_id,
+                    distinct_id=str(subscription.created_by.distinct_id),
+                    slo=SloConfig(
+                        operation=SloOperation.SUBSCRIPTION_DELIVERY,
+                        area=SloArea.ANALYTIC_PLATFORM,
+                        team_id=subscription.team_id,
+                        resource_id=str(subscription.id),
+                        distinct_id=str(subscription.created_by.distinct_id),
+                    ),
+                ),
                 id=str(uuid.uuid4()),
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             )
@@ -805,17 +838,27 @@ async def test_partial_export_failure_delivers_successful_assets(
                 create_export_assets,
                 export_asset_activity,
                 deliver_subscription,
-                emit_delivery_started,
-                emit_delivery_outcome,
                 advance_next_delivery_date,
             ],
+            interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=10),
             debug_mode=True,
         ):
             await env.client.execute_workflow(
                 ProcessSubscriptionWorkflow.run,
-                ProcessSubscriptionWorkflowInputs(subscription_id=subscription.id),
+                ProcessSubscriptionWorkflowInputs(
+                    subscription_id=subscription.id,
+                    team_id=subscription.team_id,
+                    distinct_id=str(subscription.created_by.distinct_id),
+                    slo=SloConfig(
+                        operation=SloOperation.SUBSCRIPTION_DELIVERY,
+                        area=SloArea.ANALYTIC_PLATFORM,
+                        team_id=subscription.team_id,
+                        resource_id=str(subscription.id),
+                        distinct_id=str(subscription.created_by.distinct_id),
+                    ),
+                ),
                 id=str(uuid.uuid4()),
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             )
@@ -876,17 +919,27 @@ async def test_transient_export_error_retries_and_succeeds(
                 create_export_assets,
                 export_asset_activity,
                 deliver_subscription,
-                emit_delivery_started,
-                emit_delivery_outcome,
                 advance_next_delivery_date,
             ],
+            interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=10),
             debug_mode=True,
         ):
             await env.client.execute_workflow(
                 ProcessSubscriptionWorkflow.run,
-                ProcessSubscriptionWorkflowInputs(subscription_id=subscription.id),
+                ProcessSubscriptionWorkflowInputs(
+                    subscription_id=subscription.id,
+                    team_id=subscription.team_id,
+                    distinct_id=str(subscription.created_by.distinct_id),
+                    slo=SloConfig(
+                        operation=SloOperation.SUBSCRIPTION_DELIVERY,
+                        area=SloArea.ANALYTIC_PLATFORM,
+                        team_id=subscription.team_id,
+                        resource_id=str(subscription.id),
+                        distinct_id=str(subscription.created_by.distinct_id),
+                    ),
+                ),
                 id=str(uuid.uuid4()),
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             )
@@ -938,17 +991,27 @@ async def test_user_query_error_does_not_retry(
                 create_export_assets,
                 export_asset_activity,
                 deliver_subscription,
-                emit_delivery_started,
-                emit_delivery_outcome,
                 advance_next_delivery_date,
             ],
+            interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=10),
             debug_mode=True,
         ):
             await env.client.execute_workflow(
                 ProcessSubscriptionWorkflow.run,
-                ProcessSubscriptionWorkflowInputs(subscription_id=subscription.id),
+                ProcessSubscriptionWorkflowInputs(
+                    subscription_id=subscription.id,
+                    team_id=subscription.team_id,
+                    distinct_id=str(subscription.created_by.distinct_id),
+                    slo=SloConfig(
+                        operation=SloOperation.SUBSCRIPTION_DELIVERY,
+                        area=SloArea.ANALYTIC_PLATFORM,
+                        team_id=subscription.team_id,
+                        resource_id=str(subscription.id),
+                        distinct_id=str(subscription.created_by.distinct_id),
+                    ),
+                ),
                 id=str(uuid.uuid4()),
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             )
@@ -963,4 +1026,6 @@ async def test_user_query_error_does_not_retry(
         c for c in mock_slo_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
     ]
     assert len(completed_calls) == 1
+    # User query errors are SLO successes — the system worked correctly,
+    # the user's query was just invalid (consistent with test_export_user_error_counts_as_slo_success)
     assert completed_calls[0].kwargs["properties"]["outcome"] == SloOutcome.SUCCESS

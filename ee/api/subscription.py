@@ -195,6 +195,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 "handle-subscription-value-change",
                 ProcessSubscriptionWorkflowInputs(
                     subscription_id=instance.id,
+                    team_id=instance.team_id,
+                    distinct_id=str(instance.created_by.distinct_id) if instance.created_by else str(instance.team_id),
                     previous_value="",
                     invite_message=invite_message,
                 ),
@@ -221,6 +223,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 "handle-subscription-value-change",
                 ProcessSubscriptionWorkflowInputs(
                     subscription_id=instance.id,
+                    team_id=instance.team_id,
+                    distinct_id=str(instance.created_by.distinct_id) if instance.created_by else str(instance.team_id),
                     previous_value=previous_value,
                     invite_message=invite_message,
                 ),
