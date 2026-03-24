@@ -11,6 +11,8 @@ import IconPostHog from 'public/posthog-icon.svg'
 import IconDuckDB from 'public/services/duckdb.svg'
 import IconPostgres from 'public/services/postgres.png'
 
+import type { connectionSelectorLogicType } from './connectionSelectorLogicType'
+
 export const POSTHOG_WAREHOUSE = '__posthog_warehouse__'
 export const LOADING_CONNECTIONS = '__loading_connections__'
 export const ADD_POSTGRES_DIRECT_CONNECTION = '__add_postgres_direct_connection__'
@@ -35,7 +37,7 @@ function getConnectionEngine(source: Pick<ExternalDataSourceConnectionOption, 'e
     return source.engine === 'duckdb' ? 'duckdb' : 'postgres'
 }
 
-export const connectionSelectorLogic = kea([
+export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
     path(['scenes', 'data-warehouse', 'editor', 'connectionSelectorLogic']),
     props({ selectedConnectionId: undefined } as ConnectionSelectorLogicProps),
     connect(() => ({

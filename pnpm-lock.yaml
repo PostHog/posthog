@@ -1299,8 +1299,8 @@ importers:
         specifier: ^6.1.0
         version: 6.4.0(jest@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.5.4)))
       kea-typegen:
-        specifier: 3.6.1
-        version: 3.6.1(typescript@5.5.4)
+        specifier: 3.6.2-leakfix.2
+        version: 3.6.2-leakfix.2(typescript@5.5.4)
       less:
         specifier: ^3.12.2
         version: 3.13.1
@@ -16450,8 +16450,8 @@ packages:
     peerDependencies:
       kea: '>= 3'
 
-  kea-typegen@3.6.1:
-    resolution: {integrity: sha512-EOulCR4eU7PrSkqbNVEkfdv1tFzqadZt7donnZB/qgH95EhI2UdZjQCY6kUR6gAFtx+X+VsAcdJta9N5PIvtXw==}
+  kea-typegen@3.6.2-leakfix.2:
+    resolution: {integrity: sha512-IjCu1/j4Xyuz3AMtikOLyBzk5Oj6bJrcp7k1Ihde/ceDpsij8si545n0vO2aIpbV6rKbmHRNj9DaAiWjKeeOpQ==}
     hasBin: true
     peerDependencies:
       typescript: 5.5.4
@@ -40398,7 +40398,7 @@ snapshots:
       kea: 4.0.0-pre.5(react@18.3.1)
       kea-waitfor: 0.2.1(kea@4.0.0-pre.5(react@18.3.1))
 
-  kea-typegen@3.6.1(typescript@5.5.4):
+  kea-typegen@3.6.2-leakfix.2(typescript@5.5.4):
     dependencies:
       '@babel/core': 7.28.0
       '@babel/preset-env': 7.23.5(@babel/core@7.28.0)
