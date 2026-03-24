@@ -279,6 +279,24 @@ class TestVercelConnectComplete(VercelConnectTestBase):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+    def test_replay_returns_400(self):
+        session_token = _seed_session()
+
+        self.client.post(
+            self.url,
+            {"session": session_token, "organization_id": str(self.organization.id)},
+            content_type="application/json",
+        )
+
+        response = self.client.post(
+            self.url,
+            {"session": session_token, "organization_id": str(self.organization.id)},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "already used" in response.json()["detail"]
+
     def test_already_linked_org_returns_400(self):
         OrganizationIntegration.objects.create(
             organization=self.organization,

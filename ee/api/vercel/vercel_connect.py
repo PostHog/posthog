@@ -1,11 +1,18 @@
+import base64
+import hashlib
+import json
+import uuid
+import zlib
 from typing import cast
 from urllib.parse import quote, urlencode, urlparse
 
 from django.conf import settings
 from django.core import signing
+from django.core.cache import cache
 from django.http import HttpResponse, HttpResponseRedirect
 
 import structlog
+from cryptography.fernet import Fernet, InvalidToken
 from rest_framework import decorators, exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -25,14 +32,34 @@ ALLOWED_REDIRECT_DOMAINS = {
 }
 
 CONNECT_SESSION_TIMEOUT = 600  # 10 minutes
+USED_TOKEN_CACHE_PREFIX = "vercel_connect_used:"
+
+
+def _get_fernet() -> Fernet:
+    key = base64.urlsafe_b64encode(hashlib.sha256(settings.VERCEL_CLIENT_INTEGRATION_SECRET.encode()).digest())
+    return Fernet(key)
 
 
 def _sign_connect_session(data: dict) -> str:
-    return signing.dumps(data, key=settings.VERCEL_CLIENT_INTEGRATION_SECRET, salt="vercel_connect", compress=True)
+    data["jti"] = str(uuid.uuid4())
+    payload = zlib.compress(json.dumps(data).encode())
+    return _get_fernet().encrypt(payload).decode()
 
 
 def _load_connect_session(token: str) -> dict:
-    return signing.loads(token, key=settings.VERCEL_CLIENT_INTEGRATION_SECRET, salt="vercel_connect", max_age=CONNECT_SESSION_TIMEOUT)
+    try:
+        decrypted = _get_fernet().decrypt(token.encode(), ttl=CONNECT_SESSION_TIMEOUT)
+    except InvalidToken:
+        raise signing.BadSignature("Invalid or expired token")
+    return json.loads(zlib.decompress(decrypted))
+
+
+def _mark_token_used(jti: str) -> bool:
+    cache_key = f"{USED_TOKEN_CACHE_PREFIX}{jti}"
+    if cache.get(cache_key):
+        return False
+    cache.set(cache_key, True, timeout=CONNECT_SESSION_TIMEOUT)
+    return True
 
 
 def _validate_next_url(url: str) -> str:
@@ -139,8 +166,12 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
 
         try:
             cached_data = _load_connect_session(session_key)
-        except (signing.BadSignature, signing.SignatureExpired):
+        except signing.BadSignature:
             raise exceptions.ValidationError("Session expired or invalid. Please try linking again from Vercel.")
+
+        jti = cached_data.get("jti")
+        if not jti or not _mark_token_used(jti):
+            raise exceptions.ValidationError("Session already used. Please try linking again from Vercel.")
 
         try:
             membership = OrganizationMembership.objects.get(
@@ -214,7 +245,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
 
         try:
             cached_data = _load_connect_session(session_key)
-        except (signing.BadSignature, signing.SignatureExpired):
+        except signing.BadSignature:
             raise exceptions.ValidationError("Session expired or invalid. Please try linking again from Vercel.")
 
         user = cast(User, request.user)
