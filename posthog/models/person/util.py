@@ -337,6 +337,69 @@ def get_persons_by_distinct_ids(
     )
 
 
+def get_persons_mapped_by_distinct_id(
+    team_id: int,
+    distinct_ids: list[str],
+) -> dict[str, Person]:
+    """Look up persons by distinct_ids and return a direct distinct_id → Person mapping.
+
+    Optimized for callers that need a mapping keyed by distinct_id and only
+    need the single matched distinct_id on each Person (e.g. session recordings).
+    Unlike ``get_persons_by_distinct_ids``, this avoids fetching all distinct_ids
+    for each person.
+
+    ORM path: queries PersonDistinctId → Person (2 queries, no extra IDs loaded).
+    Personhog path: single GetPersonsByDistinctIdsInTeam RPC (no follow-up
+    GetDistinctIdsForPersons call needed — the response already carries the
+    matched distinct_id).
+    """
+
+    def orm_fn() -> dict[str, Person]:
+        person_distinct_ids = (
+            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(distinct_id__in=distinct_ids, team_id=team_id)
+            .select_related("person")
+        )
+        result: dict[str, Person] = {}
+        for pdi in person_distinct_ids:
+            if pdi.person and pdi.person.team_id == team_id:
+                pdi.person._distinct_ids = [pdi.distinct_id]
+                result[pdi.distinct_id] = pdi.person
+        return result
+
+    def personhog_fn() -> dict[str, Person]:
+        client = get_personhog_client()
+        if client is None:
+            raise RuntimeError("personhog client not configured")
+
+        resp = client.get_persons_by_distinct_ids_in_team(
+            GetPersonsByDistinctIdsInTeamRequest(team_id=team_id, distinct_ids=distinct_ids)
+        )
+
+        valid_results = [r for r in resp.results if r.person and r.person.id and r.person.team_id == team_id]
+
+        mismatched = len(resp.results) - len(valid_results)
+        if mismatched:
+            PERSONHOG_TEAM_MISMATCH_TOTAL.labels(
+                operation="get_persons_mapped_by_distinct_id", client_name=get_client_name()
+            ).inc(mismatched)
+            logger.warning(
+                "personhog_team_mismatch",
+                operation="get_persons_mapped_by_distinct_id",
+                team_id=team_id,
+                dropped=mismatched,
+            )
+
+        return {r.distinct_id: proto_person_to_model(r.person, distinct_ids=[r.distinct_id]) for r in valid_results}
+
+    return _personhog_routed(
+        "get_persons_mapped_by_distinct_id",
+        personhog_fn,
+        orm_fn,
+        team_id=team_id,
+    )
+
+
 def _fetch_persons_by_uuids_via_personhog(team_id: int, uuids: list[str]) -> list[Person]:
     client = get_personhog_client()
     if client is None:

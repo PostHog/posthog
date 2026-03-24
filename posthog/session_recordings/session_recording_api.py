@@ -8,7 +8,6 @@ import asyncio
 import builtins
 from collections.abc import Generator
 from contextlib import contextmanager
-from copy import copy
 from json import JSONDecodeError
 from typing import Any, Literal, cast
 from urllib.parse import urlparse
@@ -16,7 +15,6 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
-from django.db.models import Prefetch
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 
 import requests
@@ -75,9 +73,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.comment import Comment
-from posthog.models.person.person import READ_DB_FOR_PERSONS, Person, PersonDistinctId
-from posthog.models.person.util import get_persons_by_distinct_ids
-from posthog.personhog_client.gate import use_personhog
+from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, PersonalApiKeyRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -1895,51 +1891,10 @@ def list_recordings_from_query(
                 )
 
     with timer("load_persons"), tracer.start_as_current_span("load_persons"):
-        # Get the related persons for all the recordings
         distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
-
-        distinct_id_to_person: dict[str, Person] = {}
-        person_distinct_ids = None
-        if use_personhog():
-            # personhog returns persons with all _distinct_ids populated, but
-            # we intentionally truncate to one per person (the matched recording
-            # distinct_id) to match the ORM path and avoid loading large ID sets
-            # into the serializer response.
-            # NOTE: we can't use distinct_id_limit=1 here because personhog
-            # doesn't guarantee ordering — the single returned distinct_id might
-            # not be the one we searched by, breaking the mapping below.
-            persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
-            distinct_ids_set = set(distinct_ids)
-            for person in persons:
-                for did in person.distinct_ids:
-                    if did in distinct_ids_set:
-                        # Copy so that each mapping gets its own _distinct_ids
-                        # without mutating the shared Person instance (a single
-                        # person can match multiple recording distinct_ids).
-                        person_copy = copy(person)
-                        person_copy._distinct_ids = [did]
-                        distinct_id_to_person[did] = person_copy
-        else:
-            # ORM path: define queryset here, iterate in process_persons to preserve
-            # the original timing attribution (DB round-trip in process_persons span).
-            # Intentionally set _distinct_ids to a single ID per person to avoid
-            # loading all distinct_ids (which can be very large).
-            person_distinct_ids = (
-                PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
-                .filter(distinct_id__in=distinct_ids, team=team)
-                .prefetch_related(
-                    Prefetch(
-                        "person",
-                        queryset=Person.objects.filter(team_id=team.id),
-                    )
-                )
-            )
+        distinct_id_to_person = get_persons_mapped_by_distinct_id(team.pk, distinct_ids)
 
     with timer("process_persons"), tracer.start_as_current_span("process_persons"):
-        if person_distinct_ids is not None:
-            for pdi in person_distinct_ids:
-                pdi.person._distinct_ids = [pdi.distinct_id]
-                distinct_id_to_person[pdi.distinct_id] = pdi.person
         for recording in recordings:
             recording.viewed = recording.session_id in viewed_session_recordings
             recording.viewers = other_viewers.get(recording.session_id, [])

@@ -505,6 +505,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response_data = response.json()
 
         assert [r["person"]["id"] for r in response_data["results"]] == [p.pk, p.pk]
+        # each recording must carry the distinct_id that produced it
+        results_by_session = {r["id"]: r for r in response_data["results"]}
+        assert results_by_session["1"]["person"]["distinct_ids"] == ["d1"]
+        assert results_by_session["2"]["person"]["distinct_ids"] == ["d2"]
 
     def test_session_recording_for_user_with_multiple_distinct_ids_via_personhog(self) -> None:
         from posthog.personhog_client.fake_client import fake_personhog_client
