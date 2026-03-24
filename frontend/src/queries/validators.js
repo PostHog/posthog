@@ -6750,7 +6750,12 @@ function validate81(data, { instancePath = '', parentData, parentDataProperty, r
                                     data === 'avg' ||
                                     data === 'dau' ||
                                     data === 'unique_group' ||
-                                    data === 'hogql'
+                                    data === 'hogql' ||
+                                    data === 'median' ||
+                                    data === 'p75' ||
+                                    data === 'p90' ||
+                                    data === 'p95' ||
+                                    data === 'p99'
                                 )
                             ) {
                                 const err13 = {
