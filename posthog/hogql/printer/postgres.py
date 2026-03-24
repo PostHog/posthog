@@ -146,7 +146,7 @@ class PostgresPrinter(HogQLPrinter):
             return set()
 
         return {
-            function_name
+            function_name.lower()
             for function_name in available_functions
             if isinstance(function_name, str) and _SAFE_FUNCTION_NAME_RE.match(function_name)
         }
