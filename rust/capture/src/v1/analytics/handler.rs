@@ -15,22 +15,25 @@ pub async fn handle_request(
     headers: HeaderMap,
     query: AxumQuery<Query>,
     ip: InsecureClientIp,
-    _method: Method,
+    method: Method,
     path: MatchedPath,
     body: Body,
 ) -> Result<Response, v1::Error> {
-    let context = Context::new(&headers)
-        .map_err(|err| log_and_return_header_error(err, &headers, &ip, &query, &path))?;
+    let context = Context::new(&headers, &ip, &query, method.clone(), path.as_str())
+        .map_err(|err| log_and_return_header_error(err, &headers, &ip, &query, &method, &path))?;
 
     let raw_bytes = v1::util::extract_body_with_timeout(
         body,
         state.event_payload_size_limit,
         state.body_chunk_read_timeout,
         state.body_read_chunk_size_kb,
-        path.as_str(),
+        &context.path,
     )
     .await
-    .map_err(|err| log_and_return_body_error(err, &context, &ip, &query, &path))?;
+    .map_err(|err| {
+        log_stat_error!(err, ctx = &context);
+        err
+    })?;
 
     let payload = v1::util::decompress_payload(
         context.content_encoding.as_deref(),
@@ -39,26 +42,21 @@ pub async fn handle_request(
         state.body_read_chunk_size_kb,
     )
     .await
-    .map_err(|err| log_and_return_body_error(err, &context, &ip, &query, &path))?;
+    .map_err(|err| {
+        log_stat_error!(err, ctx = &context);
+        err
+    })?;
 
     let batch: CaptureV1Batch = serde_json::from_slice(&payload).map_err(|e| {
-        log_and_return_body_error(
-            v1::Error::RequestParsingError(e.to_string()),
-            &context,
-            &ip,
-            &query,
-            &path,
-        )
+        let err = v1::Error::RequestParsingError(e.to_string());
+        log_stat_error!(err, ctx = &context);
+        err
     })?;
 
     if batch.batch.is_empty() {
-        return Err(log_and_return_body_error(
-            v1::Error::EmptyBatch,
-            &context,
-            &ip,
-            &query,
-            &path,
-        ));
+        let err = v1::Error::EmptyBatch;
+        log_stat_error!(err, ctx = &context);
+        return Err(err);
     }
 
     unimplemented!()
@@ -68,7 +66,8 @@ fn log_and_return_header_error(
     err: v1::Error,
     headers: &HeaderMap,
     ip: &InsecureClientIp,
-    query: &Query,
+    query: &AxumQuery<Query>,
+    method: &Method,
     path: &MatchedPath,
 ) -> v1::Error {
     let token = raw_header_str(headers, POSTHOG_API_TOKEN);
@@ -90,30 +89,8 @@ fn log_and_return_header_error(
         content_type = %content_type,
         content_encoding = %content_encoding,
         client_ip = %ip.0,
-        query = ?query,
-        path = %path.as_str(),
-    );
-    err
-}
-
-fn log_and_return_body_error(
-    err: v1::Error,
-    context: &Context,
-    ip: &InsecureClientIp,
-    query: &Query,
-    path: &MatchedPath,
-) -> v1::Error {
-    log_stat_error!(err,
-        token = %context.api_token,
-        request_id = %context.request_id,
-        sdk_info = %context.sdk_info,
-        attempt = context.attempt,
-        client_timestamp = %context.client_timestamp,
-        user_agent = %context.user_agent,
-        content_type = %context.content_type,
-        content_encoding = ?context.content_encoding,
-        client_ip = %ip.0,
-        query = ?query,
+        method = %method,
+        query = ?query.0,
         path = %path.as_str(),
     );
     err

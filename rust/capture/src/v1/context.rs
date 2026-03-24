@@ -1,9 +1,14 @@
-use axum::http::HeaderMap;
+use std::net::IpAddr;
+
+use axum::extract::Query as AxumQuery;
+use axum::http::{HeaderMap, Method};
+use axum_client_ip::InsecureClientIp;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::token::validate_token;
 use crate::v1::analytics::header::*;
+use crate::v1::analytics::query::Query;
 use crate::v1::Error;
 
 const REQUIRED_HEADERS: &[&str] = &[
@@ -27,6 +32,10 @@ pub struct Context {
     pub attempt: u32,
     pub request_id: Uuid,
     pub client_timestamp: DateTime<Utc>,
+    pub client_ip: IpAddr,
+    pub query: Query,
+    pub method: Method,
+    pub path: String,
 }
 
 /// Extracts a required header as &str, assuming presence was already checked.
@@ -40,7 +49,13 @@ fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Result<&'a str, Error> 
 }
 
 impl Context {
-    pub fn new(headers: &HeaderMap) -> Result<Self, Error> {
+    pub fn new(
+        headers: &HeaderMap,
+        ip: &InsecureClientIp,
+        query: &AxumQuery<Query>,
+        method: Method,
+        path: &str,
+    ) -> Result<Self, Error> {
         // Missing-headers gate: collect all absent required headers at once
         let missing: Vec<String> = REQUIRED_HEADERS
             .iter()
@@ -137,16 +152,34 @@ impl Context {
             attempt,
             request_id,
             client_timestamp,
+            client_ip: ip.0,
+            query: query.0.clone(),
+            method,
+            path: path.to_string(),
         })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use axum::http::{HeaderMap, HeaderValue};
+    use std::net::{IpAddr, Ipv4Addr};
+
+    use axum::extract::Query as AxumQuery;
+    use axum::http::{HeaderMap, HeaderValue, Method};
+    use axum_client_ip::InsecureClientIp;
     use uuid::Uuid;
 
     use super::*;
+
+    fn test_context(headers: &HeaderMap) -> Result<Context, Error> {
+        Context::new(
+            headers,
+            &InsecureClientIp(IpAddr::V4(Ipv4Addr::LOCALHOST)),
+            &AxumQuery(Query::default()),
+            Method::POST,
+            "/i/v1/e",
+        )
+    }
 
     fn valid_headers() -> HeaderMap {
         let mut h = HeaderMap::new();
@@ -175,7 +208,7 @@ mod tests {
     #[test]
     fn all_valid_headers_returns_ok() {
         let headers = valid_headers();
-        let ctx = Context::new(&headers);
+        let ctx = test_context(&headers);
         assert!(ctx.is_ok());
         let ctx = ctx.unwrap();
         assert_eq!(ctx.api_token, "phc_test_token_123");
@@ -189,7 +222,7 @@ mod tests {
     fn missing_single_required_header() {
         let mut headers = valid_headers();
         headers.remove(POSTHOG_API_TOKEN);
-        let err = Context::new(&headers).unwrap_err();
+        let err = test_context(&headers).unwrap_err();
         match err {
             Error::MissingRequiredHeaders(names) => {
                 assert_eq!(names, vec![POSTHOG_API_TOKEN]);
@@ -203,7 +236,7 @@ mod tests {
         let mut headers = valid_headers();
         headers.remove(POSTHOG_API_TOKEN);
         headers.remove("user-agent");
-        let err = Context::new(&headers).unwrap_err();
+        let err = test_context(&headers).unwrap_err();
         match err {
             Error::MissingRequiredHeaders(names) => {
                 assert!(names.contains(&POSTHOG_API_TOKEN.to_string()));
@@ -221,7 +254,7 @@ mod tests {
             POSTHOG_API_TOKEN,
             HeaderValue::from_static("phx_personal_key"),
         );
-        let err = Context::new(&headers).unwrap_err();
+        let err = test_context(&headers).unwrap_err();
         assert!(matches!(err, Error::InvalidApiToken(_)));
     }
 
@@ -229,7 +262,7 @@ mod tests {
     fn bad_authorization_format() {
         let mut headers = valid_headers();
         headers.insert("authorization", HeaderValue::from_static("Basic abc123"));
-        let err = Context::new(&headers).unwrap_err();
+        let err = test_context(&headers).unwrap_err();
         assert!(matches!(err, Error::InvalidHeaderValue(_)));
     }
 
@@ -237,7 +270,7 @@ mod tests {
     fn valid_bearer_authorization() {
         let mut headers = valid_headers();
         headers.insert("authorization", HeaderValue::from_static("Bearer my_token"));
-        let ctx = Context::new(&headers).unwrap();
+        let ctx = test_context(&headers).unwrap();
         assert_eq!(ctx.authorization, Some("my_token".to_string()));
     }
 
@@ -245,7 +278,7 @@ mod tests {
     fn wrong_content_type() {
         let mut headers = valid_headers();
         headers.insert("content-type", HeaderValue::from_static("text/plain"));
-        let err = Context::new(&headers).unwrap_err();
+        let err = test_context(&headers).unwrap_err();
         assert!(matches!(err, Error::UnsupportedContentType(_)));
     }
 
@@ -253,7 +286,7 @@ mod tests {
     fn bad_content_encoding() {
         let mut headers = valid_headers();
         headers.insert("content-encoding", HeaderValue::from_static("lz4"));
-        let err = Context::new(&headers).unwrap_err();
+        let err = test_context(&headers).unwrap_err();
         assert!(matches!(err, Error::UnsupportedEncoding(_)));
     }
 
@@ -261,7 +294,7 @@ mod tests {
     fn valid_content_encoding() {
         let mut headers = valid_headers();
         headers.insert("content-encoding", HeaderValue::from_static("gzip"));
-        let ctx = Context::new(&headers).unwrap();
+        let ctx = test_context(&headers).unwrap();
         assert_eq!(ctx.content_encoding, Some("gzip".to_string()));
     }
 
@@ -269,7 +302,7 @@ mod tests {
     fn invalid_uuid_request_id() {
         let mut headers = valid_headers();
         headers.insert(POSTHOG_REQUEST_ID, HeaderValue::from_static("not-a-uuid"));
-        let err = Context::new(&headers).unwrap_err();
+        let err = test_context(&headers).unwrap_err();
         assert!(matches!(err, Error::InvalidHeaderValue(_)));
     }
 
@@ -277,7 +310,7 @@ mod tests {
     fn non_numeric_attempt() {
         let mut headers = valid_headers();
         headers.insert(POSTHOG_ATTEMPT, HeaderValue::from_static("abc"));
-        let err = Context::new(&headers).unwrap_err();
+        let err = test_context(&headers).unwrap_err();
         assert!(matches!(err, Error::InvalidHeaderValue(_)));
     }
 
@@ -285,7 +318,7 @@ mod tests {
     fn zero_attempt_returns_error() {
         let mut headers = valid_headers();
         headers.insert(POSTHOG_ATTEMPT, HeaderValue::from_static("0"));
-        let err = Context::new(&headers).unwrap_err();
+        let err = test_context(&headers).unwrap_err();
         assert!(matches!(err, Error::InvalidHeaderValue(_)));
     }
 
@@ -296,7 +329,7 @@ mod tests {
             POSTHOG_CLIENT_TIMESTAMP,
             HeaderValue::from_static("not-a-timestamp"),
         );
-        let err = Context::new(&headers).unwrap_err();
+        let err = test_context(&headers).unwrap_err();
         assert!(matches!(err, Error::InvalidHeaderValue(_)));
     }
 }

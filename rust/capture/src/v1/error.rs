@@ -279,21 +279,75 @@ impl Error {
 ///
 /// Accepts the same structured-field syntax as tracing macros:
 ///   `log_stat_error!(err)`
-///   `log_stat_error!(err, context=?ctx, token=%tok)`
+///   `log_stat_error!(err, token=%tok, path=%p)`
+///   `log_stat_error!(err, ctx = &context)`
+///   `log_stat_error!(err, ctx = &context, batch_size = batch.batch.len())`
 #[macro_export]
 macro_rules! log_stat_error {
+    // No fields
     ($err:expr) => {
         $crate::log_stat_error!(@emit $err,)
     };
+    // With Context, no extra fields
+    ($err:expr, ctx = $ctx:expr) => {
+        $crate::log_stat_error!(@emit_ctx $err, $ctx,)
+    };
+    // With Context + extra trailing fields
+    ($err:expr, ctx = $ctx:expr, $($extra:tt)+) => {
+        $crate::log_stat_error!(@emit_ctx $err, $ctx, $($extra)+)
+    };
+    // Manual fields only (no Context)
     ($err:expr, $($fields:tt)+) => {
         $crate::log_stat_error!(@emit $err, $($fields)+)
     };
+    // Internal: emit without Context
     (@emit $err:expr, $($fields:tt)*) => {{
         let err = &$err;
         let msg = format!("{} ({}): {}", err.error_type(), err.tag(), err);
         match err.log_level() {
             ::tracing::Level::WARN => ::tracing::warn!($($fields)* "{}", msg),
             _ => ::tracing::error!($($fields)* "{}", msg),
+        }
+        err.stat_error();
+    }};
+    // Internal: emit with Context auto-expansion
+    (@emit_ctx $err:expr, $ctx:expr, $($extra:tt)*) => {{
+        let err = &$err;
+        let ctx = &$ctx;
+        let msg = format!("{} ({}): {}", err.error_type(), err.tag(), err);
+        match err.log_level() {
+            ::tracing::Level::WARN => ::tracing::warn!(
+                token = %ctx.api_token,
+                request_id = %ctx.request_id,
+                sdk_info = %ctx.sdk_info,
+                attempt = ctx.attempt,
+                client_timestamp = %ctx.client_timestamp,
+                user_agent = %ctx.user_agent,
+                content_type = %ctx.content_type,
+                content_encoding = ?ctx.content_encoding,
+                client_ip = %ctx.client_ip,
+                method = %ctx.method,
+                query = ?ctx.query,
+                path = %ctx.path,
+                $($extra)*
+                "{}", msg
+            ),
+            _ => ::tracing::error!(
+                token = %ctx.api_token,
+                request_id = %ctx.request_id,
+                sdk_info = %ctx.sdk_info,
+                attempt = ctx.attempt,
+                client_timestamp = %ctx.client_timestamp,
+                user_agent = %ctx.user_agent,
+                content_type = %ctx.content_type,
+                content_encoding = ?ctx.content_encoding,
+                client_ip = %ctx.client_ip,
+                method = %ctx.method,
+                query = ?ctx.query,
+                path = %ctx.path,
+                $($extra)*
+                "{}", msg
+            ),
         }
         err.stat_error();
     }};
