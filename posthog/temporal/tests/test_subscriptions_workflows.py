@@ -635,7 +635,7 @@ async def test_scheduled_delivery_updates_next_delivery_date(
 @patch("posthog.temporal.subscriptions.activities.send_email_subscription_report")
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
-async def test_export_user_error_classified_correctly_in_slo_events(
+async def test_export_user_error_counts_as_slo_success(
     mock_send_email: MagicMock,
     mock_metric_meter: MagicMock,
     mock_slo_analytics: MagicMock,
@@ -683,7 +683,7 @@ async def test_export_user_error_classified_correctly_in_slo_events(
         c for c in mock_slo_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
     ]
     assert len(completed_calls) == 1
-    assert completed_calls[0].kwargs["properties"]["outcome"] == SloOutcome.FAILURE
+    assert completed_calls[0].kwargs["properties"]["outcome"] == SloOutcome.SUCCESS
 
 
 @patch("posthog.temporal.exports.activities.exporter")
