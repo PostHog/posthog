@@ -778,8 +778,8 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     def _provisioning_request(self, method: str, path: str, json_body: dict | None = None) -> Response:
         """Proxy a request to the duckgres provisioning API."""
-        base_url = getattr(django_settings, "DUCKGRES_PROVISIONING_URL", None)
-        token = getattr(django_settings, "DUCKGRES_PROVISIONING_TOKEN", None)
+        base_url = getattr(django_settings, "DUCKGRES_API_URL", None)
+        token = getattr(django_settings, "DUCKGRES_INTERNAL_SECRET", None)
 
         if not base_url:
             return Response(
@@ -787,12 +787,12 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 status=status.HTTP_501_NOT_IMPLEMENTED,
             )
 
-        # Use the PostHog team_id as the duckgres team identifier
+        # Use the PostHog team_id as the duckgres org identifier
         team_id = str(self.team_id)
-        url = f"{base_url.rstrip('/')}/api/v1/teams/{team_id}{path}"
+        url = f"{base_url.rstrip('/')}/api/v1/orgs/{team_id}{path}"
         headers = {}
         if token:
-            headers["Authorization"] = f"Bearer {token}"
+            headers["X-Duckgres-Internal-Secret"] = token
 
         try:
             resp = http_requests.request(method, url, json=json_body, headers=headers, timeout=30)
