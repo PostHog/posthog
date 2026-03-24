@@ -13,6 +13,41 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     failure_reason = serializers.SerializerMethodField()
 
+    record_id = serializers.CharField(
+        max_length=200,
+        help_text="The ID of the record to modify (e.g. the feature flag ID).",
+    )
+    model_name = serializers.ChoiceField(
+        choices=ScheduledChange.AllowedModels.choices,
+        help_text='The type of record to modify. Currently only "FeatureFlag" is supported.',
+    )
+    payload = serializers.JSONField(
+        help_text=(
+            "The change to apply. Must include an 'operation' key and a 'value' key. "
+            "Supported operations: 'update_status' (value: true/false to enable/disable the flag), "
+            "'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), "
+            "'update_variants' (value: object with 'variants' and 'payloads' keys)."
+        ),
+    )
+    scheduled_at = serializers.DateTimeField(
+        help_text="ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z').",
+    )
+    is_recurring = serializers.BooleanField(
+        default=False,
+        help_text="Whether this schedule repeats. Only the 'update_status' operation supports recurring schedules.",
+    )
+    recurrence_interval = serializers.ChoiceField(
+        choices=ScheduledChange.RecurrenceInterval.choices,
+        required=False,
+        allow_null=True,
+        help_text="How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.",
+    )
+    end_date = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="Optional ISO 8601 datetime after which a recurring schedule stops executing.",
+    )
+
     class Meta:
         model = ScheduledChange
         fields = [

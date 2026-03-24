@@ -19733,10 +19733,18 @@ export namespace Schemas {
     export interface ScheduledChange {
       readonly id: number;
       readonly team_id: number;
-      /** @maxLength 200 */
+      /**
+       * The ID of the record to modify (e.g. the feature flag ID).
+       * @maxLength 200
+       */
       record_id: string;
+      /** The type of record to modify. Currently only "FeatureFlag" is supported.
+
+    * `FeatureFlag` - feature flag */
       model_name: ModelNameEnum;
-      payload?: unknown;
+      /** The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys). */
+      payload: unknown;
+      /** ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z'). */
       scheduled_at: string;
       /** @nullable */
       executed_at?: string | null;
@@ -19748,11 +19756,21 @@ export namespace Schemas {
       readonly created_at: string;
       readonly created_by: UserBasic;
       readonly updated_at: string;
+      /** Whether this schedule repeats. Only the 'update_status' operation supports recurring schedules. */
       is_recurring?: boolean;
-      recurrence_interval?: RecurrenceIntervalEnum | BlankEnum | NullEnum | null;
+      /** How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.
+
+    * `daily` - daily
+    * `weekly` - weekly
+    * `monthly` - monthly
+    * `yearly` - yearly */
+      recurrence_interval?: RecurrenceIntervalEnum | NullEnum | null;
       /** @nullable */
       readonly last_executed_at: string | null;
-      /** @nullable */
+      /**
+       * Optional ISO 8601 datetime after which a recurring schedule stops executing.
+       * @nullable
+       */
       end_date?: string | null;
     }
 
@@ -23404,10 +23422,18 @@ export namespace Schemas {
     export interface PatchedScheduledChange {
       readonly id?: number;
       readonly team_id?: number;
-      /** @maxLength 200 */
+      /**
+       * The ID of the record to modify (e.g. the feature flag ID).
+       * @maxLength 200
+       */
       record_id?: string;
+      /** The type of record to modify. Currently only "FeatureFlag" is supported.
+
+    * `FeatureFlag` - feature flag */
       model_name?: ModelNameEnum;
+      /** The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys). */
       payload?: unknown;
+      /** ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z'). */
       scheduled_at?: string;
       /** @nullable */
       executed_at?: string | null;
@@ -23419,11 +23445,21 @@ export namespace Schemas {
       readonly created_at?: string;
       readonly created_by?: UserBasic;
       readonly updated_at?: string;
+      /** Whether this schedule repeats. Only the 'update_status' operation supports recurring schedules. */
       is_recurring?: boolean;
-      recurrence_interval?: RecurrenceIntervalEnum | BlankEnum | NullEnum | null;
+      /** How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.
+
+    * `daily` - daily
+    * `weekly` - weekly
+    * `monthly` - monthly
+    * `yearly` - yearly */
+      recurrence_interval?: RecurrenceIntervalEnum | NullEnum | null;
       /** @nullable */
       readonly last_executed_at?: string | null;
-      /** @nullable */
+      /**
+       * Optional ISO 8601 datetime after which a recurring schedule stops executing.
+       * @nullable
+       */
       end_date?: string | null;
     }
 
