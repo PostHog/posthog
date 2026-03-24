@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCalculator } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -23,18 +22,19 @@ export function TrendsFormulaToggle({ insightProps }: EditorFilterProps): JSX.El
             title={
                 formulaModeButtonDisabled
                     ? 'This chart type does not support multiple series, so in order to disable formula mode, remove variables or switch to a different chart type.'
-                    : 'Make your own formula(s) the output of the insight with formula mode. Use graph series as variables.'
+                    : 'Use graph series as variables in custom formulas'
             }
         >
-            <LemonButton
-                size="xsmall"
-                onClick={() => toggleFormulaMode()}
-                disabled={formulaModeButtonDisabled}
-                icon={<IconCalculator />}
-                id="trends-formula-switch"
-            >
-                {hasFormula ? 'Disable' : 'Enable'} formula mode
-            </LemonButton>
+            <span>
+                <LemonSwitch
+                    checked={hasFormula}
+                    onChange={() => toggleFormulaMode()}
+                    disabled={formulaModeButtonDisabled}
+                    label="Formula"
+                    size="small"
+                    bordered
+                />
+            </span>
         </Tooltip>
     )
 }
