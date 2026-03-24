@@ -62,6 +62,7 @@ describe('Insights', { concurrent: false }, () => {
             const insightData = parseToolResponse(result)
             expect(insightData.id).toBeTruthy()
             expect(insightData.name).toBe(params.data.name)
+            expect(insightData.saved).toBe(true)
             expect(insightData.url).toContain('/insights/')
 
             createdResources.insights.push(insightData.id)

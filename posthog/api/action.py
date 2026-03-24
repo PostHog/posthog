@@ -188,6 +188,7 @@ class ActionSerializer(
     def get_is_calculating(self, action: Action) -> bool:
         return False
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_creation_context(self, obj):
         return None
 

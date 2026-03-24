@@ -1,15 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { defaultConfig } from '../../src/config/config'
-import {
-    CookielessServerHashMode,
-    Hub,
-    InternalPerson,
-    ProjectId,
-    RawOrganization,
-    RawPerson,
-    Team,
-} from '../../src/types'
+import { CookielessServerHashMode, InternalPerson, ProjectId, RawOrganization, RawPerson, Team } from '../../src/types'
 import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
 import { UUIDT } from '../../src/utils/utils'
 
@@ -307,8 +299,8 @@ export async function createUserTeamAndOrganization(
     await insertRow(db, 'posthog_team', teamData)
 }
 
-export async function getTeams(hub: Hub): Promise<Team[]> {
-    const selectResult = await hub.postgres.query<Team>(
+export async function getTeams(postgres: PostgresRouter): Promise<Team[]> {
+    const selectResult = await postgres.query<Team>(
         PostgresUse.COMMON_READ,
         'SELECT * FROM posthog_team ORDER BY id',
         undefined,
@@ -320,13 +312,13 @@ export async function getTeams(hub: Hub): Promise<Team[]> {
     return selectResult.rows
 }
 
-export async function getTeam(hub: Hub, teamId: Team['id']): Promise<Team | null> {
-    const teams = await getTeams(hub)
+export async function getTeam(postgres: PostgresRouter, teamId: Team['id']): Promise<Team | null> {
+    const teams = await getTeams(postgres)
     return teams.find((team) => team.id === teamId) ?? null
 }
 
-export async function getFirstTeam(hub: Hub): Promise<Team> {
-    return (await getTeams(hub))[0]
+export async function getFirstTeam(postgres: PostgresRouter): Promise<Team> {
+    return (await getTeams(postgres))[0]
 }
 
 export const createOrganization = async (pg: PostgresRouter) => {

@@ -259,19 +259,22 @@ class PersonsByDistinctIdsResponse(_message.Message):
     def __init__(self, results: _Optional[_Iterable[_Union[PersonWithTeamDistinctId, _Mapping]]] = ...) -> None: ...
 
 class GetDistinctIdsForPersonRequest(_message.Message):
-    __slots__ = ("team_id", "person_id", "read_options")
+    __slots__ = ("team_id", "person_id", "read_options", "limit")
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]
     PERSON_ID_FIELD_NUMBER: _ClassVar[int]
     READ_OPTIONS_FIELD_NUMBER: _ClassVar[int]
+    LIMIT_FIELD_NUMBER: _ClassVar[int]
     team_id: int
     person_id: int
     read_options: _common_pb2.ReadOptions
+    limit: int
 
     def __init__(
         self,
         team_id: _Optional[int] = ...,
         person_id: _Optional[int] = ...,
         read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...,
+        limit: _Optional[int] = ...,
     ) -> None: ...
 
 class GetDistinctIdsForPersonResponse(_message.Message):
@@ -282,19 +285,22 @@ class GetDistinctIdsForPersonResponse(_message.Message):
     def __init__(self, distinct_ids: _Optional[_Iterable[_Union[DistinctIdWithVersion, _Mapping]]] = ...) -> None: ...
 
 class GetDistinctIdsForPersonsRequest(_message.Message):
-    __slots__ = ("team_id", "person_ids", "read_options")
+    __slots__ = ("team_id", "person_ids", "read_options", "limit_per_person")
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]
     PERSON_IDS_FIELD_NUMBER: _ClassVar[int]
     READ_OPTIONS_FIELD_NUMBER: _ClassVar[int]
+    LIMIT_PER_PERSON_FIELD_NUMBER: _ClassVar[int]
     team_id: int
     person_ids: _containers.RepeatedScalarFieldContainer[int]
     read_options: _common_pb2.ReadOptions
+    limit_per_person: int
 
     def __init__(
         self,
         team_id: _Optional[int] = ...,
         person_ids: _Optional[_Iterable[int]] = ...,
         read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...,
+        limit_per_person: _Optional[int] = ...,
     ) -> None: ...
 
 class GetDistinctIdsForPersonsResponse(_message.Message):

@@ -5,7 +5,7 @@ from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 
 import structlog
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -52,6 +52,7 @@ class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
+    @extend_schema_field(serializers.DictField(help_text="Feature flag payload for this early access feature"))
     def get_payload(self, obj):
         return obj.payload if obj.payload else {}
 
@@ -61,6 +62,21 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
     name = serializers.CharField(
         max_length=200,
         help_text="The name of the early access feature.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="A longer description of what this early access feature does, shown to users in the opt-in UI.",
+    )
+    stage = serializers.ChoiceField(
+        choices=EarlyAccessFeature.Stage.choices,
+        help_text="Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha/beta/general-availability) enables the feature flag for opted-in users.",
+    )
+    documentation_url = serializers.URLField(
+        max_length=800,
+        required=False,
+        allow_blank=True,
+        help_text="URL to external documentation for this feature. Shown to users in the opt-in UI.",
     )
     payload = serializers.SerializerMethodField()
 
@@ -78,6 +94,7 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "feature_flag", "created_at"]
 
+    @extend_schema_field(serializers.DictField(help_text="Feature flag payload for this early access feature"))
     def get_payload(self, obj):
         return obj.payload if obj.payload else {}
 
@@ -184,11 +201,20 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
 
 
 class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
-    feature_flag_id = serializers.IntegerField(required=False, write_only=True)
+    feature_flag_id = serializers.IntegerField(
+        required=False,
+        write_only=True,
+        help_text="Optional ID of an existing feature flag to link. If omitted, a new flag is auto-created from the feature name. The flag must not already be linked to another feature, must not be group-based, and must not be multivariate.",
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     # Override payload to allow writing (parent uses SerializerMethodField which is read-only)
-    payload = serializers.JSONField(required=False, allow_null=False, default=dict)  # type: ignore
+    payload = serializers.JSONField(
+        required=False,
+        allow_null=False,
+        default=dict,
+        help_text="Arbitrary JSON metadata associated with this feature.",
+    )  # type: ignore
 
     class Meta:
         model = EarlyAccessFeature

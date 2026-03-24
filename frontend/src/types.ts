@@ -622,6 +622,9 @@ export interface ConversationsSettings {
     slack_channel_id?: string | null
     slack_channel_name?: string | null
     slack_ticket_emoji?: string | null
+    slack_bot_icon_url?: string | null
+    slack_bot_display_name?: string | null
+    email_enabled?: boolean
 }
 
 export interface LogsSettings {
@@ -1350,12 +1353,23 @@ export interface ActionFilter extends EntityFilter {
 
 export const isGroupFilter = (filter: EntityFilter): filter is ActionFilter => filter.type === EntityTypes.GROUPS
 
-export type DataWarehouseFilter = TrendsDataWarehouseFilter | LifecycleDatawarehouseFilter
+export type AnyDataWarehouseFilter =
+    | TrendsDataWarehouseFilter
+    | FunnelDatawarehouseFilter
+    | LifecycleDatawarehouseFilter
+
 export interface TrendsDataWarehouseFilter extends ActionFilter {
     table_name: string
     id_field: string
     timestamp_field: string
     distinct_id_field: string
+}
+
+export interface FunnelDatawarehouseFilter extends ActionFilter {
+    table_name: string
+    id_field: string
+    timestamp_field: string
+    aggregation_target_field: string
 }
 
 export interface LifecycleDatawarehouseFilter extends ActionFilter {
@@ -1365,7 +1379,7 @@ export interface LifecycleDatawarehouseFilter extends ActionFilter {
     created_at_field: string
 }
 
-export const isDataWarehouseFilter = (filter: EntityFilter): filter is DataWarehouseFilter =>
+export const isDataWarehouseFilter = (filter: EntityFilter): filter is AnyDataWarehouseFilter =>
     filter.type === EntityTypes.DATA_WAREHOUSE
 
 export interface FunnelExclusionLegacy extends Partial<EntityFilter> {
@@ -1766,6 +1780,7 @@ export interface SessionRecordingType {
     expiry_time?: string
     /** Number of whole days left until the recording expires. */
     recording_ttl?: number
+    has_summary?: boolean
     /** External references to third party issues. */
     external_references?: SessionRecordingExternalReference[]
 }
@@ -2173,6 +2188,7 @@ export interface DashboardTile<T = InsightModel> extends Tileable {
     id: number
     insight?: T
     text?: TextModel
+    button_tile?: ButtonTileModel
     deleted?: boolean
     is_cached?: boolean
     order?: number
@@ -2182,7 +2198,10 @@ export interface DashboardTile<T = InsightModel> extends Tileable {
     }
     filters_overrides?: TileFilters
     show_description?: boolean | null
+    transparent_background?: boolean | null
 }
+
+export type DashboardWidgetType = 'insight' | 'text' | 'button_tile'
 
 export interface DashboardTileBasicType {
     id: number
@@ -2190,11 +2209,27 @@ export interface DashboardTileBasicType {
     deleted?: boolean
 }
 
-export interface TextModel {
-    body: string
+/** Shared fields for simple dashboard content models (text card, button tile, etc.). */
+export interface DashboardWidgetInterface {
+    id?: number
+    /** Placements on dashboards (same shape as insight `dashboard_tiles`; preferred over legacy `dashboards` on insights where applicable). */
+    dashboard_tiles?: DashboardTileBasicType[] | null
     created_by?: UserBasicType
     last_modified_by?: UserBasicType
+    last_modified_at?: string
+}
+
+export interface TextModel extends DashboardWidgetInterface {
+    body: string
     last_modified_at: string
+}
+
+export interface ButtonTileModel extends DashboardWidgetInterface {
+    url: string
+    text: string
+    placement: 'left' | 'right'
+    style: 'primary' | 'secondary'
+    team?: number
 }
 
 export interface InsightModel extends Cacheable, WithAccessControl {
@@ -2262,6 +2297,7 @@ export interface EndpointType extends WithAccessControl {
     last_executed_at?: string
     materialization?: EndpointVersionMaterializationType
     columns?: { name: string; type: string }[]
+    bucket_overrides?: Record<string, string> | null
 }
 
 /** Extends EndpointType with version-specific fields when fetching a specific version */
@@ -3812,6 +3848,7 @@ export interface FeatureFlagGroupType {
     users_affected?: number
     sort_key?: string | null // Client-side only stable id for sorting.
     description?: string | null
+    aggregation_group_type_index?: integer | null
 }
 
 export interface MultivariateFlagVariant {
@@ -4830,6 +4867,7 @@ export const INTEGRATION_KINDS = [
     'salesforce',
     'hubspot',
     'google-pubsub',
+    'google-cloud-service-account',
     'google-cloud-storage',
     'google-ads',
     'google-sheets',
@@ -5368,6 +5406,8 @@ export interface DataWarehouseSavedQuery {
     created_at?: string
     run_history?: DataWarehouseSavedQueryRunHistory[]
     origin?: DataWarehouseSavedQueryOrigin
+    is_test?: boolean
+    expires_at?: string
 }
 
 export interface DataWarehouseSavedQueryDraft {
@@ -5424,6 +5464,21 @@ export interface ExternalDataSourceCreatePayload {
     access_method?: 'warehouse' | 'direct'
     payload: Record<string, any>
 }
+
+export interface ExternalDataSourceConnectionMetadata {
+    database?: string | null
+    version?: string | null
+    engine?: 'duckdb' | 'postgres' | null
+    function_source?: string | null
+    available_functions?: string[]
+}
+
+export interface ExternalDataSourceConnectionOption {
+    id: string
+    prefix: string | null
+    engine?: 'duckdb' | 'postgres' | null
+}
+
 export interface ExternalDataSource {
     id: string
     source_id: string
@@ -5433,6 +5488,7 @@ export interface ExternalDataSource {
     prefix: string | null
     description: string | null
     access_method?: 'warehouse' | 'direct'
+    engine?: 'duckdb' | 'postgres' | null
     latest_error: string | null
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]
@@ -5467,6 +5523,7 @@ export type SchemaIncrementalFieldsResponse = {
     incremental_available: boolean
     append_available: boolean
     full_refresh_available: boolean
+    supports_webhooks: boolean
 }
 
 // numeric is snowflake specific and objectid is mongodb specific
@@ -5491,6 +5548,9 @@ export interface ExternalDataSourceSyncSchema {
     incremental_fields: IncrementalField[]
     incremental_available: boolean
     append_available: boolean
+    supports_webhooks: boolean
+    description?: string | null
+    should_sync_default: boolean
 }
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
@@ -5503,6 +5563,8 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     incremental_field: string | null
     incremental_field_type: string | null
     sync_frequency: DataWarehouseSyncInterval
+    description?: string | null
+    should_sync_default?: boolean
 }
 
 export enum ExternalDataSchemaStatus {
@@ -5596,6 +5658,7 @@ export type BatchExportServiceSnowflake = {
 
 export type BatchExportServiceBigQuery = {
     type: 'BigQuery'
+    integration?: number
     config: {
         project_id: string
         private_key: string
@@ -5680,11 +5743,6 @@ export type BatchExportServiceAzureBlob = {
     }
 }
 
-export type BatchExportRealtimeDestinationBackfill = {
-    type: 'Workflows'
-    config: {}
-}
-
 // When adding a new option here also add a icon for it to
 // frontend/public/services/
 // and update RenderBatchExportIcon
@@ -5697,7 +5755,6 @@ export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
     'HTTP',
     'Databricks',
     'AzureBlob',
-    'Workflows',
 ]
 export type BatchExportService =
     | BatchExportServiceS3
@@ -5708,11 +5765,19 @@ export type BatchExportService =
     | BatchExportServiceHTTP
     | BatchExportServiceDatabricks
     | BatchExportServiceAzureBlob
-    | BatchExportRealtimeDestinationBackfill
 
 export type BatchExportInterval = 'hour' | 'day' | 'week' | 'every 5 minutes' | 'every 15 minutes'
 
-export type DataWarehouseSyncInterval = '5min' | '30min' | '1hour' | '6hour' | '12hour' | '24hour' | '7day' | '30day'
+export type DataWarehouseSyncInterval =
+    | '5min'
+    | '15min'
+    | '30min'
+    | '1hour'
+    | '6hour'
+    | '12hour'
+    | '24hour'
+    | '7day'
+    | '30day'
 export type OrNever = 'never'
 
 export type BatchExportConfiguration = {
@@ -5735,7 +5800,7 @@ export type BatchExportConfiguration = {
     latest_runs?: BatchExportRun[]
 }
 
-export type BatchExportConfigurationTestStepStatus = 'Passed' | 'Failed'
+export type BatchExportConfigurationTestStepStatus = 'Passed' | 'Failed' | 'Skipped'
 
 export type BatchExportConfigurationTestStepResult = {
     status: BatchExportConfigurationTestStepStatus
@@ -5868,11 +5933,13 @@ export enum SDKKey {
     ANTHROPIC = 'anthropic',
     ASTRO = 'astro',
     AUTOGEN = 'autogen',
+    AWS_BEDROCK = 'aws_bedrock',
     AZURE_OPENAI = 'azure_openai',
     API = 'api',
     BUBBLE = 'bubble',
     CEREBRAS = 'cerebras',
     COHERE = 'cohere',
+    CONVEX = 'convex',
     CREWAI = 'crewai',
     DJANGO = 'django',
     DEEPSEEK = 'deepseek',
@@ -5995,7 +6062,6 @@ export enum SidePanelTab {
     Status = 'status',
     Exports = 'exports',
     AccessControl = 'access-control',
-    SdkDoctor = 'sdk-doctor',
     Health = 'health',
     Info = 'info',
 }
@@ -6198,6 +6264,7 @@ export type HogFunctionConfigurationContextId =
     | 'discussion-mention'
     | 'insight-alerts'
     | 'experiment-alerts'
+    | 'logs-alerting'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
@@ -6209,6 +6276,7 @@ export type HogFunctionSubTemplateIdType =
     | 'discussion-mention'
     | 'insight-alert-firing'
     | 'experiment-significant'
+    | 'logs-alert-firing'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,

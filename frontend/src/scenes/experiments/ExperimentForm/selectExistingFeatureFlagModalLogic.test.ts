@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
@@ -93,7 +95,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/@current/experiments/eligible_feature_flags/': (req) => {
+                [`/api/projects/${MOCK_TEAM_ID}/experiments/eligible_feature_flags/`]: (req) => {
                     const url = new URL(req.url, 'http://localhost')
                     const search = url.searchParams.get('search')
 
@@ -236,9 +238,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
         it('debounces and loads feature flags after setFilters', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setFilters({ search: 'test' })
-            })
-                .delay(350)
-                .toDispatchActions(['setFilters', 'loadFeatureFlags'])
+            }).toDispatchActions(['setFilters', 'loadFeatureFlags', 'loadFeatureFlagsSuccess'])
         })
     })
 
@@ -260,7 +260,6 @@ describe('selectExistingFeatureFlagModalLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setFilters({ search: 'flag-1' })
             })
-                .delay(350)
                 .toDispatchActions(['setFilters', 'loadFeatureFlags', 'loadFeatureFlagsSuccess'])
                 .toMatchValues({
                     featureFlags: {
@@ -275,7 +274,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
         it('calculates pagination correctly when no results', async () => {
             useMocks({
                 get: {
-                    '/api/projects/@current/experiments/eligible_feature_flags/': () => [
+                    [`/api/projects/${MOCK_TEAM_ID}/experiments/eligible_feature_flags/`]: () => [
                         200,
                         {
                             results: [],
@@ -321,7 +320,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
         it('enables forward button when there are more pages', async () => {
             useMocks({
                 get: {
-                    '/api/projects/@current/experiments/eligible_feature_flags/': () => [
+                    [`/api/projects/${MOCK_TEAM_ID}/experiments/eligible_feature_flags/`]: () => [
                         200,
                         {
                             results: mockFeatureFlags,
@@ -350,7 +349,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
         it('enables backward button when on page 2+', async () => {
             useMocks({
                 get: {
-                    '/api/projects/@current/experiments/eligible_feature_flags/': () => [
+                    [`/api/projects/${MOCK_TEAM_ID}/experiments/eligible_feature_flags/`]: () => [
                         200,
                         {
                             results: mockFeatureFlags,
@@ -362,8 +361,9 @@ describe('selectExistingFeatureFlagModalLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setFilters({ page: 2 })
+                logic.actions.loadFeatureFlags()
             })
-                .delay(350)
+                .toDispatchActions(['loadFeatureFlagsSuccess'])
                 .toMatchValues({
                     pagination: {
                         controlled: true,
@@ -379,7 +379,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
         it('updates page when onForward is called', async () => {
             useMocks({
                 get: {
-                    '/api/projects/@current/experiments/eligible_feature_flags/': () => [
+                    [`/api/projects/${MOCK_TEAM_ID}/experiments/eligible_feature_flags/`]: () => [
                         200,
                         {
                             results: mockFeatureFlags,
@@ -398,7 +398,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
             await expectLogic(logic, () => {
                 pagination.onForward?.()
             })
-                .delay(350)
+                .toDispatchActions(['setFilters', 'loadFeatureFlags', 'loadFeatureFlagsSuccess'])
                 .toMatchValues({
                     filters: expect.objectContaining({
                         page: 2,
@@ -409,7 +409,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
         it('updates page when onBackward is called', async () => {
             useMocks({
                 get: {
-                    '/api/projects/@current/experiments/eligible_feature_flags/': () => [
+                    [`/api/projects/${MOCK_TEAM_ID}/experiments/eligible_feature_flags/`]: () => [
                         200,
                         {
                             results: mockFeatureFlags,
@@ -421,16 +421,14 @@ describe('selectExistingFeatureFlagModalLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setFilters({ page: 3 })
-            })
-                .delay(350)
-                .toDispatchActions(['loadFeatureFlagsSuccess'])
+            }).toDispatchActions(['setFilters', 'loadFeatureFlags', 'loadFeatureFlagsSuccess'])
 
             const { pagination } = logic.values
 
             await expectLogic(logic, () => {
                 pagination.onBackward?.()
             })
-                .delay(350)
+                .toDispatchActions(['setFilters', 'loadFeatureFlags', 'loadFeatureFlagsSuccess'])
                 .toMatchValues({
                     filters: expect.objectContaining({
                         page: 2,
@@ -441,7 +439,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
         it('never goes below page 1 when onBackward is called', async () => {
             useMocks({
                 get: {
-                    '/api/projects/@current/experiments/eligible_feature_flags/': () => [
+                    [`/api/projects/${MOCK_TEAM_ID}/experiments/eligible_feature_flags/`]: () => [
                         200,
                         {
                             results: mockFeatureFlags,
@@ -453,9 +451,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setFilters({ page: 1 })
-            })
-                .delay(350)
-                .toDispatchActions(['loadFeatureFlagsSuccess'])
+            }).toDispatchActions(['setFilters', 'loadFeatureFlags', 'loadFeatureFlagsSuccess'])
 
             const { pagination } = logic.values
             expect(pagination.onBackward).toBeUndefined()

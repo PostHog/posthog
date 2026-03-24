@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import {
     IconApps,
@@ -188,10 +189,12 @@ export function NavTabBrowse(): JSX.Element {
     const currentPath = removeProjectIdIfPresent(pathname)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
-        if (activePanelIdentifier !== item) {
+        const isOpening = activePanelIdentifier !== item
+        posthog.capture('nav panel trigger clicked', { panel: item, is_open: isOpening })
+        if (isOpening) {
             setActivePanelIdentifier(item)
             showLayoutPanel(true)
-        } else if (activePanelIdentifier === item) {
+        } else {
             clearActivePanelIdentifier()
             showLayoutPanel(false)
         }
@@ -202,23 +205,32 @@ export function NavTabBrowse(): JSX.Element {
             className={cn('flex-1', {
                 'rounded-tr': !isLayoutPanelVisible && !firstTabIsActive,
             })}
-            innerClassName="overflow-y-auto overflow-x-hidden px-1"
+            innerClassName="overflow-y-auto overflow-x-hidden px-2 focus-visible:outline-accent -outline-offset-2"
             direction="vertical"
             styledScrollbars
         >
             <Collapsible
                 open={expandedNavSections.project || isLayoutNavCollapsed ? true : false}
-                onOpenChange={() => toggleNavSection('project')}
+                onOpenChange={() => {
+                    posthog.capture('nav section toggled', {
+                        section: 'project',
+                        is_open: !expandedNavSections.project,
+                    })
+                    toggleNavSection('project')
+                }}
+                data-attr="nav-section-project"
             >
                 {!isLayoutNavCollapsed && (
                     <SectionTrigger icon={<IconFolder />} label="Project" isCollapsed={isLayoutNavCollapsed} />
                 )}
-                <Collapsible.Panel className={cn('pl-2', isLayoutNavCollapsed && 'items-center pl-0')}>
+                <Collapsible.Panel className={cn('pl-2 pt-1', isLayoutNavCollapsed && 'items-center pl-0')}>
                     <NavLink
                         to={urls.projectRoot()}
                         label="Home"
                         icon={<IconHome />}
                         isCollapsed={isLayoutNavCollapsed}
+                        data-attr="nav-item-home"
+                        onClick={() => posthog.capture('nav item clicked', { item: 'home' })}
                     />
 
                     {isProductAutonomyEnabled && (
@@ -227,6 +239,8 @@ export function NavTabBrowse(): JSX.Element {
                             label="Inbox"
                             icon={<IconNotification />}
                             isCollapsed={isLayoutNavCollapsed}
+                            data-attr="nav-item-inbox"
+                            onClick={() => posthog.capture('nav item clicked', { item: 'inbox' })}
                         />
                     )}
 
@@ -235,6 +249,8 @@ export function NavTabBrowse(): JSX.Element {
                         label="Activity"
                         icon={<IconClock />}
                         isCollapsed={isLayoutNavCollapsed}
+                        data-attr="nav-item-activity"
+                        onClick={() => posthog.capture('nav item clicked', { item: 'activity' })}
                     />
 
                     <div className={cn('flex flex-col gap-px', isLayoutNavCollapsed && 'items-center')}>
@@ -301,12 +317,17 @@ export function NavTabBrowse(): JSX.Element {
                 <Collapsible
                     open={expandedNavSections.recents ?? false}
                     onOpenChange={() => {
+                        posthog.capture('nav section toggled', {
+                            section: 'recents',
+                            is_open: !expandedNavSections.recents,
+                        })
                         if (!expandedNavSections.recents) {
                             loadRecentItems({})
                         }
                         toggleNavSection('recents')
                     }}
                     className="mt-2 group/colorful-product-icons colorful-product-icons-true"
+                    data-attr="nav-section-recents"
                 >
                     <SectionTrigger icon={<IconClock />} label="Recents" isCollapsed={isLayoutNavCollapsed} />
                     <Collapsible.Panel className="pl-2">
@@ -363,8 +384,15 @@ export function NavTabBrowse(): JSX.Element {
             {!isLayoutNavCollapsed && (
                 <Collapsible
                     open={expandedNavSections.apps ?? false}
-                    onOpenChange={() => toggleNavSection('apps')}
+                    onOpenChange={() => {
+                        posthog.capture('nav section toggled', {
+                            section: 'apps',
+                            is_open: !expandedNavSections.apps,
+                        })
+                        toggleNavSection('apps')
+                    }}
                     className="mt-2 group/colorful-product-icons colorful-product-icons-true"
+                    data-attr="nav-section-apps"
                 >
                     <SectionTrigger icon={<IconApps />} label="Apps" isCollapsed={isLayoutNavCollapsed} />
                     <Collapsible.Panel className="-ml-2 pl-3 pr-1 w-[calc(100%+(var(--spacing)*4))]">

@@ -104,7 +104,12 @@ class TestEarlyAccessFeature(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("with_rollout_to_all", True, False, [{"properties": [], "rollout_percentage": 100}]),
+            (
+                "with_rollout_to_all",
+                True,
+                False,
+                [{"properties": [], "rollout_percentage": 100}],
+            ),
             ("without_rollout_to_all", False, True, None),
         ]
     )

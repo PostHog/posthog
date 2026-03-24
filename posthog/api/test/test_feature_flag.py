@@ -24,7 +24,7 @@ from rest_framework import status
 from posthog import redis
 from posthog.api.cohort import get_cohort_actors_for_feature_flag
 from posthog.api.feature_flag import FeatureFlagSerializer, extract_etag_from_header
-from posthog.models import Experiment, FeatureFlag, GroupTypeMapping, TaggedItem, User
+from posthog.models import FeatureFlag, GroupTypeMapping, TaggedItem, User
 from posthog.models.cohort import Cohort
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlagDashboards, get_feature_flags_for_team_in_cache
@@ -35,14 +35,15 @@ from posthog.models.group.util import create_group
 from posthog.models.organization import Organization
 from posthog.models.person import Person
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
-from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.experiments.backend.models.experiment import Experiment
 from products.product_tours.backend.models import ProductTour
+from products.surveys.backend.models import Survey
 
 
 class TestExtractEtagFromHeader:
@@ -425,6 +426,48 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["key"], f"cohort-feature-{operator}")
+
+    def test_saving_flag_strips_legacy_holdout_groups(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="holdout-cleanup-test",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "holdout_groups": [{"properties": [], "rollout_percentage": 10, "variant": "holdout-1"}],
+                "holdout": {"id": 1, "exclusion_percentage": 10},
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.pk}",
+            {"name": "Updated"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        flag.refresh_from_db()
+        self.assertNotIn("holdout_groups", flag.filters)
+        self.assertEqual(flag.filters["holdout"], {"id": 1, "exclusion_percentage": 10})
+
+    def test_saving_flag_strips_legacy_holdout_groups_without_holdout_key(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="holdout-cleanup-test-legacy",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "holdout_groups": [{"properties": [], "rollout_percentage": 10, "variant": "holdout-1"}],
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.pk}",
+            {"name": "Updated"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        flag.refresh_from_db()
+        self.assertNotIn("holdout_groups", flag.filters)
 
     def test_cant_update_flag_with_duplicate_key(self):
         existing_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
@@ -1324,7 +1367,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                             ],
                                             "rollout_percentage": 65,
                                         }
-                                    ]
+                                    ],
                                 },
                             },
                             {
@@ -2068,7 +2111,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                             ],
                                             "rollout_percentage": 65,
                                         }
-                                    ]
+                                    ],
                                 },
                             },
                             {
@@ -2456,7 +2499,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 "action": "created",
                                 "field": "filters",
                                 "before": None,
-                                "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
+                                "after": {
+                                    "groups": [
+                                        {
+                                            "properties": [],
+                                            "rollout_percentage": 74,
+                                        }
+                                    ],
+                                },
                             },
                             {
                                 "action": "changed",
@@ -2568,7 +2618,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 "action": "created",
                                 "field": "filters",
                                 "before": None,
-                                "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
+                                "after": {
+                                    "groups": [
+                                        {
+                                            "properties": [],
+                                            "rollout_percentage": 74,
+                                        }
+                                    ],
+                                },
                             },
                             {
                                 "action": "changed",
@@ -5001,7 +5058,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {
                 "type": "validation_error",
                 "code": "invalid_input",
-                "detail": "Filters are not valid (can only use group properties)",
+                "detail": "Filters are not valid (group properties must match the condition set's group type)",
                 "attr": "filters",
             },
         )
@@ -5024,10 +5081,112 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {
                 "type": "validation_error",
                 "code": "invalid_input",
-                "detail": "Filters are not valid (can only use group properties)",
+                "detail": "Filters are not valid (group-aggregated conditions can only use group properties)",
                 "attr": "filters",
             },
         )
+
+    def test_validation_mixed_aggregation_types_rejected(self):
+        """Test that mixed aggregation types across condition sets are rejected"""
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Mixed aggregation flag",
+                "key": "mixed-aggregation-flag",
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [],
+                            "rollout_percentage": 50,
+                            "aggregation_group_type_index": None,  # Person aggregation
+                        },
+                        {
+                            "properties": [],
+                            "rollout_percentage": 50,
+                            "aggregation_group_type_index": 0,  # Group aggregation
+                        },
+                    ]
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Mixed aggregation types across condition sets are not yet supported. All condition sets must use the same aggregation type.",
+                "attr": "filters",
+            },
+        )
+
+    def test_per_condition_aggregation_normalization(self):
+        """Test that flag-level aggregation is distributed to condition sets without one"""
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Normalized aggregation flag",
+                "key": "normalized-aggregation-flag",
+                "filters": {
+                    "aggregation_group_type_index": 0,
+                    "groups": [
+                        {"properties": [], "rollout_percentage": 100},
+                    ],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        result = response.json()
+        # Flag-level should be preserved
+        self.assertEqual(result["filters"]["aggregation_group_type_index"], 0)
+        # Condition set should have inherited the flag-level value
+        self.assertEqual(result["filters"]["groups"][0]["aggregation_group_type_index"], 0)
+
+    def test_per_condition_aggregation_roundtrip(self):
+        """Test that per-condition aggregation values persist through create/read"""
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        # Create with explicit per-condition value
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Per-condition aggregation flag",
+                "key": "per-condition-aggregation-flag",
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [],
+                            "rollout_percentage": 100,
+                            "aggregation_group_type_index": 0,
+                        },
+                    ],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        flag_id = create_response.json()["id"]
+
+        # Read it back
+        get_response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/")
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+        result = get_response.json()
+
+        # Both flag-level and condition-level should be present and consistent
+        self.assertEqual(result["filters"]["aggregation_group_type_index"], 0)
+        self.assertEqual(result["filters"]["groups"][0]["aggregation_group_type_index"], 0)
 
     def test_validation_empty_groups(self):
         """Test that creating a flag with empty groups raises validation error"""
@@ -9718,7 +9877,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(
             response.status_code,
-            status.HTTP_404_NOT_FOUND if expected_status == FeatureFlagStatus.UNKNOWN else status.HTTP_200_OK,
+            status.HTTP_200_OK,
         )
         response_data = response.json()
         self.assertEqual(response_data.get("status"), expected_status)
@@ -9798,46 +9957,32 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             FeatureFlagStatus.ACTIVE,
         )
 
-        # Request status for flag that has holdout group rolled out to <100%
-        fifty_percent_holdout_group_flag = FeatureFlag.objects.create(
+        # Request status for flag with holdout at <100% exclusion
+        holdout_flag = FeatureFlag.objects.create(
             created_at=datetime.now(UTC) - timedelta(days=31),
-            name="50 percent holdout group flag",
-            key="50-percent-holdout-group-flag",
+            name="50 percent holdout flag",
+            key="50-percent-holdout-flag",
             team=self.team,
             active=True,
-            filters={"holdout_groups": [{"rollout_percentage": 50, "properties": []}]},
+            filters={"holdout": {"id": 1, "exclusion_percentage": 50}},
             last_called_at=datetime.now(UTC) - timedelta(days=1),
         )
 
-        self.assert_expected_response(fifty_percent_holdout_group_flag.id, FeatureFlagStatus.ACTIVE)
+        self.assert_expected_response(holdout_flag.id, FeatureFlagStatus.ACTIVE)
 
-        # Request status for flag that has holdout group rolled out to 100% and specific properties
-        fully_rolled_out_holdout_group_flag_with_properties = FeatureFlag.objects.create(
+        # Request status for flag with holdout at 100% exclusion
+        fully_excluded_holdout_flag = FeatureFlag.objects.create(
             created_at=datetime.now(UTC) - timedelta(days=31),
-            name="100 percent holdout group with properties flag",
-            key="100-percent-holdout-group-with-properties-flag",
+            name="100 percent holdout flag",
+            key="100-percent-holdout-flag",
             team=self.team,
             active=True,
-            filters={
-                "holdout_groups": [
-                    {
-                        "properties": [
-                            {
-                                "key": "name",
-                                "type": "person",
-                                "value": ["Smith"],
-                                "operator": "contains",
-                            }
-                        ],
-                        "rollout_percentage": 100,
-                    }
-                ]
-            },
+            filters={"holdout": {"id": 2, "exclusion_percentage": 100}},
             last_called_at=datetime.now(UTC) - timedelta(days=1),
         )
 
         self.assert_expected_response(
-            fully_rolled_out_holdout_group_flag_with_properties.id,
+            fully_excluded_holdout_flag.id,
             FeatureFlagStatus.ACTIVE,
         )
 

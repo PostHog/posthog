@@ -1,134 +1,10 @@
 import { Message } from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { PipelineEvent } from '../../types'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
-import { droppedEventCounter, pipelineStepDLQCounter, pipelineStepRedirectCounter } from './event-pipeline/metrics'
-import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from './utils'
-
-/**
- * Send an event to the dead letter queue with proper logging and metrics
- */
-export async function sendEventToDLQ(
-    kafkaProducer: KafkaProducerWrapper,
-    originalEvent: PipelineEvent,
-    error: unknown,
-    stepName: string,
-    teamId?: number
-): Promise<void> {
-    const step = stepName
-    const eventTeamId = teamId || originalEvent.team_id || 0
-
-    logger.warn('Event sent to DLQ', {
-        step,
-        team_id: eventTeamId,
-        distinct_id: originalEvent.distinct_id,
-        event: originalEvent.event,
-        error: error instanceof Error ? error.message : String(error),
-    })
-
-    pipelineStepDLQCounter.labels(step).inc()
-
-    try {
-        await captureIngestionWarning(
-            kafkaProducer,
-            eventTeamId,
-            'pipeline_step_dlq',
-            {
-                distinctId: originalEvent.distinct_id || 'unknown',
-                eventUuid: originalEvent.uuid || 'unknown',
-                error: error instanceof Error ? error.message : String(error),
-                event: originalEvent.event || 'unknown',
-                step,
-            },
-            { alwaysSend: true }
-        )
-
-        const dlqMessage = generateEventDeadLetterQueueMessage(
-            originalEvent,
-            error || new Error('Pipeline step returned DLQ result'),
-            eventTeamId,
-            `plugin_server_ingest_event:${step}`
-        )
-
-        await kafkaProducer.queueMessages(dlqMessage)
-    } catch (dlqError) {
-        logger.error('Failed to send event to DLQ', {
-            step,
-            team_id: eventTeamId,
-            distinct_id: originalEvent.distinct_id,
-            error: dlqError,
-        })
-        captureException(dlqError, {
-            tags: { team_id: eventTeamId, pipeline_step: step },
-            extra: { originalEvent, error: dlqError },
-        })
-    }
-}
-
-/**
- * Redirect an event to a specified Kafka topic
- */
-export async function redirectEventToTopic(
-    kafkaProducer: KafkaProducerWrapper,
-    originalEvent: PipelineEvent,
-    topic: string,
-    stepName?: string,
-    preserveKey: boolean = true,
-    awaitAck: boolean = true
-): Promise<void> {
-    const step = stepName || 'unknown'
-    const teamId = originalEvent.team_id || 0
-
-    logger.info('Event redirected to topic', {
-        step,
-        team_id: teamId,
-        distinct_id: originalEvent.distinct_id,
-        event: originalEvent.event,
-        topic,
-    })
-
-    try {
-        const producePromise = kafkaProducer.produce({
-            topic: topic,
-            key: preserveKey ? `${teamId}:${originalEvent.distinct_id}` : null,
-            value: Buffer.from(JSON.stringify(originalEvent)),
-            headers: {
-                distinct_id: originalEvent.distinct_id || 'unknown',
-                team_id: teamId.toString(),
-            },
-        })
-
-        if (awaitAck) {
-            await producePromise
-        }
-
-        logger.info('Event successfully redirected to topic', {
-            team_id: teamId,
-            distinct_id: originalEvent.distinct_id,
-            event: originalEvent.event,
-            topic,
-        })
-    } catch (redirectError) {
-        logger.error('Failed to redirect event to topic', {
-            team_id: teamId,
-            distinct_id: originalEvent.distinct_id,
-            topic,
-            error: redirectError,
-        })
-        captureException(redirectError, {
-            tags: { team_id: teamId, pipeline_step: step },
-            extra: { originalEvent, topic, error: redirectError },
-        })
-        throw redirectError // Re-throw to ensure the pipeline handles the failure appropriately
-    }
-}
-
-// ============================================================================
-// Message-based helper functions for PipelineResultHandler
-// ============================================================================
+import { captureIngestionWarning } from './utils'
 
 /**
  * Helper function to copy and extend headers from a Kafka message
@@ -214,8 +90,6 @@ export async function sendMessageToDLQ(
         error: error instanceof Error ? error.message : String(error),
     })
 
-    pipelineStepDLQCounter.labels(step).inc()
-
     try {
         if (messageInfo.teamId) {
             await captureIngestionWarning(
@@ -276,12 +150,6 @@ export async function redirectMessageToTopic(
 ): Promise<void> {
     const step = stepName || 'unknown'
 
-    pipelineStepRedirectCounter.inc({
-        step_name: step,
-        target_topic: topic,
-        preserve_key: preserveKey.toString(),
-    })
-
     try {
         const headers = copyAndExtendHeaders(originalMessage, {
             'redirect-step': step,
@@ -332,6 +200,4 @@ export function logDroppedMessage(originalMessage: Message, reason: string, step
         event: messageInfo.event,
         reason,
     })
-
-    droppedEventCounter.labels({ reason }).inc()
 }

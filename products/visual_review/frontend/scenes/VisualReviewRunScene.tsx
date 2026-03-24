@@ -126,22 +126,23 @@ export function VisualReviewRunScene(): JSX.Element {
     const newCount = snapshots.filter((s: SnapshotApi) => s.result === 'new').length
     const removedCount = snapshots.filter((s: SnapshotApi) => s.result === 'removed').length
 
-    // Navigation within changed snapshots
+    // Navigation — use changed snapshots when there are changes, otherwise all snapshots
+    const navSnapshots = changedSnapshots.length > 0 ? changedSnapshots : snapshots
     const currentIndex = selectedSnapshot
-        ? changedSnapshots.findIndex((s: SnapshotApi) => s.id === selectedSnapshot.id)
+        ? navSnapshots.findIndex((s: SnapshotApi) => s.id === selectedSnapshot.id)
         : -1
     const hasPrevious = currentIndex > 0
-    const hasNext = currentIndex >= 0 && currentIndex < changedSnapshots.length - 1
+    const hasNext = currentIndex >= 0 && currentIndex < navSnapshots.length - 1
 
     const goToPrevious = (): void => {
         if (hasPrevious) {
-            setSelectedSnapshotId(changedSnapshots[currentIndex - 1].id)
+            setSelectedSnapshotId(navSnapshots[currentIndex - 1].id)
         }
     }
 
     const goToNext = (): void => {
         if (hasNext) {
-            setSelectedSnapshotId(changedSnapshots[currentIndex + 1].id)
+            setSelectedSnapshotId(navSnapshots[currentIndex + 1].id)
         }
     }
 
@@ -173,11 +174,15 @@ export function VisualReviewRunScene(): JSX.Element {
                 {run.approved && <span className="text-success font-medium">✓ Approved</span>}
             </div>
 
-            {/* Visual changes header + thumbnail strip */}
-            {changedSnapshots.length > 0 && (
+            {/* Snapshots header + thumbnail strip */}
+            {navSnapshots.length > 0 && (
                 <div className="mb-4">
                     <div className="flex items-center gap-4 mb-3">
-                        <h3 className="font-semibold">Visual changes ({changedSnapshots.length})</h3>
+                        <h3 className="font-semibold">
+                            {hasChanges
+                                ? `Visual changes (${changedSnapshots.length})`
+                                : `Snapshots (${snapshots.length})`}
+                        </h3>
                         <div className="text-sm text-muted">
                             {changedCount > 0 && <span className="text-warning-dark">{changedCount} changed</span>}
                             {newCount > 0 && <span className="text-primary-dark ml-2">{newCount} new</span>}
@@ -187,7 +192,7 @@ export function VisualReviewRunScene(): JSX.Element {
 
                     {/* Thumbnail strip */}
                     <div className="flex gap-4 overflow-x-auto py-3 px-2 -mx-2">
-                        {changedSnapshots.map((snapshot: SnapshotApi) => (
+                        {navSnapshots.map((snapshot: SnapshotApi) => (
                             <SnapshotThumbnail
                                 key={snapshot.id}
                                 snapshot={snapshot}
@@ -214,7 +219,7 @@ export function VisualReviewRunScene(): JSX.Element {
                         hasPrevious={hasPrevious}
                         hasNext={hasNext}
                         currentIndex={currentIndex >= 0 ? currentIndex : undefined}
-                        totalCount={changedSnapshots.length}
+                        totalCount={navSnapshots.length}
                     />
                 ) : snapshotsLoading ? (
                     <div className="text-center text-muted py-8">Loading snapshots...</div>

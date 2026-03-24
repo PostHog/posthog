@@ -1,3 +1,4 @@
+import re
 import json
 import math
 import secrets
@@ -171,6 +172,7 @@ TEAM_CONFIG_FIELDS = (
     "session_recording_url_blocklist_config",
     "session_recording_event_trigger_config",
     "session_recording_trigger_match_type_config",
+    "session_recording_trigger_groups",
     "session_recording_retention_period",
     "session_replay_config",
     "survey_config",
@@ -419,18 +421,28 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return get_group_types_for_project(team.project_id)
 
     def get_live_events_token(self, team: Team) -> str | None:
+        request = self.context.get("request")
+        user_id = request.user.id if request and hasattr(request, "user") and request.user.is_authenticated else None
+        claims = {
+            "team_id": team.id,
+            "api_token": team.api_token,
+            "user_id": user_id,
+            "organization_id": str(team.organization_id),
+        }
         return encode_jwt(
-            {"team_id": team.id, "api_token": team.api_token},
+            claims,
             timedelta(days=7),
             PosthogJwtAudience.LIVESTREAM,
         )
 
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_product_intents(self, obj):
         calculate_product_activation.delay(obj.id, only_calc_if_days_since_last_checked=1)
         return ProductIntent.objects.filter(team=obj).values(
             "product_type", "created_at", "onboarding_completed_at", "updated_at"
         )
 
+    @extend_schema_field(serializers.DictField(child=serializers.BooleanField()))
     def get_managed_viewsets(self, obj):
         from products.data_warehouse.backend.models import DataWarehouseManagedViewSet
         from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
@@ -505,6 +517,154 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             raise exceptions.ValidationError(
                 "Must provide a valid trigger match type. Only 'all' or 'any' or None are allowed."
             )
+
+        return value
+
+    @staticmethod
+    def validate_session_recording_trigger_groups(value) -> dict | None:
+        """
+        Validate V2 trigger groups configuration.
+
+        Expected schema:
+        {
+            "version": 2,
+            "groups": [
+                {
+                    "id": "string",
+                    "name": "string" (optional),
+                    "sampleRate": 0.0-1.0,
+                    "minDurationMs": 0-30000 (optional),
+                    "conditions": {
+                        "matchType": "any" | "all",
+                        "events": ["event1", ...] (optional),
+                        "urls": [{"url": "regex", "matching": "regex"}] (optional),
+                        "flag": "flag-key" | {"id": 1, "key": "flag-key", "variant": "test"} (optional, single flag)
+                    }
+                }
+            ]
+        }
+        """
+        if value is None:
+            return None
+
+        if not isinstance(value, dict):
+            raise exceptions.ValidationError("Must provide a dictionary or None.")
+
+        # Validate version
+        if "version" not in value:
+            raise exceptions.ValidationError("Missing required field: 'version'.")
+
+        if value["version"] != 2:
+            raise exceptions.ValidationError(f"Invalid version: {value['version']}. Only version 2 is supported.")
+
+        # Validate groups array
+        if "groups" not in value:
+            raise exceptions.ValidationError("Missing required field: 'groups'.")
+
+        if not isinstance(value["groups"], list):
+            raise exceptions.ValidationError("Field 'groups' must be an array.")
+
+        # Validate each group
+        for idx, group in enumerate(value["groups"]):
+            # Inline validation of each trigger group
+            if not isinstance(group, dict):
+                raise exceptions.ValidationError(f"Group {idx}: must be a dictionary.")
+
+            # Required fields
+            required_fields = ["id", "sampleRate", "conditions"]
+            for field in required_fields:
+                if field not in group:
+                    raise exceptions.ValidationError(f"Group {idx}: missing required field '{field}'.")
+
+            # Validate sampleRate
+            rate = group["sampleRate"]
+            if isinstance(rate, bool) or not isinstance(rate, (int, float)) or not (0 <= rate <= 1):
+                raise exceptions.ValidationError(
+                    f"Group {idx}: invalid sampleRate '{rate}'. Must be a number between 0 and 1."
+                )
+
+            # Validate minDurationMs if present
+            if "minDurationMs" in group:
+                min_duration = group["minDurationMs"]
+                if isinstance(min_duration, bool) or not isinstance(min_duration, int):
+                    raise exceptions.ValidationError(
+                        f"Group {idx}: 'minDurationMs' must be an integer, got {type(min_duration).__name__}."
+                    )
+                if min_duration < 0 or min_duration > 30000:
+                    raise exceptions.ValidationError(
+                        f"Group {idx}: 'minDurationMs' must be between 0 and 30000 (30 seconds). Got: {min_duration}."
+                    )
+
+            # Validate conditions
+            conditions = group["conditions"]
+            if not isinstance(conditions, dict):
+                raise exceptions.ValidationError(f"Group {idx}: field 'conditions' must be a dictionary.")
+
+            # Validate matchType
+            if "matchType" in conditions:
+                if conditions["matchType"] not in ["any", "all"]:
+                    raise exceptions.ValidationError(
+                        f"Group {idx}: invalid matchType '{conditions['matchType']}'. Must be 'any' or 'all'."
+                    )
+
+            # Validate events array if present
+            if "events" in conditions:
+                if not isinstance(conditions["events"], list):
+                    raise exceptions.ValidationError(f"Group {idx}: field 'events' must be an array.")
+                for event in conditions["events"]:
+                    if not isinstance(event, str):
+                        raise exceptions.ValidationError(f"Group {idx}: event names must be strings.")
+
+            # Validate URLs array if present
+            if "urls" in conditions:
+                if not isinstance(conditions["urls"], list):
+                    raise exceptions.ValidationError(f"Group {idx}: field 'urls' must be an array.")
+                for url_config in conditions["urls"]:
+                    if not isinstance(url_config, dict):
+                        raise exceptions.ValidationError(f"Group {idx}: URL config must be a dictionary.")
+                    if "url" not in url_config or "matching" not in url_config:
+                        raise exceptions.ValidationError(
+                            f"Group {idx}: URL config must have 'url' and 'matching' fields."
+                        )
+                    if url_config["matching"] != "regex":
+                        raise exceptions.ValidationError(
+                            f"Group {idx}: URL matching must be 'regex'. Got: '{url_config['matching']}'."
+                        )
+                    # Validate regex pattern
+                    try:
+                        re.compile(url_config["url"])
+                    except re.error:
+                        raise exceptions.ValidationError(
+                            f"Group {idx}: invalid regex pattern in URL: '{url_config['url']}'."
+                        )
+
+            # Validate flag (single) if present
+            if "flag" in conditions:
+                flag_config = conditions["flag"]
+                if isinstance(flag_config, str):
+                    pass  # Simple flag key is valid
+                elif isinstance(flag_config, dict):
+                    # LinkedFeatureFlag object with id, key, and optional variant
+                    if "key" not in flag_config:
+                        raise exceptions.ValidationError(f"Group {idx}: flag object must have 'key' field.")
+                    if not isinstance(flag_config["key"], str):
+                        raise exceptions.ValidationError(f"Group {idx}: flag 'key' must be a string.")
+                    # id and variant are optional
+                elif flag_config is not None:
+                    raise exceptions.ValidationError(
+                        f"Group {idx}: 'flag' must be a string (flag key), object (LinkedFeatureFlag), or null."
+                    )
+
+        # Note: All matching groups are evaluated independently
+        # If any group's sample rate hits, the session is recorded (union behavior)
+
+        # Validate fallback sample rate if present
+        if "fallbackSampleRate" in value:
+            rate = value["fallbackSampleRate"]
+            if isinstance(rate, bool) or not isinstance(rate, (int, float)) or not (0 <= rate <= 1):
+                raise exceptions.ValidationError(
+                    f"Invalid fallbackSampleRate: {rate}. Must be a number between 0 and 1."
+                )
 
         return value
 
@@ -644,9 +804,27 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # Strip widget_public_token from user input - it's auto-generated only
         if "widget_public_token" in value:
             value.pop("widget_public_token")
-        # Slack integration state is managed only by the SupportHog OAuth endpoints
-        for slack_key in ("slack_bot_token", "slack_team_id", "slack_enabled"):
-            value.pop(slack_key, None)
+        # Integration state is managed only by dedicated endpoints, not user input
+        for managed_key in ("slack_bot_token", "slack_team_id", "slack_enabled", "email_enabled"):
+            value.pop(managed_key, None)
+        icon_url = value.get("slack_bot_icon_url")
+        if icon_url is not None:
+            if not isinstance(icon_url, str):
+                raise serializers.ValidationError({"slack_bot_icon_url": "Must be a string."})
+            icon_url = icon_url.strip()
+            value["slack_bot_icon_url"] = icon_url or None
+            if icon_url and not icon_url.startswith("https://"):
+                raise serializers.ValidationError({"slack_bot_icon_url": "Must be an HTTPS URL."})
+        display_name = value.get("slack_bot_display_name")
+        if display_name is not None:
+            if not isinstance(display_name, str):
+                raise serializers.ValidationError({"slack_bot_display_name": "Must be a string."})
+            display_name = display_name.strip()
+            value["slack_bot_display_name"] = display_name or None
+            if display_name and (len(display_name) > 200 or any(ord(c) < 32 for c in display_name)):
+                raise serializers.ValidationError(
+                    {"slack_bot_display_name": "Must be 200 characters or fewer with no control characters."}
+                )
         return value
 
     def validate_slack_incoming_webhook(self, value: str | None) -> str | None:

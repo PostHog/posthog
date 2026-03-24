@@ -8,7 +8,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DashboardBasicType } from '~/types'
 
-import { dashboardsModel, nameCompareFunction } from './dashboardsModel'
+import { dashboardsModel, mergeTileTextUpdatesIntoDashboard, nameCompareFunction } from './dashboardsModel'
 
 const dashboards: Partial<DashboardBasicType>[] = [
     {
@@ -242,5 +242,35 @@ describe('the dashboards model', () => {
         await expectLogic(teamLogic).toMatchValues({
             currentTeam: expect.objectContaining({ primary_dashboard: primaryDashboardId }),
         })
+    })
+})
+
+describe('mergeTileTextUpdatesIntoDashboard', () => {
+    it('updates only text body and preserves server metadata', () => {
+        const dashboard = {
+            id: 123,
+            tiles: [
+                {
+                    id: 1,
+                    text: {
+                        body: 'server body',
+                        last_modified_at: '2026-03-17T10:00:00Z',
+                    },
+                },
+            ],
+        } as any
+
+        const merged = mergeTileTextUpdatesIntoDashboard(dashboard, [
+            {
+                id: 1,
+                text: {
+                    body: 'client body',
+                    last_modified_at: 'stale-client-value',
+                },
+            },
+        ])
+
+        expect(merged.tiles?.[0]?.text?.body).toEqual('client body')
+        expect(merged.tiles?.[0]?.text?.last_modified_at).toEqual('2026-03-17T10:00:00Z')
     })
 })

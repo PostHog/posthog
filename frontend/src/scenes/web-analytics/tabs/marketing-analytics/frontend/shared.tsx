@@ -211,7 +211,6 @@ const MarketingAnalyticsCellInternal = ({
     if (item.value == null && item.previous != null) {
         const formattedPrevious = formatMarketingItem(item.previous, item.kind, {
             currency: baseCurrency,
-            hideCurrency: true,
         })
         return (
             <Tooltip title={getNoDataTooltip(item)} delayMs={300} className="cursor-default">
@@ -251,7 +250,7 @@ const MarketingAnalyticsCellInternal = ({
         ? `${item.key}: ${formatMarketingItem(item.value, item.kind, { precise: true, currency: baseCurrency })}`
         : createComparisonTooltip(item, baseCurrency)
 
-    const formattedValue = formatMarketingItem(item.value, item.kind, { currency: baseCurrency, hideCurrency: true })
+    const formattedValue = formatMarketingItem(item.value, item.kind, { currency: baseCurrency })
     const changePercFormatted = formatChangePercentage(item.changeFromPreviousPct)
 
     const bgColor = getChangeBackgroundColor(item.changeFromPreviousPct, item.isIncreaseBad)

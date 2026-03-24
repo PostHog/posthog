@@ -14,6 +14,8 @@ import psycopg2.extras
 import posthoganalytics
 from clickhouse_driver.errors import Error, ErrorCodes
 
+from posthog import settings
+from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_creds
 from posthog.clickhouse.cluster import ClickhouseCluster, ExponentialBackoff, RetryPolicy, get_cluster
 from posthog.kafka_client.client import _KafkaProducer
 from posthog.redis import get_client, redis
@@ -61,7 +63,50 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
         "receive_timeout": f"{15 * 60}",  # some synchronous queries like dictionary checksumming can be very slow to return
     }
 
+    host: str = settings.CLICKHOUSE_HOST
+    cluster: str | None = None
+
     def create_resource(self, context: dagster.InitResourceContext) -> ClickhouseCluster:
+        return get_cluster(
+            context.log,
+            host=self.host,
+            cluster=self.cluster,
+            client_settings=self.client_settings,
+            retry_policy=RetryPolicy(
+                max_attempts=8,
+                delay=ExponentialBackoff(20),
+                exceptions=_is_retryable_clickhouse_exception,
+            ),
+        )
+
+
+class BackupsClickhouseClusterResource(dagster.ConfigurableResource):
+    """
+    ClickHouse cluster resource that connects as the dedicated 'backups' user.
+
+    Requires CLICKHOUSE_BACKUPS_USER and CLICKHOUSE_BACKUPS_PASSWORD env vars.
+    The backups user must have a server-side settings profile with
+    use_concurrency_control=0 (configured in users.xml via Ansible) because
+    async BACKUP threads don't inherit session-level settings.
+    """
+
+    client_settings: dict[str, str] = {
+        "max_execution_time": "0",
+        "max_memory_usage": "0",
+        "mutations_sync": "0",
+        "receive_timeout": f"{60 * 60}",  # backups can take a long time
+    }
+
+    def create_resource(self, context: dagster.InitResourceContext) -> ClickhouseCluster:
+        assert context.log is not None
+        user, password = get_clickhouse_creds(ClickHouseUser.BACKUPS)
+        from django.conf import settings as django_settings
+
+        if user == django_settings.CLICKHOUSE_USER:
+            context.log.warning(
+                "CLICKHOUSE_BACKUPS_USER not configured, falling back to default user. "
+                "Backups will not use the dedicated 'backups' profile with use_concurrency_control=0."
+            )
         return get_cluster(
             context.log,
             client_settings=self.client_settings,
@@ -70,6 +115,7 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
                 delay=ExponentialBackoff(20),
                 exceptions=_is_retryable_clickhouse_exception,
             ),
+            connection_overrides={"user": user, "password": password},
         )
 
 

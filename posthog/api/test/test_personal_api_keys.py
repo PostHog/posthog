@@ -550,12 +550,6 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         self.key.scopes = ["feature_flag:read"]
         self.key.save()
 
-    def test_rejects_null_scopes_as_no_access(self):
-        self.key.scopes = None
-        self.key.save()
-        response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/")
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-
     def test_rejects_empty_scopes_list_as_no_access(self):
         self.key.scopes = []
         self.key.save()

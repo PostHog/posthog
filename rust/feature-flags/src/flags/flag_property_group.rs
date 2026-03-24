@@ -62,6 +62,7 @@ mod tests {
             properties: None,
             rollout_percentage,
             variant: None,
+            ..Default::default()
         };
         assert_eq!(group.is_rolled_out_to_some(), expected);
     }
@@ -72,6 +73,7 @@ mod tests {
             properties: None,
             rollout_percentage: Some(100.0),
             variant: None,
+            ..Default::default()
         };
         assert!(!group.requires_db_properties(&HashMap::new()));
     }
@@ -89,6 +91,7 @@ mod tests {
             ]),
             rollout_percentage: Some(100.0),
             variant: None,
+            ..Default::default()
         };
 
         {
@@ -126,6 +129,7 @@ mod tests {
             ]),
             rollout_percentage: Some(0.0),
             variant: None,
+            ..Default::default()
         };
 
         assert!(!group.requires_db_properties(&HashMap::new()));
@@ -141,6 +145,7 @@ mod tests {
             )]),
             rollout_percentage: Some(100.0),
             variant: None,
+            ..Default::default()
         };
 
         assert!(group.has_cohort_filters());
@@ -156,6 +161,7 @@ mod tests {
             )]),
             rollout_percentage: Some(100.0),
             variant: None,
+            ..Default::default()
         };
 
         assert!(!group.has_cohort_filters());
@@ -171,6 +177,7 @@ mod tests {
             )]),
             rollout_percentage: Some(100.0),
             variant: None,
+            ..Default::default()
         };
 
         assert!(group.requires_cohort_filters());
@@ -186,6 +193,7 @@ mod tests {
             )]),
             rollout_percentage: Some(0.0),
             variant: None,
+            ..Default::default()
         };
 
         assert!(!group.requires_cohort_filters());

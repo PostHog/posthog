@@ -11,13 +11,14 @@ from posthog.schema import MaxExperimentMetricResult
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
-from posthog.models import Experiment, FeatureFlag
+from posthog.models import FeatureFlag
 from posthog.session_recordings.session_recording_api import list_recordings_from_query
 from posthog.session_recordings.utils import filter_from_params_to_query
 from posthog.sync import database_sync_to_async
 
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.experiment_summary_data_service import ExperimentSummaryDataService
+from products.experiments.backend.models.experiment import Experiment
 
 from ee.hogai.context.experiment.context import ExperimentContext
 from ee.hogai.tool import MaxTool

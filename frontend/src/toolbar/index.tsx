@@ -14,6 +14,7 @@ import { createRoot } from 'react-dom/client'
 
 import { disposablesPlugin } from '~/kea-disposables'
 import { ToolbarApp } from '~/toolbar/ToolbarApp'
+import { posthogToolbarController, setToolbarRefs } from '~/toolbar/toolbarController'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
 import { ToolbarParams } from '~/types'
@@ -78,6 +79,7 @@ const initKeaInToolbar = ({ routerHistory, routerLocation, beforePlugins }: Init
 }
 
 const win = window as any
+win['posthogToolbarController'] = posthogToolbarController
 
 win['ph_load_toolbar'] = async function (toolbarParams: ToolbarParams, posthog?: PostHog) {
     // Store the start time so we can measure total load duration in initInstrumentation
@@ -126,6 +128,8 @@ win['ph_load_toolbar'] = async function (toolbarParams: ToolbarParams, posthog?:
             posthog={posthog}
         />
     )
+
+    setToolbarRefs(root, container)
 }
 
 /** @deprecated, use "ph_load_toolbar" instead */

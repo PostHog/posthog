@@ -163,9 +163,9 @@ describe('IngestionConsumer', () => {
         hub = await createHub()
 
         // hub.kafkaProducer = mockProducer
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
         const team2Id = await createTeam(hub.postgres, team.organization_id, 'THIS IS NOT A TOKEN FOR TEAM 3')
-        team2 = (await getTeam(hub, team2Id))!
+        team2 = (await getTeam(hub.postgres, team2Id))!
 
         jest.mocked(createPrepareEventStep).mockImplementation((...args) => {
             const original = jest.requireActual('./event-processing/prepare-event-step')
@@ -1329,7 +1329,7 @@ describe('IngestionConsumer', () => {
                     mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
                 expect(metricsMessages).toEqual([
                     {
-                        key: expect.any(String),
+                        key: null,
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
                             app_source: 'hog_function',
@@ -1347,7 +1347,7 @@ describe('IngestionConsumer', () => {
                 const logMessages = mockProducerObserver.getProducedKafkaMessagesForTopic('log_entries_test')
                 expect(logMessages).toEqual([
                     {
-                        key: expect.any(String),
+                        key: null,
                         topic: 'log_entries_test',
                         value: {
                             instance_id: expect.any(String),
@@ -1360,7 +1360,7 @@ describe('IngestionConsumer', () => {
                         },
                     },
                     {
-                        key: expect.any(String),
+                        key: null,
                         topic: 'log_entries_test',
                         value: {
                             instance_id: expect.any(String),
@@ -1394,7 +1394,7 @@ describe('IngestionConsumer', () => {
                     mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
                 expect(metricsMessages).toEqual([
                     {
-                        key: expect.any(String),
+                        key: null,
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
                             app_source: 'hog_function',
@@ -1412,7 +1412,7 @@ describe('IngestionConsumer', () => {
                 const logMessages = mockProducerObserver.getProducedKafkaMessagesForTopic('log_entries_test')
                 expect(logMessages).toEqual([
                     {
-                        key: expect.any(String),
+                        key: null,
                         topic: 'log_entries_test',
                         value: {
                             instance_id: expect.any(String),
@@ -1425,7 +1425,7 @@ describe('IngestionConsumer', () => {
                         },
                     },
                     {
-                        key: expect.any(String),
+                        key: null,
                         topic: 'log_entries_test',
                         value: {
                             instance_id: expect.any(String),

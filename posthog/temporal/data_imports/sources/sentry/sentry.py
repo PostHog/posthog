@@ -344,7 +344,7 @@ def validate_credentials(
         if response.status_code == 401:
             return False, "Invalid Sentry auth token"
         if response.status_code == 403:
-            return False, "Sentry token is missing required scopes (org:read)"
+            return False, "Sentry token is missing required scopes"
         if response.status_code == 404:
             return False, f"Sentry organization '{organization_slug}' not found"
 

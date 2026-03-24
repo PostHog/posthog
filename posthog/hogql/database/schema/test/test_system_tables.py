@@ -14,7 +14,6 @@ from posthog.models import (
     Annotation,
     Cohort,
     Dashboard,
-    Experiment,
     ExportedAsset,
     FeatureFlag,
     Group,
@@ -22,9 +21,10 @@ from posthog.models import (
     Insight,
     InsightVariable,
     Organization,
-    Survey,
     Team,
 )
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.alert import AlertConfiguration
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.hog_functions.hog_function import HogFunction
@@ -36,8 +36,11 @@ from products.data_warehouse.backend.models.external_data_job import ExternalDat
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.models.table import DataWarehouseTable as DataWarehouseTableModel
+from products.early_access_features.backend.models import EarlyAccessFeature
 from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.experiments.backend.models.experiment import Experiment
 from products.notebooks.backend.models import Notebook
+from products.surveys.backend.models import Survey
 
 ALL_SYSTEM_TABLE_NAMES = sorted(SystemTables().children.keys())
 
@@ -81,6 +84,15 @@ class TestSystemTablesTeamScoping(BaseTest):
             f"Add a factory to SYSTEM_TABLE_FACTORIES in test_system_tables.py "
             f"or add to excluded_tables with a reason."
         )
+
+
+def _create_alert(team: Team, label: str) -> AlertConfiguration:
+    insight = Insight.objects.create(team=team, name=f"insight_for_alert_{label}")
+    return AlertConfiguration.objects.create(team=team, insight=insight, name=f"alert_{label}")
+
+
+def _create_activity_log(team: Team, label: str) -> ActivityLog:
+    return ActivityLog.objects.create(team_id=team.pk, activity="updated", scope="FeatureFlag", item_id=label)
 
 
 def _create_action(team: Team, label: str) -> Action:
@@ -166,6 +178,11 @@ def _create_source_schema(team: Team, label: str) -> ExternalDataSchema:
     )
 
 
+def _create_early_access_feature(team: Team, label: str) -> EarlyAccessFeature:
+    flag = FeatureFlag.objects.create(team=team, key=f"eaf_flag_{label}")
+    return EarlyAccessFeature.objects.create(team=team, name=f"eaf_{label}", stage="draft", feature_flag=flag)
+
+
 def _create_error_tracking_issue(team: Team, label: str) -> ErrorTrackingIssue:
     return ErrorTrackingIssue.objects.create(team=team, name=f"issue_{label}", status="active")
 
@@ -242,7 +259,9 @@ def _create_team(team: Team, label: str) -> Team:
 
 
 SYSTEM_TABLE_FACTORIES = [
+    ("activity_logs", _create_activity_log),
     ("actions", _create_action),
+    ("alerts", _create_alert),
     ("annotations", _create_annotation),
     ("cohorts", _create_cohort),
     ("cohort_calculation_history", _create_cohort_calculation_history),
@@ -251,6 +270,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("data_modeling_views", _create_data_warehouse_saved_query),
     ("data_warehouse_sources", _create_data_warehouse_source),
     ("data_warehouse_tables", _create_data_warehouse_table),
+    ("early_access_features", _create_early_access_feature),
     ("error_tracking_issue_assignments", _create_error_tracking_issue_assignment),
     ("error_tracking_issue_fingerprints", _create_error_tracking_issue_fingerprint),
     ("source_sync_jobs", _create_source_sync_job),

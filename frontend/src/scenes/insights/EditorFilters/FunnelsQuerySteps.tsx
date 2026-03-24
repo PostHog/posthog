@@ -12,11 +12,12 @@ import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { getInsightPropertyFilterGroupTypes } from 'scenes/insights/utils/propertyTaxonomicGroupTypes'
 
 import { groupsModel } from '~/models/groupsModel'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery } from '~/queries/schema/schema-general'
+import { FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { isInsightQueryNode } from '~/queries/utils'
 import { EditorFilterProps, FilterType, FunnelVizType as FunnelVizTypeEnum } from '~/types'
 
@@ -29,7 +30,7 @@ import { FunnelDataWarehouseStepDefinitionPopover } from './FunnelDataWarehouseS
 export const FUNNEL_STEP_COUNT_LIMIT = 30
 
 export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Element | null {
-    const { series, querySource, hasOnlyDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
+    const { series, querySource } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
     const supportsDwhFunnels = featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DWH_FUNNEL_SUPPORT]
@@ -41,7 +42,12 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
     const actionFilters = isInsightQueryNode(querySource) ? queryNodeToFilter(querySource) : null
     const setActionFilters = (payload: Partial<FilterType>): void => {
         updateQuerySource({
-            series: actionsAndEventsToSeries(payload as any, true, MathAvailability.FunnelsOnly),
+            series: actionsAndEventsToSeries(
+                payload as any,
+                true,
+                MathAvailability.FunnelsOnly,
+                NodeKind.FunnelsDataWarehouseNode
+            ),
         } as FunnelsQuery)
     }
 
@@ -83,20 +89,11 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                     entitiesLimit={FUNNEL_STEP_COUNT_LIMIT}
                     sortable
                     showNestedArrow
-                    propertiesTaxonomicGroupTypes={[
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                        TaxonomicFilterGroupType.EventFeatureFlags,
-                        TaxonomicFilterGroupType.EventMetadata,
-                        ...(hasPageview ? [TaxonomicFilterGroupType.PageviewUrls] : []),
-                        ...(hasScreen ? [TaxonomicFilterGroupType.Screens] : []),
-                        TaxonomicFilterGroupType.EmailAddresses,
-                        ...groupsTaxonomicTypes,
-                        TaxonomicFilterGroupType.Cohorts,
-                        TaxonomicFilterGroupType.Elements,
-                        TaxonomicFilterGroupType.SessionProperties,
-                        TaxonomicFilterGroupType.HogQLExpression,
-                    ]}
+                    propertiesTaxonomicGroupTypes={getInsightPropertyFilterGroupTypes({
+                        groupsTaxonomicTypes,
+                        hasPageview,
+                        hasScreen,
+                    })}
                     addFilterDocLink="https://posthog.com/docs/product-analytics/trends/filters"
                     actionsTaxonomicGroupTypes={[
                         TaxonomicFilterGroupType.Events,
@@ -119,7 +116,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                             label: 'Timestamp',
                         },
                         {
-                            key: 'distinct_id_field',
+                            key: 'aggregation_target_field',
                             label: 'Aggregation target',
                             allowHogQL: true,
                         },
@@ -130,15 +127,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                 {showGroupsOptions && (
                     <div className="flex items-center w-full gap-2" data-attr="funnel-aggregation-filter">
                         <span>Aggregating by</span>
-                        <AggregationSelect
-                            insightProps={insightProps}
-                            hogqlAvailable
-                            disabledReason={
-                                hasOnlyDataWarehouseSeries
-                                    ? 'For data warehouse steps, aggregation is configured per step. Please configure the aggregation target in the individual step settings.'
-                                    : undefined
-                            }
-                        />
+                        <AggregationSelect insightProps={insightProps} hogqlAvailable />
                     </div>
                 )}
 

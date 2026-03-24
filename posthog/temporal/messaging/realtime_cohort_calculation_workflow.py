@@ -5,6 +5,8 @@ import datetime as dt
 import dataclasses
 from typing import TYPE_CHECKING, Any, Optional
 
+from django.utils import timezone
+
 import temporalio.activity
 import temporalio.workflow
 from prometheus_client import Histogram
@@ -223,10 +225,11 @@ async def flush_kafka_batch(
 
 
 @database_sync_to_async
-def _batch_update_cohort_durations(cohort_durations: dict[int, int]) -> int:
-    """Batch update cohort durations.
+def _batch_update_cohort_metrics(cohort_durations: dict[int, int]) -> int:
+    """Batch update cohort durations and last backfill timestamp.
 
     Only updates duration_ms when it changed by more than DURATION_UPDATE_RELATIVE_THRESHOLD from the previous value.
+    Always updates last_backfill_person_properties_at for all processed cohorts.
 
     Returns count of cohorts that had their duration updated.
     """
@@ -234,9 +237,12 @@ def _batch_update_cohort_durations(cohort_durations: dict[int, int]) -> int:
         return 0
 
     all_cohorts = list(Cohort.objects.filter(id__in=cohort_durations.keys()))
-    cohorts_to_update = []
+    now = timezone.now()
+    duration_updates_count = 0
 
     for cohort in all_cohorts:
+        cohort.last_backfill_person_properties_at = now
+
         new_duration = cohort_durations[cohort.pk]
         previous_duration = cohort.last_calculation_duration_ms or 0
 
@@ -250,13 +256,13 @@ def _batch_update_cohort_durations(cohort_durations: dict[int, int]) -> int:
 
         if should_update_duration:
             cohort.last_calculation_duration_ms = new_duration
-            cohorts_to_update.append(cohort)
+            duration_updates_count += 1
 
-    # Only update cohorts that had significant duration changes
-    if cohorts_to_update:
-        Cohort.objects.bulk_update(cohorts_to_update, ["last_calculation_duration_ms"])
+    # Single bulk_update for all cohorts — updates both last_backfill_person_properties_at and last_calculation_duration_ms
+    if all_cohorts:
+        Cohort.objects.bulk_update(all_cohorts, ["last_backfill_person_properties_at", "last_calculation_duration_ms"])
 
-    return len(cohorts_to_update)
+    return duration_updates_count
 
 
 @temporalio.activity.defn
@@ -554,7 +560,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
         # Batch update all cohort durations at once
         if cohort_durations:
             batch_update_start = time.monotonic()
-            duration_updates_count = await _batch_update_cohort_durations(cohort_durations)
+            duration_updates_count = await _batch_update_cohort_metrics(cohort_durations)
             batch_update_duration = time.monotonic() - batch_update_start
 
             # Record batch update timing

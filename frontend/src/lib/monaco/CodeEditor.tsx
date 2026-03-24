@@ -38,6 +38,7 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     schema?: Record<string, any> | null
     onMetadata?: (metadata: HogQLMetadataResponse | null) => void
     onMetadataLoading?: (loading: boolean) => void
+    onFixWithAI?: (prompt: string) => void
     onError?: (error: string | null) => void
     /** The original value to compare against - renders it in diff mode */
     originalValue?: string
@@ -133,6 +134,7 @@ export function CodeEditor({
     onError,
     onMetadata,
     onMetadataLoading,
+    onFixWithAI,
     originalValue,
     enableVimMode,
     ...editorProps
@@ -162,6 +164,7 @@ export function CodeEditor({
         onError,
         onMetadata,
         onMetadataLoading,
+        onFixWithAI,
         metadataFilters: sourceQuery?.kind === NodeKind.HogQLQuery ? sourceQuery.filters : undefined,
     })
     useMountedLogic(builtCodeEditorLogic)
@@ -341,6 +344,14 @@ export function CodeEditor({
         monacoDisposables.current.push({
             dispose: () => observer.disconnect(),
         })
+
+        monacoDisposables.current.push(
+            monaco.editor.registerCommand('posthog.hogql.fixWithAI', (_, prompt) => {
+                if (typeof prompt === 'string' && prompt.length > 0) {
+                    onFixWithAI?.(prompt)
+                }
+            })
+        )
 
         if (onPressCmdEnter) {
             monacoDisposables.current.push(

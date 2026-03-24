@@ -150,13 +150,21 @@ export interface PatchedSessionRecordingPlaylistApi {
 }
 
 export interface MinimalPersonApi {
+    /** Numeric person ID. */
     readonly id: number
+    /** Display name derived from person properties (email, name, or username). */
     readonly name: string
-    readonly distinct_ids: string
+    readonly distinct_ids: readonly string[]
+    /** Key-value map of person properties set via $set and $set_once operations. */
     properties?: unknown
+    /** When this person was first seen (ISO 8601). */
     readonly created_at: string
+    /** Unique identifier (UUID) for this person. */
     readonly uuid: string
-    /** @nullable */
+    /**
+     * Timestamp of the last event from this person, or null.
+     * @nullable
+     */
     readonly last_seen_at: string | null
 }
 
@@ -203,6 +211,7 @@ export interface SessionRecordingApi {
     readonly ongoing: boolean
     /** @nullable */
     readonly activity_score: number | null
+    readonly has_summary: boolean
     /** Load external references (linked issues) for this recording */
     readonly external_references: readonly SessionRecordingApiExternalReferencesItem[]
 }
@@ -259,6 +268,7 @@ export interface PatchedSessionRecordingApi {
     readonly ongoing?: boolean
     /** @nullable */
     readonly activity_score?: number | null
+    readonly has_summary?: boolean
     /** Load external references (linked issues) for this recording */
     readonly external_references?: readonly PatchedSessionRecordingApiExternalReferencesItem[]
 }

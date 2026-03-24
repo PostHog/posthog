@@ -323,7 +323,14 @@ pub async fn start_test_router(replica_addr: SocketAddr) -> SocketAddr {
         initial_backoff_ms: 1,
         max_backoff_ms: 1,
     };
-    let backend = ReplicaBackend::new(&replica_url, Duration::from_secs(5), retry_config).unwrap();
+    let backend = ReplicaBackend::new(
+        &replica_url,
+        Duration::from_secs(5),
+        retry_config,
+        None,
+        None,
+    )
+    .unwrap();
     let router = PersonHogRouter::new(Arc::new(backend));
     let service = PersonHogRouterService::new(Arc::new(router));
 
@@ -486,7 +493,14 @@ pub async fn start_test_router_with_leader(
 
     // Replica backend
     let replica_url = format!("http://{}", replica_addr);
-    let replica = ReplicaBackend::new(&replica_url, Duration::from_secs(5), retry_config).unwrap();
+    let replica = ReplicaBackend::new(
+        &replica_url,
+        Duration::from_secs(5),
+        retry_config,
+        None,
+        None,
+    )
+    .unwrap();
 
     // Leader backend: all partitions → "leader-0", resolver → leader_addr
     let mut routing = HashMap::new();

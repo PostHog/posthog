@@ -18,6 +18,7 @@ import products.mcp_store.backend.api as mcp_store
 import products.signals.backend.views as signals
 import products.conversations.backend.api as conversations
 import products.live_debugger.backend.api as live_debugger
+import products.surveys.backend.api.survey as survey
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.marketing_analytics.backend.api as marketing_analytics
 import products.early_access_features.backend.api as early_access_feature
@@ -47,6 +48,7 @@ from products.error_tracking.backend.api import (
     ErrorTrackingIssueViewSet,
     ErrorTrackingReleaseViewSet,
     ErrorTrackingSpikeDetectionConfigViewSet,
+    ErrorTrackingSpikeEventViewSet,
     ErrorTrackingStackFrameViewSet,
     ErrorTrackingSuppressionRuleViewSet,
     ErrorTrackingSymbolSetViewSet,
@@ -70,9 +72,16 @@ from products.llm_analytics.backend.api import (
     LLMProviderKeyValidationViewSet,
     LLMProviderKeyViewSet,
     LLMProxyViewSet,
+    ReviewQueueItemViewSet,
+    ReviewQueueViewSet,
     ScoreDefinitionViewSet,
+    TraceReviewViewSet,
 )
+from products.messaging.backend.api.message_categories import MessageCategoryViewSet
+from products.messaging.backend.api.message_preferences import MessagePreferencesViewSet
+from products.messaging.backend.api.message_templates import MessageTemplatesViewSet
 from products.notebooks.backend.api.notebook import NotebookViewSet
+from products.notifications.backend.presentation.views import NotificationsViewSet
 from products.posthog_ai.backend.api import MCPToolsViewSet
 from products.product_tours.backend.api import ProductTourViewSet
 from products.signals.backend.views import SignalViewSet
@@ -82,7 +91,6 @@ from products.visual_review.backend.presentation.views import (
     RepoViewSet as VisualReviewRepoViewSet,
     RunViewSet as VisualReviewRunViewSet,
 )
-from products.workflows.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
 
 from ee.api.session_summaries import SessionGroupSummaryViewSet
 from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, vercel_resource
@@ -136,7 +144,6 @@ from . import (
     schema_property_group,
     search,
     sharing,
-    survey,
     tagged_item,
     team,
     uploaded_media,
@@ -566,6 +573,13 @@ environments_router.register(
     ["team_id"],
 )
 
+environments_router.register(
+    r"notifications",
+    NotificationsViewSet,
+    "environment_notifications",
+    ["team_id"],
+)
+
 # Organizations nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
 organizations_router.register(r"projects", project.ProjectViewSet, "organization_projects", ["organization_id"])
@@ -939,6 +953,13 @@ environments_router.register(
 )
 
 environments_router.register(
+    r"error_tracking/spike_events",
+    ErrorTrackingSpikeEventViewSet,
+    "environment_error_tracking_spike_events",
+    ["team_id"],
+)
+
+environments_router.register(
     r"error_tracking/git-provider-file-links",
     GitProviderFileLinksViewSet,
     "environment_error_tracking_git_provider_file_links",
@@ -1101,6 +1122,7 @@ register_grandfathered_environment_nested_viewset(r"logs", logs.LogsViewSet, "en
 register_grandfathered_environment_nested_viewset(
     r"logs/alerts", logs.LogsAlertViewSet, "environment_logs_alerts", ["team_id"]
 )
+environments_router.register(r"logs/views", logs.LogsViewViewSet, "environment_logs_views", ["team_id"])
 
 environments_router.register(
     r"logs/explainLogWithAI",
@@ -1288,9 +1310,30 @@ environments_router.register(
 )
 
 environments_router.register(
+    r"llm_analytics/review_queue_items",
+    ReviewQueueItemViewSet,
+    "environment_llm_analytics_review_queue_items",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/review_queues",
+    ReviewQueueViewSet,
+    "environment_llm_analytics_review_queues",
+    ["team_id"],
+)
+
+environments_router.register(
     r"llm_analytics/score_definitions",
     ScoreDefinitionViewSet,
     "environment_llm_analytics_score_definitions",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/trace_reviews",
+    TraceReviewViewSet,
+    "environment_llm_analytics_trace_reviews",
     ["team_id"],
 )
 

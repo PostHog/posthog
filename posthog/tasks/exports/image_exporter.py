@@ -252,7 +252,7 @@ def _screenshot_asset(
         driver.get(url_to_render)
         posthoganalytics.tag("url_to_render", url_to_render)
 
-        timeout = 20
+        timeout = 40
 
         # For heatmaps, we need to wait until the heatmap is ready
         if wait_for_css_selector == ".heatmap-exporter":

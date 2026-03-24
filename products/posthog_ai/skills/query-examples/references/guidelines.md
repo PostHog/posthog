@@ -106,6 +106,23 @@ GROUP BY week
 ORDER BY week DESC
 ```
 
+##### 3. Document Embeddings (Semantic Search)
+
+The `document_embeddings` table stores text content with vector embeddings, partitioned by `model_name`. To discover what kinds of data are available:
+
+```sql
+SELECT product, document_type, count() as cnt
+FROM document_embeddings
+WHERE model_name = 'text-embedding-3-small-1536'
+  AND timestamp >= now() - INTERVAL 1 MONTH
+GROUP BY product, document_type
+ORDER BY cnt DESC
+```
+
+Run separately for each model. Available models: `'text-embedding-3-small-1536'`, `'text-embedding-3-large-3072'`. You MUST filter on exactly one `model_name` per query — it routes to the correct underlying ClickHouse table. `IN` clauses and cross-model queries will fail.
+
+Use `embedText(text, model_name)` and `cosineDistance()` for semantic search. See the `signals` skill for detailed query patterns around the signals product specifically, including required deduplication and metadata extraction.
+
 #### Querying guidelines
 
 ##### Schema verification

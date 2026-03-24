@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use metrics::{counter, histogram};
+use personhog_common::grpc::ClientInFlightGuard;
 use personhog_proto::personhog::leader::v1::{
     UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
@@ -38,6 +39,8 @@ macro_rules! call_backend {
             "backend" => "replica"
         )
         .increment(1);
+
+        let _in_flight = ClientInFlightGuard::new("replica");
 
         let start = Instant::now();
         let result = $self.replica_backend.$method($request).await;

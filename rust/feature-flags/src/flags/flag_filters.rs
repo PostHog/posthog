@@ -29,12 +29,9 @@ mod tests {
     use rstest::rstest;
 
     use crate::{
-        flags::{
-            flag_models::FlagPropertyGroup,
-            test_helpers::{
-                create_simple_flag_filters, create_simple_flag_property_group,
-                create_simple_property_filter,
-            },
+        flags::test_helpers::{
+            create_simple_flag_filters, create_simple_flag_property_group,
+            create_simple_property_filter,
         },
         properties::property_models::{OperatorType, PropertyType},
     };
@@ -135,18 +132,13 @@ mod tests {
     }
 
     #[test]
-    fn test_holdout_groups_do_not_require_cohorts() {
+    fn test_holdout_does_not_require_cohorts() {
+        use crate::flags::flag_models::Holdout;
         let mut filters = create_simple_flag_filters(vec![]);
-        filters.holdout_groups = Some(vec![FlagPropertyGroup {
-            // Illegal cohort filter, but we want to make sure our code is resilient.
-            properties: Some(vec![create_simple_property_filter(
-                "some_key",
-                PropertyType::Cohort,
-                OperatorType::Exact,
-            )]),
-            variant: Some("holdout-1".to_string()),
-            rollout_percentage: Some(10.0),
-        }]);
+        filters.holdout = Some(Holdout {
+            id: 1,
+            exclusion_percentage: 10.0,
+        });
 
         assert!(!filters.requires_cohort_filters());
     }
@@ -198,22 +190,15 @@ mod tests {
     }
 
     #[test]
-    fn test_does_not_require_db_properties_when_holdout_groups_set() {
+    fn test_does_not_require_db_properties_when_holdout_set() {
+        use crate::flags::flag_models::Holdout;
         let mut filters = create_simple_flag_filters(vec![]);
-        filters.holdout_groups = Some(vec![FlagPropertyGroup {
-            properties: Some(vec![
-                // This is not valid for a holdout group, but we want to make sure our code is resilient.
-                create_simple_property_filter(
-                    "some_key",
-                    PropertyType::Person,
-                    OperatorType::Exact,
-                ),
-            ]),
-            variant: Some("holdout-1".to_string()),
-            rollout_percentage: Some(10.0),
-        }]);
+        filters.holdout = Some(Holdout {
+            id: 1,
+            exclusion_percentage: 10.0,
+        });
 
-        // Holdout groups don't require DB properties.
+        // Holdouts don't require DB properties.
         assert!(!filters.requires_db_properties(&HashMap::new()));
     }
 

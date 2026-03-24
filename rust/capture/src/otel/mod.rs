@@ -10,14 +10,14 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Json, Response};
 use axum_client_ip::InsecureClientIp;
 use chrono::Utc;
-use metrics::counter;
+use metrics::{counter, histogram};
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use serde_json::json;
-use tracing::{debug, warn};
+use tracing::{debug, instrument, warn, Span};
 
 use crate::api::{CaptureError, CaptureResponse, CaptureResponseCode};
 use crate::extractors::extract_body_with_timeout;
-use crate::prometheus::report_dropped_events;
+use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
 use crate::router::State as AppState;
 use crate::token::validate_token;
 
@@ -43,14 +43,13 @@ fn non_retryable_rejection(message: &str) -> Response {
     (StatusCode::BAD_REQUEST, Json(json!({ "error": message }))).into_response()
 }
 
+#[instrument(skip(state, body), fields(span_count, body_size))]
 pub async fn otel_handler(
     State(state): State<AppState>,
     ip: Option<InsecureClientIp>,
     headers: HeaderMap,
     body: Body,
 ) -> Result<Json<serde_json::Value>, Response> {
-    debug!("Received request to /i/v0/ai/otel endpoint");
-
     let body = extract_body_with_timeout(
         body,
         OTEL_BODY_SIZE,
@@ -59,12 +58,33 @@ pub async fn otel_handler(
         "/i/v0/ai/otel",
     )
     .await
-    .map_err(|e| e.into_response())?;
+    .map_err(|e| {
+        report_internal_error_metrics(e.to_metric_tag(), "otel_body_read");
+        e.into_response()
+    })?;
 
     if body.is_empty() {
-        warn!("OTEL endpoint received empty body");
-        return Err(CaptureError::EmptyPayload.into_response());
+        let err = CaptureError::EmptyPayload;
+        report_internal_error_metrics(err.to_metric_tag(), "otel_validation");
+        return Err(err.into_response());
     }
+
+    let body_len = body.len();
+    Span::current().record("body_size", body_len);
+    histogram!("capture_ai_otel_body_size_bytes").record(body_len as f64);
+
+    let content_type = headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown");
+    let format = if content_type.starts_with("application/x-protobuf") {
+        "protobuf"
+    } else if content_type.starts_with("application/json") {
+        "json"
+    } else {
+        "unknown"
+    };
+    counter!("capture_ai_otel_requests_total", "format" => format).increment(1);
 
     let auth_header = headers
         .get("authorization")
@@ -72,22 +92,31 @@ pub async fn otel_handler(
         .unwrap_or("");
 
     if !auth_header.starts_with("Bearer ") {
-        warn!("OTEL endpoint missing or invalid Authorization header");
-        return Err(CaptureError::NoTokenError.into_response());
+        let err = CaptureError::NoTokenError;
+        report_internal_error_metrics(err.to_metric_tag(), "otel_auth");
+        return Err(err.into_response());
     }
 
     let token = &auth_header[7..]; // Remove "Bearer " prefix
-    validate_token(token).map_err(|e| CaptureError::from(e).into_response())?;
+    validate_token(token).map_err(|e| {
+        let err = CaptureError::from(e);
+        report_internal_error_metrics(err.to_metric_tag(), "otel_auth");
+        err.into_response()
+    })?;
 
     if state.token_dropper.should_drop(token, "") {
         report_dropped_events("token_dropper", 1);
         return Ok(Json(json!({})));
     }
 
-    let request =
-        ingestion::parse_request(&body, &headers, OTEL_BODY_SIZE).map_err(|e| e.into_response())?;
+    let request = ingestion::parse_request(&body, &headers, OTEL_BODY_SIZE).map_err(|e| {
+        report_internal_error_metrics(e.to_metric_tag(), "otel_parsing");
+        e.into_response()
+    })?;
 
     let span_count = count_spans(&request);
+    Span::current().record("span_count", span_count);
+
     if span_count == 0 {
         return Ok(Json(json!({})));
     }
@@ -96,12 +125,14 @@ pub async fn otel_handler(
             "OTEL request contains {} spans, exceeding limit of {}",
             span_count, MAX_SPANS_PER_REQUEST
         );
-        return Err(CaptureError::RequestParsingError(format!(
+        let err = CaptureError::RequestParsingError(format!(
             "Too many spans: {span_count} exceeds limit of {MAX_SPANS_PER_REQUEST}"
-        ))
-        .into_response());
+        ));
+        report_internal_error_metrics(err.to_metric_tag(), "otel_validation");
+        return Err(err.into_response());
     }
     counter!("capture_ai_otel_spans_received").increment(span_count as u64);
+    histogram!("capture_ai_otel_spans_per_request").record(span_count as f64);
 
     let received_at = Utc::now();
     let distinct_id = identity::extract_distinct_id(&request);
@@ -117,7 +148,10 @@ pub async fn otel_handler(
     if let Err(outcome) = filtering::check_quota(&state.quota_limiter, &token, &span_events).await {
         return match outcome {
             filtering::QuotaOutcome::Dropped => Err(non_retryable_rejection("quota exceeded")),
-            filtering::QuotaOutcome::Error(e) => Err(e.into_response()),
+            filtering::QuotaOutcome::Error(e) => {
+                report_internal_error_metrics(e.to_metric_tag(), "otel_quota");
+                Err(e.into_response())
+            }
         };
     }
 
@@ -133,13 +167,18 @@ pub async fn otel_handler(
 
     let processed_events =
         filtering::build_events(span_events, &token, &client_ip, received_at, &restrictions)
-            .map_err(|e| e.into_response())?;
+            .map_err(|e| {
+                report_internal_error_metrics(e.to_metric_tag(), "otel_processing");
+                e.into_response()
+            })?;
 
     state.sink.send_batch(processed_events).await.map_err(|e| {
+        report_internal_error_metrics(e.to_metric_tag(), "otel_sink");
         warn!("Failed to send OTel events to Kafka: {:?}", e);
         e.into_response()
     })?;
 
+    counter!("capture_ai_otel_events_ingested").increment(span_count as u64);
     counter!("capture_ai_otel_requests_success").increment(1);
 
     debug!(

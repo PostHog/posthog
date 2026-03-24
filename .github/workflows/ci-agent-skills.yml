@@ -41,6 +41,7 @@ jobs:
     check-skills:
         name: Check agent skills
         runs-on: ubuntu-latest
+        timeout-minutes: 30
         needs: changes
         if: needs.changes.outputs.skills == 'true'
         permissions:
@@ -65,6 +66,7 @@ jobs:
               with:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
+                  cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install python dependencies
@@ -123,6 +125,7 @@ jobs:
     release-skills:
         name: Release agent skills
         runs-on: ubuntu-latest
+        timeout-minutes: 30
         needs: check-skills
         if: github.ref == 'refs/heads/master'
         permissions:
@@ -149,6 +152,7 @@ jobs:
               with:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
+                  cache-dependency-glob: uv.lock
                   save-cache: false
 
             - name: Install python dependencies

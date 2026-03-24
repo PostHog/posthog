@@ -85,6 +85,7 @@ jobs:
               with:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
+                  cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Check uv and Python version compatibility
@@ -200,6 +201,7 @@ jobs:
         needs: [changes, code-quality]
         name: Python code quality checks
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - name: Check Python CI status

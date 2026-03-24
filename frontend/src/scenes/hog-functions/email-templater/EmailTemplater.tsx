@@ -173,6 +173,17 @@ function DestinationEmailTemplaterForm({
                                     options={{
                                         mergeTags,
                                         displayMode: 'email',
+                                        appearance: {
+                                            actionBar: {
+                                                placement: 'bottom',
+                                            },
+                                            panels: {
+                                                tools: {
+                                                    dock: 'right',
+                                                    collapsible: true,
+                                                },
+                                            },
+                                        },
                                         features: {
                                             preview: true,
                                             imageEditor: true,
@@ -539,6 +550,17 @@ function NativeEmailTemplaterForm({
                                     options={{
                                         mergeTags,
                                         displayMode: 'email',
+                                        appearance: {
+                                            actionBar: {
+                                                placement: 'bottom',
+                                            },
+                                            panels: {
+                                                tools: {
+                                                    dock: 'right',
+                                                    collapsible: true,
+                                                },
+                                            },
+                                        },
                                         features: {
                                             preview: true,
                                             imageEditor: true,

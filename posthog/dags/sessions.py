@@ -32,7 +32,7 @@ from posthog.dags.common.common import JobOwners, dagster_tags
 from posthog.git import get_git_commit_short
 from posthog.models.raw_sessions.sessions_v3 import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_V3,
-    GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS,
+    GET_NUM_RAW_SESSIONS_ACTIVE_PARTS,
     RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3,
     RAW_SESSION_TABLE_BACKFILL_SQL_V3,
 )
@@ -116,7 +116,8 @@ class SessionsBackfillConfig(Config):
 
 class ExperimentalSessionsBackfillConfig(Config):
     clickhouse_settings: dict[str, Any] | None = None
-    team_id_chunks: int | None = 64
+    team_id_chunks: int | None = None
+    distinct_id_chunks: int | None = 64
     max_unmerged_parts: int = 100
     parts_check_poll_frequency_seconds: int = 30
     parts_check_max_wait_seconds: int = 3600
@@ -183,11 +184,19 @@ def wait_for_parts_to_merge(
     context: AssetExecutionContext,
     config: SessionsBackfillConfig | ExperimentalSessionsBackfillConfig,
     sync_client: Optional[Client] = None,
+    *,
+    table: str | None = None,
+    use_cluster: bool = True,
 ) -> None:
     """Check for unmerged parts and wait if there are too many.
 
-    Queries system.parts using clusterAllReplicas to count active parts in the target partitions,
+    Queries system.parts to count active parts in the target partitions,
     and waits until the count drops below the threshold.
+
+    Args:
+        table: Table name to check parts for. Defaults to the sharded raw sessions table.
+        use_cluster: If True, query across all cluster replicas. If False, query
+            only the local node (useful for standalone/experimental nodes).
     """
     if config.max_unmerged_parts <= 0:
         return
@@ -200,7 +209,7 @@ def wait_for_parts_to_merge(
 
     while True:
         # Check parts across all relevant partitions
-        query = GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS(partitions)
+        query = GET_NUM_RAW_SESSIONS_ACTIVE_PARTS(partitions, table=table, use_cluster=use_cluster)
         result = sync_execute(query, sync_client=sync_client)
         (unmerged_parts_count, max_partition, max_host) = result[0]
 
@@ -413,6 +422,31 @@ experimental_sessions_backfill_job = define_asset_job(
 )
 
 
+def _get_experimental_chunking(config: ExperimentalSessionsBackfillConfig) -> tuple[int, str]:
+    """Return (num_chunks, chunk_expression) for the experimental backfill.
+
+    Supports two mutually exclusive chunking strategies:
+    - team_id_chunks: splits by team_id % N (can be uneven for large teams)
+    - distinct_id_chunks: splits by cityHash64(distinct_id) % N (more even distribution)
+
+    Raises ValueError if both are specified.
+    """
+    has_team = config.team_id_chunks is not None
+    has_distinct = config.distinct_id_chunks is not None
+
+    if has_team and has_distinct:
+        raise ValueError("Cannot specify both team_id_chunks and distinct_id_chunks — pick one")
+
+    if has_team:
+        num_chunks = max(1, config.team_id_chunks or 1)
+        return num_chunks, "team_id"
+    elif has_distinct:
+        num_chunks = max(1, config.distinct_id_chunks or 1)
+        return num_chunks, "cityHash64(distinct_id)"
+    else:
+        return 1, "team_id"
+
+
 def _do_experimental_backfill(
     sql_template: Callable,
     timestamp_field: str,
@@ -432,11 +466,11 @@ def _do_experimental_backfill(
         merged_settings.update(config.clickhouse_settings)
         context.log.info(f"Using custom ClickHouse settings: {config.clickhouse_settings}")
 
-    team_id_chunks = max(1, config.team_id_chunks or 1)
+    num_chunks, chunk_expr = _get_experimental_chunking(config)
 
     context.log.info(
         f"Running backfill for Dagster partitions {partition_range_str} "
-        f"(where='{where_clause}') "
+        f"(where='{where_clause}', chunking={num_chunks} chunks on {chunk_expr}) "
         f"using commit {get_git_commit_short() or 'unknown'}"
     )
     if debug_url := metabase_debug_query_url(context.run_id):
@@ -445,30 +479,33 @@ def _do_experimental_backfill(
     kwargs = get_kwargs_for_client(
         workload=Workload.OFFLINE, team_id=None, readonly=False, ch_user=ClickHouseUser.DEFAULT
     )
+    # The experimental cluster uses the non-sharded table name (raw_sessions_v3),
+    # and is a standalone node not in the main ClickHouse cluster
+    target_table = DISTRIBUTED_RAW_SESSIONS_TABLE_V3()
+
     with get_http_client(**kwargs, **config.client_overrides) as client:
         tags = dagster_tags(context)
         with tags_context(kind="dagster", dagster=tags):
-            # this loop is largely copied from _do_backfill, but not writing per shard
-            for chunk_i in range(team_id_chunks):
-                wait_for_parts_to_merge(context, config, sync_client=client)
+            for chunk_i in range(num_chunks):
+                wait_for_parts_to_merge(context, config, sync_client=client, table=target_table, use_cluster=False)
 
-                if team_id_chunks > 1:
-                    chunk_where_clause = f"({where_clause}) AND team_id % {team_id_chunks} = {chunk_i}"
+                if num_chunks > 1:
+                    chunk_where_clause = f"({where_clause}) AND {chunk_expr} % {num_chunks} = {chunk_i}"
                     context.log.info(
-                        f"Processing chunk {chunk_i + 1}/{team_id_chunks} (team_id % {team_id_chunks} = {chunk_i})"
+                        f"Processing chunk {chunk_i + 1}/{num_chunks} ({chunk_expr} % {num_chunks} = {chunk_i})"
                     )
                 else:
                     chunk_where_clause = where_clause
 
                 backfill_sql = sql_template(
                     where=chunk_where_clause,
-                    target_table=DISTRIBUTED_RAW_SESSIONS_TABLE_V3(),  # this is just what the table is called in the experimental cluster, it's not actually distributed
+                    target_table=target_table,
                     include_session_timestamp=True,
                 )
                 context.log.info(backfill_sql)
                 sync_execute(backfill_sql, settings=merged_settings, sync_client=client)
 
-                if team_id_chunks > 1:
-                    context.log.info(f"Completed chunk {chunk_i + 1}/{team_id_chunks}")
+                if num_chunks > 1:
+                    context.log.info(f"Completed chunk {chunk_i + 1}/{num_chunks}")
 
             context.log.info(f"Successfully backfilled sessions_v3 for Dagster partitions {partition_range_str}")

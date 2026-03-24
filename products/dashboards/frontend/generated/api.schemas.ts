@@ -264,6 +264,18 @@ export interface DashboardApi {
     _create_in_folder?: string
 }
 
+export interface SharePasswordApi {
+    readonly id: number
+    readonly created_at: string
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    note?: string | null
+    readonly created_by_email: string
+    readonly is_active: boolean
+}
+
 export interface SharingConfigurationApi {
     readonly created_at: string
     enabled?: boolean
@@ -271,7 +283,7 @@ export interface SharingConfigurationApi {
     readonly access_token: string | null
     settings?: unknown | null
     password_required?: boolean
-    readonly share_passwords: string
+    readonly share_passwords: readonly SharePasswordApi[]
 }
 
 export type PatchedDashboardApiFilters = { [key: string]: unknown }
@@ -364,6 +376,13 @@ export interface PatchedDashboardApi {
     _create_in_folder?: string
 }
 
+export interface CopyDashboardTileRequestApi {
+    /** Dashboard id the tile currently belongs to. */
+    fromDashboardId: number
+    /** Dashboard tile id to copy. */
+    tileId: number
+}
+
 export interface ReorderTilesRequestApi {
     /**
      * Array of tile IDs in the desired display order (top to bottom, left to right).
@@ -377,7 +396,7 @@ export interface DataColorThemeApi {
     /** @maxLength 100 */
     name: string
     colors?: unknown
-    readonly is_global: string
+    readonly is_global: boolean
     /** @nullable */
     readonly created_at: string | null
     readonly created_by: UserBasicApi
@@ -397,7 +416,7 @@ export interface PatchedDataColorThemeApi {
     /** @maxLength 100 */
     name?: string
     colors?: unknown
-    readonly is_global?: string
+    readonly is_global?: boolean
     /** @nullable */
     readonly created_at?: string | null
     readonly created_by?: UserBasicApi
@@ -486,6 +505,18 @@ export type DashboardsAnalyzeRefreshResultCreateFormat =
     (typeof DashboardsAnalyzeRefreshResultCreateFormat)[keyof typeof DashboardsAnalyzeRefreshResultCreateFormat]
 
 export const DashboardsAnalyzeRefreshResultCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsCopyTileCreateParams = {
+    format?: DashboardsCopyTileCreateFormat
+}
+
+export type DashboardsCopyTileCreateFormat =
+    (typeof DashboardsCopyTileCreateFormat)[keyof typeof DashboardsCopyTileCreateFormat]
+
+export const DashboardsCopyTileCreateFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const

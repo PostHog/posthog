@@ -33,8 +33,9 @@ from posthog.hogql_queries.experiments.experiment_exposures_query_runner import 
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Experiment
 from posthog.sync import database_sync_to_async
+
+from products.experiments.backend.models.experiment import Experiment
 
 
 @dataclass

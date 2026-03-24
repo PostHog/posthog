@@ -1,5 +1,6 @@
+import dataclasses
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Generic, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar, Union
 
 from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
@@ -23,6 +24,8 @@ from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import get_config_for_source
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
+
+MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP = "Required for Marketing analytics to work with this source."
 
 ConfigType = TypeVar("ConfigType", bound=Config)
 ConfigType_contra = TypeVar("ConfigType_contra", bound=Config, contravariant=True)
@@ -116,6 +119,13 @@ class ResumableSource(_BaseSource[ConfigType], Generic[ConfigType, ResumableData
         raise NotImplementedError()
 
 
+@dataclasses.dataclass
+class WebhookCreationResult:
+    success: bool
+    error: str | None = None
+    extra_inputs: dict[str, Any] = dataclasses.field(default_factory=dict)
+
+
 class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
     """Base class for sources that support webhook based imports."""
 
@@ -126,6 +136,22 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
 
     @abstractmethod
     def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
+        raise NotImplementedError()
+
+    def create_webhook(self, config: ConfigType, webhook_url: str, team_id: int) -> WebhookCreationResult:
+        """Create a webhook on the external source pointing to our webhook_url.
+
+        Returns a WebhookCreationResult. If the source doesn't support automatic
+        webhook creation, returns a failed result so the user can set it up manually.
+        """
+        raise NotImplementedError()
+
+    @property
+    @abstractmethod
+    def webhook_resource_map(self) -> dict[str, str]:
+        """The schema mapping to use to be stored on the HogFunction for matching incoming webhooks with tables.
+        In most cases this will likely just be the table name -> table name. But in the case of Stripe, it's the
+        table name mapped to the Stripe object type"""
         raise NotImplementedError()
 
 

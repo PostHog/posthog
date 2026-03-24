@@ -3,22 +3,23 @@
  * Build script for UI Apps.
  *
  * Auto-discovers UI apps from src/ui-apps/apps/ and builds each one
- * as a self-contained HTML file. Apps are built in parallel for speed,
- * each in its own Vite process with inlineDynamicImports to prevent
- * shared chunks.
+ * as separate JS + CSS files served via Workers Static Assets.
+ * Apps are built in parallel for speed, each in its own Vite process
+ * with inlineDynamicImports to prevent shared chunks.
  *
  * Usage:
  *   pnpm run build:ui-apps         # Build all apps
  *   pnpm run build:ui-apps:watch   # Watch mode for all apps
  */
-import { exec, execSync } from 'child_process'
+import { exec } from 'child_process'
 import { config as dotenvConfig } from 'dotenv'
-import { existsSync, readdirSync, rmSync, statSync } from 'fs'
+import { existsSync, readdirSync, rmSync } from 'fs'
 import { join, resolve } from 'path'
 
 const MCP_ROOT_DIR = resolve(__dirname, '..')
 const ROOT_DIR = resolve(MCP_ROOT_DIR, '..', '..')
 const APPS_DIR = resolve(MCP_ROOT_DIR, 'src/ui-apps/apps')
+const OUT_DIR = resolve(MCP_ROOT_DIR, 'public/ui-apps')
 
 // Load environment variables from .dev.vars (Cloudflare convention)
 const devVarsPath = resolve(MCP_ROOT_DIR, '.dev.vars')
@@ -29,19 +30,9 @@ if (existsSync(devVarsPath)) {
 }
 
 function discoverApps(): string[] {
-    const entries = readdirSync(APPS_DIR)
-    const apps: string[] = []
-
-    for (const entry of entries) {
-        const entryPath = join(APPS_DIR, entry)
-        const indexPath = join(entryPath, 'index.html')
-
-        if (statSync(entryPath).isDirectory() && existsSync(indexPath)) {
-            apps.push(entry)
-        }
-    }
-
-    return apps
+    return readdirSync(APPS_DIR)
+        .filter((f) => f.endsWith('.tsx'))
+        .map((f) => f.replace(/\.tsx$/, ''))
 }
 
 function buildAppAsync(appName: string): Promise<void> {
@@ -78,24 +69,6 @@ function buildAppAsync(appName: string): Promise<void> {
     })
 }
 
-function buildAppSync(appName: string): void {
-    if (!/^[a-z_-]+$/.test(appName)) {
-        throw new Error(`Invalid app name "${appName}": must only contain a-z, underscore, or hyphen`)
-    }
-
-    // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
-    execSync(`UI_APP=${appName} vite build --config vite.ui-apps.config.ts`, {
-        cwd: MCP_ROOT_DIR,
-        stdio: 'inherit',
-        env: {
-            ...process.env,
-            UI_APP: appName,
-            BROWSERSLIST_IGNORE_OLD_DATA: '1',
-            VITE_CJS_IGNORE_WARNING: '1',
-        },
-    })
-}
-
 async function buildAllAppsParallel(apps: string[]): Promise<void> {
     // CI environments have limited memory — limit concurrency to avoid OOM kills
     const concurrency = process.env.CI ? 4 : apps.length
@@ -123,14 +96,10 @@ async function buildAllAppsParallel(apps: string[]): Promise<void> {
     }
 }
 
-function watchApps(apps: string[]): void {
+async function watchApps(apps: string[]): Promise<void> {
     console.info(`\n👀 Starting watch mode for ${apps.length} apps: ${apps.join(', ')}`)
 
-    // Initial build sequentially (clearer output for debugging)
-    for (const app of apps) {
-        console.info(`\n📦 Building ${app}...`)
-        buildAppSync(app)
-    }
+    await buildAllAppsParallel(apps)
     console.info('\n✅ Initial build complete. Watching for changes...')
 
     import('chokidar').then(({ default: chokidar }) => {
@@ -148,6 +117,7 @@ function watchApps(apps: string[]): void {
 
             try {
                 await buildAllAppsParallel(apps)
+
                 console.info('✅ Rebuild complete.')
             } catch (e) {
                 console.error('❌ Build failed:', e)
@@ -163,7 +133,7 @@ function watchApps(apps: string[]): void {
 
         const watcher = chokidar.watch(
             [
-                join(MCP_ROOT_DIR, 'src/ui-apps/**/*.{ts,tsx,css,html}'),
+                join(MCP_ROOT_DIR, 'src/ui-apps/**/*.{ts,tsx,css}'),
                 join(ROOT_DIR, 'products/**/mcp-apps/**/*.{ts,tsx,css}'),
                 join(ROOT_DIR, 'common/mosaic/src/**/*.{ts,tsx,css}'),
             ],
@@ -209,23 +179,14 @@ async function main(): Promise<void> {
     console.info(`🔍 Discovered ${apps.length} UI app(s): ${apps.join(', ')}`)
 
     // Clean output directory before building
-    const outDir = resolve(ROOT_DIR, 'ui-apps-dist')
-    if (existsSync(outDir)) {
-        rmSync(outDir, { recursive: true })
+    if (existsSync(OUT_DIR)) {
+        rmSync(OUT_DIR, { recursive: true })
     }
 
     if (isWatch) {
-        watchApps(apps)
+        await watchApps(apps)
     } else {
         await buildAllAppsParallel(apps)
-
-        // Clean up shared assets directory after all builds complete.
-        // Each app inlines its assets during build, so the assets/ folder
-        // only contains intermediate files that are no longer needed.
-        const assetsDir = resolve(outDir, 'assets')
-        if (existsSync(assetsDir)) {
-            rmSync(assetsDir, { recursive: true })
-        }
 
         console.info('\n✅ All UI apps built successfully!')
     }

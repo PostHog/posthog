@@ -74,7 +74,7 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
     const { toggleFeatureFlagActive } = useActions(featureFlagLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
 
-    const hasEvaluationTags = !!featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS]
+    const hasEvaluationContexts = !!featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] // NB: the tag was named "flag-evaluation-tags" before we renamed the concept – i.e. this powers evaluation contexts even though the name implies tags
     const hasEvaluationRuntimes = !!featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES]
 
     const multivariateEnabled = !!featureFlag.filters?.multivariate
@@ -206,12 +206,12 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                             <div className="font-semibold">Advanced options</div>
 
                             <div className="flex flex-col gap-2">
-                                {!hasEvaluationTags && <label className="text-sm font-medium">Tags</label>}
+                                {!hasEvaluationContexts && <label className="text-sm font-medium">Tags</label>}
                                 <TagsDisplay
                                     tags={featureFlag.tags || []}
                                     evaluationContexts={featureFlag.evaluation_contexts || []}
                                     flagId={featureFlag.id}
-                                    hasEvaluationContexts={hasEvaluationTags}
+                                    hasEvaluationContexts={hasEvaluationContexts}
                                 />
                             </div>
 

@@ -36,9 +36,17 @@ interface QueryWindowProps {
     onSetMonacoAndEditor: (monaco: Monaco, editor: importedEditor.IStandaloneCodeEditor) => void
     tabId: string
     mode?: SQLEditorMode
+    showDatabaseTree: boolean
+    onShowDatabaseTree: () => void
 }
 
-export function QueryWindow({ onSetMonacoAndEditor, tabId, mode }: QueryWindowProps): JSX.Element {
+export function QueryWindow({
+    onSetMonacoAndEditor,
+    tabId,
+    mode,
+    showDatabaseTree,
+    onShowDatabaseTree,
+}: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogql-editor-${tabId}`
 
     const { queryInput, sourceQuery, originalQueryInput, suggestedQueryInput, editingView } = useValues(sqlEditorLogic)
@@ -62,7 +70,10 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId, mode }: QueryWindowPr
                 )}
             >
                 <div className="flex items-center gap-2">
-                    <ExpandDatabaseTreeButton />
+                    <ExpandDatabaseTreeButton
+                        showDatabaseTree={showDatabaseTree}
+                        onShowDatabaseTree={onShowDatabaseTree}
+                    />
                     <RunButton />
                     <CollapsedConnectionSelector mode={mode} isDirectQueryEnabled={isDirectQueryEnabled} />
                     <LemonDivider vertical />
@@ -172,11 +183,17 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId, mode }: QueryWindowPr
     )
 }
 
-function ExpandDatabaseTreeButton(): JSX.Element | null {
+function ExpandDatabaseTreeButton({
+    showDatabaseTree,
+    onShowDatabaseTree,
+}: {
+    showDatabaseTree: boolean
+    onShowDatabaseTree: () => void
+}): JSX.Element | null {
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
     const { toggleDatabaseTreeCollapsed } = useActions(editorSizingLogic)
 
-    if (!isDatabaseTreeCollapsed) {
+    if (showDatabaseTree && !isDatabaseTreeCollapsed) {
         return null
     }
 
@@ -186,7 +203,13 @@ function ExpandDatabaseTreeButton(): JSX.Element | null {
             type="secondary"
             size="small"
             tooltip="Expand database schema panel"
-            onClick={toggleDatabaseTreeCollapsed}
+            onClick={() => {
+                if (!showDatabaseTree) {
+                    onShowDatabaseTree()
+                    return
+                }
+                toggleDatabaseTreeCollapsed()
+            }}
         />
     )
 }

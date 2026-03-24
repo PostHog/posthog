@@ -261,6 +261,12 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             },
         ],
 
+        currentPeriodResult: [
+            (s) => [s.indexedResults],
+            (indexedResults: IndexedTrendResult[]): IndexedTrendResult | undefined =>
+                indexedResults.find((r) => r.compare_label === 'current') ?? indexedResults[0],
+        ],
+
         labelGroupType: [
             (s) => [s.series, s.querySource, s.isLifecycle],
             (series, querySource, isLifecycle): 'people' | 'none' | number => {

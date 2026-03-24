@@ -43,6 +43,7 @@ import {
     Node,
     NodeKind,
     ProductAnalyticsInsightQueryNode,
+    RetentionQuery,
     TrendsFilter,
     TrendsFormulaNode,
     TrendsQuery,
@@ -976,6 +977,16 @@ const handleQuerySourceUpdateSideEffects = (
                 ...(currentState as TrendsQuery).trendsFilter,
                 smoothingIntervals: undefined,
             }
+        }
+    }
+
+    /*
+     * Retention side effects
+     */
+    if (kind === NodeKind.RetentionQuery) {
+        const retentionFilter = (mergedUpdate as RetentionQuery).retentionFilter
+        if (retentionFilter?.timeWindowMode === '24_hour_windows') {
+            retentionFilter.cumulative = false
         }
     }
 

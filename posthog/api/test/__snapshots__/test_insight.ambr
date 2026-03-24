@@ -72,7 +72,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1,
+                     enable_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
@@ -150,7 +150,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1,
+                     enable_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
@@ -228,7 +228,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1,
+                     enable_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
@@ -254,7 +254,7 @@
         FROM
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(left(toString(if(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 'le%ss', 'more')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 'le%ss', 'more')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
@@ -299,7 +299,7 @@
         FROM
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(left(toString(if(ifNull(less(accurateCastOrNull(nullIf(nullIf(e.mat_int_value, ''), 'null'), 'Int64'), 10), 0), 'le%ss', 'more')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(ifNull(less(accurateCastOrNull(nullIf(nullIf(e.mat_int_value, ''), 'null'), 'Int64'), 10), 0), 'le%ss', 'more')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
@@ -678,6 +678,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -813,6 +814,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -916,6 +918,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -987,6 +990,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -995,6 +999,7 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."filters_overrides",
          "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
   WHERE "posthog_dashboardtile"."id" = 99999
@@ -1096,6 +1101,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -1203,6 +1209,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -1211,6 +1218,7 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."filters_overrides",
          "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
@@ -1251,6 +1259,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -1532,6 +1541,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -1850,6 +1860,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -2047,6 +2058,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -2162,6 +2174,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -2170,6 +2183,7 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."filters_overrides",
          "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
          "posthog_dashboardtile"."deleted",
          "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -2221,6 +2235,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -2344,6 +2359,7 @@
          "posthog_alertconfiguration"."calculation_interval",
          "posthog_alertconfiguration"."threshold_id",
          "posthog_alertconfiguration"."condition",
+         "posthog_alertconfiguration"."detector_config",
          "posthog_alertconfiguration"."state",
          "posthog_alertconfiguration"."enabled",
          "posthog_alertconfiguration"."is_calculating",
@@ -2659,6 +2675,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -2762,6 +2779,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",

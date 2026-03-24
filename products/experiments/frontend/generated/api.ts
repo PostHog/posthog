@@ -12,11 +12,15 @@ import type {
     ExperimentApi,
     ExperimentHoldoutApi,
     ExperimentHoldoutsListParams,
+    ExperimentSavedMetricApi,
+    ExperimentSavedMetricsListParams,
     ExperimentsListParams,
     PaginatedExperimentHoldoutListApi,
     PaginatedExperimentListApi,
+    PaginatedExperimentSavedMetricListApi,
     PatchedExperimentApi,
     PatchedExperimentHoldoutApi,
+    PatchedExperimentSavedMetricApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -146,6 +150,116 @@ export const experimentHoldoutsDestroy = async (
     })
 }
 
+export const getExperimentSavedMetricsListUrl = (projectId: string, params?: ExperimentSavedMetricsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/experiment_saved_metrics/?${stringifiedParams}`
+        : `/api/projects/${projectId}/experiment_saved_metrics/`
+}
+
+export const experimentSavedMetricsList = async (
+    projectId: string,
+    params?: ExperimentSavedMetricsListParams,
+    options?: RequestInit
+): Promise<PaginatedExperimentSavedMetricListApi> => {
+    return apiMutator<PaginatedExperimentSavedMetricListApi>(getExperimentSavedMetricsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getExperimentSavedMetricsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/experiment_saved_metrics/`
+}
+
+export const experimentSavedMetricsCreate = async (
+    projectId: string,
+    experimentSavedMetricApi: NonReadonly<ExperimentSavedMetricApi>,
+    options?: RequestInit
+): Promise<ExperimentSavedMetricApi> => {
+    return apiMutator<ExperimentSavedMetricApi>(getExperimentSavedMetricsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(experimentSavedMetricApi),
+    })
+}
+
+export const getExperimentSavedMetricsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiment_saved_metrics/${id}/`
+}
+
+export const experimentSavedMetricsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentSavedMetricApi> => {
+    return apiMutator<ExperimentSavedMetricApi>(getExperimentSavedMetricsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getExperimentSavedMetricsUpdateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiment_saved_metrics/${id}/`
+}
+
+export const experimentSavedMetricsUpdate = async (
+    projectId: string,
+    id: number,
+    experimentSavedMetricApi: NonReadonly<ExperimentSavedMetricApi>,
+    options?: RequestInit
+): Promise<ExperimentSavedMetricApi> => {
+    return apiMutator<ExperimentSavedMetricApi>(getExperimentSavedMetricsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(experimentSavedMetricApi),
+    })
+}
+
+export const getExperimentSavedMetricsPartialUpdateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiment_saved_metrics/${id}/`
+}
+
+export const experimentSavedMetricsPartialUpdate = async (
+    projectId: string,
+    id: number,
+    patchedExperimentSavedMetricApi: NonReadonly<PatchedExperimentSavedMetricApi>,
+    options?: RequestInit
+): Promise<ExperimentSavedMetricApi> => {
+    return apiMutator<ExperimentSavedMetricApi>(getExperimentSavedMetricsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedExperimentSavedMetricApi),
+    })
+}
+
+export const getExperimentSavedMetricsDestroyUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiment_saved_metrics/${id}/`
+}
+
+export const experimentSavedMetricsDestroy = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExperimentSavedMetricsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getExperimentsListUrl = (projectId: string, params?: ExperimentsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -255,6 +369,28 @@ export const experimentsDestroy = async (projectId: string, id: number, options?
     })
 }
 
+/**
+ * Archive an ended experiment.
+
+Hides the experiment from the default list view. The experiment can be
+restored at any time by updating archived=false. Returns 400 if the
+experiment is already archived or has not ended yet.
+ */
+export const getExperimentsArchiveCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/archive/`
+}
+
+export const experimentsArchiveCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentApi> => {
+    return apiMutator<ExperimentApi>(getExperimentsArchiveCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getExperimentsCreateExposureCohortForExperimentCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/create_exposure_cohort_for_experiment/`
 }
@@ -291,6 +427,53 @@ export const experimentsDuplicateCreate = async (
     })
 }
 
+/**
+ * Launch a draft experiment.
+
+Validates the experiment is in draft state, activates its linked feature flag,
+sets start_date to the current server time, and transitions the experiment to running.
+Returns 400 if the experiment has already been launched or if the feature flag
+configuration is invalid (e.g. missing "control" variant or fewer than 2 variants).
+ */
+export const getExperimentsLaunchCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/launch/`
+}
+
+export const experimentsLaunchCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentApi> => {
+    return apiMutator<ExperimentApi>(getExperimentsLaunchCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+/**
+ * Pause a running experiment.
+
+Deactivates the linked feature flag so it is no longer returned by the
+/decide endpoint. Users fall back to the application default (typically
+the control experience), and no new exposure events are recorded (i.e.
+$feature_flag_called is not fired).
+Returns 400 if the experiment is not running or is already paused.
+ */
+export const getExperimentsPauseCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/pause/`
+}
+
+export const experimentsPauseCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentApi> => {
+    return apiMutator<ExperimentApi>(getExperimentsPauseCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getExperimentsRecalculateTimeseriesCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/recalculate_timeseries/`
 }
@@ -306,6 +489,29 @@ export const experimentsRecalculateTimeseriesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(experimentApi),
+    })
+}
+
+/**
+ * Resume a paused experiment.
+
+Reactivates the linked feature flag so it is returned by /decide again.
+Users are re-bucketed deterministically into the same variants they had
+before the pause, and exposure tracking resumes.
+Returns 400 if the experiment is not running or is not paused.
+ */
+export const getExperimentsResumeCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/resume/`
+}
+
+export const experimentsResumeCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentApi> => {
+    return apiMutator<ExperimentApi>(getExperimentsResumeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

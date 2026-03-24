@@ -33,12 +33,14 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
     evaluation_periods = serializers.IntegerField(
         default=1,
         min_value=1,
-        help_text="Total number of check periods in the sliding evaluation window (M in N-of-M).",
+        max_value=10,
+        help_text="Total number of check periods in the sliding evaluation window for firing (M in N-of-M).",
     )
     datapoints_to_alarm = serializers.IntegerField(
         default=1,
         min_value=1,
-        help_text="How many periods within the evaluation window must breach the threshold to trigger (N in N-of-M).",
+        max_value=10,
+        help_text="How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).",
     )
 
     class Meta:

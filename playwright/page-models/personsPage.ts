@@ -66,7 +66,7 @@ export class PersonsPage {
 
     async goToEventsTab(): Promise<void> {
         await this.eventsTab.click()
-        await expect(this.page.getByText('Select an event')).toBeVisible()
+        await expect(this.page.getByText('Select events')).toBeVisible()
     }
 
     async addProperty(key: string, value: string): Promise<void> {

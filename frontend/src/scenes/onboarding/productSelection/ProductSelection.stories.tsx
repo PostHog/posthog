@@ -27,7 +27,7 @@ const meta: Meta = {
                 '/api/billing/': billingJson,
             },
             patch: {
-                '/api/environments/@current/add_product_intent/': {},
+                '/api/environments/:team_id/add_product_intent/': {},
             },
         }),
     ],

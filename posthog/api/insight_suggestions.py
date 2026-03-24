@@ -29,6 +29,11 @@ class InsightSuggestion(BaseModel):
     targetQuery: InsightVizNode
 
 
+class InsightMetadata(BaseModel):
+    name: str
+    description: str
+
+
 def get_insight_suggestions(
     query: InsightVizNode, team: Team, insight_result: Optional[dict[str, Any]] = None, context: Optional[str] = None
 ) -> list[InsightSuggestion]:
@@ -320,57 +325,217 @@ def get_ai_suggestions(
         return []
 
 
-def generate_insight_name(query: InsightVizNode, team: Team) -> str:
-    """Generate a concise, descriptive name for an insight based on its query configuration."""
+_MATH_LABELS: dict[str, str] = {
+    "total": "total count",
+    "dau": "unique users",
+    "weekly_active": "weekly active users",
+    "monthly_active": "monthly active users",
+    "unique_session": "unique sessions",
+    "first_time_for_user": "first time users",
+    "avg_count_per_actor": "avg count per user",
+    "min_count_per_actor": "min count per user",
+    "max_count_per_actor": "max count per user",
+    "median_count_per_actor": "median count per user",
+    "avg": "average",
+    "sum": "sum",
+    "min": "minimum",
+    "max": "maximum",
+    "median": "median",
+    "p90": "p90",
+    "p95": "p95",
+    "p99": "p99",
+    "hogql": "custom expression",
+}
+
+
+def _summarize_series_item(item: Any) -> str:
+    """Extract a human-readable summary from a series item (EventsNode, ActionsNode, DataWarehouseNode)."""
+    parts: list[str] = []
+
+    # Event or action name
+    if hasattr(item, "custom_name") and item.custom_name:
+        parts.append(item.custom_name)
+    elif hasattr(item, "event") and item.event:
+        parts.append(item.event)
+    elif hasattr(item, "name") and item.name:
+        parts.append(item.name)
+    elif hasattr(item, "id") and item.id:
+        parts.append(f"Action #{item.id}")
+    else:
+        parts.append("All events")
+
+    # Math type
+    if hasattr(item, "math") and item.math:
+        math_str = str(item.math)
+        label = _MATH_LABELS.get(math_str, math_str)
+        parts.append(f"({label})")
+
+        # Math property
+        if hasattr(item, "math_property") and item.math_property:
+            parts.append(f"of {item.math_property}")
+
+    return " ".join(parts)
+
+
+def _summarize_query_for_naming(query: InsightVizNode) -> str:
+    """Extract only the fields that matter for naming an insight into a compact summary."""
+    source = query.source
+    if not source:
+        return "Unknown query"
+
+    lines: list[str] = []
+    lines.append(f"Type: {source.kind}")
+
+    # Series (Trends, Funnels, Stickiness, Lifecycle)
+    if hasattr(source, "series") and source.series:
+        series_summaries = [_summarize_series_item(item) for item in source.series]
+        if source.kind == "FunnelsQuery":
+            lines.append(f"Funnel steps: {' → '.join(series_summaries)}")
+        else:
+            lines.append(f"Series: {', '.join(series_summaries)}")
+
+    # Interval
+    if hasattr(source, "interval") and source.interval:
+        lines.append(f"Interval: {source.interval}")
+
+    # Breakdown
+    if hasattr(source, "breakdownFilter") and source.breakdownFilter:
+        bf = source.breakdownFilter
+        if bf.breakdown:
+            lines.append(f"Breakdown: {bf.breakdown}")
+        if bf.breakdowns:
+            breakdown_strs = [str(b.property) if hasattr(b, "property") else str(b) for b in bf.breakdowns]
+            lines.append(f"Breakdowns: {', '.join(breakdown_strs)}")
+
+    # Retention-specific
+    if hasattr(source, "retentionFilter") and source.retentionFilter:
+        rf = source.retentionFilter
+        if rf.returningEntity:
+            entity = rf.returningEntity
+            entity_name = entity.custom_name or entity.name or entity.id or "event"
+            lines.append(f"Returning event: {entity_name}")
+        if rf.targetEntity:
+            entity = rf.targetEntity
+            entity_name = entity.custom_name or entity.name or entity.id or "event"
+            lines.append(f"Target event: {entity_name}")
+        if rf.period:
+            lines.append(f"Period: {rf.period}")
+    # Paths-specific
+    if hasattr(source, "pathsFilter") and source.pathsFilter:
+        pf = source.pathsFilter
+        if pf.includeEventTypes:
+            lines.append(f"Path type: {', '.join(str(t) for t in pf.includeEventTypes)}")
+        if pf.startPoint:
+            lines.append(f"Start point: {pf.startPoint}")
+        if pf.endPoint:
+            lines.append(f"End point: {pf.endPoint}")
+
+    # Aggregation group
+    if hasattr(source, "aggregation_group_type_index") and source.aggregation_group_type_index is not None:
+        lines.append(f"Aggregating by: group type {source.aggregation_group_type_index}")
+
+    return "\n".join(lines)
+
+
+_NAMING_GUIDANCE: dict[str, str] = {
+    "TrendsQuery": (
+        "This is a TRENDS insight — a metric (or several) plotted over time.\n"
+        "1 series  → just name the metric: 'Daily Pageviews', 'Weekly Active Users'\n"
+        "2-6 series → list all with commas + 'and': 'Pageviews, Pageleaves, and Insight Created'\n"
+        "6+ series → list primary metric then 'and other key metrics': 'Pageviews and other key metrics'\n"
+        "If the aggregation is notable (unique users, avg per user), weave it in naturally: "
+        "'Unique Users', 'Avg Session Duration'"
+    ),
+    "FunnelsQuery": (
+        "This is a FUNNEL insight — a conversion path through ordered steps.\n"
+        "Use arrows between the first and last step: 'Signup → Purchase Conversion'\n"
+        "For long funnels (4+ steps), use only the entry and exit: 'Landing → Checkout Conversion'\n"
+        "Never use 'vs' for funnels. End with 'Conversion' or 'Funnel'."
+    ),
+    "RetentionQuery": (
+        "This is a RETENTION insight — tracks how many users return after an initial event.\n"
+        "Omit internal details like first occurrence or filters.\n"
+        "If the period is non-default, lead with it: 'Weekly Retention after Signup'.\n"
+        "If the target and returning events differ, include both: 'Retention: Signup → Feature Use'."
+    ),
+    "StickinessQuery": (
+        "This is a STICKINESS insight — how many days/weeks users performed an event.\n"
+        "Focus on the event and engagement: 'Dashboard Stickiness', 'Feature Use Frequency'"
+    ),
+    "LifecycleQuery": (
+        "This is a LIFECYCLE insight — new, returning, resurrecting, and dormant users.\n"
+        "Name the event being tracked: 'Pageview Lifecycle', 'Signup Lifecycle'"
+    ),
+    "PathsQuery": (
+        "This is a PATHS insight — visualizes the sequences of pages, screens, or events users take.\n"
+        "Use short labels for path types: '$pageview' → 'Page', '$screen' → 'Screen', 'custom_event' → 'Event'.\n"
+        "Combine multiple types with '&': 'Page & Screen Paths'.\n"
+        "If a start/end point is a URL, extract just the meaningful path segment for the name "
+        "(e.g. 'http://example.com/project/1/insights' → 'Insights Page').\n"
+        "If a start/end point is an event name, humanize it normally.\n"
+        "Examples: 'User Page Paths', 'Page & Screen Paths', 'Page Paths from Insights'"
+    ),
+}
+
+
+def generate_insight_metadata(query: InsightVizNode, team: Team) -> InsightMetadata:
+    """Generate a concise name and description for an insight based on its query configuration."""
     try:
-        query_json = query.model_dump_json(exclude_none=True)
+        query_summary = _summarize_query_for_naming(query)
         query_kind = query.source.kind if query.source else "Unknown"
+        type_guidance = _NAMING_GUIDANCE.get(query_kind, "")
 
         prompt = (
-            "Generate a short, descriptive name for this PostHog insight based on its query configuration. "
-            "The name should be concise (2-6 words), descriptive, and follow these patterns:\n\n"
-            "Examples:\n"
-            "- 'Weekly active users' (for a trends query counting unique users by week)\n"
-            "- 'Signup to purchase funnel' (for a funnel from signup to purchase events)\n"
-            "- 'User retention by week' (for a retention query)\n"
-            "- 'Feature adoption by country' (for trends with country breakdown)\n"
-            "- 'Daily pageviews trend' (for pageview trends by day)\n\n"
-            "Rules:\n"
-            "- Use sentence case (only first word capitalized)\n"
-            "- No quotes or special characters\n"
-            "- Focus on what the insight measures, not how\n"
-            "- Include breakdown dimension if present (e.g., 'by browser', 'by country')\n"
-            "- Return ONLY the name, nothing else\n\n"
-            f"Query type: {query_kind}\n"
-            f"Query configuration: {query_json}"
+            "Name and describe this product analytics insight for a dashboard. "
+            "Optimize for clarity and scanability — a teammate should instantly understand "
+            "what this insight tracks at a glance.\n\n"
+            f"{type_guidance}\n\n"
+            "Rules for the NAME:\n"
+            "- Title case (e.g. 'Pageviews, Pageleaves')\n"
+            "- 3-12 words — use as many as needed to capture all series and breakdowns\n"
+            "- Humanize event names: '$pageview' → 'Pageviews', 'user_signed_up' → 'Signups'\n"
+            "- Include 'by <dimension>' only when a breakdown is present. Multiple breakdowns - join with 'and': 'by Browser and OS'\n"
+            "- Drop filler words: 'count', 'total', 'events', 'data', 'trend'\n"
+            "- If math is just total count, omit it — it's the default\n\n"
+            "Rules for the DESCRIPTION:\n"
+            "- One short sentence — what this insight measures\n"
+            "- Plain language, no jargon\n\n"
+            "Query:\n"
+            f"{query_summary}\n\n"
+            'Return ONLY a JSON object: {"name": "...", "description": "..."}'
         )
 
         messages = [
             {
                 "role": "system",
-                "content": "You are a helpful assistant that generates concise insight names. Return only the name, nothing else.",
+                "content": (
+                    "You are a helpful assistant that generates insight names and descriptions. "
+                    "Return only a JSON object with 'name' and 'description' keys, nothing else."
+                ),
             },
             {"role": "user", "content": prompt},
         ]
 
         content, _, _ = hit_openai(
             messages,
-            f"team/{team.id}/generate-insight-name",
+            f"team/{team.id}/generate-insight-metadata",
             posthog_properties={
                 "ai_product": "product_analytics",
-                "ai_feature": "insight-ai-name-generation",
+                "ai_feature": "insight-ai-metadata-generation",
             },
         )
 
-        name = content.strip().strip('"').strip("'")
-        if name and name[0].islower():
-            name = name[0].upper() + name[1:]
+        parsed = json.loads(content.strip())
+        name = parsed["name"].strip().strip('"').strip("'")
+        description = parsed["description"].strip()
+
         if len(name) > 100:
             name = name[:97] + "..."
+        if len(description) > 200:
+            description = description[:197] + "..."
 
-        return name
+        return InsightMetadata(name=name, description=description)
 
     except Exception:
-        # TODO: Fallback to <event> <math> & <event> <math> naming
-        logger.exception("ai_name_generation_failed")
-        return ""
+        logger.exception("ai_metadata_generation_failed")
+        raise

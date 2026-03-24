@@ -156,12 +156,19 @@ class EndpointVersion(models.Model):
     def get_columns(self) -> list[dict]:
         """Return columns, lazily populating from ClickHouse if not yet computed."""
         if self.columns is None:
-            columns = EndpointVersion.extract_columns(self.query, self.endpoint.team_id)
-            # Refresh from DB to check if another request already populated it
+            columns: list[dict] = []
+            exc: Exception | None = None
+            try:
+                columns = EndpointVersion.extract_columns(self.query, self.endpoint.team_id)
+            except Exception as e:
+                exc = e
+            # Save before capture_exception (which can hang serializing large AST objects)
             self.refresh_from_db(fields=["columns"])
             if self.columns is None:
                 self.columns = columns
                 self.save(update_fields=["columns"])
+            if exc is not None:
+                capture_exception(exc)
         return self.columns
 
     def disable_materialization(self) -> None:
@@ -207,13 +214,6 @@ class EndpointVersion(models.Model):
                 f"Query type '{query_kind}' cannot be materialized. Supported types: {supported}",
             )
 
-        # Check for multiple breakdowns in insight queries
-        if query_kind != "HogQLQuery":
-            breakdown_filter = self.query.get("breakdownFilter") or {}
-            breakdowns = breakdown_filter.get("breakdowns") or []
-            if len(breakdowns) > 1:
-                return False, "Multiple breakdowns not supported for materialization"
-
         if self.query.get("variables"):
             from products.endpoints.backend.materialization import analyze_variables_for_materialization
 
@@ -237,33 +237,29 @@ class EndpointVersion(models.Model):
         hogql_string = query.get("query", "")
         if not hogql_string:
             return []
-        try:
-            from posthog.hogql.query import HogQLQueryExecutor
+        from posthog.hogql.query import HogQLQueryExecutor
 
-            from posthog.clickhouse.client import sync_execute
+        from posthog.clickhouse.client import sync_execute
 
-            parsed = parse_select(hogql_string)
-            cleaned = _PLACEHOLDER_REPLACER.visit(parsed)
+        parsed = parse_select(hogql_string)
+        cleaned = _PLACEHOLDER_REPLACER.visit(parsed)
 
-            team = Team.objects.get(pk=team_id)
-            executor = HogQLQueryExecutor(query=cleaned, team=team, limit_context=None)
-            clickhouse_sql, clickhouse_context = executor.generate_clickhouse_sql()
+        team = Team.objects.get(pk=team_id)
+        executor = HogQLQueryExecutor(query=cleaned, team=team, limit_context=None)
+        clickhouse_sql, clickhouse_context = executor.generate_clickhouse_sql()
 
-            if not clickhouse_sql:
-                return []
-
-            # nosemgrep: clickhouse-fstring-param-audit (clickhouse_sql is compiler output from HogQLQueryExecutor, not user input)
-            rows = sync_execute(
-                f"DESCRIBE TABLE ({clickhouse_sql})",
-                clickhouse_context.values,
-                team_id=team_id,
-                readonly=True,
-            )
-
-            return [{"name": row[0], "type": _clickhouse_type_to_serialized_type(row[1])} for row in rows]
-        except Exception as e:
-            capture_exception(e)
+        if not clickhouse_sql:
             return []
+
+        # nosemgrep: clickhouse-fstring-param-audit (clickhouse_sql is compiler output from HogQLQueryExecutor, not user input)
+        rows = sync_execute(
+            f"DESCRIBE TABLE ({clickhouse_sql})",
+            clickhouse_context.values,
+            team_id=team_id,
+            readonly=True,
+        )
+
+        return [{"name": row[0], "type": _clickhouse_type_to_serialized_type(row[1])} for row in rows]
 
 
 class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTModel):
@@ -350,7 +346,10 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
         self.save(update_fields=["current_version", "updated_at"])
 
         # Create new version, inheriting settings from previous version
-        columns = EndpointVersion.extract_columns(query, team_id=self.team_id)
+        try:
+            columns: list[dict] | None = EndpointVersion.extract_columns(query, team_id=self.team_id)
+        except Exception:
+            columns = None
         version = EndpointVersion.objects.create(
             endpoint=self,
             version=self.current_version,

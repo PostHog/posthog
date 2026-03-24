@@ -52,7 +52,7 @@
         },
         {
             "type": "Text",
-            "globs": ["ui-apps-dist/**/*.html", "src/static/**/*.html"],
+            "globs": ["src/static/**/*.html"],
             "fallthrough": true,
         },
     ],
@@ -79,7 +79,11 @@
      * For local development, set the environment variable before building:
      * POSTHOG_UI_APPS_TOKEN=phc_xxx pnpm run build:ui-apps
      */
-    // "vars": { "MY_VARIABLE": "production_value" },
+    "vars": {
+        "MCP_APPS_BASE_URL": "https://mcp.posthog.com",
+        "POSTHOG_ANALYTICS_API_KEY": "sTMFPsFhdP1Ssg",
+        "POSTHOG_ANALYTICS_HOST": "https://us.i.posthog.com",
+    },
     /**
      * Note: Use secrets to store sensitive data.
      * https://developers.cloudflare.com/workers/configuration/secrets/
@@ -88,7 +92,7 @@
      * Static Assets
      * https://developers.cloudflare.com/workers/static-assets/binding/
      */
-    // "assets": { "directory": "./public/", "binding": "ASSETS" },
+    "assets": { "directory": "./public/" },
     /**
      * Service Bindings (communicate between multiple Workers)
      * https://developers.cloudflare.com/workers/wrangler/configuration/#service-bindings
