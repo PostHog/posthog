@@ -2,8 +2,7 @@ import { objectCleanWithEmpty, objectsEqual, removeUndefinedAndNull } from 'lib/
 import { isValidRE2 } from 'lib/utils/regexp'
 
 import { Variable } from '~/queries/nodes/DataVisualization/types'
-import { DataNode, InsightQueryNode, Node } from '~/queries/schema/schema-general'
-import { HogQLVariable } from '~/queries/schema/schema-general'
+import { DataNode, HogQLVariable, InsightQueryNode, Node } from '~/queries/schema/schema-general'
 import {
     filterForQuery,
     getMathTypeWarning,

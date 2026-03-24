@@ -215,9 +215,8 @@ export const variablesLogic = kea<variablesLogicType>([
 
                         return undefined
                     })
-                    .filter(
-                        (variable): variable is Variable => Boolean(variable) && queryCodeNames.has(variable.code_name)
-                    )
+                    .filter((variable): variable is Variable => variable !== undefined)
+                    .filter((variable) => queryCodeNames.has(variable.code_name))
             },
         ],
         showVariablesBar: [
