@@ -37,7 +37,12 @@ export function ResultsNotificationBanner(): JSX.Element | null {
     }
 
     return (
-        <LemonBanner type="info" className="mb-4" icon={<IconClock />} onClose={dismissNotificationOffer}>
+        <LemonBanner
+            type="info"
+            className="mb-4"
+            icon={<IconClock />}
+            onClose={notifyWhenResultsReady ? undefined : dismissNotificationOffer}
+        >
             {notifyWhenResultsReady ? (
                 "We'll notify you when results are ready. Keep this tab open."
             ) : (
