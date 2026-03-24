@@ -29,9 +29,9 @@ def seed_dev_dashboard_templates() -> list[str]:
 
     created: list[str] = []
     for payload in load_dashboard_template_seeds():
-        name = payload["template_name"]
-        if name is None:
-            raise ValueError(f"Dashboard template seed has a null 'template_name': {payload}")
+        name = payload.get("template_name")
+        if not name:
+            raise ValueError(f"Dashboard template seed missing or has null 'template_name': {payload}")
         exists = DashboardTemplate.objects.filter(team_id__isnull=True, template_name=name).exists()
         if exists:
             continue
