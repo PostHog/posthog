@@ -55,7 +55,6 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "action",
     "dashboard",
     "experiment",
-    "experiment_saved_metric",
     "external_data_source",
     "feature_flag",
     "insight",
@@ -79,6 +78,7 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "dataset": "llm_analytics",
     "llm_provider_key": "llm_analytics",
     "llm_prompt": "llm_analytics",
+    "experiment_saved_metric": "experiment",
 }
 
 

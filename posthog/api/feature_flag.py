@@ -792,7 +792,7 @@ class FeatureFlagSerializer(
             if not groups:
                 raise serializers.ValidationError("Feature flags must have at least one condition set (group).")
 
-        aggregation_group_type_index = filters.get("aggregation_group_type_index", None)
+        flag_level_aggregation = filters.get("aggregation_group_type_index", None)
 
         # Validate filter field types to prevent serde deserialization failures in the
         # Rust flag evaluation service. Non-conforming types poison the entire team's
@@ -816,7 +816,7 @@ class FeatureFlagSerializer(
             if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
                 raise serializers.ValidationError(f"{path} must be an integer or null, got {type(value).__name__}")
 
-        _validate_integer(aggregation_group_type_index, "aggregation_group_type_index")
+        _validate_integer(flag_level_aggregation, "aggregation_group_type_index")
 
         for group_index, group in enumerate(filters.get("groups", [])):
             variant = group.get("variant")
@@ -826,7 +826,6 @@ class FeatureFlagSerializer(
                 )
 
             _validate_rollout_percentage(group.get("rollout_percentage"), f"groups[{group_index}].rollout_percentage")
-
             _validate_integer(
                 group.get("aggregation_group_type_index"),
                 f"groups[{group_index}].aggregation_group_type_index",
@@ -845,40 +844,78 @@ class FeatureFlagSerializer(
                 allow_null=False,
             )
 
-        def properties_all_match(predicate):
-            return all(
-                predicate(Property(**property))
-                for condition in filters["groups"]
-                for property in condition.get("properties", [])
-            )
+        # Normalize: distribute the flag-level aggregation_group_type_index to each
+        # condition set that doesn't already have one. Only set the field when the
+        # value is non-null to avoid adding new keys to persisted JSON that would
+        # change behavior for frontend code using `!== undefined` checks.
+        # TODO #52024: once frontend null checks are fixed, always set this field
+        # (including None) so every condition set explicitly carries its aggregation mode.
+        if flag_level_aggregation is not None:
+            for condition in filters["groups"]:
+                if condition.get("aggregation_group_type_index") is None:
+                    condition["aggregation_group_type_index"] = flag_level_aggregation
 
-        if aggregation_group_type_index is None:
-            is_valid = properties_all_match(lambda prop: prop.type in ["person", "cohort", "flag"])
-            if not is_valid:
+        # Derive the flag-level field from condition sets for backward compatibility.
+        # If all condition sets share the same value, use that; otherwise reject.
+        # Mixed aggregation types are not yet supported by the evaluation engine.
+        # Empty groups are valid on updates (e.g. scheduled changes), so skip this check.
+        condition_aggregations = [c.get("aggregation_group_type_index") for c in filters["groups"]]
+        if condition_aggregations:
+            if not all(a == condition_aggregations[0] for a in condition_aggregations):
                 raise serializers.ValidationError(
-                    "Filters are not valid (can only use person, cohort, and flag properties)"
+                    "Mixed aggregation types across condition sets are not yet supported. "
+                    "All condition sets must use the same aggregation type."
                 )
+            # Only set the flag-level field if the resolved value is non-null.
+            # Leaving it absent for person-aggregated flags preserves backward
+            # compatibility with frontend code that uses `!== undefined` checks.
+            # TODO #52024: once frontend null checks are fixed, always set this field.
+            if condition_aggregations[0] is not None:
+                filters["aggregation_group_type_index"] = condition_aggregations[0]
 
-            # Validate that flag properties use the correct operator
-            flag_props_valid = properties_all_match(
-                lambda prop: prop.type != "flag" or prop.operator == PropertyOperator.FLAG_EVALUATES_TO
-            )
-            if not flag_props_valid:
-                raise serializers.ValidationError("Flag properties must use the 'flag_evaluates_to' operator")
-
-            # Check for circular dependencies in flag filters
-            self._check_flag_circular_dependencies(filters)
-        elif self.instance is not None and hasattr(self.instance, "features") and self.instance.features.count() > 0:
+        # Check Early Access Feature constraint: no condition set can use group
+        # aggregation if the flag is linked to an Early Access Feature.
+        resolved_aggregation = filters.get("aggregation_group_type_index")
+        if (
+            resolved_aggregation is not None
+            and self.instance is not None
+            and hasattr(self.instance, "features")
+            and self.instance.features.exists()
+        ):
             raise serializers.ValidationError(
                 "Cannot change this flag to a group-based when linked to an Early Access Feature."
             )
 
-        else:
-            is_valid = properties_all_match(
-                lambda prop: prop.type == "group" and prop.group_type_index == aggregation_group_type_index
-            )
-            if not is_valid:
-                raise serializers.ValidationError("Filters are not valid (can only use group properties)")
+        # Validate properties per condition set against that condition set's aggregation.
+        for condition in filters["groups"]:
+            condition_aggregation = condition.get("aggregation_group_type_index")
+            condition_props = condition.get("properties", [])
+
+            for prop_dict in condition_props:
+                prop = Property(**prop_dict)
+
+                if condition_aggregation is None:
+                    # Person-aggregated condition: allow person, cohort, and flag properties
+                    if prop.type not in ["person", "cohort", "flag"]:
+                        raise serializers.ValidationError(
+                            "Filters are not valid (person-aggregated conditions can only use person, cohort, and flag properties)"
+                        )
+                    if prop.type == "flag" and prop_dict.get("operator") != "flag_evaluates_to":
+                        raise serializers.ValidationError("Flag properties must use the 'flag_evaluates_to' operator")
+                else:
+                    # Group-aggregated condition: only allow group properties matching the
+                    # condition's group type
+                    if prop.type != "group":
+                        raise serializers.ValidationError(
+                            "Filters are not valid (group-aggregated conditions can only use group properties)"
+                        )
+                    if prop.group_type_index != condition_aggregation:
+                        raise serializers.ValidationError(
+                            "Filters are not valid (group properties must match the condition set's group type)"
+                        )
+
+        if resolved_aggregation is None:
+            self._check_flag_circular_dependencies(filters)
 
         variant_list = (filters.get("multivariate") or {}).get("variants", [])
         variants = {variant["key"] for variant in variant_list}
@@ -1350,6 +1387,8 @@ class FeatureFlagSerializer(
         self._update_filters(validated_data)
 
         # TRICKY: Update super_groups if key is changing, since the super groups depend on the key name.
+        # Note: feature_enrollment is a boolean and doesn't need updating on key change —
+        # the enrollment property key ($feature_enrollment/{flag_key}) is derived at evaluation time.
         if validated_key and validated_key != old_key:
             filters = validated_data.get("filters", instance.filters) or {}
             validated_data["filters"] = self._update_super_groups_for_key_change(validated_key, old_key, filters)
@@ -1558,11 +1597,21 @@ class FeatureFlagSerializer(
         for cohort_prop in self._get_cohort_properties_from_filters(filters):
             cohort_prop["cohort_name"] = cohorts.get(str(cohort_prop.get("value")))
 
-        # Resolve group key display names for $group_key filters
+        # Resolve group key display names for $group_key filters. Check both
+        # the flag-level and per-condition-set aggregation_group_type_index to
+        # find the relevant group type indices.
         group_key_props = self._get_group_key_properties_from_filters(filters)
         if group_key_props:
-            group_type_index = filters.get("aggregation_group_type_index")
-            if group_type_index is not None:
+            group_type_indices: set[int] = set()
+            flag_level_index = filters.get("aggregation_group_type_index")
+            if flag_level_index is not None:
+                group_type_indices.add(flag_level_index)
+            for condition_group in filters.get("groups", []):
+                condition_index = condition_group.get("aggregation_group_type_index")
+                if condition_index is not None:
+                    group_type_indices.add(condition_index)
+
+            if group_type_indices:
                 group_keys: set[str] = set()
                 for prop in group_key_props:
                     prop_value = prop.get("value")
@@ -1575,7 +1624,7 @@ class FeatureFlagSerializer(
                     group_names: dict[str, str] = {}
                     for group in Group.objects.filter(
                         team_id=instance.team_id,
-                        group_type_index=group_type_index,
+                        group_type_index__in=group_type_indices,
                         group_key__in=group_keys,
                     ).only("group_key", "group_properties"):
                         name = group.group_properties.get("name")
