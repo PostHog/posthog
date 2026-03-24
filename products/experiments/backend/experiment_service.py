@@ -607,7 +607,7 @@ class ExperimentService:
         """Archive an ended experiment: validate it has ended, set archived=True."""
         if experiment.archived:
             raise ValidationError("Experiment is already archived.")
-        if not experiment.has_ended:
+        if not experiment.is_stopped:
             raise ValidationError("Experiment must be ended before it can be archived.")
 
         experiment.archived = True
@@ -643,7 +643,7 @@ class ExperimentService:
         """Pause a running experiment: deactivate its feature flag so it is no longer served by /decide."""
         if experiment.is_draft:
             raise ValidationError("Experiment has not been launched yet.")
-        if experiment.has_ended:
+        if experiment.is_stopped:
             raise ValidationError("Experiment has already ended.")
 
         feature_flag = experiment.feature_flag
@@ -667,7 +667,7 @@ class ExperimentService:
         """Resume a paused experiment: reactivate its feature flag so /decide serves variants again."""
         if experiment.is_draft:
             raise ValidationError("Experiment has not been launched yet.")
-        if experiment.has_ended:
+        if experiment.is_stopped:
             raise ValidationError("Experiment has already ended.")
 
         feature_flag = experiment.feature_flag

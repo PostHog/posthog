@@ -150,7 +150,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         return (self.status or Experiment.compute_status(self.start_date, self.end_date)) == Experiment.Status.RUNNING
 
     @property
-    def has_ended(self):
+    def is_stopped(self):
         return (self.status or Experiment.compute_status(self.start_date, self.end_date)) == Experiment.Status.STOPPED
 
     @classmethod
