@@ -13,7 +13,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ("posthog", "1056_migrate_experiments_models"),
+        ("posthog", "1053_backfill_experiment_saved_metric_uuids"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
