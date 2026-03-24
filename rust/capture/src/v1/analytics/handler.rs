@@ -62,7 +62,7 @@ pub async fn handle_request(
         return Err(err);
     }
 
-    match super::process::process_batch(&context, batch).await {
+    match super::process::process_batch(&state, &context, batch).await {
         Ok(resp) => Ok(resp),
         Err(err) => {
             log_stat_error!(err, ctx = &context);

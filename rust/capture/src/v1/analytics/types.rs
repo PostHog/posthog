@@ -4,6 +4,8 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::v1::sinks::Destination;
+
 #[derive(Debug, Deserialize)]
 pub struct CaptureV1Batch {
     pub created_at: String,
@@ -27,8 +29,10 @@ pub struct WrappedEvent {
     pub timestamp: Option<DateTime<Utc>>,
     // 0-indexed ordinal into the submitted batch
     pub ordinal: usize,
-    // 200 for success, 400 for invalid event, 500 for server error
+    // 200 for valid/redirected, 400 for invalid or dropped
     pub status_code: u16,
+    pub destination: Destination,
+    pub skip_person_processing: bool,
 }
 
 #[cfg(test)]

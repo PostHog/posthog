@@ -5,7 +5,10 @@ use uuid::Uuid;
 
 use super::response::Response;
 use super::types::{CaptureV1Batch, CaptureV1Event, WrappedEvent};
+use crate::event_restrictions::{EventContext, EventRestrictionService};
+use crate::router;
 use crate::v1::context::Context;
+use crate::v1::sinks::Destination;
 use crate::v1::Error;
 
 const CAPTURE_PARSED_EVENTS: &str = "capture_v1_parsed_events";
@@ -13,12 +16,26 @@ const CAPTURE_V1_MAX_EVENT_NAME_LENGTH: usize = 200;
 const CAPTURE_V1_DISTINCT_ID_MAX_SIZE: usize = 200;
 const FUTURE_EVENT_HOURS_CUTOFF_MS: i64 = 23 * 3600 * 1000;
 
-pub async fn process_batch(context: &Context, batch: CaptureV1Batch) -> Result<Response, Error> {
+pub async fn process_batch(
+    state: &router::State,
+    context: &Context,
+    batch: CaptureV1Batch,
+) -> Result<Response, Error> {
     tracing::info!(ctx = ?context, "process_batch called");
 
     validate_batch(&batch)?;
 
-    let _events: Vec<WrappedEvent> = validate_events(context, batch);
+    let mut events: Vec<WrappedEvent> = validate_events(context, batch);
+
+    if let Some(ref service) = state.event_restriction_service {
+        apply_restrictions(
+            service,
+            &context.api_token,
+            context.server_received_at.timestamp(),
+            &mut events,
+        )
+        .await;
+    }
 
     unimplemented!()
 }
@@ -55,6 +72,8 @@ fn validate_events(context: &Context, batch: CaptureV1Batch) -> Vec<WrappedEvent
                     timestamp: Some(normalize_timestamp(skew, raw_ts, now)),
                     ordinal,
                     status_code: 200,
+                    destination: Destination::default(),
+                    skip_person_processing: false,
                 }
             }
             Err(err) => {
@@ -64,6 +83,8 @@ fn validate_events(context: &Context, batch: CaptureV1Batch) -> Vec<WrappedEvent
                     timestamp: None,
                     ordinal,
                     status_code: 400,
+                    destination: Destination::default(),
+                    skip_person_processing: false,
                 }
             }
         })
@@ -108,15 +129,69 @@ fn normalize_timestamp(
     adjusted
 }
 
+const CAPTURE_V1_EVENTS_DROPPED: &str = "capture_v1_events_dropped";
+
+async fn apply_restrictions(
+    service: &EventRestrictionService,
+    token: &str,
+    now_ts: i64,
+    events: &mut [WrappedEvent],
+) {
+    for event in events.iter_mut() {
+        if event.status_code != 200 {
+            continue;
+        }
+
+        let event_ctx = EventContext {
+            distinct_id: Some(&event.event.distinct_id),
+            session_id: None,
+            event_name: Some(&event.event.event),
+            event_uuid: Some(&event.event.uuid),
+            now_ts,
+        };
+
+        let applied = service.get_restrictions(token, &event_ctx).await;
+
+        if applied.should_drop() {
+            event.status_code = 400;
+            event.destination = Destination::Drop;
+            metrics::counter!(CAPTURE_V1_EVENTS_DROPPED, "reason" => "event_restriction")
+                .increment(1);
+            continue;
+        }
+
+        // Priority: overflow < custom topic < DLQ (DLQ wins, applied last)
+        if applied.force_overflow() {
+            event.destination = Destination::Overflow;
+        }
+        if let Some(topic) = applied.redirect_to_topic() {
+            event.destination = Destination::Custom(topic.to_string());
+        }
+        if applied.redirect_to_dlq() {
+            event.destination = Destination::Dlq;
+        }
+
+        if applied.skip_person_processing() {
+            event.skip_person_processing = true;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::time::Duration as StdDuration;
 
     use chrono::{DateTime, Duration, Utc};
     use uuid::Uuid;
 
     use super::*;
+    use crate::config::CaptureMode;
+    use crate::event_restrictions::{
+        Restriction, RestrictionManager, RestrictionScope, RestrictionType,
+    };
     use crate::v1::analytics::types::{CaptureV1Batch, CaptureV1Event};
+    use crate::v1::sinks::Destination;
     use crate::v1::Error;
 
     fn valid_event() -> CaptureV1Event {
@@ -317,5 +392,265 @@ mod tests {
         let event_ts = dt("2026-03-20T10:00:00Z");
         let result = normalize_timestamp(Duration::zero(), event_ts, now);
         assert_eq!(result, event_ts);
+    }
+
+    // --- apply_restrictions ---
+
+    fn wrapped_event(ordinal: usize, event_name: &str, distinct_id: &str) -> WrappedEvent {
+        WrappedEvent {
+            event: CaptureV1Event {
+                event: event_name.to_string(),
+                uuid: Uuid::new_v4().to_string(),
+                distinct_id: distinct_id.to_string(),
+                timestamp: "2026-03-19T14:29:58.123Z".to_string(),
+                properties: HashMap::new(),
+            },
+            timestamp: Some(dt("2026-03-19T14:29:58.123Z")),
+            ordinal,
+            status_code: 200,
+            destination: Destination::default(),
+            skip_person_processing: false,
+        }
+    }
+
+    fn malformed_wrapped_event(ordinal: usize) -> WrappedEvent {
+        WrappedEvent {
+            event: CaptureV1Event {
+                event: String::new(),
+                uuid: Uuid::new_v4().to_string(),
+                distinct_id: "user-1".to_string(),
+                timestamp: "bad".to_string(),
+                properties: HashMap::new(),
+            },
+            timestamp: None,
+            ordinal,
+            status_code: 400,
+            destination: Destination::default(),
+            skip_person_processing: false,
+        }
+    }
+
+    async fn restriction_service(
+        token: &str,
+        restrictions: Vec<Restriction>,
+    ) -> EventRestrictionService {
+        let service =
+            EventRestrictionService::new(CaptureMode::Events, StdDuration::from_secs(300));
+        let mut manager = RestrictionManager::new();
+        manager.restrictions.insert(token.to_string(), restrictions);
+        service.update(manager).await;
+        service
+    }
+
+    #[tokio::test]
+    async fn restrictions_no_restrictions_passthrough() {
+        let service =
+            EventRestrictionService::new(CaptureMode::Events, StdDuration::from_secs(300));
+        service.update(RestrictionManager::new()).await;
+
+        let mut events = vec![wrapped_event(0, "$pageview", "user-1")];
+        let now_ts = Utc::now().timestamp();
+
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+
+        assert_eq!(events[0].status_code, 200);
+        assert_eq!(events[0].destination, Destination::AnalyticsMain);
+        assert!(!events[0].skip_person_processing);
+    }
+
+    #[tokio::test]
+    async fn restrictions_drop_event() {
+        let service = restriction_service(
+            "phc_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::DropEvent,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        )
+        .await;
+
+        let mut events = vec![
+            wrapped_event(0, "$pageview", "user-1"),
+            wrapped_event(1, "$identify", "user-2"),
+        ];
+        let now_ts = Utc::now().timestamp();
+
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+
+        assert_eq!(events[0].status_code, 400);
+        assert_eq!(events[0].destination, Destination::Drop);
+        assert_eq!(events[1].status_code, 400);
+        assert_eq!(events[1].destination, Destination::Drop);
+    }
+
+    #[tokio::test]
+    async fn restrictions_skip_malformed_events() {
+        let service = restriction_service(
+            "phc_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::DropEvent,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        )
+        .await;
+
+        let mut events = vec![
+            malformed_wrapped_event(0),
+            wrapped_event(1, "$pageview", "user-1"),
+        ];
+        let now_ts = Utc::now().timestamp();
+
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+
+        // malformed event stays 400 with original destination, not re-evaluated
+        assert_eq!(events[0].status_code, 400);
+        assert_eq!(events[0].destination, Destination::AnalyticsMain);
+        // valid event gets dropped by restriction
+        assert_eq!(events[1].status_code, 400);
+        assert_eq!(events[1].destination, Destination::Drop);
+    }
+
+    #[tokio::test]
+    async fn restrictions_force_overflow() {
+        let service = restriction_service(
+            "phc_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::ForceOverflow,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        )
+        .await;
+
+        let mut events = vec![wrapped_event(0, "$pageview", "user-1")];
+        let now_ts = Utc::now().timestamp();
+
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+
+        assert_eq!(events[0].status_code, 200);
+        assert_eq!(events[0].destination, Destination::Overflow);
+    }
+
+    #[tokio::test]
+    async fn restrictions_redirect_to_dlq() {
+        let service = restriction_service(
+            "phc_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::RedirectToDlq,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        )
+        .await;
+
+        let mut events = vec![wrapped_event(0, "$pageview", "user-1")];
+        let now_ts = Utc::now().timestamp();
+
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+
+        assert_eq!(events[0].status_code, 200);
+        assert_eq!(events[0].destination, Destination::Dlq);
+    }
+
+    #[tokio::test]
+    async fn restrictions_redirect_to_custom_topic() {
+        let service = restriction_service(
+            "phc_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::RedirectToTopic,
+                scope: RestrictionScope::AllEvents,
+                args: Some(serde_json::json!({"topic": "custom_analytics"})),
+            }],
+        )
+        .await;
+
+        let mut events = vec![wrapped_event(0, "$pageview", "user-1")];
+        let now_ts = Utc::now().timestamp();
+
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+
+        assert_eq!(events[0].status_code, 200);
+        assert_eq!(
+            events[0].destination,
+            Destination::Custom("custom_analytics".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn restrictions_skip_person_processing() {
+        let service = restriction_service(
+            "phc_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::SkipPersonProcessing,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        )
+        .await;
+
+        let mut events = vec![wrapped_event(0, "$pageview", "user-1")];
+        let now_ts = Utc::now().timestamp();
+
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+
+        assert_eq!(events[0].status_code, 200);
+        assert_eq!(events[0].destination, Destination::AnalyticsMain);
+        assert!(events[0].skip_person_processing);
+    }
+
+    #[tokio::test]
+    async fn restrictions_dlq_wins_over_overflow_and_custom() {
+        let service = restriction_service(
+            "phc_token",
+            vec![
+                Restriction {
+                    restriction_type: RestrictionType::ForceOverflow,
+                    scope: RestrictionScope::AllEvents,
+                    args: None,
+                },
+                Restriction {
+                    restriction_type: RestrictionType::RedirectToTopic,
+                    scope: RestrictionScope::AllEvents,
+                    args: Some(serde_json::json!({"topic": "custom_topic"})),
+                },
+                Restriction {
+                    restriction_type: RestrictionType::RedirectToDlq,
+                    scope: RestrictionScope::AllEvents,
+                    args: None,
+                },
+            ],
+        )
+        .await;
+
+        let mut events = vec![wrapped_event(0, "$pageview", "user-1")];
+        let now_ts = Utc::now().timestamp();
+
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+
+        assert_eq!(events[0].status_code, 200);
+        assert_eq!(events[0].destination, Destination::Dlq);
+    }
+
+    #[tokio::test]
+    async fn restrictions_unmatched_token_passthrough() {
+        let service = restriction_service(
+            "phc_other_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::DropEvent,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        )
+        .await;
+
+        let mut events = vec![wrapped_event(0, "$pageview", "user-1")];
+        let now_ts = Utc::now().timestamp();
+
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+
+        assert_eq!(events[0].status_code, 200);
+        assert_eq!(events[0].destination, Destination::AnalyticsMain);
     }
 }
