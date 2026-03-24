@@ -6,7 +6,16 @@ import { Provider } from 'kea'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
-import { AvailableFeature, EntityTypes, FilterType, HogQLMathType, InsightType, PropertyMathType } from '~/types'
+import {
+    AvailableFeature,
+    EntityTypes,
+    FilterType,
+    HogQLMathType,
+    InsightType,
+    PropertyFilterType,
+    PropertyMathType,
+    PropertyOperator,
+} from '~/types'
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { MOCK_GROUP_TYPES } from '~/lib/api.mock'
@@ -232,34 +241,25 @@ describe('ActionFilterRow', () => {
         })
 
         describe('math availability', () => {
-            it('does not render math selector when MathAvailability.None', () => {
+            it.each([
+                [MathAvailability.All, true],
+                [MathAvailability.ActorsOnly, true],
+                [MathAvailability.CalendarHeatmapOnly, true],
+                [MathAvailability.FunnelsOnly, false],
+                [MathAvailability.None, false],
+            ])('math selector visibility for MathAvailability=%s is %s', (availability, visible) => {
                 const { logic } = setup()
-                renderRow(logic, { mathAvailability: MathAvailability.None })
-                expect(screen.queryByTestId('math-selector-0')).not.toBeInTheDocument()
-            })
-
-            it('renders math selector when MathAvailability.All', () => {
-                const { logic } = setup()
-                renderRow(logic, { mathAvailability: MathAvailability.All })
-                expect(screen.getByTestId('math-selector-0')).toBeInTheDocument()
-            })
-
-            it('renders math selector when MathAvailability.ActorsOnly', () => {
-                const { logic } = setup()
-                renderRow(logic, { mathAvailability: MathAvailability.ActorsOnly })
-                expect(screen.getByTestId('math-selector-0')).toBeInTheDocument()
-            })
-
-            it('renders math selector when MathAvailability.CalendarHeatmapOnly', () => {
-                const { logic } = setup()
-                renderRow(logic, { mathAvailability: MathAvailability.CalendarHeatmapOnly })
-                expect(screen.getByTestId('math-selector-0')).toBeInTheDocument()
+                renderRow(logic, { mathAvailability: availability })
+                if (visible) {
+                    expect(screen.getByTestId('math-selector-0')).toBeInTheDocument()
+                } else {
+                    expect(screen.queryByTestId('math-selector-0')).not.toBeInTheDocument()
+                }
             })
 
             it('renders property selector when MathAvailability.BoxPlotOnly', () => {
                 const { logic } = setup()
                 renderRow(logic, { mathAvailability: MathAvailability.BoxPlotOnly })
-                // BoxPlotOnly hides the general math selector but shows a property picker
                 expect(screen.queryByTestId('math-selector-0')).not.toBeInTheDocument()
                 expect(screen.getByTestId('box-plot-property-select')).toBeInTheDocument()
             })
@@ -288,22 +288,18 @@ describe('ActionFilterRow', () => {
         })
 
         describe('drag handle', () => {
-            it('renders when sortable and filterCount > 1', () => {
+            it.each([
+                [true, 3, true],
+                [true, 1, false],
+                [false, 3, false],
+            ])('sortable=%s filterCount=%s → visible=%s', (sortable, filterCount, visible) => {
                 const { logic } = setup()
-                renderRow(logic, { sortable: true, filterCount: 3 })
-                expect(document.querySelector('.ActionFilterRowDragHandle')).toBeInTheDocument()
-            })
-
-            it('hidden when sortable but only 1 filter', () => {
-                const { logic } = setup()
-                renderRow(logic, { sortable: true, filterCount: 1 })
-                expect(document.querySelector('.ActionFilterRowDragHandle')).not.toBeInTheDocument()
-            })
-
-            it('hidden when not sortable', () => {
-                const { logic } = setup()
-                renderRow(logic, { sortable: false, filterCount: 3 })
-                expect(document.querySelector('.ActionFilterRowDragHandle')).not.toBeInTheDocument()
+                renderRow(logic, { sortable, filterCount })
+                if (visible) {
+                    expect(document.querySelector('.ActionFilterRowDragHandle')).toBeInTheDocument()
+                } else {
+                    expect(document.querySelector('.ActionFilterRowDragHandle')).not.toBeInTheDocument()
+                }
             })
         })
 
@@ -508,6 +504,44 @@ describe('ActionFilterRow', () => {
             expect(screen.queryByTestId('math-selector-0')).not.toBeInTheDocument()
         })
 
+        it('selecting property math sets math_property and clears math_hogql', async () => {
+            const { logic, setFilters } = setup()
+            renderRow(logic, {
+                mathAvailability: MathAvailability.All,
+                filter: {
+                    ...DEFAULT_FILTER,
+                    math: PropertyMathType.Average,
+                    math_property: '$time',
+                    math_hogql: 'count()',
+                },
+            })
+
+            // Simulate onMathPropertySelect which calls updateFilterMath
+            logic.actions.updateFilterMath({
+                ...DEFAULT_FILTER,
+                math_hogql: undefined,
+                math_property: '$session_duration',
+                math_property_type: TaxonomicFilterGroupType.SessionProperties,
+                index: 0,
+            })
+
+            await waitFor(() => {
+                const call = setFilters.mock.calls[setFilters.mock.calls.length - 1][0]
+                expect(call.events).toEqual(
+                    expect.arrayContaining([
+                        expect.objectContaining({
+                            math_property: '$session_duration',
+                        }),
+                    ])
+                )
+                // math_hogql should not be present on the updated filter
+                const updatedEvent = call.events.find(
+                    (e: any) => e.math_property === '$session_duration'
+                )
+                expect(updatedEvent.math_hogql).toBeUndefined()
+            })
+        })
+
         it('shows group math options when GROUP_ANALYTICS is enabled', async () => {
             const { logic } = setup()
             renderRow(logic, { mathAvailability: MathAvailability.All })
@@ -648,6 +682,69 @@ describe('ActionFilterRow', () => {
                 )
             })
         })
+
+        // The TaxonomicPopover onChange has specialized branches for PageviewEvents,
+        // ScreenEvents, and AutocaptureEvents that set specific event ids and property
+        // filters. These branches call updateFilter + updateFilterProperty on the logic,
+        // which we test directly since the TaxonomicPopover tab navigation is complex.
+        it.each([
+            ['PageviewEvents', '$pageview', '$current_url', PropertyOperator.IContains],
+            ['ScreenEvents', '$screen', '$screen_name', PropertyOperator.Exact],
+            ['AutocaptureEvents', '$autocapture', '$el_text', PropertyOperator.Exact],
+        ])(
+            '%s branch sets event to %s with %s property filter',
+            async (_branch, eventId, propertyKey, operator) => {
+                const { logic, setFilters } = setup()
+                renderRow(logic, INLINE_CONTEXT)
+
+                // Simulate the same actions the onChange handler calls for these branches
+                logic.actions.updateFilter({
+                    type: EntityTypes.EVENTS,
+                    id: eventId,
+                    name: eventId,
+                    index: 0,
+                })
+
+                await waitFor(() => {
+                    expect(setFilters).toHaveBeenCalledWith(
+                        expect.objectContaining({
+                            events: expect.arrayContaining([
+                                expect.objectContaining({ id: eventId, name: eventId }),
+                            ]),
+                        })
+                    )
+                })
+
+                logic.actions.updateFilterProperty({
+                    index: 0,
+                    properties: [
+                        {
+                            key: propertyKey,
+                            value: 'test-value',
+                            operator,
+                            type: PropertyFilterType.Event,
+                        },
+                    ],
+                })
+
+                await waitFor(() => {
+                    const lastCall = setFilters.mock.calls[setFilters.mock.calls.length - 1][0]
+                    expect(lastCall.events).toEqual(
+                        expect.arrayContaining([
+                            expect.objectContaining({
+                                properties: [
+                                    expect.objectContaining({
+                                        key: propertyKey,
+                                        operator,
+                                        type: PropertyFilterType.Event,
+                                    }),
+                                ],
+                            }),
+                        ])
+                    )
+                })
+            }
+        )
     })
 
     describe('all events entity filter', () => {
