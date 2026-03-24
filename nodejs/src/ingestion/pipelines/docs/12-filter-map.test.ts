@@ -23,7 +23,7 @@ import { createMockIngestionOutputs } from '../../../../tests/helpers/mock-inges
 import { createTestTeam } from '../../../../tests/helpers/team'
 import { Team } from '../../../types'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
-import { IngestionWarningsOutput } from '../../common/outputs'
+import { INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput } from '../../common/outputs'
 import { newBatchPipelineBuilder } from '../builders'
 import { createContext } from '../helpers'
 import { PipelineWarning } from '../pipeline.interface'
@@ -43,6 +43,7 @@ describe('Filter Map', () => {
         const processedEvents: Array<{ eventName: string; teamId: number }> = []
         const producedMessages: any[] = []
         const promiseScheduler = new PromiseScheduler()
+        const mockWarningOutputs = createMockIngestionOutputs<IngestionWarningsOutput>()
         const mockKafkaProducer = {
             produce: jest.fn((msg) => {
                 producedMessages.push(msg)
@@ -133,7 +134,7 @@ describe('Filter Map', () => {
                 (b) =>
                     b
                         .teamAware((b) => b.pipeBatch(createProcessEventStep()).gather())
-                        .handleIngestionWarnings(createMockIngestionOutputs<IngestionWarningsOutput>())
+                        .handleIngestionWarnings(mockWarningOutputs)
             )
             // Handle all results (both from subpipeline and passed-through non-OK) once at the end
             .messageAware((builder) => builder)
@@ -179,8 +180,10 @@ describe('Filter Map', () => {
         // Redirect was called for the overflow event
         expect(topics).toContain('overflow-topic')
 
-        // Ingestion warning was produced for deprecated event
-        const warningTopics = topics.filter((t: string) => t.includes('ingestion_warnings'))
-        expect(warningTopics).toHaveLength(1)
+        // Ingestion warning was produced for deprecated event via outputs
+        expect(mockWarningOutputs.queueMessages).toHaveBeenCalledTimes(1)
+        expect(mockWarningOutputs.queueMessages).toHaveBeenCalledWith(INGESTION_WARNINGS_OUTPUT, [
+            expect.objectContaining({ value: expect.stringContaining('"type":"deprecated_event"') }),
+        ])
     })
 })
