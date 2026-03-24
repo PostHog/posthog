@@ -1096,7 +1096,7 @@ def test_creating_databricks_batch_export_using_integration(
 
 
 def test_creating_databricks_batch_export_fails_if_integration_is_missing(
-    client: HttpClient, temporal, organization, team, user, enable_databricks
+    client: HttpClient, temporal, organization, team, user
 ):
     """Test that creating a Databricks batch export fails if the integration is missing.
 
@@ -1136,7 +1136,7 @@ def test_creating_databricks_batch_export_fails_if_integration_is_missing(
 
 
 def test_creating_databricks_batch_export_fails_if_integration_is_invalid(
-    client: HttpClient, temporal, organization, team, user, enable_databricks
+    client: HttpClient, temporal, organization, team, user
 ):
     """Test that creating a Databricks batch export fails if the integration is invalid.
 
@@ -1228,7 +1228,7 @@ def test_creating_databricks_batch_export_fails_if_integration_does_not_exist(
 
 
 def test_creating_databricks_batch_export_fails_if_integration_is_not_the_correct_type(
-    client: HttpClient, temporal, organization, team, user, enable_databricks
+    client: HttpClient, temporal, organization, team, user
 ):
     """Test that creating a Databricks batch export fails if the integration is not the correct type.
 

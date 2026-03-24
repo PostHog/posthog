@@ -470,7 +470,6 @@ def test_integration_is_required_for_databricks_destination_tests(
     organization,
     team,
     user,
-    enable_databricks,
 ):
     destination_data = {
         "type": "Databricks",
