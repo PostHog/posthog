@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    error::UnhandledError,
+    error::{FrameError, UnhandledError},
     fingerprinting::{FingerprintBuilder, FingerprintComponent, FingerprintRecordPart},
     langs::{
         apple::{AppleDebugImage, RawAppleFrame},
@@ -20,7 +20,7 @@ use crate::{
         python::RawPythonFrame,
         ruby::RawRubyFrame,
     },
-    metric_consts::{LEGACY_JS_FRAME_RESOLVED, PER_FRAME_TIME},
+    metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED, LEGACY_JS_FRAME_RESOLVED, PER_FRAME_TIME},
     sanitize_string,
     symbol_store::Catalog,
 };
@@ -108,6 +108,21 @@ impl RawFrame {
         .label("lang", lang_tag)
         .fin();
 
+        if let Ok(frames) = &res {
+            for frame in frames {
+                if frame.resolved {
+                    metrics::counter!(FRAME_RESOLVED, "lang" => lang_tag).increment(1);
+                } else if let Some(err) = &frame.resolve_failure {
+                    tracing::warn!(lang = lang_tag, reason = err.metric_reason(), error = %err, "frame resolution failed");
+                    metrics::counter!(FRAME_NOT_RESOLVED, "lang" => lang_tag, "reason" => err.metric_reason())
+                        .increment(1);
+                } else {
+                    metrics::counter!(FRAME_NOT_RESOLVED, "lang" => lang_tag, "reason" => "unknown")
+                        .increment(1);
+                }
+            }
+        }
+
         res
     }
 
@@ -176,8 +191,13 @@ pub struct Frame {
     pub resolved_name: Option<String>, // The name of the function, after symbolification
     pub lang: String, // The language of the frame. Always known (I guess?)
     pub resolved: bool, // Did we manage to resolve the frame?
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub resolve_failure: Option<String>, // If we failed to resolve the frame, why?
+    #[serde(
+        serialize_with = "frame_error_serde::serialize",
+        deserialize_with = "frame_error_serde::deserialize",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub resolve_failure: Option<FrameError>, // If we failed to resolve the frame, why?
 
     #[serde(default)] // Defaults to false
     pub synthetic: bool, // Some SDKs construct stack traces, or partially reconstruct them. This flag indicates whether the frame is synthetic or not.
@@ -344,7 +364,7 @@ impl std::fmt::Display for Frame {
         writeln!(
             f,
             "  resolve_failure: {}",
-            self.resolve_failure.as_deref().unwrap_or("no failure")
+            self.resolve_failure.as_ref().map(|e| e.to_string()).as_deref().unwrap_or("no failure")
         )?;
 
         // Context
@@ -394,6 +414,31 @@ impl From<Frame> for FrameData {
             lang: frame.lang,
             code_variables: frame.code_variables,
         }
+    }
+}
+
+mod frame_error_serde {
+    use super::FrameError;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(value: &Option<FrameError>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match value {
+            Some(err) => serializer.serialize_str(&err.to_string()),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<FrameError>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // We can't reconstruct the typed error from a string, so just discard it.
+        // This only matters for test deserialization; production never deserializes Frame.
+        let _unused: Option<String> = Option::deserialize(deserializer)?;
+        Ok(None)
     }
 }
 
