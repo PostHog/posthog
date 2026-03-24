@@ -1431,9 +1431,9 @@ impl FeatureFlagMatcher {
                 );
             }
 
-            // Single-pass evaluation, cheapest-first: flag-value → property → cohort.
-            // Flag-value and property filters short-circuit immediately on mismatch.
-            // Cohort filters are collected and batch-evaluated after the loop.
+            // Single-pass evaluation: flag-value and property filters are evaluated in Vec order
+            // and short-circuit immediately on mismatch. Cohort filters (the most expensive)
+            // are deferred and batch-evaluated after the loop to avoid unnecessary work.
             let mut cohort_filters: Vec<&PropertyFilter> = Vec::new();
             for filter in flag_property_filters {
                 if filter.depends_on_feature_flag() {
