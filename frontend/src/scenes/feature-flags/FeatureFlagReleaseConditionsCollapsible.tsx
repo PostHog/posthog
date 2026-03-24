@@ -495,10 +495,10 @@ const ConditionContent = ({
                                         <div className="flex items-start gap-6">
                                             <LemonSlider
                                                 value={group.rollout_percentage ?? 100}
-                                                onChange={(value) => updateConditionSet(index, value)}
+                                                onChange={(value) => updateConditionSet(index, Math.round(value))}
                                                 min={0}
                                                 max={100}
-                                                step={0.01}
+                                                step={1}
                                                 className="w-80"
                                                 ticks={[
                                                     { value: 0, label: '0%' },
