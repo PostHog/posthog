@@ -711,7 +711,12 @@
                                             "avg",
                                             "dau",
                                             "unique_group",
-                                            "hogql"
+                                            "hogql",
+                                            "median",
+                                            "p75",
+                                            "p90",
+                                            "p95",
+                                            "p99"
                                         ],
                                         "type": "string"
                                     },
@@ -1350,7 +1355,12 @@
                                             "avg",
                                             "dau",
                                             "unique_group",
-                                            "hogql"
+                                            "hogql",
+                                            "median",
+                                            "p75",
+                                            "p90",
+                                            "p95",
+                                            "p99"
                                         ],
                                         "type": "string"
                                     },
