@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { LemonTag } from '@posthog/lemon-ui'
 
@@ -188,6 +189,9 @@ export function InfiniteSelectResults({
                                     onClick={() => {
                                         setActiveTab(groupType)
                                         focusInput()
+                                        posthog.capture('taxonomic filter category selected', {
+                                            groupType,
+                                        })
                                     }}
                                 />
                             )

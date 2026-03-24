@@ -1,6 +1,7 @@
 import './FilterRow.scss'
 
 import clsx from 'clsx'
+import posthog from 'posthog-js'
 import React, { useState } from 'react'
 
 import { IconPlusSmall, IconTrash, IconX } from '@posthog/icons'
@@ -107,7 +108,12 @@ export const FilterRow = React.memo(function FilterRow({
                             />
                         ) : !disabledReason ? (
                             <LemonButton
-                                onClick={() => setOpen(!open)}
+                                onClick={() => {
+                                    setOpen(!open)
+                                    posthog.capture('taxonomic add filter clicked', {
+                                        pageKey,
+                                    })
+                                }}
                                 className={clsx('new-prop-filter grow', labelClassName)}
                                 data-attr={'new-prop-filter-' + pageKey}
                                 type="secondary"
