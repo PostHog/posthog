@@ -1193,6 +1193,57 @@ class TestResolver(BaseTest):
         assert isinstance(selected.type, ast.CallType)
         assert selected.type.return_type == ast.DateTimeType(nullable=False)
 
+    def test_assume_not_null_with_unknown_arg_type(self):
+        # When the inner function has no signatures (returns UnknownType), assumeNotNull should still force nullable=False
+        node = self._select("SELECT assumeNotNull(base64Encode(unhex('DEADBEEF')))")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        [selected] = node.select
+        assert isinstance(selected.type, ast.CallType)
+        assert selected.type.return_type.nullable is False
+
+    def test_to_nullable_forces_nullable_true(self):
+        # toNullable should always set nullable=True, even when the arg is non-nullable
+        node = self._select("SELECT toNullable('hello')")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        [selected] = node.select
+        assert isinstance(selected.type, ast.CallType)
+        assert selected.type.return_type.nullable is True
+
+    def test_to_nullable_with_non_nullable_field(self):
+        node = self._select("SELECT toNullable(event) FROM events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        [selected] = node.select
+        assert isinstance(selected.type, ast.CallType)
+        assert selected.type.return_type.nullable is True
+
+    def test_or_null_suffix_forces_nullable_true(self):
+        # Functions ending in OrNull should always produce nullable return types
+        node = self._select("SELECT toUInt64OrNull('123')")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        [selected] = node.select
+        assert isinstance(selected.type, ast.CallType)
+        assert selected.type.return_type.nullable is True
+
+    def test_or_null_suffix_with_datetime(self):
+        node = self._select("SELECT parseDateTimeBestEffortOrNull('2020-01-01')")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        [selected] = node.select
+        assert isinstance(selected.type, ast.CallType)
+        assert selected.type.return_type.nullable is True
+
+    def test_nullif_forces_nullable_true(self):
+        node = self._select("SELECT nullIf(event, '') FROM events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        [selected] = node.select
+        assert isinstance(selected.type, ast.CallType)
+        assert selected.type.return_type.nullable is True
+
     def test_interval_type_arithmetic(self):
         operators = ["+", "-"]
         granularites = ["Second", "Minute", "Hour", "Day", "Week", "Month", "Quarter", "Year"]
