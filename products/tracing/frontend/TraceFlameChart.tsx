@@ -53,15 +53,19 @@ function buildSpanTree(spans: Span[]): SpanNode[] {
     return roots
 }
 
+function sortChildren(nodes: SpanNode[]): SpanNode[] {
+    return [...nodes].sort((a, b) => parseTimestampUs(a.span.timestamp) - parseTimestampUs(b.span.timestamp))
+}
+
 function flattenTree(nodes: SpanNode[]): SpanNode[] {
     const result: SpanNode[] = []
     function walk(node: SpanNode): void {
         result.push(node)
-        for (const child of node.children) {
+        for (const child of sortChildren(node.children)) {
             walk(child)
         }
     }
-    for (const root of nodes) {
+    for (const root of sortChildren(nodes)) {
         walk(root)
     }
     return result
@@ -91,8 +95,8 @@ function parseTimestampUs(iso: string): number {
     if (dot === -1) {
         return ms * 1_000
     }
-    // Find the end of fractional digits (before 'Z' or '+'/'-' timezone)
-    const fracEnd = iso.search(/[Z+-]/i)
+    // Find the end of fractional digits (before 'Z')
+    const fracEnd = iso.search(/[Z+-](\d\d:\d\d)?$/i)
     if (fracEnd === -1) {
         return ms * 1_000
     }
@@ -236,9 +240,9 @@ function SpanDetailPanel({ span }: { span: Span }): JSX.Element {
                     </>
                 )}
                 <span className="text-muted font-medium">Start</span>
-                <span className="font-mono">{new Date(span.timestamp).toISOString()}</span>
+                <span className="font-mono">{span.timestamp}</span>
                 <span className="text-muted font-medium">End</span>
-                <span className="font-mono">{new Date(span.end_time).toISOString()}</span>
+                <span className="font-mono">{span.end_time}</span>
             </div>
         </div>
     )
