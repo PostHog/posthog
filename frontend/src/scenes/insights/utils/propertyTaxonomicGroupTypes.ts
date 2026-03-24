@@ -1,13 +1,8 @@
+import { DEFAULT_TAXONOMIC_GROUP_TYPES } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 export function getRetentionPropertyFilterGroupTypes(): TaxonomicFilterGroupType[] {
-    return [
-        TaxonomicFilterGroupType.EventProperties,
-        TaxonomicFilterGroupType.PersonProperties,
-        TaxonomicFilterGroupType.Cohorts,
-        TaxonomicFilterGroupType.HogQLExpression,
-        TaxonomicFilterGroupType.DataWarehousePersonProperties,
-    ]
+    return [...DEFAULT_TAXONOMIC_GROUP_TYPES, TaxonomicFilterGroupType.DataWarehousePersonProperties]
 }
 
 export function getInsightPropertyFilterGroupTypes({
