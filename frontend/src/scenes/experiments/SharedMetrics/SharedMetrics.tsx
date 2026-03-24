@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useState } from 'react'
 
 import { IconCopy, IconPencil } from '@posthog/icons'
 import {
@@ -14,13 +13,11 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { SceneExport } from 'scenes/sceneTypes'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
@@ -36,25 +33,9 @@ export const scene: SceneExport = {
 }
 
 export function SharedMetrics(): JSX.Element {
-    const { sharedMetrics, sharedMetricsLoading } = useValues(sharedMetricsLogic)
-    const { loadSharedMetrics } = useActions(sharedMetricsLogic)
+    const { sharedMetrics, sharedMetricsLoading, searchTerm, savingTagsMetricId } = useValues(sharedMetricsLogic)
+    const { setSearchTerm, updateSharedMetricTags } = useActions(sharedMetricsLogic)
     const { tags: allTags } = useValues(tagsModel)
-    const { currentProjectId } = useValues(teamLogic)
-
-    const [searchTerm, setSearchTerm] = useState('')
-    const [savingTagsMetricId, setSavingTagsMetricId] = useState<SharedMetric['id'] | null>(null)
-
-    const handleTagsChange = async (metricId: SharedMetric['id'], newTags: string[]): Promise<void> => {
-        setSavingTagsMetricId(metricId)
-        try {
-            await api.update(`api/projects/${currentProjectId}/experiment_saved_metrics/${metricId}`, {
-                tags: newTags,
-            })
-            loadSharedMetrics()
-        } finally {
-            setSavingTagsMetricId(null)
-        }
-    }
 
     const searchLower = searchTerm.toLowerCase()
     const filteredMetrics = searchTerm
@@ -106,7 +87,7 @@ export function SharedMetrics(): JSX.Element {
                 return (
                     <ObjectTags
                         tags={metric.tags || []}
-                        onChange={(newTags) => handleTagsChange(metric.id, newTags)}
+                        onChange={(newTags) => updateSharedMetricTags(metric.id, newTags)}
                         saving={savingTagsMetricId === metric.id}
                         tagsAvailable={allTags.filter((t) => !metric.tags?.includes(t))}
                     />

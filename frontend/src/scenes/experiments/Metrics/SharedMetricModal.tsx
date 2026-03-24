@@ -3,11 +3,9 @@ import { useState } from 'react'
 
 import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonModal, Link } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
@@ -51,15 +49,20 @@ export function SharedMetricModal({
     onSave: (metrics: SharedMetric[], context: MetricContext) => void
     onDelete: (metric: SharedMetric, context: MetricContext) => void
 }): JSX.Element | null {
-    const { isModalOpen, context, compatibleSharedMetrics, sharedMetricId, isCreateMode, isEditMode } =
-        useValues(sharedMetricModalLogic)
-    const { closeSharedMetricModal, loadSharedMetrics } = useActions(sharedMetricModalLogic)
+    const {
+        isModalOpen,
+        context,
+        compatibleSharedMetrics,
+        sharedMetricId,
+        isCreateMode,
+        isEditMode,
+        searchTerm,
+        savingTagsMetricId,
+    } = useValues(sharedMetricModalLogic)
+    const { closeSharedMetricModal, setSearchTerm, updateSharedMetricTags } = useActions(sharedMetricModalLogic)
     const { tags: allTags } = useValues(tagsModel)
-    const { currentProjectId } = useValues(teamLogic)
 
     const [selectedMetricIds, setSelectedMetricIds] = useState<SharedMetric['id'][]>([])
-    const [searchTerm, setSearchTerm] = useState('')
-    const [savingTagsMetricId, setSavingTagsMetricId] = useState<SharedMetric['id'] | null>(null)
 
     if (!compatibleSharedMetrics) {
         return null
@@ -73,35 +76,13 @@ export function SharedMetricModal({
 
     const closeModal = (): void => {
         setSelectedMetricIds([])
-        setSearchTerm('')
         closeSharedMetricModal()
-    }
-
-    const handleTagsChange = async (metricId: SharedMetric['id'], newTags: string[]): Promise<void> => {
-        setSavingTagsMetricId(metricId)
-        try {
-            await api.update(`api/projects/${currentProjectId}/experiment_saved_metrics/${metricId}`, {
-                tags: newTags,
-            })
-            loadSharedMetrics()
-        } finally {
-            setSavingTagsMetricId(null)
-        }
     }
 
     const availableSharedMetrics = compatibleSharedMetrics.filter(
         (metric: SharedMetric) =>
             !experiment.saved_metrics.some((savedMetric) => savedMetric.saved_metric === metric.id)
     )
-
-    const availableTags = Array.from(
-        new Set(
-            availableSharedMetrics
-                .filter((metric: SharedMetric) => metric.tags)
-                .flatMap((metric: SharedMetric) => metric.tags)
-                .filter(Boolean)
-        )
-    ).sort()
 
     const searchLower = searchTerm.toLowerCase()
     const filteredMetrics = searchTerm
@@ -112,6 +93,10 @@ export function SharedMetricModal({
                   metric.tags?.some((tag) => tag.toLowerCase().includes(searchLower))
           )
         : availableSharedMetrics
+
+    const availableTags = Array.from(
+        new Set(filteredMetrics.flatMap((metric: SharedMetric) => metric.tags ?? []).filter(Boolean))
+    ).sort()
 
     return (
         <LemonModal
@@ -261,7 +246,7 @@ export function SharedMetricModal({
                                         render: (_: any, metric: SharedMetric) => (
                                             <ObjectTags
                                                 tags={metric.tags || []}
-                                                onChange={(newTags) => handleTagsChange(metric.id, newTags)}
+                                                onChange={(newTags) => updateSharedMetricTags(metric.id, newTags)}
                                                 saving={savingTagsMetricId === metric.id}
                                                 tagsAvailable={allTags.filter((t) => !metric.tags?.includes(t))}
                                             />
