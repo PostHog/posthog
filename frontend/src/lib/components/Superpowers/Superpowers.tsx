@@ -12,7 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { openCHQueriesDebugModal } from '../AppShortcuts/utils/DebugCHQueries'
-import { FakeStatusOverride, superpowersLogic } from './superpowersLogic'
+import { FakeBillingAlert, FakeStatusOverride, superpowersLogic } from './superpowersLogic'
 
 export function SuperpowersModal(): JSX.Element | null {
     const { isSuperpowersOpen } = useValues(superpowersLogic)
@@ -33,12 +33,19 @@ const STATUS_OPTIONS: { value: FakeStatusOverride; label: string }[] = [
     { value: 'major_outage', label: 'Major outage' },
 ]
 
+const BILLING_ALERT_OPTIONS: { value: FakeBillingAlert; label: string }[] = [
+    { value: 'none', label: 'None (use real alerts)' },
+    { value: 'info', label: 'Info' },
+    { value: 'warning', label: 'Warning' },
+    { value: 'error', label: 'Error' },
+]
+
 function SuperpowersContent(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const { user } = useValues(userLogic)
-    const { fakeStatusOverride } = useValues(superpowersLogic)
-    const { closeSuperpowers, setFakeStatusOverride } = useActions(superpowersLogic)
+    const { fakeStatusOverride, fakeBillingAlert } = useValues(superpowersLogic)
+    const { closeSuperpowers, setFakeStatusOverride, setFakeBillingAlert } = useActions(superpowersLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const { updateOrganization } = useActions(organizationLogic)
     const { isDev } = useValues(preflightLogic)
@@ -110,6 +117,26 @@ function SuperpowersContent(): JSX.Element {
                             value={fakeStatusOverride}
                             options={STATUS_OPTIONS}
                             onChange={setFakeStatusOverride}
+                        />
+                    </div>
+                </div>
+            </div>
+
+            <LemonDivider />
+
+            <div>
+                <h3 className="font-semibold mb-2">Billing</h3>
+                <div className="space-y-2">
+                    <div className="flex items-center justify-between p-2 border rounded">
+                        <div>
+                            <div className="font-medium">Fake billing alert</div>
+                            <div className="text-sm text-secondary">Simulate a billing alert banner for testing</div>
+                        </div>
+                        <LemonSelect
+                            size="small"
+                            value={fakeBillingAlert}
+                            options={BILLING_ALERT_OPTIONS}
+                            onChange={setFakeBillingAlert}
                         />
                     </div>
                 </div>
