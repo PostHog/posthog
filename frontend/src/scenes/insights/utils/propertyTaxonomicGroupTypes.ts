@@ -1,5 +1,15 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
+export function getRetentionPropertyFilterGroupTypes(): TaxonomicFilterGroupType[] {
+    return [
+        TaxonomicFilterGroupType.EventProperties,
+        TaxonomicFilterGroupType.PersonProperties,
+        TaxonomicFilterGroupType.Cohorts,
+        TaxonomicFilterGroupType.HogQLExpression,
+        TaxonomicFilterGroupType.DataWarehousePersonProperties,
+    ]
+}
+
 export function getInsightPropertyFilterGroupTypes({
     groupsTaxonomicTypes,
     hasPageview,

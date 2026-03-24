@@ -1184,7 +1184,16 @@
             ]
         },
         "AssistantEventMultipleBreakdownFilterType": {
-            "enum": ["cohort", "person", "event", "event_metadata", "session", "hogql", "revenue_analytics"],
+            "enum": [
+                "cohort",
+                "person",
+                "event",
+                "event_metadata",
+                "session",
+                "hogql",
+                "data_warehouse_person_property",
+                "revenue_analytics"
+            ],
             "type": "string"
         },
         "AssistantEventType": {
@@ -23383,7 +23392,17 @@
             "type": "object"
         },
         "MultipleBreakdownType": {
-            "enum": ["cohort", "person", "event", "event_metadata", "group", "session", "hogql", "revenue_analytics"],
+            "enum": [
+                "cohort",
+                "person",
+                "event",
+                "event_metadata",
+                "group",
+                "session",
+                "hogql",
+                "data_warehouse_person_property",
+                "revenue_analytics"
+            ],
             "type": "string"
         },
         "NativeMarketingSource": {

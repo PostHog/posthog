@@ -44,6 +44,7 @@ export const TaxonomicBreakdownPopover = ({
             TaxonomicFilterGroupType.EventProperties,
             TaxonomicFilterGroupType.PersonProperties,
             TaxonomicFilterGroupType.CohortsWithAllUsers,
+            TaxonomicFilterGroupType.DataWarehousePersonProperties,
         ]
     } else {
         taxonomicGroupTypes = [

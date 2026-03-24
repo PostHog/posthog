@@ -231,6 +231,7 @@ class AssistantEventMultipleBreakdownFilterType(StrEnum):
     EVENT_METADATA = "event_metadata"
     SESSION = "session"
     HOGQL = "hogql"
+    DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
     REVENUE_ANALYTICS = "revenue_analytics"
 
 
@@ -3032,6 +3033,7 @@ class MultipleBreakdownType(StrEnum):
     GROUP = "group"
     SESSION = "session"
     HOGQL = "hogql"
+    DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
     REVENUE_ANALYTICS = "revenue_analytics"
 
 

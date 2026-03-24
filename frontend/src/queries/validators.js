@@ -5439,7 +5439,17 @@ const schema66 = {
     type: 'object',
 }
 const schema70 = {
-    enum: ['cohort', 'person', 'event', 'event_metadata', 'group', 'session', 'hogql', 'revenue_analytics'],
+    enum: [
+        'cohort',
+        'person',
+        'event',
+        'event_metadata',
+        'group',
+        'session',
+        'hogql',
+        'data_warehouse_person_property',
+        'revenue_analytics',
+    ],
     type: 'string',
 }
 function validate75(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
@@ -5709,6 +5719,7 @@ function validate75(data, { instancePath = '', parentData, parentDataProperty, r
                                                 data4 === 'group' ||
                                                 data4 === 'session' ||
                                                 data4 === 'hogql' ||
+                                                data4 === 'data_warehouse_person_property' ||
                                                 data4 === 'revenue_analytics'
                                             )
                                         ) {
