@@ -9,9 +9,12 @@ from products.visual_review.backend import logic
 from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
 from products.visual_review.backend.facade.enums import RunType
+from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 
 class TestRepoViewSet(APIBaseTest):
+    databases = PRODUCT_DATABASES
+
     def test_create_repo(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/visual_review/repos/",
@@ -53,6 +56,8 @@ class TestRepoViewSet(APIBaseTest):
 
 
 class TestRunViewSet(APIBaseTest):
+    databases = PRODUCT_DATABASES
+
     def setUp(self):
         super().setUp()
         self.vr_project = api.create_repo(team_id=self.team.id, repo_external_id=99999, repo_full_name="org/test")

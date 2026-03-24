@@ -67,10 +67,31 @@ class TraversingVisitor(Visitor[None]):
     def visit_not(self, node: ast.Not):
         self.visit(node.expr)
 
+    def visit_named_argument(self, node: ast.NamedArgument):
+        self.visit(node.value)
+
+    def visit_positional_ref(self, node: ast.PositionalRef):
+        pass
+
+    def visit_unpivot_expr(self, node: ast.UnpivotExpr):
+        self.visit(node.table)
+        for col in node.columns:
+            self.visit(col)
+
+    def visit_unpivot_column(self, node: ast.UnpivotColumn):
+        self.visit(node.value_columns)
+        self.visit(node.name_columns)
+        for val in node.unpivot_values:
+            self.visit(val)
+
     def visit_between_expr(self, node: ast.BetweenExpr):
         self.visit(node.expr)
         self.visit(node.low)
         self.visit(node.high)
+
+    def visit_is_distinct_from(self, node: ast.IsDistinctFrom):
+        self.visit(node.left)
+        self.visit(node.right)
 
     def visit_order_expr(self, node: ast.OrderExpr):
         self.visit(node.expr)
@@ -88,6 +109,13 @@ class TraversingVisitor(Visitor[None]):
     def visit_array_access(self, node: ast.ArrayAccess):
         self.visit(node.array)
         self.visit(node.property)
+
+    def visit_array_slice(self, node: ast.ArraySlice):
+        self.visit(node.array)
+        if node.start_expr is not None:
+            self.visit(node.start_expr)
+        if node.end_expr is not None:
+            self.visit(node.end_expr)
 
     def visit_array(self, node: ast.Array):
         for expr in node.exprs:
@@ -108,11 +136,17 @@ class TraversingVisitor(Visitor[None]):
         if node.columns:
             for expr in node.columns:
                 self.visit(expr)
+        if node.replace:
+            for expr in node.replace.values():
+                self.visit(expr)
 
     def visit_spread_expr(self, node: ast.SpreadExpr):
         self.visit(node.expr)
 
     def visit_placeholder(self, node: ast.Placeholder):
+        self.visit(node.expr)
+
+    def visit_try_cast(self, node: ast.TryCast):
         self.visit(node.expr)
 
     def visit_call(self, node: ast.Call):
@@ -183,6 +217,10 @@ class TraversingVisitor(Visitor[None]):
         self.visit(node.initial_select_query)
         for expr in node.subsequent_select_queries:
             self.visit(expr.select_query)
+        if node.limit is not None:
+            self.visit(node.limit)
+        if node.offset is not None:
+            self.visit(node.offset)
 
     def visit_lambda_argument_type(self, node: ast.LambdaArgumentType):
         pass
@@ -318,7 +356,8 @@ class TraversingVisitor(Visitor[None]):
         self.visit(node.over_expr)
 
     def visit_window_frame_expr(self, node: ast.WindowFrameExpr):
-        pass
+        if isinstance(node.frame_value, ast.Expr):
+            self.visit(node.frame_value)
 
     def visit_join_constraint(self, node: ast.JoinConstraint):
         self.visit(node.expr)
@@ -492,6 +531,42 @@ class CloningVisitor(Visitor[Any]):
             expr=self.visit(node.expr),
         )
 
+    def visit_named_argument(self, node: ast.NamedArgument):
+        return ast.NamedArgument(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            name=node.name,
+            value=self.visit(node.value),
+        )
+
+    def visit_positional_ref(self, node: ast.PositionalRef):
+        return ast.PositionalRef(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            index=node.index,
+        )
+
+    def visit_unpivot_expr(self, node: ast.UnpivotExpr):
+        return ast.UnpivotExpr(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            table=self.visit(node.table),
+            columns=[self.visit(col) for col in node.columns],
+        )
+
+    def visit_unpivot_column(self, node: ast.UnpivotColumn):
+        return ast.UnpivotColumn(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            value_columns=self.visit(node.value_columns),
+            name_columns=self.visit(node.name_columns),
+            unpivot_values=[self.visit(val) for val in node.unpivot_values],
+        )
+
     def visit_between_expr(self, node: ast.BetweenExpr):
         return ast.BetweenExpr(
             start=None if self.clear_locations else node.start,
@@ -500,6 +575,16 @@ class CloningVisitor(Visitor[Any]):
             expr=self.visit(node.expr),
             low=self.visit(node.low),
             high=self.visit(node.high),
+            negated=node.negated,
+        )
+
+    def visit_is_distinct_from(self, node: ast.IsDistinctFrom):
+        return ast.IsDistinctFrom(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            left=self.visit(node.left),
+            right=self.visit(node.right),
             negated=node.negated,
         )
 
@@ -547,6 +632,16 @@ class CloningVisitor(Visitor[Any]):
             array=self.visit(node.array),
             property=self.visit(node.property),
             nullish=node.nullish,
+        )
+
+    def visit_array_slice(self, node: ast.ArraySlice):
+        return ast.ArraySlice(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            array=self.visit(node.array),
+            start_expr=self.visit(node.start_expr) if node.start_expr is not None else None,
+            end_expr=self.visit(node.end_expr) if node.end_expr is not None else None,
         )
 
     def visit_array(self, node: ast.Array):
@@ -597,6 +692,9 @@ class CloningVisitor(Visitor[Any]):
             type=None if self.clear_types else node.type,
             regex=node.regex,
             columns=[self.visit(col) for col in node.columns] if node.columns else None,
+            all_columns=node.all_columns,
+            exclude=list(node.exclude) if node.exclude else None,
+            replace={k: self.visit(v) for k, v in node.replace.items()} if node.replace else None,
         )
 
     def visit_spread_expr(self, node: ast.SpreadExpr):
@@ -613,6 +711,15 @@ class CloningVisitor(Visitor[Any]):
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             expr=self.visit(node.expr),
+        )
+
+    def visit_try_cast(self, node: ast.TryCast):
+        return ast.TryCast(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            expr=self.visit(node.expr),
+            type_name=node.type_name,
         )
 
     def visit_call(self, node: ast.Call):
@@ -665,7 +772,7 @@ class CloningVisitor(Visitor[Any]):
             next_join=self.visit(node.next_join),
             table_final=node.table_final,
             alias=node.alias,
-            alias_columns=node.alias_columns,
+            column_aliases=node.column_aliases,
             join_type=node.join_type,
             constraint=self.visit(node.constraint),
             sample=self.visit(node.sample),
@@ -700,6 +807,7 @@ class CloningVisitor(Visitor[Any]):
             limit_by=self.visit(node.limit_by),
             limit=self.visit(node.limit),
             limit_with_ties=node.limit_with_ties,
+            limit_percent=node.limit_percent,
             offset=self.visit(node.offset),
             distinct=node.distinct,
             window_exprs=(
@@ -727,6 +835,10 @@ class CloningVisitor(Visitor[Any]):
                 SelectSetNode(set_operator=expr.set_operator, select_query=self.visit(expr.select_query))
                 for expr in node.subsequent_select_queries
             ],
+            limit=self.visit(node.limit) if node.limit is not None else None,
+            offset=self.visit(node.offset) if node.offset is not None else None,
+            limit_percent=node.limit_percent,
+            limit_with_ties=node.limit_with_ties,
         )
 
     def visit_window_expr(self, node: ast.WindowExpr):
@@ -759,7 +871,7 @@ class CloningVisitor(Visitor[Any]):
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             frame_type=node.frame_type,
-            frame_value=node.frame_value,
+            frame_value=self.visit(node.frame_value) if isinstance(node.frame_value, ast.Expr) else node.frame_value,
         )
 
     def visit_join_constraint(self, node: ast.JoinConstraint) -> ast.JoinConstraint:

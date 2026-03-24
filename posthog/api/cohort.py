@@ -537,8 +537,10 @@ class CohortSerializer(serializers.ModelSerializer):
         if validated_data.get("query") and validated_data.get("filters"):
             raise ValidationError("Cannot set both query and filters at the same time.")
 
-        # Process bytecode for filters if present
-        if validated_data.get("filters"):
+        # Process bytecode for filters if present. Static cohorts define
+        # membership by an explicit list of person IDs, so their cohort_type
+        # must never be overridden by the filter-based realtime calculation.
+        if validated_data.get("filters") and not validated_data.get("is_static"):
             team = Team.objects.get(id=self.context["team_id"])
             clean_filters, computed_cohort_type, _ = validate_filters_and_compute_realtime_support(
                 validated_data["filters"], team, current_cohort_type=validated_data.get("cohort_type")
@@ -849,15 +851,16 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.cohort_type = validated_data.get("cohort_type", cohort.cohort_type)
         cohort.query = validated_data.get("query", cohort.query)
 
-        # Process bytecode for filters if they're being updated
+        # Process bytecode for filters if they're being updated. Static cohorts
+        # define membership by an explicit list of person IDs, so their
+        # cohort_type must never be overridden by the filter-based calculation.
         if "filters" in validated_data:
             filters = validated_data["filters"]
-            if filters:
+            if filters and not cohort.is_static:
                 clean_filters, computed_cohort_type, _ = validate_filters_and_compute_realtime_support(
                     filters, cohort.team, current_cohort_type=cohort.cohort_type, cohort_count=cohort.count
                 )
                 cohort.filters = clean_filters
-                # Always compute cohort_type from filters; ignore any client-provided value
                 cohort.cohort_type = computed_cohort_type
             else:
                 cohort.filters = filters

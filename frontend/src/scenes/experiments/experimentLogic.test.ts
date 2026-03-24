@@ -716,38 +716,25 @@ describe('experimentLogic', () => {
     })
 
     describe('launchExperiment', () => {
-        it('calls launch endpoint and updates experiment state on success', async () => {
-            const draftExperiment = {
-                ...experiment,
-                start_date: null,
-                status: 'draft',
-            } as unknown as Experiment
+        it('calls launch endpoint and dispatches setExperiment with response', async () => {
+            const launchedResponse = { ...experiment, start_date: '2026-03-17T10:00:00Z', status: 'running' }
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValue(launchedResponse)
 
-            const launchedExperiment = {
-                ...experiment,
-                start_date: '2026-03-17T10:00:00Z',
-                status: 'running',
-            }
+            const keyed = experimentLogic({ experimentId: experiment.id })
+            keyed.mount()
 
-            useMocks({
-                post: {
-                    '/api/projects/:team/experiments/:id/launch': launchedExperiment,
-                },
-            })
+            const draftExperiment = { ...experiment, start_date: null, status: 'draft' } as unknown as Experiment
+            keyed.actions.setExperiment(draftExperiment)
 
-            logic.actions.setExperiment(draftExperiment)
-
-            expect(logic.values.experiment.start_date).toBeNull()
-            expect(logic.values.experiment.status).toBe('draft')
-
-            await expectLogic(logic, () => {
-                logic.actions.launchExperiment()
+            await expectLogic(keyed, () => {
+                keyed.actions.launchExperiment()
             })
                 .toDispatchActions(['launchExperiment', 'setExperiment'])
                 .toFinishAllListeners()
 
-            expect(logic.values.experiment.start_date).toBe('2026-03-17T10:00:00Z')
-            expect(logic.values.experiment.status).toBe('running')
+            expect(createSpy).toHaveBeenCalledWith(expect.stringContaining(`/experiments/${experiment.id}/launch`))
+            createSpy.mockRestore()
+            keyed.unmount()
         })
 
         it('shows error toast on validation error', async () => {
@@ -799,6 +786,59 @@ describe('experimentLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.experiment.start_date).toBeUndefined()
+            createSpy.mockRestore()
+        })
+    })
+
+    describe('archiveExperiment', () => {
+        it('calls archive endpoint and dispatches setExperiment with response', async () => {
+            const archivedResponse = { ...experiment, archived: true }
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValue(archivedResponse)
+
+            const keyed = experimentLogic({ experimentId: experiment.id })
+            keyed.mount()
+            keyed.actions.setExperiment(experiment)
+
+            await expectLogic(keyed, () => {
+                keyed.actions.archiveExperiment()
+            })
+                .toDispatchActions(['archiveExperiment', 'setExperiment'])
+                .toFinishAllListeners()
+
+            expect(createSpy).toHaveBeenCalledWith(expect.stringContaining(`/experiments/${experiment.id}/archive`))
+            createSpy.mockRestore()
+            keyed.unmount()
+        })
+
+        it('shows error toast on validation error', async () => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue({
+                detail: 'Experiment is already archived.',
+            })
+            const errorMock = lemonToast.error as jest.Mock
+            errorMock.mockClear()
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.archiveExperiment()
+            }).toFinishAllListeners()
+
+            expect(errorMock).toHaveBeenCalledWith('Experiment is already archived.')
+            createSpy.mockRestore()
+        })
+
+        it('shows generic error toast when detail is missing', async () => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue(new Error('Network error'))
+            const errorMock = lemonToast.error as jest.Mock
+            errorMock.mockClear()
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.archiveExperiment()
+            }).toFinishAllListeners()
+
+            expect(errorMock).toHaveBeenCalledWith('Failed to archive experiment')
             createSpy.mockRestore()
         })
     })

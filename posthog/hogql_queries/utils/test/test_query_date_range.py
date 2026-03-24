@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 from posthog.test.base import APIBaseTest
 
 from dateutil import parser
+from parameterized import parameterized
 
 from posthog.schema import DateRange, IntervalType
 
@@ -257,6 +258,192 @@ class TestQueryDateRange(APIBaseTest):
         query_date_range = QueryDateRange(team=self.team, date_range=date_range, interval=IntervalType.DAY, now=now)
         self.assertEqual(query_date_range.date_from(), parser.isoparse("2025-09-21T00:00:00Z"))
         self.assertEqual(query_date_range.date_to(), parser.isoparse("2025-09-27T23:59:59.999999Z"))
+
+
+class TestExactTimerange(APIBaseTest):
+    INTERVALS = [
+        ("day", IntervalType.DAY),
+        ("hour", IntervalType.HOUR),
+        ("minute", IntervalType.MINUTE),
+    ]
+
+    @parameterized.expand(INTERVALS)
+    def test_date_to_returns_now_directly_when_exact_timerange_true_and_no_date_to(self, _name, interval):
+        now = parser.isoparse("2021-08-25T14:30:45.123456Z")
+        qdr = QueryDateRange(
+            team=self.team, date_range=DateRange(date_from="-7d"), interval=interval, now=now, exact_timerange=True
+        )
+        result = qdr.date_to()
+        self.assertEqual(result, qdr.now_with_timezone)
+
+    @parameterized.expand(
+        [
+            ("day", IntervalType.DAY, "2021-08-25T23:59:59.999999Z"),
+            ("hour", IntervalType.HOUR, "2021-08-25T14:59:59.999999Z"),
+            ("minute", IntervalType.MINUTE, "2021-08-25T14:30:59.999999Z"),
+        ]
+    )
+    def test_date_to_rounds_when_exact_timerange_false_and_no_date_to(self, _name, interval, expected_str):
+        now = parser.isoparse("2021-08-25T14:30:45.123456Z")
+        qdr = QueryDateRange(
+            team=self.team, date_range=DateRange(date_from="-7d"), interval=interval, now=now, exact_timerange=False
+        )
+        self.assertEqual(qdr.date_to(), parser.isoparse(expected_str))
+
+    def test_date_from_does_not_truncate_when_exact_timerange_true(self):
+        now = parser.isoparse("2021-08-25T14:30:45.000Z")
+        qdr_exact = QueryDateRange(
+            team=self.team,
+            date_range=DateRange(date_from="-48h"),
+            interval=IntervalType.DAY,
+            now=now,
+            exact_timerange=True,
+        )
+        qdr_normal = QueryDateRange(
+            team=self.team,
+            date_range=DateRange(date_from="-48h"),
+            interval=IntervalType.DAY,
+            now=now,
+            exact_timerange=False,
+        )
+        # exact_timerange=True passes always_truncate=False, preserving minutes/seconds
+        self.assertEqual(qdr_exact.date_from(), parser.isoparse("2021-08-23T14:30:45Z"))
+        # Without exact_timerange, always_truncate=True rounds to the hour boundary
+        self.assertEqual(qdr_normal.date_from(), parser.isoparse("2021-08-23T14:00:00Z"))
+
+    @parameterized.expand(INTERVALS)
+    def test_use_start_of_interval_false_when_exact_timerange_true(self, _name, interval):
+        now = parser.isoparse("2021-08-25T14:30:45.000Z")
+        qdr = QueryDateRange(
+            team=self.team, date_range=DateRange(date_from="-7d"), interval=interval, now=now, exact_timerange=True
+        )
+        self.assertFalse(qdr.use_start_of_interval())
+
+
+class TestUseStartOfInterval(APIBaseTest):
+    @parameterized.expand(
+        [
+            (
+                "explicit_date_returns_false",
+                DateRange(date_from="2021-08-20T00:00:00Z", date_to="2021-08-25T00:00:00Z", explicitDate=True),
+                IntervalType.DAY,
+                False,
+            ),
+            (
+                "none_date_range_returns_true",
+                None,
+                IntervalType.DAY,
+                True,
+            ),
+            (
+                "none_date_from_returns_true",
+                DateRange(date_from=None),
+                IntervalType.DAY,
+                True,
+            ),
+            (
+                "hour_interval_relative_returns_false",
+                DateRange(date_from="-3h"),
+                IntervalType.HOUR,
+                False,
+            ),
+            (
+                "minute_interval_relative_returns_false",
+                DateRange(date_from="-30M"),
+                IntervalType.MINUTE,
+                False,
+            ),
+            (
+                "day_interval_with_hour_delta_returns_false",
+                DateRange(date_from="-48h"),
+                IntervalType.DAY,
+                False,
+            ),
+            (
+                "day_interval_with_day_delta_returns_true",
+                DateRange(date_from="-7d"),
+                IntervalType.DAY,
+                True,
+            ),
+        ]
+    )
+    def test_use_start_of_interval(self, _name, date_range, interval, expected):
+        now = parser.isoparse("2021-08-25T14:30:00.000Z")
+        qdr = QueryDateRange(team=self.team, date_range=date_range, interval=interval, now=now)
+        self.assertEqual(qdr.use_start_of_interval(), expected)
+
+
+class TestMultiHourIntervalConversion(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("count_1_stays_hour", 1, "hour", 1),
+            ("count_2_converts_to_minute_120", 2, "minute", 120),
+            ("count_3_converts_to_minute_180", 3, "minute", 180),
+            ("count_4_converts_to_minute_240", 4, "minute", 240),
+        ]
+    )
+    def test_multi_hour_interval_conversion(self, _name, interval_count, expected_interval_name, expected_count):
+        now = parser.isoparse("2021-08-25T00:00:00.000Z")
+        qdr = QueryDateRange(
+            team=self.team,
+            date_range=DateRange(date_from="-7d"),
+            interval=IntervalType.HOUR,
+            now=now,
+            interval_count=interval_count,
+        )
+        self.assertEqual(qdr.interval_name, expected_interval_name)
+        self.assertEqual(qdr.interval_count, expected_count)
+
+
+class TestPreviousPeriodDateFrom(APIBaseTest):
+    @parameterized.expand(
+        [
+            (
+                "7d_range",
+                DateRange(date_from="-7d"),
+                IntervalType.DAY,
+                # date_from = 2021-08-18 00:00:00, date_to = 2021-08-25 23:59:59.999999
+                # previous = 2021-08-18 - (2021-08-25T23:59:59.999999 - 2021-08-18) = 2021-08-10 00:00:00.000001
+                "2021-08-10T00:00:00.000001Z",
+            ),
+            (
+                "custom_explicit",
+                DateRange(
+                    date_from="2021-08-10T00:00:00Z",
+                    date_to="2021-08-20T00:00:00Z",
+                    explicitDate=True,
+                ),
+                IntervalType.DAY,
+                # date_from = 2021-08-10, date_to = 2021-08-20, delta = 10 days
+                # previous = 2021-08-10 - 10 days = 2021-07-31
+                "2021-07-31T00:00:00Z",
+            ),
+        ]
+    )
+    def test_previous_period_date_from(self, _name, date_range, interval, expected_str):
+        now = parser.isoparse("2021-08-25T00:00:00.000Z")
+        qdr = QueryDateRange(team=self.team, date_range=date_range, interval=interval, now=now)
+        self.assertEqual(qdr.previous_period_date_from, parser.isoparse(expected_str))
+
+
+class TestDateFromAll(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("day_interval", IntervalType.DAY),
+            ("hour_interval", IntervalType.HOUR),
+        ]
+    )
+    def test_date_from_all_uses_earliest_timestamp_fallback(self, _name, interval):
+        now = parser.isoparse("2021-08-25T00:00:00.000Z")
+        fallback = parser.isoparse("2020-01-01T00:00:00.000Z")
+        qdr = QueryDateRange(
+            team=self.team,
+            date_range=DateRange(date_from="all"),
+            interval=interval,
+            now=now,
+            earliest_timestamp_fallback=fallback,
+        )
+        self.assertEqual(qdr.date_from(), fallback)
 
 
 class TestQueryDateRangeWithIntervals(APIBaseTest):

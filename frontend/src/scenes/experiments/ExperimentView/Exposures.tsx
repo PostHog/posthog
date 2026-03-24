@@ -365,7 +365,7 @@ export function Exposures(): JSX.Element {
                                     />
                                 </div>
                             </div>
-                            {exposures?.timeseries.length > 0 && (
+                            {(exposures?.timeseries?.length ?? 0) > 0 && (
                                 <div>
                                     <h3 className="card-secondary">Total exposures</h3>
                                     <LemonTable

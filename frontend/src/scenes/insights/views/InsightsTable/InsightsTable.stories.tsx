@@ -86,3 +86,65 @@ Aggregation.parameters = {
         ],
     },
 }
+
+const CompareTemplate: StoryFn<typeof InsightsTable> = (props) => {
+    const [dashboardItemId] = useState(() => `InsightTableStory.${uniqueNode++}`)
+
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const insight = require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json')
+
+    // Duplicate each result series with "current" and "previous" compare labels
+    const currentResults = insight.result.map((r: Record<string, any>) => ({
+        ...r,
+        compare_label: 'current',
+        compare: true,
+    }))
+    const previousResults = insight.result.map((r: Record<string, any>) => ({
+        ...r,
+        compare_label: 'previous',
+        compare: true,
+        // Simulate different previous period values
+        data: r.data.map((v: number) => Math.round(v * 0.8)),
+        count: Math.round(r.count * 0.8),
+        days: r.days.map((d: string) => {
+            const date = new Date(d)
+            date.setDate(date.getDate() - r.days.length)
+            return date.toISOString().split('T')[0]
+        }),
+    }))
+
+    const cachedInsight = {
+        ...insight,
+        short_id: dashboardItemId,
+        result: [...currentResults, ...previousResults],
+        query: {
+            ...insight.query,
+            source: {
+                ...insight.query.source,
+                compareFilter: { compare: true },
+            },
+        },
+    }
+
+    const insightProps = { dashboardItemId, doNotLoad: true, cachedInsight } as InsightLogicProps
+
+    const dataNodeLogicProps: DataNodeLogicProps = {
+        query: cachedInsight.query.source,
+        key: insightVizDataNodeKey(insightProps),
+        cachedResults: getCachedResults(cachedInsight, cachedInsight.query.source),
+        doNotLoad: insightProps.doNotLoad,
+    }
+
+    return (
+        <BindLogic logic={insightLogic} props={insightProps}>
+            <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
+                <InsightsTable {...props} />
+            </BindLogic>
+        </BindLogic>
+    )
+}
+
+export const ComparePrevious: Story = CompareTemplate.bind({})
+ComparePrevious.args = {
+    isMainInsightView: true,
+}

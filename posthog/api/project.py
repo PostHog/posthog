@@ -156,6 +156,12 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "session_recording_linked_flag",  # Compat with TeamSerializer
             "session_recording_network_payload_capture_config",  # Compat with TeamSerializer
             "session_recording_masking_config",  # Compat with TeamSerializer
+            "session_recording_url_trigger_config",  # Compat with TeamSerializer
+            "session_recording_url_blocklist_config",  # Compat with TeamSerializer
+            "session_recording_event_trigger_config",  # Compat with TeamSerializer
+            "session_recording_trigger_match_type_config",  # Compat with TeamSerializer
+            "session_recording_trigger_groups",  # Compat with TeamSerializer
+            "session_recording_retention_period",  # Compat with TeamSerializer
             "session_replay_config",  # Compat with TeamSerializer
             "survey_config",  # Compat with TeamSerializer
             "access_control",  # Compat with TeamSerializer
@@ -233,6 +239,12 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "session_recording_linked_flag",
             "session_recording_network_payload_capture_config",
             "session_recording_masking_config",
+            "session_recording_url_trigger_config",
+            "session_recording_url_blocklist_config",
+            "session_recording_event_trigger_config",
+            "session_recording_trigger_match_type_config",
+            "session_recording_trigger_groups",
+            "session_recording_retention_period",
             "session_replay_config",
             "survey_config",
             "access_control",
@@ -271,8 +283,16 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
 
     def get_live_events_token(self, project: Project) -> Optional[str]:
         team = project.teams.get(pk=project.pk)
+        request = self.context.get("request")
+        user_id = request.user.id if request and hasattr(request, "user") and request.user.is_authenticated else None
+        claims = {
+            "team_id": team.id,
+            "api_token": team.api_token,
+            "user_id": user_id,
+            "organization_id": str(team.organization_id),
+        }
         return encode_jwt(
-            {"team_id": team.id, "api_token": team.api_token},
+            claims,
             timedelta(days=7),
             PosthogJwtAudience.LIVESTREAM,
         )
@@ -319,6 +339,10 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
     @staticmethod
     def validate_session_recording_masking_config(value) -> dict | None:
         return TeamSerializer.validate_session_recording_masking_config(value)
+
+    @staticmethod
+    def validate_session_recording_trigger_groups(value) -> dict | None:
+        return TeamSerializer.validate_session_recording_trigger_groups(value)
 
     @staticmethod
     def validate_session_replay_config(value) -> dict | None:

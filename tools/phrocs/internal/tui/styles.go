@@ -104,6 +104,12 @@ var (
 	searchCurrentMatchStyle = lipgloss.NewStyle().
 				Background(colorYellow).
 				Foreground(colorBlack)
+
+	// Info mode
+	warnStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(colorYellow).
+			Background(sharedpalette.ColorBarMid)
 )
 
 func statusIconChar(s process.Status) string {
@@ -138,18 +144,96 @@ func statusIconColor(s process.Status) color.Color {
 	}
 }
 
-// Renders a single sidebar row with icon, name, and selected/unselected styling.
-// Used by both the process sidebar and the container sidebar.
-func renderSidebarRow(icon, name string, iconColor color.Color, selected bool, innerW int) string {
-	if selected {
-		base := lipgloss.NewStyle().Background(colorDarkGrey).Bold(true)
-		iconSeg := base.PaddingLeft(1).Foreground(iconColor).Render(icon)
-		nameSeg := base.Foreground(colorWhite).Width(innerW - 2).Render(" " + name)
-		return iconSeg + nameSeg
+// cpuBarColor returns a background tint based on CPU usage percentage.
+func cpuBarColor(cpuPct float64) color.Color {
+	switch {
+	case cpuPct >= 150:
+		return sharedpalette.ColorBarHigh
+	case cpuPct >= 50:
+		return sharedpalette.ColorBarMid
+	default:
+		return sharedpalette.ColorBarLow
 	}
-	iconSeg := lipgloss.NewStyle().PaddingLeft(1).Foreground(iconColor).Render(icon)
-	nameSeg := lipgloss.NewStyle().Foreground(colorGrey).Width(innerW - 2).Render(" " + name)
-	return iconSeg + nameSeg
+}
+
+// Renders a single sidebar row with icon, name, and an htop-style CPU usage
+// bar as a background fill. cpuPct is the total CPU% for the process tree;
+// the filled portion scales to innerW (100% = full width).
+// Used by both the process sidebar and the container sidebar.
+func renderSidebarRow(icon, name string, iconColor color.Color, selected bool, cpuPct float64, innerW int) string {
+	// How many columns the bar fills (cap at innerW)
+	barW := 0
+	if cpuPct > 0 {
+		barW = int(cpuPct / 100.0 * float64(innerW))
+		barW = max(min(barW, innerW), 1)
+	}
+
+	barBg := cpuBarColor(cpuPct)
+	nameW := max(innerW-2, 0) // 1 padding + 1 icon
+
+	// Pick background for each segment based on whether it falls within the bar
+	bgFor := func(col int) color.Color {
+		if selected {
+			if barW > 0 && col < barW {
+				return barBg
+			}
+			return colorDarkGrey
+		}
+		if barW > 0 && col < barW {
+			return barBg
+		}
+		return nil
+	}
+
+	textColor := colorGrey
+	if selected {
+		textColor = colorWhite
+	}
+
+	// Icon occupies columns 0 (padding) and 1 (icon char)
+	iconBg := bgFor(0)
+	iconStyle := lipgloss.NewStyle().PaddingLeft(1).Foreground(iconColor)
+	if selected {
+		iconStyle = iconStyle.Bold(true)
+	}
+	if iconBg != nil {
+		iconStyle = iconStyle.Background(iconBg)
+	}
+	iconSeg := iconStyle.Render(icon)
+
+	// Name starts at column 2 and spans nameW columns
+	// Split into filled and unfilled portions based on barW
+	nameContent := " " + name
+	nameRunes := []rune(nameContent)
+	for len(nameRunes) < nameW {
+		nameRunes = append(nameRunes, ' ')
+	}
+	if len(nameRunes) > nameW {
+		nameRunes = nameRunes[:nameW]
+	}
+
+	// The name starts at column 2, so the bar covers columns 2..barW-1
+	nameFillW := max(min(barW-2, nameW), 0)
+
+	filledPart := ""
+	if nameFillW > 0 {
+		s := lipgloss.NewStyle().Foreground(textColor).Background(barBg)
+		if selected {
+			s = s.Bold(true)
+		}
+		filledPart = s.Render(string(nameRunes[:nameFillW]))
+	}
+
+	unfilledRunes := nameRunes[nameFillW:]
+	unfilledStyle := lipgloss.NewStyle().Foreground(textColor)
+	if selected {
+		unfilledStyle = unfilledStyle.Bold(true).Background(colorDarkGrey)
+	}
+	// Pad remaining width so the background extends to the edge
+	unfilledStyle = unfilledStyle.Width(nameW - nameFillW)
+	unfilledPart := unfilledStyle.Render(string(unfilledRunes))
+
+	return iconSeg + filledPart + unfilledPart
 }
 
 func truncate(s string, maxLen int) string {

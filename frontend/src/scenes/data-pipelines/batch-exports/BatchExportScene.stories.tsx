@@ -4,7 +4,7 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
-import { RawBatchExportBackfill } from '~/types'
+import { RawBatchExportBackfill, RawBatchExportRun } from '~/types'
 
 import batchExports from '../__mocks__/batchExports.json'
 
@@ -116,5 +116,88 @@ export const BackfillsWithEstimates: Story = {
 export const BackfillsEmpty: Story = {
     parameters: {
         pageUrl: `${urls.batchExport(EXISTING_EXPORT.id)}?tab=backfills`,
+    },
+}
+
+const MOCK_RUNS: RawBatchExportRun[] = [
+    {
+        id: 'run-001',
+        status: 'Completed',
+        created_at: '2024-01-15T10:01:00Z',
+        data_interval_start: '2024-01-15T09:00:00Z',
+        data_interval_end: '2024-01-15T10:00:00Z',
+        last_updated_at: '2024-01-15T10:03:00Z',
+        records_completed: 48230,
+        bytes_exported: 12_582_912,
+    },
+    {
+        id: 'run-002',
+        status: 'Running',
+        created_at: '2024-01-15T11:01:00Z',
+        data_interval_start: '2024-01-15T10:00:00Z',
+        data_interval_end: '2024-01-15T11:00:00Z',
+        last_updated_at: '2024-01-15T11:02:00Z',
+    },
+    {
+        id: 'run-003',
+        status: 'Failed',
+        created_at: '2024-01-15T09:01:00Z',
+        data_interval_start: '2024-01-15T08:00:00Z',
+        data_interval_end: '2024-01-15T09:00:00Z',
+        last_updated_at: '2024-01-15T09:04:00Z',
+    },
+    {
+        id: 'run-004',
+        status: 'Starting',
+        created_at: '2024-01-15T12:00:30Z',
+        data_interval_start: '2024-01-15T11:00:00Z',
+        data_interval_end: '2024-01-15T12:00:00Z',
+        last_updated_at: '2024-01-15T12:00:30Z',
+    },
+    {
+        id: 'run-005',
+        status: 'Cancelled',
+        created_at: '2024-01-15T08:01:00Z',
+        data_interval_start: '2024-01-15T07:00:00Z',
+        data_interval_end: '2024-01-15T08:00:00Z',
+        last_updated_at: '2024-01-15T08:02:00Z',
+    },
+]
+
+export const RunsWithData: Story = {
+    parameters: {
+        pageUrl: `${urls.batchExport(EXISTING_EXPORT.id)}?tab=runs`,
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/batch_exports/': batchExports,
+                [`/api/environments/:team_id/batch_exports/${EXISTING_EXPORT.id}/`]: EXISTING_EXPORT,
+                '/api/environments/:team_id/batch_exports/test/': { steps: [] },
+                [`/api/environments/:team_id/batch_exports/${EXISTING_EXPORT.id}/runs/`]: {
+                    results: MOCK_RUNS,
+                    next: null,
+                },
+                [`/api/environments/:team_id/batch_exports/${EXISTING_EXPORT.id}/backfills/`]: { results: [] },
+            },
+        }),
+    ],
+}
+
+export const RunsEmpty: Story = {
+    parameters: {
+        pageUrl: `${urls.batchExport(EXISTING_EXPORT.id)}?tab=runs`,
+    },
+}
+
+export const Logs: Story = {
+    parameters: {
+        pageUrl: `${urls.batchExport(EXISTING_EXPORT.id)}?tab=logs`,
+    },
+}
+
+export const Metrics: Story = {
+    parameters: {
+        pageUrl: `${urls.batchExport(EXISTING_EXPORT.id)}?tab=metrics`,
     },
 }

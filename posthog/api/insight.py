@@ -40,7 +40,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog import schema
 from posthog.api.documentation import extend_schema, extend_schema_field, extend_schema_serializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.insight_suggestions import generate_insight_name, get_insight_analysis, get_insight_suggestions
+from posthog.api.insight_suggestions import generate_insight_metadata, get_insight_analysis, get_insight_suggestions
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -1039,7 +1039,7 @@ class InsightViewSet(
 
     def get_throttles(self):
         """Apply LLM-specific throttles to AI analysis endpoints."""
-        if self.action in ["analyze", "suggestions", "generate_name"]:
+        if self.action in ["analyze", "suggestions", "generate_metadata"]:
             return [
                 LLMAnalyticsSummarizationBurstThrottle(),
                 LLMAnalyticsSummarizationSustainedThrottle(),
@@ -1050,6 +1050,7 @@ class InsightViewSet(
     def _validate_ai_feature_access(self) -> None:
         """Validate that AI data processing is approved by the organization."""
         if not self.organization.is_ai_data_processing_approved:
+            raise PermissionDenied("AI data processing must be approved by your organization")
             raise PermissionDenied("AI data processing must be approved by your organization")
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
@@ -1495,8 +1496,8 @@ When set, the specified dashboard's filters and date range override will be appl
         return Response([s.model_dump() for s in suggestions])
 
     @action(methods=["POST"], detail=False, required_scopes=["insight:write"])
-    def generate_name(self, request: Request, **kwargs) -> Response:
-        """Generate an AI-suggested name for an insight based on its query configuration."""
+    def generate_metadata(self, request: Request, **kwargs) -> Response:
+        """Generate an AI-suggested name and description for an insight based on its query configuration."""
         self._validate_ai_feature_access()
 
         query_data = request.data.get("query")
@@ -1514,8 +1515,14 @@ When set, the specified dashboard's filters and date range override will be appl
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        name = generate_insight_name(query, self.team)
-        return Response({"name": name})
+        try:
+            metadata = generate_insight_metadata(query, self.team)
+        except Exception:
+            return Response(
+                {"error": "Failed to generate insight metadata. Please try again."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        return Response({"name": metadata.name, "description": metadata.description})
 
     @extend_schema(exclude=True)
     @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])

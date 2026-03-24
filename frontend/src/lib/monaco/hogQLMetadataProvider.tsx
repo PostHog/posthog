@@ -49,6 +49,24 @@ export const hogQLMetadataProvider: () => languages.CodeActionProvider = () => (
                             isPreferred: true,
                         })
                     }
+                    if (
+                        rawMarker.hogQLAIFixPrompt &&
+                        // if ranges overlap
+                        rawMarker.start <= end &&
+                        rawMarker.end >= start
+                    ) {
+                        quickFixes.push({
+                            title: 'Fix with AI',
+                            diagnostics: [rawMarker],
+                            kind: 'quickfix',
+                            command: {
+                                id: 'posthog.hogql.fixWithAI',
+                                title: 'Fix with AI',
+                                arguments: [rawMarker.hogQLAIFixPrompt],
+                            },
+                            isPreferred: true,
+                        })
+                    }
                 }
             }
             return {

@@ -131,14 +131,12 @@ describe('Persons', { concurrent: false }, () => {
             const person = listResponse.results[0]
             const testKey = `mcp_test_prop_${Date.now()}`
 
-            // The endpoint returns 202 Accepted with no body — the property is updated asynchronously
+            // The endpoint returns 202 Accepted with no body
             const result = await updatePropertyTool.handler(context, {
                 id: person.id,
                 key: testKey,
                 value: 'test_value',
             })
-
-            // 202 returns an empty body, so we just check the call didn't throw
             expect(result).toBeTruthy()
         })
     })

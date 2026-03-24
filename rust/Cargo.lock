@@ -6235,6 +6235,7 @@ dependencies = [
 name = "personhog-router"
 version = "0.1.0"
 dependencies = [
+ "assignment-coordination",
  "async-trait",
  "axum 0.7.9",
  "common-alloc",
@@ -6244,6 +6245,7 @@ dependencies = [
  "metrics",
  "metrics-exporter-prometheus",
  "personhog-common",
+ "personhog-coordination",
  "personhog-proto",
  "rand 0.8.5",
  "serde_json",

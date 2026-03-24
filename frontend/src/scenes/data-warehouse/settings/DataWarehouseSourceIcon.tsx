@@ -14,6 +14,7 @@ import IconPostHog from 'public/posthog-icon.svg'
 import IconAwsS3 from 'public/services/aws-s3.png'
 import Iconazure from 'public/services/azure.png'
 import IconCloudflare from 'public/services/cloudflare.png'
+import IconDuckDB from 'public/services/duckdb.svg'
 import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
 
 import { availableSourcesDataLogic } from '../new/availableSourcesDataLogic'
@@ -70,11 +71,13 @@ export const DATA_WAREHOUSE_SOURCE_ICON_COMPONENT_MAP: Record<string, JSX.Elemen
 
 export function DataWarehouseSourceIcon({
     type,
+    engine,
     size = 'small',
     sizePx: sizePxProps,
     disableTooltip = false,
 }: {
     type: string
+    engine?: 'duckdb' | 'postgres' | null
     size?: 'xsmall' | 'small' | 'medium'
     sizePx?: number
     disableTooltip?: boolean
@@ -84,6 +87,10 @@ export function DataWarehouseSourceIcon({
     const icon = useMemo(() => {
         if (!availableSources) {
             return null
+        }
+
+        if (type === 'Postgres' && engine === 'duckdb') {
+            return IconDuckDB
         }
 
         const sourceConfig = availableSources[type]
@@ -99,7 +106,7 @@ export function DataWarehouseSourceIcon({
         const component = DATA_WAREHOUSE_SOURCE_ICON_COMPONENT_MAP[type]
 
         return component ?? null
-    }, [availableSources, type])
+    }, [availableSources, engine, type])
 
     if (availableSourcesLoading || !availableSources) {
         return <LemonSkeleton />

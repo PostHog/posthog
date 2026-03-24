@@ -56,7 +56,7 @@ export function ActionsLineGraph({
     } = useValues(trendsDataLogic(insightProps))
     const { weekStartDay, timezone } = useValues(teamLogic)
 
-    const { alertThresholdLines } = useValues(
+    const { alertThresholdLines, alertAnomalyPoints } = useValues(
         insightAlertsLogic({ insightId: insight.id!, insightLogicProps: insightProps })
     )
 
@@ -207,6 +207,7 @@ export function ActionsLineGraph({
             legend={legend}
             hideAnnotations={inSharedMode}
             goalLines={[...alertThresholdLines, ...(goalLines || [])]}
+            anomalyPoints={alertAnomalyPoints}
             onDateRangeZoom={context?.onDateRangeZoom}
             onClick={
                 context?.onDataPointClick || (showPersonsModal && hasPersonsModal)

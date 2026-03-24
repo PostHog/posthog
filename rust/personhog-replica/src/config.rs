@@ -40,6 +40,14 @@ pub struct Config {
 
     #[envconfig(default = "9100")]
     pub metrics_port: u16,
+
+    /// Interval between HTTP/2 keepalive pings sent by the gRPC server (0 = disabled)
+    #[envconfig(default = "30")]
+    pub grpc_keepalive_interval_secs: u64,
+
+    /// Timeout for a keepalive ping ack before considering the connection dead
+    #[envconfig(default = "10")]
+    pub grpc_keepalive_timeout_secs: u64,
 }
 
 impl Config {
@@ -60,6 +68,22 @@ impl Config {
             None
         } else {
             Some(self.statement_timeout_ms)
+        }
+    }
+
+    pub fn grpc_keepalive_interval(&self) -> Option<Duration> {
+        if self.grpc_keepalive_interval_secs == 0 {
+            None
+        } else {
+            Some(Duration::from_secs(self.grpc_keepalive_interval_secs))
+        }
+    }
+
+    pub fn grpc_keepalive_timeout(&self) -> Option<Duration> {
+        if self.grpc_keepalive_timeout_secs == 0 {
+            None
+        } else {
+            Some(Duration::from_secs(self.grpc_keepalive_timeout_secs))
         }
     }
 
