@@ -1,9 +1,12 @@
+import logging
 from collections.abc import Generator
 from typing import Any
 
 import requests
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+
+logger = logging.getLogger(__name__)
 
 
 def _headers(deploy_key: str) -> dict[str, str]:
@@ -55,6 +58,12 @@ def list_snapshot(deploy_url: str, deploy_key: str, table_name: str) -> Generato
             return snapshot or 0
 
 
+class InvalidWindowError(Exception):
+    """Raised when the delta cursor is older than Convex's retention window."""
+
+    pass
+
+
 def document_deltas(
     deploy_url: str, deploy_key: str, table_name: str, cursor: int
 ) -> Generator[list[dict[str, Any]], None, int]:
@@ -62,6 +71,8 @@ def document_deltas(
 
     Yields batches of changed documents. Returns the new cursor.
     Deleted documents have _deleted=True.
+
+    Raises InvalidWindowError if the cursor is older than Convex's retention window (~30 days).
     """
     base_url = f"{deploy_url.rstrip('/')}/api/document_deltas"
     current_cursor = cursor
@@ -70,6 +81,17 @@ def document_deltas(
         params: dict[str, Any] = {"tableName": table_name, "cursor": current_cursor, "format": "json"}
 
         response = requests.get(base_url, headers=_headers(deploy_key), params=params, timeout=60)
+
+        if response.status_code == 400:
+            try:
+                error_data = response.json()
+                if error_data.get("code") == "InvalidWindowToReadDocuments":
+                    raise InvalidWindowError(
+                        f"Delta cursor for table '{table_name}' is older than Convex's ~30 day retention window. "
+                        f"Please trigger a full resync of this source."
+                    )
+            except (ValueError, KeyError):
+                pass
         response.raise_for_status()
         data = response.json()
 
