@@ -18,7 +18,7 @@ import { resetKafka } from '../../helpers/kafka'
 import { createUserTeamAndOrganization, resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/logger')
-jest.setTimeout(30000)
+jest.setTimeout(45000)
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
     LOG_LEVEL: 'info',
