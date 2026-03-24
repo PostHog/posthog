@@ -739,6 +739,24 @@ export const externalDataSourcesUpdateWebhookInputsCreate = async (
 /**
  * Create, Read, Update and Delete External data Sources.
  */
+export const getExternalDataSourcesWebhookInfoRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/webhook_info/`
+}
+
+export const externalDataSourcesWebhookInfoRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSourcesWebhookInfoRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
 export const getExternalDataSourcesDatabaseSchemaCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/external_data_sources/database_schema/`
 }

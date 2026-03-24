@@ -489,6 +489,7 @@ export interface ExternalDataSourceSerializersApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    readonly supports_webhooks: boolean
 }
 
 export interface PaginatedExternalDataSourceSerializersListApi {
@@ -536,6 +537,7 @@ export interface PatchedExternalDataSourceSerializersApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+    readonly supports_webhooks?: boolean
 }
 
 export interface QueryTabStateApi {
