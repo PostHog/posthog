@@ -15,6 +15,7 @@ from posthog.temporal.data_imports.sources.convex.convex import (
     convex_source,
     get_json_schemas,
     validate_credentials as validate_convex_credentials,
+    validate_deploy_url,
 )
 from posthog.temporal.data_imports.sources.generated_configs import ConvexSourceConfig
 
@@ -68,7 +69,8 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
         with_counts: bool = False,
         names: list[str] | None = None,
     ) -> list[SourceSchema]:
-        schemas_response = get_json_schemas(config.deploy_url, config.deploy_key)
+        clean_url = validate_deploy_url(config.deploy_url)
+        schemas_response = get_json_schemas(clean_url, config.deploy_key)
 
         tables: list[str] = []
         if isinstance(schemas_response, dict):

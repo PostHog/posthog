@@ -1,12 +1,48 @@
+import re
 import logging
 from collections.abc import Generator
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 
 logger = logging.getLogger(__name__)
+
+_CONVEX_CLOUD_HOST_RE = re.compile(r"^[a-z0-9][a-z0-9-]*\.convex\.cloud$")
+
+
+class InvalidDeployUrlError(Exception):
+    """Raised when the deploy URL does not meet Convex security requirements."""
+
+    pass
+
+
+def validate_deploy_url(deploy_url: str) -> str:
+    """Validate and normalize a Convex deployment URL.
+
+    Enforces https scheme, host matching *.convex.cloud, no query/fragment.
+    Returns the validated base URL (scheme + host, no trailing slash).
+    """
+    parsed = urlparse(deploy_url.strip())
+
+    if parsed.scheme != "https":
+        raise InvalidDeployUrlError(
+            "Deployment URL must use the https scheme (e.g. https://your-deployment-123.convex.cloud)."
+        )
+
+    host = (parsed.hostname or "").lower()
+    if not host or not _CONVEX_CLOUD_HOST_RE.match(host):
+        raise InvalidDeployUrlError(f"Deployment URL host must match <deployment-name>.convex.cloud, got: {host!r}.")
+
+    if parsed.query:
+        raise InvalidDeployUrlError("Deployment URL must not contain query parameters.")
+
+    if parsed.fragment:
+        raise InvalidDeployUrlError("Deployment URL must not contain a URL fragment.")
+
+    return f"https://{host}"
 
 
 def _headers(deploy_key: str) -> dict[str, str]:
@@ -108,7 +144,11 @@ def document_deltas(
 
 def validate_credentials(deploy_url: str, deploy_key: str) -> tuple[bool, str | None]:
     try:
-        get_json_schemas(deploy_url, deploy_key)
+        clean_url = validate_deploy_url(deploy_url)
+    except InvalidDeployUrlError as e:
+        return False, str(e)
+    try:
+        get_json_schemas(clean_url, deploy_key)
         return True, None
     except requests.exceptions.HTTPError as e:
         if e.response is not None:
@@ -139,6 +179,8 @@ def convex_source(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any | None,
 ) -> SourceResponse:
+    clean_url = validate_deploy_url(deploy_url)
+
     def _normalize_timestamps(batch: list[dict[str, Any]]) -> list[dict[str, Any]]:
         for row in batch:
             creation_time = row.get("_creationTime")
@@ -149,10 +191,10 @@ def convex_source(
     def items_generator():
         if should_use_incremental_field and db_incremental_field_last_value is not None:
             cursor = int(db_incremental_field_last_value)
-            for batch in document_deltas(deploy_url, deploy_key, table_name, cursor):
+            for batch in document_deltas(clean_url, deploy_key, table_name, cursor):
                 yield _normalize_timestamps(batch)
         else:
-            for batch in list_snapshot(deploy_url, deploy_key, table_name):
+            for batch in list_snapshot(clean_url, deploy_key, table_name):
                 yield _normalize_timestamps(batch)
 
     return SourceResponse(
