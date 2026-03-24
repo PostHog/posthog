@@ -14,7 +14,6 @@ from prometheus_client import Counter, Gauge, Histogram
 
 from posthog.api.monitoring import Feature
 from posthog.clickhouse import query_tagging
-from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import QueryTags, update_tags
 from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorS3Error, CHQueryErrorTooManySimultaneousQueries
 from posthog.exceptions import ClickHouseAtCapacity
@@ -494,31 +493,15 @@ def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> N
         cohort.save(update_fields=["is_calculating"])
         cohort.refresh_from_db()
 
-        # Check if CH already has rows for this cohort (e.g. from a previous attempt that
-        # OOM'd during the PG sync). If so, skip the CH insert to avoid duplicates —
-        # the INSERT uses generateUUIDv4() so re-running creates duplicate rows.
-        from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
-
-        # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
-        existing_ch_count = sync_execute(
-            f"SELECT count() FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
-            {"cohort_id": cohort.pk, "team_id": team_id},
-        )[0][0]
-
-        if existing_ch_count > 0:
-            logger.info(
-                "insert_cohort_from_query_ch_skipped_existing",
-                cohort_id=cohort_id,
-                team_id=team_id,
-                existing_count=existing_ch_count,
-            )
-        else:
-            insert_cohort_query_actors_into_ch(cohort, team=team)
-            logger.info(
-                "insert_cohort_from_query_ch_complete",
-                cohort_id=cohort_id,
-                team_id=team_id,
-            )
+        # The CH insert is idempotent: it excludes person_ids already in the cohort.
+        # This handles both the retry-after-OOM case (no duplicates) and the
+        # add-more-people-via-query case (only new people inserted).
+        insert_cohort_query_actors_into_ch(cohort, team=team)
+        logger.info(
+            "insert_cohort_from_query_ch_complete",
+            cohort_id=cohort_id,
+            team_id=team_id,
+        )
 
         # PG sync is already resumable: _insert_users_list_with_batching checks
         # existing_person_ids each batch and skips people already in the cohort.
