@@ -8,6 +8,7 @@ import asyncio
 import builtins
 from collections.abc import Generator
 from contextlib import contextmanager
+from copy import copy
 from json import JSONDecodeError
 from typing import Any, Literal, cast
 from urllib.parse import urlparse
@@ -1912,8 +1913,12 @@ def list_recordings_from_query(
             for person in persons:
                 for did in person.distinct_ids:
                     if did in distinct_ids_set:
-                        person._distinct_ids = [did]
-                        distinct_id_to_person[did] = person
+                        # Copy so that each mapping gets its own _distinct_ids
+                        # without mutating the shared Person instance (a single
+                        # person can match multiple recording distinct_ids).
+                        person_copy = copy(person)
+                        person_copy._distinct_ids = [did]
+                        distinct_id_to_person[did] = person_copy
         else:
             # ORM path: define queryset here, iterate in process_persons to preserve
             # the original timing attribution (DB round-trip in process_persons span).

@@ -44,7 +44,7 @@ class TestDeletePropertyPersonhog(APIBaseTest):
             fake.assert_called("get_distinct_ids_for_person")
 
     @mock.patch("posthog.api.person.capture_internal")
-    def test_int_pk_bypasses_personhog_uuid_lookup(self, mock_capture):
+    def test_int_pk_routes_through_personhog(self, mock_capture):
         mock_capture.return_value = mock.MagicMock(status_code=200)
         person = Person.objects.create(
             team=self.team,
@@ -53,6 +53,14 @@ class TestDeletePropertyPersonhog(APIBaseTest):
         )
 
         with fake_personhog_client() as fake:
+            fake.add_person(
+                team_id=self.team.pk,
+                person_id=person.pk,
+                uuid=str(person.uuid),
+                distinct_ids=["did1"],
+                properties={"foo": "bar"},
+            )
+
             resp = self.client.post(
                 f"/api/person/{person.pk}/delete_property",
                 {"$unset": "foo"},
@@ -60,6 +68,7 @@ class TestDeletePropertyPersonhog(APIBaseTest):
 
             assert resp.status_code == 201
             fake.assert_not_called("get_person_by_uuid")
+            fake.assert_called("get_person")
 
     def test_uuid_not_found_via_personhog_returns_error(self):
         with fake_personhog_client():

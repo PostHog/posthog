@@ -34,11 +34,19 @@ class TestParseRequestParamsPersonhog(BaseTest):
             assert params["distinct_ids"] == []
             fake.assert_called("get_person_by_uuid")
 
-    def test_non_uuid_person_id_falls_back_to_orm(self):
+    def test_non_uuid_person_id_routes_through_personhog(self):
         person = Person.objects.create(team=self.team, distinct_ids=["id1", "id2"])
 
         with fake_personhog_client() as fake:
+            fake.add_person(
+                team_id=self.team.pk,
+                person_id=person.pk,
+                uuid=str(person.uuid),
+                distinct_ids=["id1", "id2"],
+            )
+
             _result, params = parse_request_params({"person_id": str(person.pk)}, self.team, ZoneInfo("UTC"))
 
             assert set(params["distinct_ids"]) == {"id1", "id2"}
             fake.assert_not_called("get_person_by_uuid")
+            fake.assert_called("get_person")

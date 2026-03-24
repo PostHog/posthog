@@ -1,8 +1,8 @@
 """Tests for personhog person routing in query runners.
 
-Verifies that UUID-based personId lookups in EventsQueryRunner and
-SessionsQueryRunner correctly route through get_person_by_uuid (personhog)
-and produce the same AST output as the ORM path.
+Verifies that personId lookups in EventsQueryRunner and
+SessionsQueryRunner correctly route through personhog (both UUID and
+integer PK paths) and produce the expected AST output.
 """
 
 from typing import Optional, cast
@@ -62,19 +62,27 @@ class TestEventsQueryRunnerPersonhog(BaseTest):
             assert ids == []
             fake.assert_called("get_person_by_uuid")
 
-    def test_non_uuid_person_id_does_not_call_personhog(self):
-        """Integer PK falls back to get_pk_or_uuid (ORM path)."""
+    def test_non_uuid_person_id_routes_through_personhog(self):
+        """Integer PK routes through get_person_by_id (personhog)."""
         from posthog.models import Person
 
         person = Person.objects.create(team=self.team, distinct_ids=["id1", "id2"])
 
         with fake_personhog_client() as fake:
+            fake.add_person(
+                team_id=self.team.pk,
+                person_id=person.pk,
+                uuid=str(person.uuid),
+                distinct_ids=["id1", "id2"],
+            )
+
             query = EventsQuery(kind="EventsQuery", select=["*"], personId=str(person.pk), orderBy=[])
             query_ast = EventsQueryRunner(query=query, team=self.team).to_query()
 
             ids = _extract_person_distinct_ids_from_where(query_ast.where)
             assert set(ids) == {"id1", "id2"}
             fake.assert_not_called("get_person_by_uuid")
+            fake.assert_called("get_person")
 
 
 class TestSessionsQueryRunnerPersonhog(BaseTest):
