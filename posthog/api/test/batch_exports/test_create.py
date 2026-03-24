@@ -1327,41 +1327,6 @@ def test_creating_databricks_batch_export_fails_if_integration_is_not_the_correc
     assert response.json()["detail"] == "Integration is not a Databricks integration."
 
 
-def test_creating_azure_blob_batch_export_fails_if_feature_flag_is_not_enabled(
-    client: HttpClient,
-    team,
-    user,
-):
-    """Test that creating an Azure Blob batch export fails if the feature flag is not enabled."""
-    destination_data = {
-        "type": "AzureBlob",
-        "config": {
-            "container_name": "test-container",
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-azure-blob-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
-    client.force_login(user)
-
-    with mock.patch(
-        "posthog.batch_exports.http.posthoganalytics.feature_enabled",
-        return_value=False,
-    ):
-        response = create_batch_export(
-            client,
-            team.pk,
-            batch_export_data,
-        )
-
-    assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
-    assert "Azure Blob Storage batch exports are not enabled for this team." in response.json()["detail"]
-
-
 @pytest.fixture
 def azure_blob_integration(team, user):
     """Create an Azure Blob integration."""
@@ -1398,15 +1363,11 @@ def test_creating_azure_blob_batch_export_using_integration(
 
     client.force_login(user)
 
-    with mock.patch(
-        "posthog.batch_exports.http.posthoganalytics.feature_enabled",
-        return_value=True,
-    ):
-        response = create_batch_export(
-            client,
-            team.pk,
-            batch_export_data,
-        )
+    response = create_batch_export(
+        client,
+        team.pk,
+        batch_export_data,
+    )
 
     assert response.status_code == status.HTTP_201_CREATED, response.json()
 
