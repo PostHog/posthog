@@ -60,8 +60,8 @@ impl DeduplicationStore {
         let mut ts_cf_opts = Options::default();
         ts_cf_opts.set_block_based_table_factory(&block_opts);
         ts_cf_opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(8)); // <- per-CF
-        ts_cf_opts.set_write_buffer_size(8 * 1024 * 1024);
-        ts_cf_opts.set_max_write_buffer_number(3);
+        ts_cf_opts.set_write_buffer_size(rocksdb_config.write_buffer_size_bytes);
+        ts_cf_opts.set_max_write_buffer_number(2);
         // IMPORTANT: CF options don't inherit from DB options, must set compression explicitly
         if let Some(ref per_level) = rocksdb_config.compression_per_level {
             ts_cf_opts.set_compression_per_level(per_level);
