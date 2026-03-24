@@ -208,6 +208,11 @@ def _get_llm_semaphore(max_concurrent: int) -> threading.Semaphore:
         with _llm_semaphore_lock:
             if _llm_semaphore is None:
                 _llm_semaphore = threading.Semaphore(max_concurrent)
+    elif _llm_semaphore._value != max_concurrent:
+        dagster.get_dagster_logger().warning(
+            f"LLM semaphore already initialized with a different limit; "
+            f"requested {max_concurrent}, using existing. Restart the process to apply the new value."
+        )
     return _llm_semaphore
 
 
@@ -482,8 +487,7 @@ def prepare_and_fan_out(
     """Prepare account data, filter recently classified accounts, and fan out accounts batches."""
     if account_data.is_empty():
         context.log.info("No accounts to classify")
-        summary: PipelineSummary = {"total": 0, "skipped": 0, "to_classify": 0}
-        yield dagster.Output(summary, output_name="summary")
+        yield dagster.Output({"total": 0, "skipped": 0, "to_classify": 0}, output_name="summary")
         return
 
     # Verify Salesforce is reachable before spending LLM credits — classifications
@@ -508,8 +512,9 @@ def prepare_and_fan_out(
 
     if accounts_to_classify.is_empty():
         context.log.info("All accounts recently classified, nothing to do")
-        summary: PipelineSummary = {"total": len(account_data), "skipped": skipped_count, "to_classify": 0}
-        yield dagster.Output(summary, output_name="summary")
+        yield dagster.Output(
+            {"total": len(account_data), "skipped": skipped_count, "to_classify": 0}, output_name="summary"
+        )
         return
 
     # Cast MRR columns and compute use case adoption
@@ -584,7 +589,7 @@ def classify_and_push_accounts_batch(
         with semaphore:
             return _classify_batch(client, batch)
 
-    with ThreadPoolExecutor(max_workers=config.llm_max_workers) as pool:
+    with ThreadPoolExecutor(max_workers=min(config.llm_max_workers, config.llm_max_concurrent_requests)) as pool:
         futures = {pool.submit(_throttled_classify, batch): i for i, batch in enumerate(llm_batches)}
         for future in as_completed(futures):
             i = futures[future]
@@ -627,13 +632,12 @@ def classify_and_push_accounts_batch(
         f"LLM batches failed {len(failed_batches)}"
     )
 
-    result: AccountsBatchResult = {
+    return {
         "classified": len(new_classifications),
         "sf_succeeded": succeeded,
         "sf_failed": failed,
         "llm_batches_failed": len(failed_batches),
     }
-    return result
 
 
 @dagster.op
