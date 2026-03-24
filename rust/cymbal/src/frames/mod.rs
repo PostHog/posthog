@@ -113,8 +113,16 @@ impl RawFrame {
                 if frame.resolved {
                     metrics::counter!(FRAME_RESOLVED, "lang" => lang_tag).increment(1);
                 } else if let Some(err) = &frame.resolve_failure {
-                    tracing::warn!(lang = lang_tag, reason = err.metric_reason(), error = %err, "frame resolution failed");
-                    metrics::counter!(FRAME_NOT_RESOLVED, "lang" => lang_tag, "reason" => err.metric_reason())
+                    let reason = err.metric_reason();
+                    match reason {
+                        "network_error" | "invalid_data" | "symbol_not_found" => {
+                            tracing::warn!(lang = lang_tag, reason = reason, error = %err, "frame resolution failed");
+                        }
+                        _ => {
+                            tracing::debug!(lang = lang_tag, reason = reason, error = %err, "frame resolution failed");
+                        }
+                    }
+                    metrics::counter!(FRAME_NOT_RESOLVED, "lang" => lang_tag, "reason" => reason)
                         .increment(1);
                 } else {
                     metrics::counter!(FRAME_NOT_RESOLVED, "lang" => lang_tag, "reason" => "unknown")
