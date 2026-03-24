@@ -23,7 +23,6 @@ import { ChartDisplayType, FilterType } from '~/types'
 
 import { actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
-import { compactSeriesRowRenderer } from './CompactSeriesRow'
 import { LifecycleSeriesHeader } from './LifecycleSeriesHeader'
 
 const lifecycleDataWarehousePopoverFields: DataWarehousePopoverField[] = [
@@ -162,7 +161,6 @@ export function TrendsSeries(): JSX.Element | null {
                 ]}
                 hideDeleteBtn={series?.length === 1}
                 hideDuplicate={editorPanelsEnabled}
-                renderRow={editorPanelsEnabled ? compactSeriesRowRenderer : undefined}
                 addFilterDocLink="https://posthog.com/docs/product-analytics/trends/filters"
                 dataWarehousePopoverFields={isLifecycle ? lifecycleDataWarehousePopoverFields : undefined}
                 customFooter={formulaFooter}

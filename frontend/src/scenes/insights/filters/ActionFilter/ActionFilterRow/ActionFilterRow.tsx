@@ -513,7 +513,6 @@ export function ActionFilterRow({
                         propertyFiltersButton: propertyFiltersButton,
                         renameRowButton,
                         deleteButton,
-                        filterData: filter,
                     })
                 ) : (
                     <>
