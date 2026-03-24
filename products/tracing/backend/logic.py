@@ -176,11 +176,12 @@ class TraceSpansQueryRunner(AnalyticsQueryRunner[TraceSpansQueryResponse]):
             )
 
         if self.query.traceId:
+            trace_id_b64 = base64.b64encode(bytes.fromhex(self.query.traceId)).decode("ascii")
             exprs.append(
                 parse_expr(
-                    "trace_id = assumeNotNull(base64Encode(unhex({traceId})))",
+                    "trace_id = {traceId}",
                     placeholders={
-                        "traceId": ast.Constant(value=self.query.traceId),
+                        "traceId": ast.Constant(value=trace_id_b64),
                     },
                 )
             )
