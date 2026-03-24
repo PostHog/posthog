@@ -3,11 +3,14 @@ from django.core.management.base import BaseCommand
 
 
 class Command(BaseCommand):
-    help = "Run Django and ClickHouse migrations in a single process"
+    help = "Run all migrations (Django, persons, ClickHouse) in a single process"
 
     def handle(self, *args, **options):
         self.stdout.write("Running Django migrations...")
         call_command("migrate", "--noinput")
+
+        self.stdout.write("Running persons migrations...")
+        call_command("apply_persons_migrations", "--database=persons_db_writer", "--ensure-database")
 
         self.stdout.write("Running ClickHouse migrations...")
         call_command("migrate_clickhouse")
