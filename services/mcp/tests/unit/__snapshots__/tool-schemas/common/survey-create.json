@@ -2,110 +2,129 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "appearance": {
-            "properties": {
-                "autoDisappear": {
-                    "type": "boolean"
+            "anyOf": [
+                {
+                    "properties": {
+                        "autoDisappear": {
+                            "type": "boolean"
+                        },
+                        "backgroundColor": {
+                            "type": "string"
+                        },
+                        "borderColor": {
+                            "type": "string"
+                        },
+                        "boxPadding": {
+                            "type": "string"
+                        },
+                        "descriptionTextColor": {
+                            "type": "string"
+                        },
+                        "disabledButtonOpacity": {
+                            "type": "string"
+                        },
+                        "displayThankYouMessage": {
+                            "type": "boolean"
+                        },
+                        "fontFamily": {
+                            "type": "string"
+                        },
+                        "maxWidth": {
+                            "type": "string"
+                        },
+                        "placeholder": {
+                            "type": "string"
+                        },
+                        "ratingButtonActiveColor": {
+                            "type": "string"
+                        },
+                        "ratingButtonColor": {
+                            "type": "string"
+                        },
+                        "ratingButtonHoverColor": {
+                            "type": "string"
+                        },
+                        "shuffleQuestions": {
+                            "type": "boolean"
+                        },
+                        "submitButtonColor": {
+                            "type": "string"
+                        },
+                        "submitButtonText": {
+                            "type": "string"
+                        },
+                        "submitButtonTextColor": {
+                            "type": "string"
+                        },
+                        "surveyPopupDelaySeconds": {
+                            "type": "number"
+                        },
+                        "textColor": {
+                            "type": "string"
+                        },
+                        "thankYouMessageCloseButtonText": {
+                            "type": "string"
+                        },
+                        "thankYouMessageDescription": {
+                            "type": "string"
+                        },
+                        "thankYouMessageDescriptionContentType": {
+                            "description": "* `html` - html\n* `text` - text",
+                            "enum": ["html", "text"],
+                            "type": "string"
+                        },
+                        "thankYouMessageHeader": {
+                            "type": "string"
+                        },
+                        "whiteLabel": {
+                            "type": "boolean"
+                        },
+                        "widgetColor": {
+                            "type": "string"
+                        },
+                        "widgetLabel": {
+                            "type": "string"
+                        },
+                        "widgetSelector": {
+                            "type": "string"
+                        },
+                        "widgetType": {
+                            "description": "* `button` - button\n* `tab` - tab\n* `selector` - selector",
+                            "enum": ["button", "tab", "selector"],
+                            "type": "string"
+                        },
+                        "zIndex": {
+                            "type": "string"
+                        }
+                    },
+                    "type": "object"
                 },
-                "backgroundColor": {
-                    "type": "string"
-                },
-                "borderColor": {
-                    "type": "string"
-                },
-                "boxPadding": {
-                    "type": "string"
-                },
-                "descriptionTextColor": {
-                    "type": "string"
-                },
-                "disabledButtonOpacity": {
-                    "type": "string"
-                },
-                "displayThankYouMessage": {
-                    "type": "boolean"
-                },
-                "fontFamily": {
-                    "type": "string"
-                },
-                "maxWidth": {
-                    "type": "string"
-                },
-                "placeholder": {
-                    "type": "string"
-                },
-                "ratingButtonActiveColor": {
-                    "type": "string"
-                },
-                "ratingButtonColor": {
-                    "type": "string"
-                },
-                "ratingButtonHoverColor": {
-                    "type": "string"
-                },
-                "shuffleQuestions": {
-                    "type": "boolean"
-                },
-                "submitButtonColor": {
-                    "type": "string"
-                },
-                "submitButtonText": {
-                    "type": "string"
-                },
-                "submitButtonTextColor": {
-                    "type": "string"
-                },
-                "surveyPopupDelaySeconds": {
-                    "type": "number"
-                },
-                "textColor": {
-                    "type": "string"
-                },
-                "thankYouMessageCloseButtonText": {
-                    "type": "string"
-                },
-                "thankYouMessageDescription": {
-                    "type": "string"
-                },
-                "thankYouMessageDescriptionContentType": {
-                    "enum": ["html", "text"],
-                    "type": "string"
-                },
-                "thankYouMessageHeader": {
-                    "type": "string"
-                },
-                "whiteLabel": {
-                    "type": "boolean"
-                },
-                "widgetColor": {
-                    "type": "string"
-                },
-                "widgetLabel": {
-                    "type": "string"
-                },
-                "widgetSelector": {
-                    "type": "string"
-                },
-                "widgetType": {
-                    "enum": ["button", "tab", "selector"],
-                    "type": "string"
-                },
-                "zIndex": {
-                    "type": "string"
+                {
+                    "type": "null"
                 }
-            },
-            "type": "object"
+            ],
+            "description": "Survey appearance customization."
         },
         "description": {
+            "description": "Survey description.",
             "type": "string"
         },
         "enable_partial_responses": {
-            "description": "When at least one question is answered, the response is stored (true). The response is stored when all questions are answered (false).",
-            "type": "boolean"
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "When at least one question is answered, the response is stored (true). The response is stored when all questions are answered (false)."
         },
         "iteration_count": {
             "anyOf": [
                 {
-                    "exclusiveMinimum": 0,
+                    "maximum": 500,
+                    "minimum": 1,
                     "type": "number"
                 },
                 {
@@ -117,8 +136,8 @@
         "iteration_frequency_days": {
             "anyOf": [
                 {
-                    "exclusiveMinimum": 0,
                     "maximum": 365,
+                    "minimum": 1,
                     "type": "number"
                 },
                 {
@@ -136,514 +155,406 @@
                     "type": "null"
                 }
             ],
-            "description": "The feature flag linked to this survey"
+            "description": "The feature flag linked to this survey."
         },
         "name": {
+            "description": "Survey name.",
+            "maxLength": 400,
             "minLength": 1,
             "type": "string"
         },
         "questions": {
-            "items": {
-                "anyOf": [
-                    {
-                        "properties": {
-                            "buttonText": {
-                                "type": "string"
-                            },
-                            "description": {
-                                "type": "string"
-                            },
-                            "descriptionContentType": {
-                                "enum": ["html", "text"],
-                                "type": "string"
-                            },
-                            "optional": {
-                                "type": "boolean"
-                            },
-                            "question": {
-                                "type": "string"
-                            },
-                            "type": {
-                                "const": "open",
-                                "type": "string"
-                            }
-                        },
-                        "required": ["question", "type"],
-                        "type": "object"
-                    },
-                    {
-                        "properties": {
-                            "buttonText": {
-                                "type": "string"
-                            },
-                            "description": {
-                                "type": "string"
-                            },
-                            "descriptionContentType": {
-                                "enum": ["html", "text"],
-                                "type": "string"
-                            },
-                            "link": {
-                                "format": "uri",
-                                "type": "string"
-                            },
-                            "optional": {
-                                "type": "boolean"
-                            },
-                            "question": {
-                                "type": "string"
-                            },
-                            "type": {
-                                "const": "link",
-                                "type": "string"
-                            }
-                        },
-                        "required": ["question", "type", "link"],
-                        "type": "object"
-                    },
-                    {
-                        "properties": {
-                            "branching": {
-                                "anyOf": [
-                                    {
-                                        "properties": {
-                                            "type": {
-                                                "const": "next_question",
-                                                "type": "string"
-                                            }
-                                        },
-                                        "required": ["type"],
-                                        "type": "object"
+            "anyOf": [
+                {
+                    "items": {
+                        "anyOf": [
+                            {
+                                "properties": {
+                                    "buttonText": {
+                                        "description": "Custom button label.",
+                                        "type": "string"
                                     },
-                                    {
-                                        "properties": {
-                                            "type": {
-                                                "const": "end",
-                                                "type": "string"
-                                            }
-                                        },
-                                        "required": ["type"],
-                                        "type": "object"
+                                    "description": {
+                                        "description": "Optional helper text.",
+                                        "type": "string"
                                     },
-                                    {
-                                        "description": "For rating questions: use sentiment keys based on scale thirds - negative (lower third), neutral (middle third), positive (upper third)",
-                                        "properties": {
-                                            "responseValues": {
-                                                "description": "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior).",
-                                                "properties": {
-                                                    "negative": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "const": "end",
-                                                                "type": "string"
-                                                            }
-                                                        ],
-                                                        "description": "Lower third of scale"
-                                                    },
-                                                    "neutral": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "const": "end",
-                                                                "type": "string"
-                                                            }
-                                                        ],
-                                                        "description": "Middle third of scale"
-                                                    },
-                                                    "positive": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "const": "end",
-                                                                "type": "string"
-                                                            }
-                                                        ],
-                                                        "description": "Upper third of scale"
-                                                    }
-                                                },
-                                                "type": "object"
-                                            },
-                                            "type": {
-                                                "const": "response_based",
-                                                "type": "string"
-                                            }
-                                        },
-                                        "required": ["type", "responseValues"],
-                                        "type": "object"
+                                    "descriptionContentType": {
+                                        "description": "Format for the description field.\n\n* `text` - text\n* `html` - html",
+                                        "enum": ["text", "html"],
+                                        "type": "string"
                                     },
-                                    {
-                                        "properties": {
-                                            "index": {
-                                                "type": "number"
-                                            },
-                                            "type": {
-                                                "const": "specific_question",
-                                                "type": "string"
-                                            }
-                                        },
-                                        "required": ["type", "index"],
-                                        "type": "object"
+                                    "optional": {
+                                        "description": "Whether respondents may skip this question.",
+                                        "type": "boolean"
+                                    },
+                                    "question": {
+                                        "description": "Question text shown to respondents.",
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "description": "* `open` - open",
+                                        "enum": ["open"],
+                                        "type": "string"
                                     }
-                                ]
+                                },
+                                "required": ["type", "question"],
+                                "type": "object"
                             },
-                            "buttonText": {
-                                "type": "string"
-                            },
-                            "description": {
-                                "type": "string"
-                            },
-                            "descriptionContentType": {
-                                "enum": ["html", "text"],
-                                "type": "string"
-                            },
-                            "display": {
-                                "description": "Display format: 'number' shows numeric scale, 'emoji' shows emoji scale",
-                                "enum": ["number", "emoji"],
-                                "type": "string"
-                            },
-                            "lowerBoundLabel": {
-                                "description": "Label for the lowest rating (e.g., 'Very Poor')",
-                                "type": "string"
-                            },
-                            "optional": {
-                                "type": "boolean"
-                            },
-                            "question": {
-                                "type": "string"
-                            },
-                            "scale": {
-                                "anyOf": [
-                                    {
-                                        "const": 3,
-                                        "type": "number"
+                            {
+                                "properties": {
+                                    "buttonText": {
+                                        "description": "Custom button label.",
+                                        "type": "string"
                                     },
-                                    {
-                                        "const": 5,
-                                        "type": "number"
+                                    "description": {
+                                        "description": "Optional helper text.",
+                                        "type": "string"
                                     },
-                                    {
-                                        "const": 7,
-                                        "type": "number"
+                                    "descriptionContentType": {
+                                        "description": "Format for the description field.\n\n* `text` - text\n* `html` - html",
+                                        "enum": ["text", "html"],
+                                        "type": "string"
+                                    },
+                                    "link": {
+                                        "description": "HTTPS or mailto URL for link questions.",
+                                        "type": "string"
+                                    },
+                                    "optional": {
+                                        "description": "Whether respondents may skip this question.",
+                                        "type": "boolean"
+                                    },
+                                    "question": {
+                                        "description": "Question text shown to respondents.",
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "description": "* `link` - link",
+                                        "enum": ["link"],
+                                        "type": "string"
                                     }
-                                ],
-                                "description": "Rating scale can be one of 3, 5, or 7"
+                                },
+                                "required": ["type", "question", "link"],
+                                "type": "object"
                             },
-                            "type": {
-                                "const": "rating",
-                                "type": "string"
-                            },
-                            "upperBoundLabel": {
-                                "description": "Label for the highest rating (e.g., 'Excellent')",
-                                "type": "string"
-                            }
-                        },
-                        "required": ["question", "type"],
-                        "type": "object"
-                    },
-                    {
-                        "properties": {
-                            "branching": {
-                                "anyOf": [
-                                    {
-                                        "properties": {
-                                            "type": {
-                                                "const": "next_question",
-                                                "type": "string"
-                                            }
-                                        },
-                                        "required": ["type"],
-                                        "type": "object"
-                                    },
-                                    {
-                                        "properties": {
-                                            "type": {
-                                                "const": "end",
-                                                "type": "string"
-                                            }
-                                        },
-                                        "required": ["type"],
-                                        "type": "object"
-                                    },
-                                    {
-                                        "description": "For NPS rating questions: use sentiment keys based on score ranges - detractors (0-6), passives (7-8), promoters (9-10)",
-                                        "properties": {
-                                            "responseValues": {
-                                                "description": "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior).",
-                                                "properties": {
-                                                    "detractors": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "const": "end",
+                            {
+                                "properties": {
+                                    "branching": {
+                                        "anyOf": [
+                                            {
+                                                "anyOf": [
+                                                    {
+                                                        "properties": {
+                                                            "type": {
+                                                                "description": "Continue to the next question in sequence.\n\n* `next_question` - next_question",
+                                                                "enum": ["next_question"],
                                                                 "type": "string"
                                                             }
-                                                        ],
-                                                        "description": "NPS detractors (0-6)"
-                                                    },
-                                                    "passives": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "const": "end",
-                                                                "type": "string"
-                                                            }
-                                                        ],
-                                                        "description": "NPS passives (7-8)"
-                                                    },
-                                                    "promoters": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "const": "end",
-                                                                "type": "string"
-                                                            }
-                                                        ],
-                                                        "description": "NPS promoters (9-10)"
-                                                    }
-                                                },
-                                                "type": "object"
-                                            },
-                                            "type": {
-                                                "const": "response_based",
-                                                "type": "string"
-                                            }
-                                        },
-                                        "required": ["type", "responseValues"],
-                                        "type": "object"
-                                    },
-                                    {
-                                        "properties": {
-                                            "index": {
-                                                "type": "number"
-                                            },
-                                            "type": {
-                                                "const": "specific_question",
-                                                "type": "string"
-                                            }
-                                        },
-                                        "required": ["type", "index"],
-                                        "type": "object"
-                                    }
-                                ]
-                            },
-                            "buttonText": {
-                                "type": "string"
-                            },
-                            "description": {
-                                "type": "string"
-                            },
-                            "descriptionContentType": {
-                                "enum": ["html", "text"],
-                                "type": "string"
-                            },
-                            "display": {
-                                "const": "number",
-                                "description": "NPS questions always use numeric scale",
-                                "type": "string"
-                            },
-                            "lowerBoundLabel": {
-                                "description": "Label for 0 rating (typically 'Not at all likely')",
-                                "type": "string"
-                            },
-                            "optional": {
-                                "type": "boolean"
-                            },
-                            "question": {
-                                "type": "string"
-                            },
-                            "scale": {
-                                "const": 10,
-                                "description": "NPS questions always use 0-10 scale",
-                                "type": "number"
-                            },
-                            "type": {
-                                "const": "rating",
-                                "type": "string"
-                            },
-                            "upperBoundLabel": {
-                                "description": "Label for 10 rating (typically 'Extremely likely')",
-                                "type": "string"
-                            }
-                        },
-                        "required": ["question", "type", "display", "scale"],
-                        "type": "object"
-                    },
-                    {
-                        "properties": {
-                            "branching": {
-                                "anyOf": [
-                                    {
-                                        "properties": {
-                                            "type": {
-                                                "const": "next_question",
-                                                "type": "string"
-                                            }
-                                        },
-                                        "required": ["type"],
-                                        "type": "object"
-                                    },
-                                    {
-                                        "properties": {
-                                            "type": {
-                                                "const": "end",
-                                                "type": "string"
-                                            }
-                                        },
-                                        "required": ["type"],
-                                        "type": "object"
-                                    },
-                                    {
-                                        "description": "For single choice questions: use choice indices as string keys (\"0\", \"1\", \"2\", etc.)",
-                                        "properties": {
-                                            "responseValues": {
-                                                "additionalProperties": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
                                                         },
-                                                        {
-                                                            "const": "end",
-                                                            "type": "string"
-                                                        }
-                                                    ]
-                                                },
-                                                "description": "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior).",
-                                                "propertyNames": {
-                                                    "type": "string"
-                                                },
-                                                "type": "object"
+                                                        "required": ["type"],
+                                                        "type": "object"
+                                                    },
+                                                    {
+                                                        "properties": {
+                                                            "type": {
+                                                                "description": "End the survey.\n\n* `end` - end",
+                                                                "enum": ["end"],
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "required": ["type"],
+                                                        "type": "object"
+                                                    },
+                                                    {
+                                                        "properties": {
+                                                            "index": {
+                                                                "description": "0-based index of the next question.",
+                                                                "minimum": 0,
+                                                                "type": "number"
+                                                            },
+                                                            "type": {
+                                                                "description": "Jump to a specific question index.\n\n* `specific_question` - specific_question",
+                                                                "enum": ["specific_question"],
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "required": ["type", "index"],
+                                                        "type": "object"
+                                                    },
+                                                    {
+                                                        "properties": {
+                                                            "responseValues": {
+                                                                "additionalProperties": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "minimum": 0,
+                                                                            "type": "number"
+                                                                        },
+                                                                        {
+                                                                            "enum": ["end"],
+                                                                            "type": "string"
+                                                                        }
+                                                                    ]
+                                                                },
+                                                                "description": "Response-based branching map. Values can be a question index or 'end'.",
+                                                                "propertyNames": {
+                                                                    "type": "string"
+                                                                },
+                                                                "type": "object"
+                                                            },
+                                                            "type": {
+                                                                "description": "Branch based on the selected or entered response.\n\n* `response_based` - response_based",
+                                                                "enum": ["response_based"],
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "required": ["type", "responseValues"],
+                                                        "type": "object"
+                                                    }
+                                                ]
                                             },
-                                            "type": {
-                                                "const": "response_based",
-                                                "type": "string"
+                                            {
+                                                "type": "null"
                                             }
-                                        },
-                                        "required": ["type", "responseValues"],
-                                        "type": "object"
+                                        ]
                                     },
-                                    {
-                                        "properties": {
-                                            "index": {
-                                                "type": "number"
-                                            },
-                                            "type": {
-                                                "const": "specific_question",
-                                                "type": "string"
-                                            }
-                                        },
-                                        "required": ["type", "index"],
-                                        "type": "object"
+                                    "buttonText": {
+                                        "description": "Custom button label.",
+                                        "type": "string"
+                                    },
+                                    "description": {
+                                        "description": "Optional helper text.",
+                                        "type": "string"
+                                    },
+                                    "descriptionContentType": {
+                                        "description": "Format for the description field.\n\n* `text` - text\n* `html` - html",
+                                        "enum": ["text", "html"],
+                                        "type": "string"
+                                    },
+                                    "display": {
+                                        "description": "Display format: 'number' shows numeric scale, 'emoji' shows emoji scale.\n\n* `number` - number\n* `emoji` - emoji",
+                                        "enum": ["number", "emoji"],
+                                        "type": "string"
+                                    },
+                                    "lowerBoundLabel": {
+                                        "description": "Label for the lowest rating (e.g., 'Very Poor')",
+                                        "type": "string"
+                                    },
+                                    "optional": {
+                                        "description": "Whether respondents may skip this question.",
+                                        "type": "boolean"
+                                    },
+                                    "question": {
+                                        "description": "Question text shown to respondents.",
+                                        "type": "string"
+                                    },
+                                    "scale": {
+                                        "description": "Rating scale can be one of 3, 5, or 7",
+                                        "minimum": 1,
+                                        "type": "number"
+                                    },
+                                    "type": {
+                                        "description": "* `rating` - rating",
+                                        "enum": ["rating"],
+                                        "type": "string"
+                                    },
+                                    "upperBoundLabel": {
+                                        "description": "Label for the highest rating (e.g., 'Excellent')",
+                                        "type": "string"
                                     }
-                                ]
-                            },
-                            "buttonText": {
-                                "type": "string"
-                            },
-                            "choices": {
-                                "description": "Array of choice options. Choice indices (0, 1, 2, etc.) are used for branching logic",
-                                "items": {
-                                    "minLength": 1,
-                                    "type": "string"
                                 },
-                                "maxItems": 20,
-                                "minItems": 2,
-                                "type": "array"
+                                "required": ["type", "question"],
+                                "type": "object"
                             },
-                            "description": {
-                                "type": "string"
+                            {
+                                "properties": {
+                                    "branching": {
+                                        "anyOf": [
+                                            {
+                                                "anyOf": [
+                                                    {
+                                                        "properties": {
+                                                            "type": {
+                                                                "description": "Continue to the next question in sequence.\n\n* `next_question` - next_question",
+                                                                "enum": ["next_question"],
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "required": ["type"],
+                                                        "type": "object"
+                                                    },
+                                                    {
+                                                        "properties": {
+                                                            "type": {
+                                                                "description": "End the survey.\n\n* `end` - end",
+                                                                "enum": ["end"],
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "required": ["type"],
+                                                        "type": "object"
+                                                    },
+                                                    {
+                                                        "properties": {
+                                                            "index": {
+                                                                "description": "0-based index of the next question.",
+                                                                "minimum": 0,
+                                                                "type": "number"
+                                                            },
+                                                            "type": {
+                                                                "description": "Jump to a specific question index.\n\n* `specific_question` - specific_question",
+                                                                "enum": ["specific_question"],
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "required": ["type", "index"],
+                                                        "type": "object"
+                                                    },
+                                                    {
+                                                        "properties": {
+                                                            "responseValues": {
+                                                                "additionalProperties": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "minimum": 0,
+                                                                            "type": "number"
+                                                                        },
+                                                                        {
+                                                                            "enum": ["end"],
+                                                                            "type": "string"
+                                                                        }
+                                                                    ]
+                                                                },
+                                                                "description": "Response-based branching map. Values can be a question index or 'end'.",
+                                                                "propertyNames": {
+                                                                    "type": "string"
+                                                                },
+                                                                "type": "object"
+                                                            },
+                                                            "type": {
+                                                                "description": "Branch based on the selected or entered response.\n\n* `response_based` - response_based",
+                                                                "enum": ["response_based"],
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "required": ["type", "responseValues"],
+                                                        "type": "object"
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
+                                    },
+                                    "buttonText": {
+                                        "description": "Custom button label.",
+                                        "type": "string"
+                                    },
+                                    "choices": {
+                                        "description": "Array of choice options. Choice indices (0, 1, 2, ...) are used for branching logic.",
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "maxItems": 20,
+                                        "minItems": 2,
+                                        "type": "array"
+                                    },
+                                    "description": {
+                                        "description": "Optional helper text.",
+                                        "type": "string"
+                                    },
+                                    "descriptionContentType": {
+                                        "description": "Format for the description field.\n\n* `text` - text\n* `html` - html",
+                                        "enum": ["text", "html"],
+                                        "type": "string"
+                                    },
+                                    "hasOpenChoice": {
+                                        "description": "Whether the final option should be an open-text choice (for example, 'Other').",
+                                        "type": "boolean"
+                                    },
+                                    "optional": {
+                                        "description": "Whether respondents may skip this question.",
+                                        "type": "boolean"
+                                    },
+                                    "question": {
+                                        "description": "Question text shown to respondents.",
+                                        "type": "string"
+                                    },
+                                    "shuffleOptions": {
+                                        "description": "Whether to randomize the order of choices for each respondent.",
+                                        "type": "boolean"
+                                    },
+                                    "type": {
+                                        "description": "* `single_choice` - single_choice",
+                                        "enum": ["single_choice"],
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["type", "question", "choices"],
+                                "type": "object"
                             },
-                            "descriptionContentType": {
-                                "enum": ["html", "text"],
-                                "type": "string"
-                            },
-                            "hasOpenChoice": {
-                                "description": "Whether the last choice (typically 'Other', is an open text input question",
-                                "type": "boolean"
-                            },
-                            "optional": {
-                                "type": "boolean"
-                            },
-                            "question": {
-                                "type": "string"
-                            },
-                            "shuffleOptions": {
-                                "description": "Whether to randomize the order of choices for each respondent",
-                                "type": "boolean"
-                            },
-                            "type": {
-                                "const": "single_choice",
-                                "type": "string"
+                            {
+                                "properties": {
+                                    "buttonText": {
+                                        "description": "Custom button label.",
+                                        "type": "string"
+                                    },
+                                    "choices": {
+                                        "description": "Array of choice options. Multiple selections allowed. No branching logic supported.",
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "maxItems": 20,
+                                        "minItems": 2,
+                                        "type": "array"
+                                    },
+                                    "description": {
+                                        "description": "Optional helper text.",
+                                        "type": "string"
+                                    },
+                                    "descriptionContentType": {
+                                        "description": "Format for the description field.\n\n* `text` - text\n* `html` - html",
+                                        "enum": ["text", "html"],
+                                        "type": "string"
+                                    },
+                                    "hasOpenChoice": {
+                                        "description": "Whether the final option should be an open-text choice (for example, 'Other').",
+                                        "type": "boolean"
+                                    },
+                                    "optional": {
+                                        "description": "Whether respondents may skip this question.",
+                                        "type": "boolean"
+                                    },
+                                    "question": {
+                                        "description": "Question text shown to respondents.",
+                                        "type": "string"
+                                    },
+                                    "shuffleOptions": {
+                                        "description": "Whether to randomize the order of choices for each respondent.",
+                                        "type": "boolean"
+                                    },
+                                    "type": {
+                                        "description": "* `multiple_choice` - multiple_choice",
+                                        "enum": ["multiple_choice"],
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["type", "question", "choices"],
+                                "type": "object"
                             }
-                        },
-                        "required": ["question", "type", "choices"],
-                        "type": "object"
+                        ]
                     },
-                    {
-                        "properties": {
-                            "buttonText": {
-                                "type": "string"
-                            },
-                            "choices": {
-                                "description": "Array of choice options. Multiple selections allowed. No branching logic supported.",
-                                "items": {
-                                    "minLength": 1,
-                                    "type": "string"
-                                },
-                                "maxItems": 20,
-                                "minItems": 2,
-                                "type": "array"
-                            },
-                            "description": {
-                                "type": "string"
-                            },
-                            "descriptionContentType": {
-                                "enum": ["html", "text"],
-                                "type": "string"
-                            },
-                            "hasOpenChoice": {
-                                "description": "Whether the last choice (typically 'Other', is an open text input question",
-                                "type": "boolean"
-                            },
-                            "optional": {
-                                "type": "boolean"
-                            },
-                            "question": {
-                                "type": "string"
-                            },
-                            "shuffleOptions": {
-                                "description": "Whether to randomize the order of choices for each respondent",
-                                "type": "boolean"
-                            },
-                            "type": {
-                                "const": "multiple_choice",
-                                "type": "string"
-                            }
-                        },
-                        "required": ["question", "type", "choices"],
-                        "type": "object"
-                    }
-                ]
-            },
-            "minItems": 1,
-            "type": "array"
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "\n        The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.\n\n        Basic (open-ended question)\n        - `id`: The question ID\n        - `type`: `open`\n        - `question`: The text of the question.\n        - `description`: Optional description of the question.\n        - `descriptionContentType`: Content type of the description (`html` or `text`).\n        - `optional`: Whether the question is optional (`boolean`).\n        - `buttonText`: Text displayed on the submit button.\n        - `branching`: Branching logic for the question. See branching types below for details.\n\n        Link (a question with a link)\n        - `id`: The question ID\n        - `type`: `link`\n        - `question`: The text of the question.\n        - `description`: Optional description of the question.\n        - `descriptionContentType`: Content type of the description (`html` or `text`).\n        - `optional`: Whether the question is optional (`boolean`).\n        - `buttonText`: Text displayed on the submit button.\n        - `link`: The URL associated with the question.\n        - `branching`: Branching logic for the question. See branching types below for details.\n\n        Rating (a question with a rating scale)\n        - `id`: The question ID\n        - `type`: `rating`\n        - `question`: The text of the question.\n        - `description`: Optional description of the question.\n        - `descriptionContentType`: Content type of the description (`html` or `text`).\n        - `optional`: Whether the question is optional (`boolean`).\n        - `buttonText`: Text displayed on the submit button.\n        - `display`: Display style of the rating (`number` or `emoji`).\n        - `scale`: The scale of the rating (`number`).\n        - `lowerBoundLabel`: Label for the lower bound of the scale.\n        - `upperBoundLabel`: Label for the upper bound of the scale.\n        - `isNpsQuestion`: Whether the question is an NPS rating.\n        - `branching`: Branching logic for the question. See branching types below for details.\n\n        Multiple choice\n        - `id`: The question ID\n        - `type`: `single_choice` or `multiple_choice`\n        - `question`: The text of the question.\n        - `description`: Optional description of the question.\n        - `descriptionContentType`: Content type of the description (`html` or `text`).\n        - `optional`: Whether the question is optional (`boolean`).\n        - `buttonText`: Text displayed on the submit button.\n        - `choices`: An array of choices for the question.\n        - `shuffleOptions`: Whether to shuffle the order of the choices (`boolean`).\n        - `hasOpenChoice`: Whether the question allows an open-ended response (`boolean`).\n        - `branching`: Branching logic for the question. See branching types below for details.\n\n        Branching logic can be one of the following types:\n\n        Next question: Proceeds to the next question\n        ```json\n        {\n            \"type\": \"next_question\"\n        }\n        ```\n\n        End: Ends the survey, optionally displaying a confirmation message.\n        ```json\n        {\n            \"type\": \"end\"\n        }\n        ```\n\n        Response-based: Branches based on the response values. Available for the `rating` and `single_choice` question types.\n        ```json\n        {\n            \"type\": \"response_based\",\n            \"responseValues\": {\n                \"responseKey\": \"value\"\n            }\n        }\n        ```\n\n        Specific question: Proceeds to a specific question by index.\n        ```json\n        {\n            \"type\": \"specific_question\",\n            \"index\": 2\n        }\n        ```\n\n        Translations: Each question can include inline translations.\n        - `translations`: Object mapping language codes to translated fields.\n        - Language codes: Any string - allows customers to use their own language keys (e.g., \"es\", \"es-MX\", \"english\", \"french\")\n        - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`\n\n        Example with translations:\n        ```json\n        {\n            \"id\": \"uuid\",\n            \"type\": \"rating\",\n            \"question\": \"How satisfied are you?\",\n            \"lowerBoundLabel\": \"Not satisfied\",\n            \"upperBoundLabel\": \"Very satisfied\",\n            \"translations\": {\n                \"es\": {\n                    \"question\": \"¿Qué tan satisfecho estás?\",\n                    \"lowerBoundLabel\": \"No satisfecho\",\n                    \"upperBoundLabel\": \"Muy satisfecho\"\n                },\n                \"fr\": {\n                    \"question\": \"Dans quelle mesure êtes-vous satisfait?\"\n                }\n            }\n        }\n        ```\n        "
         },
         "responses_limit": {
             "anyOf": [
                 {
-                    "exclusiveMinimum": 0,
                     "type": "number"
                 },
                 {
@@ -663,473 +574,484 @@
                     "type": "null"
                 }
             ],
-            "default": null,
             "description": "Setting this will launch the survey immediately. Don't add a start_date unless explicitly requested to do so."
         },
         "targeting_flag_filters": {
-            "description": "Target specific users based on their properties. Example: {groups: [{properties: [{key: 'email', value: ['@company.com'], operator: 'icontains'}], rollout_percentage: 100}]}",
-            "properties": {
-                "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "type": "number"
+            "anyOf": [
+                {
+                    "properties": {
+                        "aggregation_group_type_index": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Group type index for group-based feature flags."
                         },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Group type index for group-based feature flags."
-                },
-                "groups": {
-                    "description": "Release condition groups for the feature flag.",
-                    "items": {
-                        "properties": {
-                            "aggregation_group_type_index": {
-                                "anyOf": [
-                                    {
+                        "groups": {
+                            "description": "Release condition groups for the feature flag.",
+                            "items": {
+                                "properties": {
+                                    "aggregation_group_type_index": {
+                                        "anyOf": [
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "Group type index for this condition set. None means person-level aggregation."
+                                    },
+                                    "properties": {
+                                        "description": "Property conditions for this release condition group.",
+                                        "items": {
+                                            "anyOf": [
+                                                {
+                                                    "properties": {
+                                                        "cohort_name": {
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ],
+                                                            "description": "Resolved cohort name for cohort-type filters."
+                                                        },
+                                                        "group_type_index": {
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ],
+                                                            "description": "Group type index when using group-based filters."
+                                                        },
+                                                        "key": {
+                                                            "description": "Property key used in this feature flag condition.",
+                                                            "type": "string"
+                                                        },
+                                                        "operator": {
+                                                            "description": "Operator used to compare the property value.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `gte` - gte\n* `lt` - lt\n* `lte` - lte",
+                                                            "enum": [
+                                                                "exact",
+                                                                "is_not",
+                                                                "icontains",
+                                                                "not_icontains",
+                                                                "regex",
+                                                                "not_regex",
+                                                                "gt",
+                                                                "gte",
+                                                                "lt",
+                                                                "lte"
+                                                            ],
+                                                            "type": "string"
+                                                        },
+                                                        "type": {
+                                                            "description": "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                                                            "enum": ["cohort", "person", "group"],
+                                                            "type": "string"
+                                                        },
+                                                        "value": {
+                                                            "description": "Comparison value for the property filter. Supports strings, numbers, booleans, and arrays."
+                                                        }
+                                                    },
+                                                    "required": ["key", "value", "operator"],
+                                                    "type": "object"
+                                                },
+                                                {
+                                                    "properties": {
+                                                        "cohort_name": {
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ],
+                                                            "description": "Resolved cohort name for cohort-type filters."
+                                                        },
+                                                        "group_type_index": {
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ],
+                                                            "description": "Group type index when using group-based filters."
+                                                        },
+                                                        "key": {
+                                                            "description": "Property key used in this feature flag condition.",
+                                                            "type": "string"
+                                                        },
+                                                        "operator": {
+                                                            "description": "Existence operator.\n\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
+                                                            "enum": ["is_set", "is_not_set"],
+                                                            "type": "string"
+                                                        },
+                                                        "type": {
+                                                            "description": "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                                                            "enum": ["cohort", "person", "group"],
+                                                            "type": "string"
+                                                        },
+                                                        "value": {
+                                                            "description": "Optional value. Runtime behavior determines whether this is ignored."
+                                                        }
+                                                    },
+                                                    "required": ["key", "operator"],
+                                                    "type": "object"
+                                                },
+                                                {
+                                                    "properties": {
+                                                        "cohort_name": {
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ],
+                                                            "description": "Resolved cohort name for cohort-type filters."
+                                                        },
+                                                        "group_type_index": {
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ],
+                                                            "description": "Group type index when using group-based filters."
+                                                        },
+                                                        "key": {
+                                                            "description": "Property key used in this feature flag condition.",
+                                                            "type": "string"
+                                                        },
+                                                        "operator": {
+                                                            "description": "Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before",
+                                                            "enum": [
+                                                                "is_date_exact",
+                                                                "is_date_after",
+                                                                "is_date_before"
+                                                            ],
+                                                            "type": "string"
+                                                        },
+                                                        "type": {
+                                                            "description": "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                                                            "enum": ["cohort", "person", "group"],
+                                                            "type": "string"
+                                                        },
+                                                        "value": {
+                                                            "description": "Date value in ISO format or relative date expression.",
+                                                            "type": "string"
+                                                        }
+                                                    },
+                                                    "required": ["key", "operator", "value"],
+                                                    "type": "object"
+                                                },
+                                                {
+                                                    "properties": {
+                                                        "cohort_name": {
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ],
+                                                            "description": "Resolved cohort name for cohort-type filters."
+                                                        },
+                                                        "group_type_index": {
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ],
+                                                            "description": "Group type index when using group-based filters."
+                                                        },
+                                                        "key": {
+                                                            "description": "Property key used in this feature flag condition.",
+                                                            "type": "string"
+                                                        },
+                                                        "operator": {
+                                                            "description": "Semantic version comparison operator.\n\n* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard",
+                                                            "enum": [
+                                                                "semver_gt",
+                                                                "semver_gte",
+                                                                "semver_lt",
+                                                                "semver_lte",
+                                                                "semver_eq",
+                                                                "semver_neq",
+                                                                "semver_tilde",
+                                                                "semver_caret",
+                                                                "semver_wildcard"
+                                                            ],
+                                                            "type": "string"
+                                                        },
+                                                        "type": {
+                                                            "description": "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                                                            "enum": ["cohort", "person", "group"],
+                                                            "type": "string"
+                                                        },
+                                                        "value": {
+                                                            "description": "Semantic version string.",
+                                                            "type": "string"
+                                                        }
+                                                    },
+                                                    "required": ["key", "operator", "value"],
+                                                    "type": "object"
+                                                },
+                                                {
+                                                    "properties": {
+                                                        "cohort_name": {
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ],
+                                                            "description": "Resolved cohort name for cohort-type filters."
+                                                        },
+                                                        "group_type_index": {
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ],
+                                                            "description": "Group type index when using group-based filters."
+                                                        },
+                                                        "key": {
+                                                            "description": "Property key used in this feature flag condition.",
+                                                            "type": "string"
+                                                        },
+                                                        "operator": {
+                                                            "description": "Multi-contains operator.\n\n* `icontains_multi` - icontains_multi\n* `not_icontains_multi` - not_icontains_multi",
+                                                            "enum": ["icontains_multi", "not_icontains_multi"],
+                                                            "type": "string"
+                                                        },
+                                                        "type": {
+                                                            "description": "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                                                            "enum": ["cohort", "person", "group"],
+                                                            "type": "string"
+                                                        },
+                                                        "value": {
+                                                            "description": "List of strings to evaluate against.",
+                                                            "items": {
+                                                                "type": "string"
+                                                            },
+                                                            "type": "array"
+                                                        }
+                                                    },
+                                                    "required": ["key", "operator", "value"],
+                                                    "type": "object"
+                                                },
+                                                {
+                                                    "properties": {
+                                                        "cohort_name": {
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ],
+                                                            "description": "Resolved cohort name for cohort-type filters."
+                                                        },
+                                                        "group_type_index": {
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ],
+                                                            "description": "Group type index when using group-based filters."
+                                                        },
+                                                        "key": {
+                                                            "description": "Property key used in this feature flag condition.",
+                                                            "type": "string"
+                                                        },
+                                                        "operator": {
+                                                            "description": "Membership operator for cohort properties.\n\n* `in` - in\n* `not_in` - not_in",
+                                                            "enum": ["in", "not_in"],
+                                                            "type": "string"
+                                                        },
+                                                        "type": {
+                                                            "description": "Cohort property type required for in/not_in operators.\n\n* `cohort` - cohort",
+                                                            "enum": ["cohort"],
+                                                            "type": "string"
+                                                        },
+                                                        "value": {
+                                                            "description": "Cohort comparison value (single or list, depending on usage)."
+                                                        }
+                                                    },
+                                                    "required": ["key", "type", "operator", "value"],
+                                                    "type": "object"
+                                                },
+                                                {
+                                                    "properties": {
+                                                        "cohort_name": {
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ],
+                                                            "description": "Resolved cohort name for cohort-type filters."
+                                                        },
+                                                        "group_type_index": {
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ],
+                                                            "description": "Group type index when using group-based filters."
+                                                        },
+                                                        "key": {
+                                                            "description": "Property key used in this feature flag condition.",
+                                                            "type": "string"
+                                                        },
+                                                        "operator": {
+                                                            "description": "Operator for feature flag dependency evaluation.\n\n* `flag_evaluates_to` - flag_evaluates_to",
+                                                            "enum": ["flag_evaluates_to"],
+                                                            "type": "string"
+                                                        },
+                                                        "type": {
+                                                            "description": "Flag property type required for flag dependency checks.\n\n* `flag` - flag",
+                                                            "enum": ["flag"],
+                                                            "type": "string"
+                                                        },
+                                                        "value": {
+                                                            "description": "Value to compare flag evaluation against."
+                                                        }
+                                                    },
+                                                    "required": ["key", "type", "operator", "value"],
+                                                    "type": "object"
+                                                }
+                                            ]
+                                        },
+                                        "type": "array"
+                                    },
+                                    "rollout_percentage": {
+                                        "description": "Rollout percentage for this release condition group.",
                                         "type": "number"
                                     },
-                                    {
-                                        "type": "null"
+                                    "variant": {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "Variant key override for multivariate flags."
                                     }
-                                ],
-                                "description": "Group type index for this condition set. None means person-level aggregation."
+                                },
+                                "type": "object"
                             },
-                            "properties": {
-                                "description": "Property conditions for this release condition group.",
-                                "items": {
-                                    "anyOf": [
-                                        {
-                                            "properties": {
-                                                "cohort_name": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Resolved cohort name for cohort-type filters."
-                                                },
-                                                "group_type_index": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Group type index when using group-based filters."
-                                                },
-                                                "key": {
-                                                    "description": "Property key used in this feature flag condition.",
-                                                    "type": "string"
-                                                },
-                                                "operator": {
-                                                    "description": "Operator used to compare the property value.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `gte` - gte\n* `lt` - lt\n* `lte` - lte",
-                                                    "enum": [
-                                                        "exact",
-                                                        "is_not",
-                                                        "icontains",
-                                                        "not_icontains",
-                                                        "regex",
-                                                        "not_regex",
-                                                        "gt",
-                                                        "gte",
-                                                        "lt",
-                                                        "lte"
-                                                    ],
-                                                    "type": "string"
-                                                },
-                                                "type": {
-                                                    "description": "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
-                                                    "enum": ["cohort", "person", "group"],
-                                                    "type": "string"
-                                                },
-                                                "value": {
-                                                    "description": "Comparison value for the property filter. Supports strings, numbers, booleans, and arrays."
-                                                }
-                                            },
-                                            "required": ["key", "value", "operator"],
-                                            "type": "object"
-                                        },
-                                        {
-                                            "properties": {
-                                                "cohort_name": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Resolved cohort name for cohort-type filters."
-                                                },
-                                                "group_type_index": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Group type index when using group-based filters."
-                                                },
-                                                "key": {
-                                                    "description": "Property key used in this feature flag condition.",
-                                                    "type": "string"
-                                                },
-                                                "operator": {
-                                                    "description": "Existence operator.\n\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
-                                                    "enum": ["is_set", "is_not_set"],
-                                                    "type": "string"
-                                                },
-                                                "type": {
-                                                    "description": "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
-                                                    "enum": ["cohort", "person", "group"],
-                                                    "type": "string"
-                                                },
-                                                "value": {
-                                                    "description": "Optional value. Runtime behavior determines whether this is ignored."
-                                                }
-                                            },
-                                            "required": ["key", "operator"],
-                                            "type": "object"
-                                        },
-                                        {
-                                            "properties": {
-                                                "cohort_name": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Resolved cohort name for cohort-type filters."
-                                                },
-                                                "group_type_index": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Group type index when using group-based filters."
-                                                },
-                                                "key": {
-                                                    "description": "Property key used in this feature flag condition.",
-                                                    "type": "string"
-                                                },
-                                                "operator": {
-                                                    "description": "Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before",
-                                                    "enum": ["is_date_exact", "is_date_after", "is_date_before"],
-                                                    "type": "string"
-                                                },
-                                                "type": {
-                                                    "description": "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
-                                                    "enum": ["cohort", "person", "group"],
-                                                    "type": "string"
-                                                },
-                                                "value": {
-                                                    "description": "Date value in ISO format or relative date expression.",
-                                                    "type": "string"
-                                                }
-                                            },
-                                            "required": ["key", "operator", "value"],
-                                            "type": "object"
-                                        },
-                                        {
-                                            "properties": {
-                                                "cohort_name": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Resolved cohort name for cohort-type filters."
-                                                },
-                                                "group_type_index": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Group type index when using group-based filters."
-                                                },
-                                                "key": {
-                                                    "description": "Property key used in this feature flag condition.",
-                                                    "type": "string"
-                                                },
-                                                "operator": {
-                                                    "description": "Semantic version comparison operator.\n\n* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard",
-                                                    "enum": [
-                                                        "semver_gt",
-                                                        "semver_gte",
-                                                        "semver_lt",
-                                                        "semver_lte",
-                                                        "semver_eq",
-                                                        "semver_neq",
-                                                        "semver_tilde",
-                                                        "semver_caret",
-                                                        "semver_wildcard"
-                                                    ],
-                                                    "type": "string"
-                                                },
-                                                "type": {
-                                                    "description": "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
-                                                    "enum": ["cohort", "person", "group"],
-                                                    "type": "string"
-                                                },
-                                                "value": {
-                                                    "description": "Semantic version string.",
-                                                    "type": "string"
-                                                }
-                                            },
-                                            "required": ["key", "operator", "value"],
-                                            "type": "object"
-                                        },
-                                        {
-                                            "properties": {
-                                                "cohort_name": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Resolved cohort name for cohort-type filters."
-                                                },
-                                                "group_type_index": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Group type index when using group-based filters."
-                                                },
-                                                "key": {
-                                                    "description": "Property key used in this feature flag condition.",
-                                                    "type": "string"
-                                                },
-                                                "operator": {
-                                                    "description": "Multi-contains operator.\n\n* `icontains_multi` - icontains_multi\n* `not_icontains_multi` - not_icontains_multi",
-                                                    "enum": ["icontains_multi", "not_icontains_multi"],
-                                                    "type": "string"
-                                                },
-                                                "type": {
-                                                    "description": "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
-                                                    "enum": ["cohort", "person", "group"],
-                                                    "type": "string"
-                                                },
-                                                "value": {
-                                                    "description": "List of strings to evaluate against.",
-                                                    "items": {
+                            "type": "array"
+                        },
+                        "multivariate": {
+                            "anyOf": [
+                                {
+                                    "properties": {
+                                        "variants": {
+                                            "description": "Variant definitions for multivariate feature flags.",
+                                            "items": {
+                                                "properties": {
+                                                    "key": {
+                                                        "description": "Unique key for this variant.",
                                                         "type": "string"
                                                     },
-                                                    "type": "array"
-                                                }
+                                                    "name": {
+                                                        "description": "Human-readable name for this variant.",
+                                                        "type": "string"
+                                                    },
+                                                    "rollout_percentage": {
+                                                        "description": "Variant rollout percentage.",
+                                                        "type": "number"
+                                                    }
+                                                },
+                                                "required": ["key", "rollout_percentage"],
+                                                "type": "object"
                                             },
-                                            "required": ["key", "operator", "value"],
-                                            "type": "object"
-                                        },
-                                        {
-                                            "properties": {
-                                                "cohort_name": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Resolved cohort name for cohort-type filters."
-                                                },
-                                                "group_type_index": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Group type index when using group-based filters."
-                                                },
-                                                "key": {
-                                                    "description": "Property key used in this feature flag condition.",
-                                                    "type": "string"
-                                                },
-                                                "operator": {
-                                                    "description": "Membership operator for cohort properties.\n\n* `in` - in\n* `not_in` - not_in",
-                                                    "enum": ["in", "not_in"],
-                                                    "type": "string"
-                                                },
-                                                "type": {
-                                                    "description": "Cohort property type required for in/not_in operators.\n\n* `cohort` - cohort",
-                                                    "enum": ["cohort"],
-                                                    "type": "string"
-                                                },
-                                                "value": {
-                                                    "description": "Cohort comparison value (single or list, depending on usage)."
-                                                }
-                                            },
-                                            "required": ["key", "type", "operator", "value"],
-                                            "type": "object"
-                                        },
-                                        {
-                                            "properties": {
-                                                "cohort_name": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Resolved cohort name for cohort-type filters."
-                                                },
-                                                "group_type_index": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Group type index when using group-based filters."
-                                                },
-                                                "key": {
-                                                    "description": "Property key used in this feature flag condition.",
-                                                    "type": "string"
-                                                },
-                                                "operator": {
-                                                    "description": "Operator for feature flag dependency evaluation.\n\n* `flag_evaluates_to` - flag_evaluates_to",
-                                                    "enum": ["flag_evaluates_to"],
-                                                    "type": "string"
-                                                },
-                                                "type": {
-                                                    "description": "Flag property type required for flag dependency checks.\n\n* `flag` - flag",
-                                                    "enum": ["flag"],
-                                                    "type": "string"
-                                                },
-                                                "value": {
-                                                    "description": "Value to compare flag evaluation against."
-                                                }
-                                            },
-                                            "required": ["key", "type", "operator", "value"],
-                                            "type": "object"
+                                            "type": "array"
                                         }
-                                    ]
+                                    },
+                                    "required": ["variants"],
+                                    "type": "object"
                                 },
-                                "type": "array"
-                            },
-                            "rollout_percentage": {
-                                "description": "Rollout percentage for this release condition group.",
-                                "type": "number"
-                            },
-                            "variant": {
-                                "anyOf": [
-                                    {
-                                        "type": "string"
-                                    },
-                                    {
-                                        "type": "null"
-                                    }
-                                ],
-                                "description": "Variant key override for multivariate flags."
-                            }
-                        },
-                        "type": "object"
-                    },
-                    "type": "array"
-                },
-                "multivariate": {
-                    "anyOf": [
-                        {
-                            "properties": {
-                                "variants": {
-                                    "description": "Variant definitions for multivariate feature flags.",
-                                    "items": {
-                                        "properties": {
-                                            "key": {
-                                                "description": "Unique key for this variant.",
-                                                "type": "string"
-                                            },
-                                            "name": {
-                                                "description": "Human-readable name for this variant.",
-                                                "type": "string"
-                                            },
-                                            "rollout_percentage": {
-                                                "description": "Variant rollout percentage.",
-                                                "type": "number"
-                                            }
-                                        },
-                                        "required": ["key", "rollout_percentage"],
-                                        "type": "object"
-                                    },
-                                    "type": "array"
+                                {
+                                    "type": "null"
                                 }
+                            ],
+                            "description": "Multivariate configuration for variant-based rollouts."
+                        },
+                        "payloads": {
+                            "additionalProperties": {
+                                "type": "string"
                             },
-                            "required": ["variants"],
+                            "description": "Optional payload values keyed by variant key.",
+                            "propertyNames": {
+                                "type": "string"
+                            },
                             "type": "object"
                         },
-                        {
-                            "type": "null"
+                        "super_groups": {
+                            "description": "Additional super condition groups used by experiments.",
+                            "items": {
+                                "additionalProperties": {},
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "type": "object"
+                            },
+                            "type": "array"
                         }
-                    ],
-                    "description": "Multivariate configuration for variant-based rollouts."
-                },
-                "payloads": {
-                    "additionalProperties": {
-                        "type": "string"
-                    },
-                    "description": "Optional payload values keyed by variant key.",
-                    "propertyNames": {
-                        "type": "string"
                     },
                     "type": "object"
                 },
-                "super_groups": {
-                    "description": "Additional super condition groups used by experiments.",
-                    "items": {
-                        "additionalProperties": {},
-                        "propertyNames": {
-                            "type": "string"
-                        },
-                        "type": "object"
-                    },
-                    "type": "array"
+                {
+                    "type": "null"
                 }
-            },
-            "type": "object"
+            ],
+            "description": "Target specific users based on their properties. Example: {groups: [{properties: [{key: 'email', value: ['@company.com'], operator: 'icontains'}], rollout_percentage: 100}]}"
         },
         "type": {
-            "enum": ["popover", "api", "widget", "external_survey"],
+            "description": "Survey type.\n\n* `popover` - popover\n* `widget` - widget\n* `external_survey` - external survey\n* `api` - api",
+            "enum": ["popover", "widget", "external_survey", "api"],
             "type": "string"
         }
     },
-    "required": ["name", "questions"],
+    "required": ["name", "type"],
     "type": "object"
 }

@@ -9,6 +9,7 @@ import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { isEmptyObject, isObject } from 'lib/utils'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { isDashboardFilterEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightLogicType } from 'scenes/insights/insightLogicType'
@@ -49,16 +50,6 @@ export type InsightId = InsightShortId | typeof NEW_INSIGHT | null
 
 export interface InsightSceneLogicProps {
     tabId?: string
-}
-
-function isDashboardFilterEmpty(filter: DashboardFilter | null): boolean {
-    return (
-        !filter ||
-        (filter.date_from == null &&
-            filter.date_to == null &&
-            (filter.properties == null || (Array.isArray(filter.properties) && filter.properties.length === 0)) &&
-            filter.breakdown_filter == null)
-    )
 }
 
 function normalizeItemId(itemId: string | undefined): string | number | null {
@@ -376,9 +367,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         hasOverrides: [
             (s) => [s.filtersOverride, s.variablesOverride, s.tileFiltersOverride],
             (filtersOverride, variablesOverride, tileFiltersOverride) =>
-                (isObject(filtersOverride) && !isEmptyObject(filtersOverride)) ||
+                !isDashboardFilterEmpty(filtersOverride) ||
                 (isObject(variablesOverride) && !isEmptyObject(variablesOverride)) ||
-                (isObject(tileFiltersOverride) && !isEmptyObject(tileFiltersOverride)),
+                !isDashboardFilterEmpty(tileFiltersOverride),
         ],
     }),
     sharedListeners(({ actions, values }) => ({

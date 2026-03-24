@@ -1111,7 +1111,7 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
 
                 if (
                     step.result &&
-                    step.result.status === 'Passed' &&
+                    (step.result.status === 'Passed' || step.result.status === 'Skipped') &&
                     index < values.batchExportConfigTest.steps.length - 1
                 ) {
                     actions.runBatchExportConfigTestStep(index + 1)

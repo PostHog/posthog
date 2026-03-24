@@ -117,6 +117,7 @@ import {
     ExportedAssetType,
     ExternalDataJob,
     ExternalDataSource,
+    ExternalDataSourceConnectionOption,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceRevenueAnalyticsConfig,
     ExternalDataSourceSchema,
@@ -397,6 +398,10 @@ export class ApiConfig {
             throw new Error('Team ID is not known.')
         }
         return this._currentTeamId
+    }
+
+    static hasCurrentTeamId(): boolean {
+        return !!this._currentTeamId
     }
 
     static setCurrentTeamId(id: TeamType['id']): void {
@@ -1686,6 +1691,10 @@ export class ApiRequest {
         return this.externalDataSources(teamId).addPathComponent(sourceId)
     }
 
+    public externalDataSourceConnections(teamId?: TeamType['id']): ApiRequest {
+        return this.externalDataSources(teamId).addPathComponent('connections')
+    }
+
     public dataWarehouse(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('data_warehouse')
     }
@@ -2578,14 +2587,25 @@ const api = {
     },
 
     tracing: {
-        async listSpans(): Promise<{ results: Record<string, any>[] }> {
-            return new ApiRequest().tracingSpans().get()
+        async listSpans(query: {
+            dateRange?: { date_from?: string; date_to?: string }
+            serviceNames?: string[]
+            statusCodes?: number[]
+            searchTerm?: string
+            orderBy?: 'latest' | 'earliest'
+            limit?: number
+            after?: string
+        }): Promise<{ results: Record<string, any>[]; hasMore: boolean; nextCursor?: string }> {
+            return new ApiRequest().tracingSpans().withAction('query').create({ data: { query } })
         },
-        async getTrace(traceId: string): Promise<{ results: Record<string, any>[] }> {
-            return new ApiRequest().tracingSpans().withAction(`trace/${traceId}`).get()
-        },
-        async sparkline(): Promise<{ results: Record<string, any>[] }> {
-            return new ApiRequest().tracingSpans().withAction('sparkline').get()
+        async getTrace(
+            traceId: string,
+            dateRange?: { date_from?: string; date_to?: string }
+        ): Promise<{ results: Record<string, any>[] }> {
+            return new ApiRequest()
+                .tracingSpans()
+                .withAction(`trace/${traceId}`)
+                .create({ data: { dateRange: dateRange ?? { date_from: '-24h' } } })
         },
     },
 
@@ -4806,6 +4826,9 @@ const api = {
     externalDataSources: {
         async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<ExternalDataSource>> {
             return await new ApiRequest().externalDataSources().get(options)
+        },
+        async connections(options?: ApiMethodOptions | undefined): Promise<ExternalDataSourceConnectionOption[]> {
+            return await new ApiRequest().externalDataSourceConnections().get(options)
         },
         async get(sourceId: ExternalDataSource['id']): Promise<ExternalDataSource> {
             return await new ApiRequest().externalDataSource(sourceId).get()

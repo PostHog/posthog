@@ -1042,10 +1042,6 @@
         "chromium": 37.9,
         "webkit": 4.2
     },
-    "products/error_tracking/frontend/components/SparklineChart/SparklineChart.stories.tsx": {
-        "chromium": 17.7,
-        "webkit": 2.8
-    },
     "products/links/frontend/LinksScene.stories.tsx": {
         "chromium": 16.3,
         "webkit": 3.0

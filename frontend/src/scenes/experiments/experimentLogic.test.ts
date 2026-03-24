@@ -381,72 +381,6 @@ describe('experimentLogic', () => {
             )
         })
     })
-    describe('pause and resume experiment', () => {
-        beforeEach(() => {
-            jest.spyOn(api, 'update')
-            jest.spyOn(api, 'get')
-            api.update.mockClear()
-            api.get.mockClear()
-
-            const experimentWithFlag = {
-                ...experiment,
-                feature_flag: { id: 123, key: 'test-flag', active: true },
-            } as Experiment
-            logic.actions.setExperiment(experimentWithFlag)
-        })
-
-        it('should pause experiment by disabling feature flag', async () => {
-            api.update.mockResolvedValue({ id: 123, key: 'test-flag', active: false })
-
-            await expectLogic(logic, () => {
-                logic.actions.pauseExperiment()
-            })
-                .toDispatchActions(['pauseExperiment'])
-                .toFinishAllListeners()
-
-            expect(api.update).toHaveBeenCalledWith(
-                expect.stringContaining('/feature_flags/123'),
-                expect.objectContaining({ active: false })
-            )
-        })
-
-        it('should resume experiment by enabling feature flag', async () => {
-            const experimentWithInactiveFlag = {
-                ...experiment,
-                feature_flag: { id: 123, key: 'test-flag', active: false },
-            } as Experiment
-            logic.actions.setExperiment(experimentWithInactiveFlag)
-
-            api.update.mockResolvedValue({ id: 123, key: 'test-flag', active: true })
-
-            await expectLogic(logic, () => {
-                logic.actions.resumeExperiment()
-            })
-                .toDispatchActions(['resumeExperiment'])
-                .toFinishAllListeners()
-
-            expect(api.update).toHaveBeenCalledWith(
-                expect.stringContaining('/feature_flags/123'),
-                expect.objectContaining({ active: true })
-            )
-        })
-
-        it('should reload experiment after pause/resume', async () => {
-            api.update.mockResolvedValue({ id: 123, key: 'test-flag', active: false })
-
-            // The experiment will be reloaded via loadExperiment action
-            // which uses the GET endpoint already set up in useMocks
-            await expectLogic(logic, () => {
-                logic.actions.pauseExperiment()
-            })
-                .toDispatchActions(['pauseExperiment', 'loadExperiment'])
-                .toFinishAllListeners()
-
-            // Verify that loadExperiment was called which will fetch the experiment again
-            expect(logic.values.experiment).not.toBeNull()
-        })
-    })
-
     describe('breakdown management', () => {
         it('should add breakdown to inline metric', () => {
             const breakdown: Breakdown = { property: '$browser', type: 'event' }
@@ -716,38 +650,25 @@ describe('experimentLogic', () => {
     })
 
     describe('launchExperiment', () => {
-        it('calls launch endpoint and updates experiment state on success', async () => {
-            const draftExperiment = {
-                ...experiment,
-                start_date: null,
-                status: 'draft',
-            } as unknown as Experiment
+        it('calls launch endpoint and dispatches setExperiment with response', async () => {
+            const launchedResponse = { ...experiment, start_date: '2026-03-17T10:00:00Z', status: 'running' }
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValue(launchedResponse)
 
-            const launchedExperiment = {
-                ...experiment,
-                start_date: '2026-03-17T10:00:00Z',
-                status: 'running',
-            }
+            const keyed = experimentLogic({ experimentId: experiment.id })
+            keyed.mount()
 
-            useMocks({
-                post: {
-                    '/api/projects/:team/experiments/:id/launch': launchedExperiment,
-                },
-            })
+            const draftExperiment = { ...experiment, start_date: null, status: 'draft' } as unknown as Experiment
+            keyed.actions.setExperiment(draftExperiment)
 
-            logic.actions.setExperiment(draftExperiment)
-
-            expect(logic.values.experiment.start_date).toBeNull()
-            expect(logic.values.experiment.status).toBe('draft')
-
-            await expectLogic(logic, () => {
-                logic.actions.launchExperiment()
+            await expectLogic(keyed, () => {
+                keyed.actions.launchExperiment()
             })
                 .toDispatchActions(['launchExperiment', 'setExperiment'])
                 .toFinishAllListeners()
 
-            expect(logic.values.experiment.start_date).toBe('2026-03-17T10:00:00Z')
-            expect(logic.values.experiment.status).toBe('running')
+            expect(createSpy).toHaveBeenCalledWith(expect.stringContaining(`/experiments/${experiment.id}/launch`))
+            createSpy.mockRestore()
+            keyed.unmount()
         })
 
         it('shows error toast on validation error', async () => {
@@ -799,6 +720,191 @@ describe('experimentLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.experiment.start_date).toBeUndefined()
+            createSpy.mockRestore()
+        })
+    })
+
+    describe('archiveExperiment', () => {
+        it('calls archive endpoint and dispatches setExperiment with response', async () => {
+            const archivedResponse = { ...experiment, archived: true }
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValue(archivedResponse)
+
+            const keyed = experimentLogic({ experimentId: experiment.id })
+            keyed.mount()
+            keyed.actions.setExperiment(experiment)
+
+            await expectLogic(keyed, () => {
+                keyed.actions.archiveExperiment()
+            })
+                .toDispatchActions(['archiveExperiment', 'setExperiment'])
+                .toFinishAllListeners()
+
+            expect(createSpy).toHaveBeenCalledWith(expect.stringContaining(`/experiments/${experiment.id}/archive`))
+            createSpy.mockRestore()
+            keyed.unmount()
+        })
+
+        it('shows error toast on validation error', async () => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue({
+                detail: 'Experiment is already archived.',
+            })
+            const errorMock = lemonToast.error as jest.Mock
+            errorMock.mockClear()
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.archiveExperiment()
+            }).toFinishAllListeners()
+
+            expect(errorMock).toHaveBeenCalledWith('Experiment is already archived.')
+            createSpy.mockRestore()
+        })
+
+        it('shows generic error toast when detail is missing', async () => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue(new Error('Network error'))
+            const errorMock = lemonToast.error as jest.Mock
+            errorMock.mockClear()
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.archiveExperiment()
+            }).toFinishAllListeners()
+
+            expect(errorMock).toHaveBeenCalledWith('Failed to archive experiment')
+            createSpy.mockRestore()
+        })
+    })
+
+    describe('pauseExperiment', () => {
+        it('calls pause endpoint and updates both experiment and feature flag state', async () => {
+            const pausedResponse = {
+                ...experiment,
+                feature_flag: { ...experiment.feature_flag, active: false },
+            }
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValue(pausedResponse)
+
+            const keyed = experimentLogic({ experimentId: experiment.id })
+            keyed.mount()
+            keyed.actions.setExperiment(experiment)
+
+            // Pre-condition: flag is active
+            expect(keyed.values.experiment.feature_flag?.active).toBe(true)
+
+            await expectLogic(keyed, () => {
+                keyed.actions.pauseExperiment()
+            })
+                .toDispatchActions(['pauseExperiment', 'setExperiment'])
+                .toFinishAllListeners()
+
+            expect(createSpy).toHaveBeenCalledWith(expect.stringContaining(`/experiments/${experiment.id}/pause`))
+
+            // Post-condition: both experiment and nested feature flag are updated
+            expect(keyed.values.experiment.feature_flag?.active).toBe(false)
+            expect(keyed.values.experiment.id).toBe(experiment.id)
+
+            createSpy.mockRestore()
+            keyed.unmount()
+        })
+
+        it('shows error toast on validation error', async () => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue({
+                detail: 'Experiment is already paused.',
+            })
+            const errorMock = lemonToast.error as jest.Mock
+            errorMock.mockClear()
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.pauseExperiment()
+            }).toFinishAllListeners()
+
+            expect(errorMock).toHaveBeenCalledWith('Experiment is already paused.')
+            createSpy.mockRestore()
+        })
+
+        it('shows generic error toast when detail is missing', async () => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue(new Error('Network error'))
+            const errorMock = lemonToast.error as jest.Mock
+            errorMock.mockClear()
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.pauseExperiment()
+            }).toFinishAllListeners()
+
+            expect(errorMock).toHaveBeenCalledWith('Failed to pause experiment')
+            createSpy.mockRestore()
+        })
+    })
+
+    describe('resumeExperiment', () => {
+        it('calls resume endpoint and updates both experiment and feature flag state', async () => {
+            const pausedExperiment = {
+                ...experiment,
+                feature_flag: { ...experiment.feature_flag, active: false },
+            } as Experiment
+            const resumedResponse = {
+                ...experiment,
+                feature_flag: { ...experiment.feature_flag, active: true },
+            }
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValue(resumedResponse)
+
+            const keyed = experimentLogic({ experimentId: experiment.id })
+            keyed.mount()
+            keyed.actions.setExperiment(pausedExperiment)
+
+            // Pre-condition: flag is inactive (paused)
+            expect(keyed.values.experiment.feature_flag?.active).toBe(false)
+
+            await expectLogic(keyed, () => {
+                keyed.actions.resumeExperiment()
+            })
+                .toDispatchActions(['resumeExperiment', 'setExperiment'])
+                .toFinishAllListeners()
+
+            expect(createSpy).toHaveBeenCalledWith(expect.stringContaining(`/experiments/${experiment.id}/resume`))
+
+            // Post-condition: both experiment and nested feature flag are updated
+            expect(keyed.values.experiment.feature_flag?.active).toBe(true)
+            expect(keyed.values.experiment.id).toBe(experiment.id)
+
+            createSpy.mockRestore()
+            keyed.unmount()
+        })
+
+        it('shows error toast on validation error', async () => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue({
+                detail: 'Experiment is not paused.',
+            })
+            const errorMock = lemonToast.error as jest.Mock
+            errorMock.mockClear()
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.resumeExperiment()
+            }).toFinishAllListeners()
+
+            expect(errorMock).toHaveBeenCalledWith('Experiment is not paused.')
+            createSpy.mockRestore()
+        })
+
+        it('shows generic error toast when detail is missing', async () => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue(new Error('Network error'))
+            const errorMock = lemonToast.error as jest.Mock
+            errorMock.mockClear()
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.resumeExperiment()
+            }).toFinishAllListeners()
+
+            expect(errorMock).toHaveBeenCalledWith('Failed to resume experiment')
             createSpy.mockRestore()
         })
     })
