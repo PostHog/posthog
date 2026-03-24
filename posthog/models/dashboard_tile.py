@@ -176,21 +176,23 @@ class DashboardTile(models.Model):
     def copy_to_dashboard(self, dashboard: Dashboard) -> None:
         """
         Place this tile's content on another dashboard: create a new row, or undelete a soft-deleted
-        row for the same insight or text (unique constraint would block a second insert otherwise).
+        row for the same insight, text, or button (unique constraint would block a second insert otherwise).
 
-        Button tiles are not supported for copy (see ``copy_tile`` API).
+        The ``copy_tile`` API still only exposes insight and text tiles; dashboard duplication uses this
+        method for all tile types including buttons.
         """
-        if self.button_tile is not None and self.insight is None and self.text is None:
-            raise ValidationError("Button tiles cannot be copied between dashboards.")
-
         if self.insight is not None:
             existing = DashboardTile.objects_including_soft_deleted.filter(
                 dashboard=dashboard, insight=self.insight
             ).first()
         elif self.text is not None:
             existing = DashboardTile.objects_including_soft_deleted.filter(dashboard=dashboard, text=self.text).first()
+        elif self.button_tile is not None:
+            existing = DashboardTile.objects_including_soft_deleted.filter(
+                dashboard=dashboard, button_tile=self.button_tile
+            ).first()
         else:
-            raise ValidationError("Cannot copy tile without insight or text.")
+            raise ValidationError("Cannot copy tile without insight, text, or button_tile.")
 
         if existing:
             if existing.deleted is not True:
@@ -208,7 +210,7 @@ class DashboardTile(models.Model):
             dashboard=dashboard,
             insight=self.insight,
             text=self.text,
-            button_tile=None,
+            button_tile=self.button_tile,
             color=self.color,
             layouts=self.layouts,
             show_description=self.show_description,
