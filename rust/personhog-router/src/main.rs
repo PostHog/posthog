@@ -11,7 +11,7 @@ use personhog_coordination::coordinator::{Coordinator, CoordinatorConfig};
 use personhog_coordination::error::Result as CoordResult;
 use personhog_coordination::routing_table::{CutoverHandler, RoutingTable, RoutingTableConfig};
 use personhog_coordination::store::PersonhogStore;
-use personhog_coordination::strategy::JumpHashStrategy;
+use personhog_coordination::strategy::StickyBalancedStrategy;
 use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogServiceServer;
 use personhog_router::backend::{LeaderBackend, ReplicaBackend};
 use personhog_router::config::{Config, RouterMode};
@@ -246,7 +246,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 election_retry_interval: config.coordinator_election_retry_interval(),
                 rebalance_debounce_interval: config.coordinator_rebalance_debounce_interval(),
             },
-            Arc::new(JumpHashStrategy),
+            Arc::new(StickyBalancedStrategy),
         );
 
         tokio::spawn(async move {
