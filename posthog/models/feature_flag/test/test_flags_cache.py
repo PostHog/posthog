@@ -1603,7 +1603,7 @@ class TestManagementCommands(BaseTest):
 
         # Simulate a pre-evaluation_metadata cache entry by removing the key
         cached_data, _source = flags_hypercache.get_from_cache_with_source(self.team)
-        self.assertIsNotNone(cached_data)
+        assert cached_data is not None
         del cached_data["evaluation_metadata"]
         flags_hypercache.set_cache_value(self.team, cached_data)
 
