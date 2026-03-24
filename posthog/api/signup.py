@@ -388,8 +388,6 @@ class InviteSignupSerializer(serializers.Serializer):
         is_new_user: bool = False
 
         role_at_organization = validated_data.pop("role_at_organization", "")
-        validated_data.pop("turnstile_token", None)
-        validated_data.pop("challenge_nonce", None)
 
         request = self.context["request"]
         passkey_credential = request.session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY)
@@ -417,6 +415,9 @@ class InviteSignupSerializer(serializers.Serializer):
                 turnstile_token=validated_data.get("turnstile_token", ""),
                 challenge_nonce=validated_data.get("challenge_nonce", ""),
             )
+
+        validated_data.pop("turnstile_token", None)
+        validated_data.pop("challenge_nonce", None)
 
         # Only check SSO enforcement if we're not already logged in
         if (
