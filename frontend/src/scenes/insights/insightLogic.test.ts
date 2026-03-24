@@ -967,152 +967,60 @@ describe('insightLogic', () => {
     })
 
     describe('hasOverrides', () => {
-        it('is false when no overrides are present', () => {
+        it.each([
+            ['no overrides present', { filtersOverride: null, variablesOverride: null }, false],
+            ['filtersOverride has a date_from', { filtersOverride: { date_from: '-7d' } }, true],
+            [
+                'variablesOverride is non-empty',
+                { variablesOverride: { var1: { code_name: 'var1', variableId: '123', value: 'x' } } },
+                true,
+            ],
+            ['filtersOverride is an empty object', { filtersOverride: {} }, false],
+            ['tileFiltersOverride has a date_from', { tileFiltersOverride: { date_from: '-30d' } }, true],
+        ])('is %s → %s', (_label, propsOverride, expected) => {
             logic = insightLogic({
                 dashboardItemId: Insight42,
-                cachedInsight: {
-                    ...partialInsight42,
-                    query: queryFromFilters(API_FILTERS),
-                },
-                filtersOverride: null,
-                variablesOverride: null,
+                cachedInsight: { ...partialInsight42, query: queryFromFilters(API_FILTERS) },
+                ...propsOverride,
             })
             logic.mount()
 
-            expect(logic.values.hasOverrides).toBe(false)
-        })
-
-        it('is true when filtersOverride has a date_from', () => {
-            logic = insightLogic({
-                dashboardItemId: Insight42,
-                cachedInsight: {
-                    ...partialInsight42,
-                    query: queryFromFilters(API_FILTERS),
-                },
-                filtersOverride: { date_from: '-7d' },
-            })
-            logic.mount()
-
-            expect(logic.values.hasOverrides).toBe(true)
-        })
-
-        it('is true when variablesOverride is non-empty', () => {
-            logic = insightLogic({
-                dashboardItemId: Insight42,
-                cachedInsight: {
-                    ...partialInsight42,
-                    query: queryFromFilters(API_FILTERS),
-                },
-                variablesOverride: {
-                    var1: { code_name: 'var1', variableId: '123', value: 'x' },
-                },
-            })
-            logic.mount()
-
-            expect(logic.values.hasOverrides).toBe(true)
-        })
-
-        it('is false when filtersOverride is an empty object', () => {
-            logic = insightLogic({
-                dashboardItemId: Insight42,
-                cachedInsight: {
-                    ...partialInsight42,
-                    query: queryFromFilters(API_FILTERS),
-                },
-                filtersOverride: {},
-            })
-            logic.mount()
-
-            expect(logic.values.hasOverrides).toBe(false)
-        })
-
-        it('is true when tileFiltersOverride has a date_from', () => {
-            logic = insightLogic({
-                dashboardItemId: Insight42,
-                cachedInsight: {
-                    ...partialInsight42,
-                    query: queryFromFilters(API_FILTERS),
-                },
-                tileFiltersOverride: { date_from: '-30d' },
-            })
-            logic.mount()
-
-            expect(logic.values.hasOverrides).toBe(true)
+            expect(logic.values.hasOverrides).toBe(expected)
         })
     })
 
     describe('editingDisabledReason', () => {
-        it('returns reason when hasOverrides is true', () => {
+        it.each([
+            ['overrides present', { filtersOverride: { date_from: '-7d' } }, 'Discard overrides to edit the insight.'],
+            ['no overrides', { filtersOverride: null }, null],
+        ])('returns correct value when %s', (_label, propsOverride, expected) => {
             logic = insightLogic({
                 dashboardItemId: Insight42,
-                cachedInsight: {
-                    ...partialInsight42,
-                    query: queryFromFilters(API_FILTERS),
-                },
-                filtersOverride: { date_from: '-7d' },
+                cachedInsight: { ...partialInsight42, query: queryFromFilters(API_FILTERS) },
+                ...propsOverride,
             })
             logic.mount()
 
-            expect(logic.values.editingDisabledReason).toBe('Discard overrides to edit the insight.')
-        })
-
-        it('returns null when hasOverrides is false', () => {
-            logic = insightLogic({
-                dashboardItemId: Insight42,
-                cachedInsight: {
-                    ...partialInsight42,
-                    query: queryFromFilters(API_FILTERS),
-                },
-                filtersOverride: null,
-            })
-            logic.mount()
-
-            expect(logic.values.editingDisabledReason).toBeNull()
+            expect(logic.values.editingDisabledReason).toBe(expected)
         })
     })
 
     describe('canEditInsight', () => {
-        it('is true with overrides and editor access level', () => {
+        it.each([
+            ['editor access level', AccessControlLevel.Editor, true],
+            ['viewer access level', AccessControlLevel.Viewer, false],
+        ])('is correct with %s', (_label, accessLevel, expected) => {
             logic = insightLogic({
                 dashboardItemId: Insight42,
                 cachedInsight: {
                     ...partialInsight42,
                     query: queryFromFilters(API_FILTERS),
-                    user_access_level: AccessControlLevel.Editor,
-                },
-                filtersOverride: { date_from: '-7d' },
-            })
-            logic.mount()
-
-            expect(logic.values.canEditInsight).toBe(true)
-        })
-
-        it('is true without overrides and editor access level', () => {
-            logic = insightLogic({
-                dashboardItemId: Insight42,
-                cachedInsight: {
-                    ...partialInsight42,
-                    query: queryFromFilters(API_FILTERS),
-                    user_access_level: AccessControlLevel.Editor,
+                    user_access_level: accessLevel,
                 },
             })
             logic.mount()
 
-            expect(logic.values.canEditInsight).toBe(true)
-        })
-
-        it('is false with viewer access level', () => {
-            logic = insightLogic({
-                dashboardItemId: Insight42,
-                cachedInsight: {
-                    ...partialInsight42,
-                    query: queryFromFilters(API_FILTERS),
-                    user_access_level: AccessControlLevel.Viewer,
-                },
-            })
-            logic.mount()
-
-            expect(logic.values.canEditInsight).toBe(false)
+            expect(logic.values.canEditInsight).toBe(expected)
         })
     })
 
