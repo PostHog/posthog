@@ -767,12 +767,21 @@ jobs:
                     echo "has-changes=false" >> $GITHUB_OUTPUT
                   else
                     echo "has-changes=true" >> $GITHUB_OUTPUT
-                    git add playwright/snapshots.yml
                   fi
 
-            # UPDATE mode: commit the changes (screenshots + baseline in one commit)
+            # Commit baseline separately — commit-snapshots only looks at the screenshot directory
+            - name: Commit baseline changes
+              if: steps.check-baseline.outputs.has-changes == 'true' && needs.changes.outputs.mode == 'update'
+              env:
+                  BRANCH_NAME: ${{ github.event.pull_request.head.ref }}
+              run: |
+                  git add playwright/snapshots.yml
+                  git commit -m "chore(visual-review): update playwright baseline"
+                  git push origin HEAD:"$BRANCH_NAME" --quiet
+
+            # UPDATE mode: commit the screenshot PNG changes
             - name: Commit screenshot changes
-              if: (steps.check-screenshots.outputs.has-changes == 'true' || steps.check-baseline.outputs.has-changes == 'true') && needs.changes.outputs.mode == 'update'
+              if: steps.check-screenshots.outputs.has-changes == 'true' && needs.changes.outputs.mode == 'update'
               uses: ./.github/actions/commit-snapshots
               with:
                   workflow-type: playwright

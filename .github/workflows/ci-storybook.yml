@@ -667,12 +667,21 @@ jobs:
                     echo "has-changes=false" >> $GITHUB_OUTPUT
                   else
                     echo "has-changes=true" >> $GITHUB_OUTPUT
-                    git add frontend/snapshots.yml
                   fi
 
-            # UPDATE mode: commit the changes (snapshots + baseline in one commit)
+            # Commit baseline separately — commit-snapshots only looks at the snapshot directory
+            - name: Commit baseline changes
+              if: steps.check-baseline.outputs.has-changes == 'true' && needs.changes.outputs.mode == 'update'
+              env:
+                  BRANCH_NAME: ${{ github.event.pull_request.head.ref }}
+              run: |
+                  git add frontend/snapshots.yml
+                  git commit -m "chore(visual-review): update storybook baseline"
+                  git push origin HEAD:"$BRANCH_NAME" --quiet
+
+            # UPDATE mode: commit the snapshot PNG changes
             - name: Commit snapshot changes
-              if: (steps.check-snapshots.outputs.has-changes == 'true' || steps.check-baseline.outputs.has-changes == 'true') && needs.changes.outputs.mode == 'update'
+              if: steps.check-snapshots.outputs.has-changes == 'true' && needs.changes.outputs.mode == 'update'
               uses: ./.github/actions/commit-snapshots
               with:
                   workflow-type: storybook
