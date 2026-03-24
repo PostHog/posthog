@@ -1,6 +1,59 @@
 import { NodeKind } from '~/queries/schema/schema-general'
 
-import { hasInvalidRegexFilter, validateQuery } from './queryUtils'
+import {
+    filterVariablesReferencedInQuery,
+    hasInvalidRegexFilter,
+    syncSelectedVariablesToQuery,
+    validateQuery,
+} from './queryUtils'
+
+const AVAILABLE_VARIABLES = [
+    { id: 'date-id', code_name: 'date' },
+    { id: 'product-id', code_name: 'product' },
+    { id: 'region-id', code_name: 'region' },
+]
+
+describe('filterVariablesReferencedInQuery', () => {
+    it('keeps only variables referenced in the current query', () => {
+        expect(
+            filterVariablesReferencedInQuery(
+                'SELECT {variables.date}, {variables.date} FROM events WHERE product = {variables.product}',
+                AVAILABLE_VARIABLES
+            )
+        ).toEqual([
+            { id: 'date-id', code_name: 'date' },
+            { id: 'product-id', code_name: 'product' },
+        ])
+    })
+})
+
+describe('syncSelectedVariablesToQuery', () => {
+    it('removes stale selected variables while preserving values for ones still in use', () => {
+        expect(
+            syncSelectedVariablesToQuery(
+                'SELECT * FROM events WHERE timestamp >= {variables.date}',
+                AVAILABLE_VARIABLES,
+                [
+                    { variableId: 'date-id', code_name: 'date', value: '2026-01-01' },
+                    { variableId: 'product-id', code_name: 'product', value: 'mobile' },
+                ]
+            )
+        ).toEqual([{ variableId: 'date-id', code_name: 'date', value: '2026-01-01' }])
+    })
+
+    it('adds newly referenced variables once, in query order', () => {
+        expect(
+            syncSelectedVariablesToQuery(
+                'SELECT * FROM events WHERE product = {variables.product} AND region = {variables.region} AND product = {variables.product}',
+                AVAILABLE_VARIABLES,
+                [{ variableId: 'date-id', code_name: 'date', value: '2026-01-01' }]
+            )
+        ).toEqual([
+            { variableId: 'product-id', code_name: 'product' },
+            { variableId: 'region-id', code_name: 'region' },
+        ])
+    })
+})
 
 describe('hasInvalidRegexFilter', () => {
     it.each([
