@@ -12,7 +12,6 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -23,7 +22,6 @@ from posthog.models.group.util import create_group
 
 from ee.clickhouse.queries.related_actors_query import RelatedActorsQuery
 
-PATH = "ee.clickhouse.queries.related_actors_query"
 RECENT_DATE = datetime(2025, 2, 15, 12, 0, 0)
 
 
@@ -103,8 +101,7 @@ class TestRelatedPersonsQuery(BaseRelatedActorsTest):
         return RelatedActorsQuery(team=self.team, group_type_index=0, id="org:1").run()
 
     @snapshot_clickhouse_queries
-    @patch(f"{PATH}.posthoganalytics.get_feature_flag", return_value="control")
-    def test_query_related_people_control(self, _):
+    def test_query_related_people(self):
         results = self.run_query()
 
         assert len(results) == 2
@@ -112,21 +109,7 @@ class TestRelatedPersonsQuery(BaseRelatedActorsTest):
         assert str(self.person.uuid) in ids
         assert str(self.another_person.uuid) in ids
 
-    @snapshot_clickhouse_queries
-    @patch(f"{PATH}.posthoganalytics.get_feature_flag", return_value="test")
-    def test_query_related_people_optimized(self, _):
-        results = self.run_query()
-
-        assert len(results) == 2
-        ids = self.get_ids_from_results(results)
-        assert str(self.person.uuid) in ids
-        assert str(self.another_person.uuid) in ids
-
-    @parameterized.expand(["control", "test"])
-    @patch(f"{PATH}.posthoganalytics.get_feature_flag")
-    def test_returns_related_people(self, variant, mock_flag):
-        mock_flag.return_value = variant
-
+    def test_returns_related_people(self):
         results = self.run_query()
 
         assert len(results) == 2
@@ -136,10 +119,7 @@ class TestRelatedPersonsQuery(BaseRelatedActorsTest):
         assert str(self.unrelated_person.uuid) not in ids
         assert str(self.old_related_person.uuid) not in ids
 
-    @parameterized.expand(["control", "test"])
-    @patch(f"{PATH}.posthoganalytics.get_feature_flag")
-    def test_excludes_deleted_person_mapping(self, variant, mock_flag):
-        mock_flag.return_value = variant
+    def test_excludes_deleted_person_mapping(self):
         self._insert_pdi2_row("user2", str(self.another_person.uuid), version=100, is_deleted=1)
 
         results = self.run_query()
@@ -147,10 +127,7 @@ class TestRelatedPersonsQuery(BaseRelatedActorsTest):
         ids = self.get_ids_from_results(results)
         assert str(self.another_person.uuid) not in ids
 
-    @parameterized.expand(["control", "test"])
-    @patch(f"{PATH}.posthoganalytics.get_feature_flag")
-    def test_reassigned_distinct_id_resolves_to_new_person(self, variant, mock_flag):
-        mock_flag.return_value = variant
+    def test_reassigned_distinct_id_resolves_to_new_person(self):
         new_person = _create_person(distinct_ids=["new_user"], team=self.team, uuid=uuid4())
         flush_persons_and_events()
         self._insert_pdi2_row("user1", str(new_person.uuid), version=100)
@@ -161,10 +138,7 @@ class TestRelatedPersonsQuery(BaseRelatedActorsTest):
         assert str(new_person.uuid) in ids
         assert str(self.person.uuid) not in ids
 
-    @parameterized.expand(["control", "test"])
-    @patch(f"{PATH}.posthoganalytics.get_feature_flag")
-    def test_multiple_distinct_ids_same_person_deduped(self, variant, mock_flag):
-        mock_flag.return_value = variant
+    def test_multiple_distinct_ids_same_person_deduped(self):
         self._insert_pdi2_row("user2", str(self.person.uuid), version=100)
 
         results = self.run_query()

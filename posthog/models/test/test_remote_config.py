@@ -204,7 +204,7 @@ class TestRemoteConfig(_RemoteConfigBase):
         self.sync_remote_config()
         assert self.remote_config.config["conversations"] is False
 
-    @parameterized.expand([["1.00", None], ["0.95", "0.95"], ["0.50", "0.50"], ["0.00", "0.00"], [None, None]])
+    @parameterized.expand([["1.00", None], ["0.95", "0.95"], ["0.50", "0.5"], ["0.00", "0"], [None, None]])
     def test_session_recording_sample_rate(self, value: str | None, expected: str | None) -> None:
         self.team.session_recording_opt_in = True
         self.team.session_recording_sample_rate = Decimal(value) if value else None
@@ -529,6 +529,10 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
                 "urlBlocklist": [],
                 "eventTriggers": [],
                 "triggerMatchType": None,
+                "canvasFps": None,
+                "canvasQuality": None,
+                "recordCanvas": False,
+                "version": 1,
                 "scriptConfig": {"script": "posthog-recorder"},
             },
             "errorTracking": {

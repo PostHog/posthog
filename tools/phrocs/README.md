@@ -50,26 +50,24 @@ You typically run phrocs via `hogli start` rather than directly.
 
 ## Keybindings
 
-| Key         | Action                                          |
-| ----------- | ----------------------------------------------- |
-| `tab`       | Cycle focus to next pane                        |
-| `shift+tab` | Cycle focus to previous pane                    |
-| `↓/j`       | Next process (sidebar) / scroll down (output)   |
-| `↑/k`       | Previous process (sidebar) / scroll up (output) |
-| `pgdn`      | Scroll output down                              |
-| `pgup`      | Scroll output up                                |
-| `home`      | Jump to top of output                           |
-| `end`       | Jump to bottom of output                        |
-| `r`         | Restart selected process                        |
-| `s`         | Stop selected process                           |
-| `c`         | Enter copy mode                                 |
-| `/`         | Enter search mode                               |
-| `i`         | Toggle info panel (process details + metrics)   |
-| `p`         | Open process viewer for selected process        |
-| `d`         | Open lazydocker (docker-compose only)           |
-| `esc`       | Exit copy, search and info modes                |
-| `?`         | Toggle full help                                |
-| `q/ctrl+c`  | Quit                                            |
+| Key    | Action                                          |
+| ------ | ----------------------------------------------- |
+| `tab`  | Swap focus sidebar/output                       |
+| `↓/j`  | Next process (sidebar) / scroll down (output)   |
+| `↑/k`  | Previous process (sidebar) / scroll up (output) |
+| `pgdn` | Scroll output down                              |
+| `pgup` | Scroll output up                                |
+| `home` | Jump to top of output                           |
+| `end`  | Jump to bottom of output                        |
+| `r`    | Restart selected process                        |
+| `s`    | Stop selected process                           |
+| `c`    | Enter copy mode                                 |
+| `i`    | Show process info in pager                      |
+| `o`    | Sort processes by <name/CPU/RAM/status>         |
+| `/`    | Enter search mode                               |
+| `esc`  | Exit copy and search modes                      |
+| `?`    | Toggle full help                                |
+| `q`    | Quit                                            |
 
 Mouse clicks switch focus; mouse wheel scrolls the output pane.
 

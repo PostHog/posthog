@@ -117,7 +117,7 @@ describe('createExtractHeatmapDataStep', () => {
                 expect.arrayContaining([
                     expect.objectContaining({
                         key: '018eebf3-cb48-750b-bfad-36409ea6f2b2',
-                        value: expect.any(String),
+                        value: expect.any(Buffer),
                     }),
                 ])
             )
@@ -125,7 +125,7 @@ describe('createExtractHeatmapDataStep', () => {
             const queuedMessages = mockOutputs.queueMessages.mock.calls[0][1]
             expect(queuedMessages).toHaveLength(2)
 
-            const firstMessage = parseJSON(queuedMessages[0].value as string)
+            const firstMessage = parseJSON(queuedMessages[0].value!.toString())
             expect(firstMessage).toMatchObject({
                 type: 'mousemove',
                 x: 64, // 1020 / 16
@@ -156,7 +156,7 @@ describe('createExtractHeatmapDataStep', () => {
             const queuedMessages = mockOutputs.queueMessages.mock.calls[0][1]
             expect(queuedMessages).toHaveLength(2)
 
-            const urls = queuedMessages.map((msg: any) => parseJSON(msg.value as string).current_url)
+            const urls = queuedMessages.map((msg: any) => parseJSON(msg.value!.toString()).current_url)
             expect(urls).toContain('http://localhost:3000/')
             expect(urls).toContain('http://localhost:3000/about')
         })
@@ -178,12 +178,12 @@ describe('createExtractHeatmapDataStep', () => {
             expect(queuedMessages).toHaveLength(3) // 2 original + 1 scroll depth
 
             const scrollDepthMessage = queuedMessages.find((msg: any) => {
-                const parsed = parseJSON(msg.value as string)
+                const parsed = parseJSON(msg.value!.toString())
                 return parsed.type === 'scrolldepth'
             })
 
             expect(scrollDepthMessage).toBeDefined()
-            const scrollData = parseJSON(scrollDepthMessage!.value as string)
+            const scrollData = parseJSON(scrollDepthMessage!.value!.toString())
             expect(scrollData).toMatchObject({
                 type: 'scrolldepth',
                 x: 0,
@@ -214,7 +214,7 @@ describe('createExtractHeatmapDataStep', () => {
             expect(queuedMessages).toHaveLength(1) // Only scroll depth, no heatmap data
 
             const scrollDepthMessage = queuedMessages[0]
-            const scrollData = parseJSON(scrollDepthMessage.value as string)
+            const scrollData = parseJSON(scrollDepthMessage.value!.toString())
             expect(scrollData).toMatchObject({
                 type: 'scrolldepth',
                 x: 0,
@@ -421,7 +421,7 @@ describe('createExtractHeatmapDataStep', () => {
             expect(mockOutputs.queueMessages).toHaveBeenCalledTimes(1)
 
             const queuedMessages = mockOutputs.queueMessages.mock.calls[0][1]
-            const message = parseJSON(queuedMessages[0].value as string)
+            const message = parseJSON(queuedMessages[0].value!.toString())
 
             expect(message.x).toBe(10) // 160 / 16
             expect(message.y).toBe(20) // 320 / 16
