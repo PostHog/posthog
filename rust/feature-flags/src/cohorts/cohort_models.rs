@@ -307,45 +307,30 @@ mod tests {
     fn test_uses_realtime_membership() {
         let backfill_ts = Some(Utc::now());
 
-        // With a backfill timestamp, realtime/behavioral types use the membership table
-        let cases_with_timestamp = vec![
-            (None, false),
-            (Some(CohortType::Static), false),
-            (Some(CohortType::PersonProperty), false),
-            (Some(CohortType::Analytical), false),
-            (Some(CohortType::Realtime), true),
-            (Some(CohortType::Behavioral), true),
+        let cases: Vec<(Option<CohortType>, Option<DateTime<Utc>>, bool)> = vec![
+            (None, None, false),
+            (None, backfill_ts, false),
+            (Some(CohortType::Static), None, false),
+            (Some(CohortType::Static), backfill_ts, false),
+            (Some(CohortType::PersonProperty), None, false),
+            (Some(CohortType::PersonProperty), backfill_ts, false),
+            (Some(CohortType::Analytical), None, false),
+            (Some(CohortType::Analytical), backfill_ts, false),
+            (Some(CohortType::Realtime), None, false),
+            (Some(CohortType::Realtime), backfill_ts, true),
+            (Some(CohortType::Behavioral), None, false),
+            (Some(CohortType::Behavioral), backfill_ts, true),
         ];
 
-        for (cohort_type, expected) in cases_with_timestamp {
+        for (cohort_type, ts, expected) in cases {
             let mut cohort = create_test_cohort(None, None, serde_json::json!({}));
             cohort.cohort_type = cohort_type;
-            cohort.last_backfill_person_properties_at = backfill_ts;
+            cohort.last_backfill_person_properties_at = ts;
             assert_eq!(
                 cohort.uses_realtime_membership(),
                 expected,
-                "cohort_type={cohort_type:?} with backfill timestamp should return {expected}"
-            );
-        }
-
-        // Without a backfill timestamp, no cohort type uses the membership table
-        let cases_without_timestamp = vec![
-            (None, false),
-            (Some(CohortType::Static), false),
-            (Some(CohortType::PersonProperty), false),
-            (Some(CohortType::Analytical), false),
-            (Some(CohortType::Realtime), false),
-            (Some(CohortType::Behavioral), false),
-        ];
-
-        for (cohort_type, expected) in cases_without_timestamp {
-            let mut cohort = create_test_cohort(None, None, serde_json::json!({}));
-            cohort.cohort_type = cohort_type;
-            cohort.last_backfill_person_properties_at = None;
-            assert_eq!(
-                cohort.uses_realtime_membership(),
-                expected,
-                "cohort_type={cohort_type:?} without backfill timestamp should return {expected}"
+                "cohort_type={cohort_type:?}, backfill_ts={} should return {expected}",
+                ts.is_some()
             );
         }
     }
