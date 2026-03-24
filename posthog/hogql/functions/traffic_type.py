@@ -29,8 +29,10 @@ class BotDefinition:
 BOT_DEFINITIONS: dict[str, BotDefinition] = {
     # AI Agents
     "GPTBot": BotDefinition("GPTBot", "llm_crawler", "AI Agent"),
+    "OAI-SearchBot": BotDefinition("OpenAI Search", "llm_crawler", "AI Agent"),
     "ChatGPT-User": BotDefinition("ChatGPT", "llm_crawler", "AI Agent"),
     "ClaudeBot": BotDefinition("Claude", "llm_crawler", "AI Agent"),
+    "Claude-Web": BotDefinition("Claude Web", "llm_crawler", "AI Agent"),
     "anthropic-ai": BotDefinition("Anthropic", "llm_crawler", "AI Agent"),
     "PerplexityBot": BotDefinition("Perplexity", "llm_crawler", "AI Agent"),
     "Google-Extended": BotDefinition("Google AI", "llm_crawler", "AI Agent"),
@@ -38,8 +40,16 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "Applebot-Extended": BotDefinition("Apple AI", "llm_crawler", "AI Agent"),
     "cohere-ai": BotDefinition("Cohere", "llm_crawler", "AI Agent"),
     "meta-externalagent": BotDefinition("Meta AI", "llm_crawler", "AI Agent"),
+    "Meta-ExternalFetcher": BotDefinition("Meta Fetcher", "llm_crawler", "AI Agent"),
+    "FacebookBot": BotDefinition("Facebook AI", "llm_crawler", "AI Agent"),
     "Bytespider": BotDefinition("ByteDance", "llm_crawler", "AI Agent"),
-    # Search Crawlers
+    "Amazonbot": BotDefinition("Amazon", "llm_crawler", "AI Agent"),
+    "Diffbot": BotDefinition("Diffbot", "llm_crawler", "AI Agent"),
+    "omgili": BotDefinition("Webz.io", "llm_crawler", "AI Agent"),
+    "Webzio-Extended": BotDefinition("Webz.io Extended", "llm_crawler", "AI Agent"),
+    "Timpibot": BotDefinition("Timpi", "llm_crawler", "AI Agent"),
+    # Search Crawlers (Applebot must come after Applebot-Extended above)
+    "Applebot": BotDefinition("Applebot", "search_crawler", "Bot"),
     "Googlebot": BotDefinition("Googlebot", "search_crawler", "Bot"),
     "Bingbot": BotDefinition("Bingbot", "search_crawler", "Bot"),
     "YandexBot": BotDefinition("Yandex", "search_crawler", "Bot"),
