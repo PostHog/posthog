@@ -1503,7 +1503,7 @@ export const experimentLogic = kea<experimentLogicType>([
             cache.refreshSummariesById = cache.refreshSummariesById ?? {}
             cache.refreshSummariesById[refreshId] = summaries
 
-            // Start 30s timer to offer browser notifications
+            // Start 10s timer to offer browser notifications
             clearTimeout(cache.notificationOfferTimer)
             cache.notificationOfferTimer = setTimeout(() => {
                 actions.setShowNotificationOffer(true)
