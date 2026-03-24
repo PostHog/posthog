@@ -692,6 +692,7 @@ pub async fn insert_cohort_for_team_in_pg(
         groups: serde_json::json!([]),
         created_by_id: None,
         cohort_type: None,
+        last_backfill_person_properties_at: None,
     };
 
     let mut conn = client.get_connection().await?;

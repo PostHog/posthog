@@ -1,4 +1,5 @@
 use crate::properties::property_models::PropertyFilter;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -31,16 +32,20 @@ pub struct Cohort {
     pub groups: serde_json::Value,
     pub created_by_id: Option<i32>,
     pub cohort_type: Option<CohortType>,
+    pub last_backfill_person_properties_at: Option<DateTime<Utc>>,
 }
 
 impl Cohort {
     /// Returns true if this cohort's membership should be resolved via the
     /// realtime cohort_membership table rather than the static cohortpeople table.
+    /// Requires both a realtime/behavioral cohort type AND a populated backfill
+    /// timestamp, which indicates that the membership table has been written to.
+    /// Without the timestamp, the cohort falls through to dynamic filter evaluation.
     pub fn uses_realtime_membership(&self) -> bool {
         matches!(
             self.cohort_type,
             Some(CohortType::Realtime) | Some(CohortType::Behavioral)
-        )
+        ) && self.last_backfill_person_properties_at.is_some()
     }
 
     /// Estimates the memory size of this cohort in bytes.
@@ -173,6 +178,7 @@ mod tests {
             groups,
             created_by_id: Some(1),
             cohort_type: None,
+            last_backfill_person_properties_at: None,
         }
     }
 
@@ -299,7 +305,10 @@ mod tests {
 
     #[test]
     fn test_uses_realtime_membership() {
-        let cases = vec![
+        let backfill_ts = Some(Utc::now());
+
+        // With a backfill timestamp, realtime/behavioral types use the membership table
+        let cases_with_timestamp = vec![
             (None, false),
             (Some(CohortType::Static), false),
             (Some(CohortType::PersonProperty), false),
@@ -308,13 +317,35 @@ mod tests {
             (Some(CohortType::Behavioral), true),
         ];
 
-        for (cohort_type, expected) in cases {
+        for (cohort_type, expected) in cases_with_timestamp {
             let mut cohort = create_test_cohort(None, None, serde_json::json!({}));
             cohort.cohort_type = cohort_type;
+            cohort.last_backfill_person_properties_at = backfill_ts;
             assert_eq!(
                 cohort.uses_realtime_membership(),
                 expected,
-                "cohort_type={cohort_type:?} should return {expected}"
+                "cohort_type={cohort_type:?} with backfill timestamp should return {expected}"
+            );
+        }
+
+        // Without a backfill timestamp, no cohort type uses the membership table
+        let cases_without_timestamp = vec![
+            (None, false),
+            (Some(CohortType::Static), false),
+            (Some(CohortType::PersonProperty), false),
+            (Some(CohortType::Analytical), false),
+            (Some(CohortType::Realtime), false),
+            (Some(CohortType::Behavioral), false),
+        ];
+
+        for (cohort_type, expected) in cases_without_timestamp {
+            let mut cohort = create_test_cohort(None, None, serde_json::json!({}));
+            cohort.cohort_type = cohort_type;
+            cohort.last_backfill_person_properties_at = None;
+            assert_eq!(
+                cohort.uses_realtime_membership(),
+                expected,
+                "cohort_type={cohort_type:?} without backfill timestamp should return {expected}"
             );
         }
     }
