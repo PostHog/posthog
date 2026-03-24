@@ -660,7 +660,7 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
         updateBatchExportConfig: (formdata: Record<string, any>) => ({ formdata }),
         updateBatchExportConfigSuccess: (batchExportConfig: BatchExportConfiguration) => ({ batchExportConfig }),
     }),
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, actions }) => ({
         batchExportConfigTest: [
             null as BatchExportConfigurationTest | null,
             {
