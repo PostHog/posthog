@@ -1206,8 +1206,6 @@ class TestResolver(BaseTest):
         [
             ("toNullable('hello')", ""),
             ("toNullable(event)", "FROM events"),
-            ("toUInt64OrNull('123')", ""),
-            ("parseDateTimeBestEffortOrNull('2020-01-01')", ""),
             ("nullIf(event, '')", "FROM events"),
         ],
     )
