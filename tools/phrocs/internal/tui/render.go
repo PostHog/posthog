@@ -51,9 +51,14 @@ func (m Model) renderHeader() string {
 		}
 	}
 
-	spacerW := max(m.width-lipgloss.Width(stripesStyle)-lipgloss.Width(brand)-lipgloss.Width(procInfo)-lipgloss.Width(meta), 0)
+	var sortInfo string
+	if m.sortMode != SortName {
+		sortInfo = headerMetaStyle.Render(fmt.Sprintf("sort:%s", m.sortMode))
+	}
+
+	spacerW := max(m.width-lipgloss.Width(stripesStyle)-lipgloss.Width(brand)-lipgloss.Width(sortInfo)-lipgloss.Width(procInfo)-lipgloss.Width(meta)-1, 0)
 	spacer := lipgloss.NewStyle().Width(spacerW).Render("")
-	return lipgloss.JoinHorizontal(lipgloss.Top, stripesStyle, brand, spacer, procInfo, "•", meta)
+	return lipgloss.JoinHorizontal(lipgloss.Top, stripesStyle, brand, spacer, sortInfo, procInfo, "•", meta)
 }
 
 func (m Model) renderSidebar() string {
@@ -67,8 +72,19 @@ func (m Model) renderSidebar() string {
 	start := min(max(m.servicesOffset, 0), max(0, len(m.services)-1))
 	end := min(len(m.services), start+h)
 
+	canScrollUp := start > 0
+	canScrollDown := end < len(m.services)
+
+	visibleH := m.sidebarVisibleItems()
+	visibleEnd := min(len(m.services), start+visibleH)
+
 	var rows []string
-	for i := start; i < end; i++ {
+
+	if canScrollUp {
+		rows = append(rows, scrollArrowStyle.Width(innerW).Render("▲"))
+	}
+
+	for i := start; i < visibleEnd; i++ {
 		p := m.services[i]
 		status := p.Status()
 		iconChar := statusIconChar(status)
@@ -85,8 +101,12 @@ func (m Model) renderSidebar() string {
 		rows = append(rows, renderSidebarRow(iconChar, name, iconColor, i == m.servicesCursor, cpuPct, innerW))
 	}
 
+	if canScrollDown {
+		rows = append(rows, scrollArrowStyle.Width(innerW).Render("▼"))
+	}
+
 	// Pad remaining rows so the sidebar border extends the full height
-	for i := end - start; i < h; i++ {
+	for len(rows) < h {
 		rows = append(rows, procInactiveStyle.Width(innerW).Render(""))
 	}
 
@@ -103,11 +123,35 @@ func (m Model) sidebarHeight() int {
 	return max(h, 1)
 }
 
+// sidebarVisibleItems returns how many process rows fit in the sidebar,
+// accounting for scroll arrow indicators that consume a row each.
+func (m Model) sidebarVisibleItems() int {
+	h := m.sidebarHeight()
+	if len(m.services) <= h {
+		return h
+	}
+
+	start := min(max(m.servicesOffset, 0), max(0, len(m.services)-1))
+	end := min(len(m.services), start+h)
+
+	canScrollUp := start > 0
+	canScrollDown := end < len(m.services)
+
+	if canScrollUp {
+		h--
+	}
+	if canScrollDown {
+		h--
+	}
+
+	return max(h, 1)
+}
+
 // Keep selected process row within the visible
 // sidebar window by adjusting servicesOffset
 func (m *Model) ensureSidebarCursorVisible() {
-	h := m.sidebarHeight()
-	if len(m.services) <= h {
+	h := m.sidebarVisibleItems()
+	if len(m.services) <= m.sidebarHeight() {
 		m.servicesOffset = 0
 		return
 	}
