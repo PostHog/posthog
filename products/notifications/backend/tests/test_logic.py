@@ -55,7 +55,7 @@ class TestCreateNotification(BaseTest):
             body="Something happened",
             target_type=TargetType.ORGANIZATION,
             target_id=str(self.organization.id),
-            priority=Priority.URGENT,
+            priority=Priority.CRITICAL,
         )
         event = create_notification(data)
 
