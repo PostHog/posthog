@@ -36,6 +36,14 @@ from posthog.models.team.team import Team
 
 from products.experiments.backend.models.experiment import Experiment
 
+PERCENTILE_LEVELS: dict[ExperimentMetricMathType, float] = {
+    ExperimentMetricMathType.MEDIAN: 0.5,
+    ExperimentMetricMathType.P75: 0.75,
+    ExperimentMetricMathType.P90: 0.90,
+    ExperimentMetricMathType.P95: 0.95,
+    ExperimentMetricMathType.P99: 0.99,
+}
+
 
 def is_session_property_metric(source: Union[EventsNode, ActionsNode]) -> bool:
     """
@@ -98,6 +106,11 @@ def is_continuous(
         ExperimentMetricMathType.AVG,
         ExperimentMetricMathType.MIN,
         ExperimentMetricMathType.MAX,
+        ExperimentMetricMathType.MEDIAN,
+        ExperimentMetricMathType.P75,
+        ExperimentMetricMathType.P90,
+        ExperimentMetricMathType.P95,
+        ExperimentMetricMathType.P99,
     ]:
         return True
     return False
@@ -347,6 +360,12 @@ def get_source_aggregation_expr(
             return parse_expr(f"max(coalesce(toFloat({table_alias}.value), 0))")
         elif math_type == ExperimentMetricMathType.AVG:
             return parse_expr(f"avg(coalesce(toFloat({table_alias}.value), 0))")
+        elif math_type in PERCENTILE_LEVELS:
+            level = PERCENTILE_LEVELS[math_type]
+            return parse_expr(
+                f"coalesce(quantile({{level}})(toFloat({table_alias}.value)), 0)",
+                placeholders={"level": ast.Constant(value=level)},
+            )
         elif math_type == ExperimentMetricMathType.HOGQL:
             math_hogql = getattr(source, "math_hogql", None)
             if math_hogql is not None:

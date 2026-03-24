@@ -15279,7 +15279,22 @@
             "type": "string"
         },
         "ExperimentMetricMathType": {
-            "enum": ["total", "sum", "unique_session", "min", "max", "avg", "dau", "unique_group", "hogql"],
+            "enum": [
+                "total",
+                "sum",
+                "unique_session",
+                "min",
+                "max",
+                "avg",
+                "dau",
+                "unique_group",
+                "hogql",
+                "median",
+                "p75",
+                "p90",
+                "p95",
+                "p99"
+            ],
             "type": "string"
         },
         "ExperimentMetricOutlierHandling": {

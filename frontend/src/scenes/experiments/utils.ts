@@ -684,6 +684,11 @@ export function getAllowedMathTypes(metricType: ExperimentMetricType): Experimen
                 ExperimentMetricMathType.Avg,
                 ExperimentMetricMathType.Min,
                 ExperimentMetricMathType.Max,
+                ExperimentMetricMathType.Median,
+                ExperimentMetricMathType.P75,
+                ExperimentMetricMathType.P90,
+                ExperimentMetricMathType.P95,
+                ExperimentMetricMathType.P99,
                 ExperimentMetricMathType.UniqueSessions,
                 ExperimentMetricMathType.HogQL,
             ]
@@ -697,6 +702,11 @@ export function getAllowedMathTypes(metricType: ExperimentMetricType): Experimen
                 ExperimentMetricMathType.Avg,
                 ExperimentMetricMathType.Min,
                 ExperimentMetricMathType.Max,
+                ExperimentMetricMathType.Median,
+                ExperimentMetricMathType.P75,
+                ExperimentMetricMathType.P90,
+                ExperimentMetricMathType.P95,
+                ExperimentMetricMathType.P99,
             ]
         default:
             return [ExperimentMetricMathType.TotalCount]

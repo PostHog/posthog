@@ -4782,6 +4782,11 @@ export enum ExperimentMetricMathType {
     UniqueUsers = 'dau',
     UniqueGroup = 'unique_group',
     HogQL = 'hogql',
+    Median = 'median',
+    P75 = 'p75',
+    P90 = 'p90',
+    P95 = 'p95',
+    P99 = 'p99',
 }
 
 export enum ExperimentMetricGoal {

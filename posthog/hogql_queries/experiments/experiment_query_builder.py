@@ -25,6 +25,7 @@ from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.experiments.base_query_utils import (
+    PERCENTILE_LEVELS,
     conversion_window_to_seconds,
     data_warehouse_node_to_filter,
     event_or_action_to_filter,
@@ -1052,6 +1053,12 @@ class ExperimentQueryBuilder:
             return parse_expr(f"coalesce(max(toFloat({column_ref})), 0)")
         elif math_type == ExperimentMetricMathType.AVG:
             return parse_expr(f"coalesce(avg(toFloat({column_ref})), 0)")
+        elif math_type in PERCENTILE_LEVELS:
+            level = PERCENTILE_LEVELS[math_type]
+            return parse_expr(
+                f"coalesce(quantile({{level}})(toFloat({column_ref})), 0)",
+                placeholders={"level": ast.Constant(value=level)},
+            )
         elif math_type == ExperimentMetricMathType.HOGQL:
             math_hogql = getattr(source, "math_hogql", None)
             if math_hogql is not None:
