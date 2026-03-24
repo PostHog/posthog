@@ -36,6 +36,7 @@ import {
     createJoinedIngestionPipeline,
 } from './analytics'
 import { AiEventOutput, EventOutput, HeatmapsOutput } from './analytics/outputs'
+import { IngestionWarningsOutput } from './common/outputs'
 import { IngestionConsumerConfig } from './config'
 import { CookielessManager } from './cookieless/cookieless-manager'
 import { parseSplitAiEventsConfig } from './event-processing/split-ai-events-step'
@@ -58,7 +59,7 @@ export interface IngestionConsumerDeps {
     redisPool: RedisPool
     kafkaProducer: KafkaProducerWrapper
     kafkaMetricsProducer: KafkaProducerWrapper
-    outputs: IngestionOutputs<EventOutput | AiEventOutput | HeatmapsOutput>
+    outputs: IngestionOutputs<EventOutput | AiEventOutput | HeatmapsOutput | IngestionWarningsOutput>
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     groupRepository: GroupRepository

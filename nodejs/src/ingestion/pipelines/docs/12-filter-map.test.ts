@@ -19,9 +19,11 @@
 import { Message } from 'node-rdkafka'
 
 import { createTestMessage } from '../../../../tests/helpers/kafka-message'
+import { createMockIngestionOutputs } from '../../../../tests/helpers/mock-ingestion-outputs'
 import { createTestTeam } from '../../../../tests/helpers/team'
 import { Team } from '../../../types'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
+import { IngestionWarningsOutput } from '../../common/outputs'
 import { newBatchPipelineBuilder } from '../builders'
 import { createContext } from '../helpers'
 import { PipelineWarning } from '../pipeline.interface'
@@ -131,7 +133,7 @@ describe('Filter Map', () => {
                 (b) =>
                     b
                         .teamAware((b) => b.pipeBatch(createProcessEventStep()).gather())
-                        .handleIngestionWarnings(mockKafkaProducer as any)
+                        .handleIngestionWarnings(createMockIngestionOutputs<IngestionWarningsOutput>())
             )
             // Handle all results (both from subpipeline and passed-through non-OK) once at the end
             .messageAware((builder) => builder)

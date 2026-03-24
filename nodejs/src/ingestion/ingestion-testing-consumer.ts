@@ -2,6 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
+import { KAFKA_INGESTION_WARNINGS } from '../config/kafka-topics'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { HealthCheckResult, HealthCheckResultError, PluginServerService, PluginsServerConfig } from '../types'
@@ -16,6 +17,7 @@ import {
     TestingJoinedIngestionPipelineInput,
     createTestingJoinedIngestionPipeline,
 } from './analytics/testing-joined-ingestion-pipeline'
+import { INGESTION_WARNINGS_OUTPUT } from './common/outputs'
 import { latestOffsetTimestampGauge } from './ingestion-consumer'
 import { IngestionOutputs } from './outputs/ingestion-outputs'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
@@ -98,6 +100,10 @@ export class IngestionTestingConsumer {
             },
             [HEATMAPS_OUTPUT]: {
                 topic: this.config.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                producer: this.kafkaProducer!,
+            },
+            [INGESTION_WARNINGS_OUTPUT]: {
+                topic: KAFKA_INGESTION_WARNINGS,
                 producer: this.kafkaProducer!,
             },
         })
