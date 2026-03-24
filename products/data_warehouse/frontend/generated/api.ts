@@ -754,6 +754,7 @@ export const externalDataSourcesWebhookInfoRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
 
 export const getExternalDataSourcesConnectionsListUrl = (
     projectId: string,

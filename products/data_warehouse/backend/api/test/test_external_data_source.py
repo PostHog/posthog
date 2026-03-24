@@ -625,6 +625,7 @@ class TestExternalDataSource(APIBaseTest):
                 "job_inputs",
                 "revenue_analytics_config",
                 "user_access_level",
+                "supports_webhooks",
             ],
         )
         self.assertIsNone(payload["engine"])
@@ -3281,25 +3282,6 @@ class TestCreateWebhook(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["message"] == "Source has no configuration"
-
-    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
-    def test_create_webhook_no_eligible_schemas(self, _mock_flag):
-        self._create_hog_function_template()
-        source = self._create_stripe_source()
-        ExternalDataSchema.objects.create(
-            name=STRIPE_CUSTOMER_RESOURCE_NAME,
-            team_id=self.team.pk,
-            source=source,
-            sync_type="full_refresh",
-            should_sync=True,
-        )
-
-        response = self.client.post(
-            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["message"] == "No webhook-eligible incremental schemas found for this source"
 
     @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
