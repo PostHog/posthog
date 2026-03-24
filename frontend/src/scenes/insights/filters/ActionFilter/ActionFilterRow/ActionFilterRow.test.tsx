@@ -1,3 +1,5 @@
+import { MOCK_GROUP_TYPES } from '~/lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
@@ -6,6 +8,14 @@ import { Provider } from 'kea'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+
+import { useAvailableFeatures } from '~/mocks/features'
+import { useMocks } from '~/mocks/jest'
+import { actionsModel } from '~/models/actionsModel'
+import { groupsModel } from '~/models/groupsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { initKeaTests } from '~/test/init'
+import { searchAndSelect, setupInsightMocks } from '~/test/insight-testing'
 import {
     AvailableFeature,
     EntityTypes,
@@ -16,17 +26,8 @@ import {
     PropertyMathType,
     PropertyOperator,
 } from '~/types'
-import { useAvailableFeatures } from '~/mocks/features'
-import { useMocks } from '~/mocks/jest'
-import { MOCK_GROUP_TYPES } from '~/lib/api.mock'
-import { actionsModel } from '~/models/actionsModel'
-import { groupsModel } from '~/models/groupsModel'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { initKeaTests } from '~/test/init'
-import { setupInsightMocks } from '~/test/insight-testing'
 
 import filtersJson from '../__mocks__/filters.json'
-
 import { ActionFilterRow, MathAvailability, taxonomicFilterGroupTypeToEntityType } from './ActionFilterRow'
 
 // AutoSizer needs a mock because react-virtualized requires real DOM measurements
@@ -331,9 +332,7 @@ describe('ActionFilterRow', () => {
         describe('custom renderRow', () => {
             it('delegates to custom render function', () => {
                 const { logic } = setup()
-                const customRender = jest.fn(({ filter }) => (
-                    <div data-attr="custom-row">{filter}</div>
-                ))
+                const customRender = jest.fn(({ filter }) => <div data-attr="custom-row">{filter}</div>)
                 renderRow(logic, { renderRow: customRender })
                 expect(screen.getByTestId('custom-row')).toBeInTheDocument()
                 expect(customRender).toHaveBeenCalledWith(
@@ -358,9 +357,7 @@ describe('ActionFilterRow', () => {
 
             it('calls function suffix with filter, index, onClose', () => {
                 const { logic } = setup()
-                const suffixFn = jest.fn(({ filter }) => (
-                    <span data-attr="fn-suffix">{filter.name}</span>
-                ))
+                const suffixFn = jest.fn(({ filter }) => <span data-attr="fn-suffix">{filter.name}</span>)
                 renderRow(logic, { customRowSuffix: suffixFn })
                 expect(screen.getByTestId('fn-suffix')).toHaveTextContent('$pageview')
                 expect(suffixFn).toHaveBeenCalledWith(
@@ -407,9 +404,7 @@ describe('ActionFilterRow', () => {
             await userEvent.click(screen.getByTitle('Duplicate graph series'))
             expect(setFilters).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    events: expect.arrayContaining([
-                        expect.objectContaining({ id: '$pageview', order: 0 }),
-                    ]),
+                    events: expect.arrayContaining([expect.objectContaining({ id: '$pageview', order: 0 })]),
                 })
             )
         })
@@ -428,9 +423,7 @@ describe('ActionFilterRow', () => {
             await userEvent.click(screen.getByTitle('Count multiple events as a single event'))
             expect(setFilters).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    events: expect.arrayContaining([
-                        expect.objectContaining({ id: '$pageview' }),
-                    ]),
+                    events: expect.arrayContaining([expect.objectContaining({ id: '$pageview' })]),
                 })
             )
         })
@@ -463,9 +456,7 @@ describe('ActionFilterRow', () => {
 
             expect(setFilters).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    events: expect.arrayContaining([
-                        expect.objectContaining({ math: 'dau' }),
-                    ]),
+                    events: expect.arrayContaining([expect.objectContaining({ math: 'dau' })]),
                 })
             )
         })
@@ -535,9 +526,7 @@ describe('ActionFilterRow', () => {
                     ])
                 )
                 // math_hogql should not be present on the updated filter
-                const updatedEvent = call.events.find(
-                    (e: any) => e.math_property === '$session_duration'
-                )
+                const updatedEvent = call.events.find((e: any) => e.math_property === '$session_duration')
                 expect(updatedEvent.math_hogql).toBeUndefined()
             })
         })
@@ -683,62 +672,70 @@ describe('ActionFilterRow', () => {
             })
         })
 
-        // The TaxonomicPopover onChange has specialized branches for PageviewEvents,
-        // ScreenEvents, and AutocaptureEvents that set specific event ids and property
-        // filters. These branches call updateFilter + updateFilterProperty on the logic,
-        // which we test directly since the TaxonomicPopover tab navigation is complex.
+        // These branches are triggered when the user selects an item from a specialized
+        // TaxonomicPopover tab. We test through the UI using searchAndSelect: open popover →
+        // switch tab → search (minSearchQueryLength=3) → select item → assert setFilters.
         it.each([
-            ['PageviewEvents', '$pageview', '$current_url', PropertyOperator.IContains],
-            ['ScreenEvents', '$screen', '$screen_name', PropertyOperator.Exact],
-            ['AutocaptureEvents', '$autocapture', '$el_text', PropertyOperator.Exact],
+            {
+                tab: 'pageview_events',
+                searchText: 'exam',
+                resultValue: 'https://example.com',
+                expectedEventId: '$pageview',
+                expectedPropertyKey: '$current_url',
+                expectedOperator: PropertyOperator.IContains,
+            },
+            {
+                tab: 'screen_events',
+                searchText: 'home',
+                resultValue: 'HomeScreen',
+                expectedEventId: '$screen',
+                expectedPropertyKey: '$screen_name',
+                expectedOperator: PropertyOperator.Exact,
+            },
+            {
+                tab: 'autocapture_events',
+                searchText: 'sign',
+                resultValue: 'Sign Up',
+                expectedEventId: '$autocapture',
+                expectedPropertyKey: '$el_text',
+                expectedOperator: PropertyOperator.Exact,
+            },
         ])(
-            '%s branch sets event to %s with %s property filter',
-            async (_branch, eventId, propertyKey, operator) => {
+            '$tab selects $expectedEventId with $expectedPropertyKey property filter',
+            async ({ tab, searchText, resultValue, expectedEventId, expectedPropertyKey, expectedOperator }) => {
+                useMocks({
+                    get: {
+                        '/api/environments/:team/events/values/': [{ name: resultValue }, { name: 'other-value' }],
+                    },
+                })
+
                 const { logic, setFilters } = setup()
-                renderRow(logic, INLINE_CONTEXT)
-
-                // Simulate the same actions the onChange handler calls for these branches
-                logic.actions.updateFilter({
-                    type: EntityTypes.EVENTS,
-                    id: eventId,
-                    name: eventId,
-                    index: 0,
-                })
-
-                await waitFor(() => {
-                    expect(setFilters).toHaveBeenCalledWith(
-                        expect.objectContaining({
-                            events: expect.arrayContaining([
-                                expect.objectContaining({ id: eventId, name: eventId }),
-                            ]),
-                        })
-                    )
-                })
-
-                logic.actions.updateFilterProperty({
-                    index: 0,
-                    properties: [
-                        {
-                            key: propertyKey,
-                            value: 'test-value',
-                            operator,
-                            type: PropertyFilterType.Event,
-                        },
+                renderRow(logic, {
+                    ...INLINE_CONTEXT,
+                    actionsTaxonomicGroupTypes: [
+                        TaxonomicFilterGroupType.Events,
+                        TaxonomicFilterGroupType.PageviewEvents,
+                        TaxonomicFilterGroupType.ScreenEvents,
+                        TaxonomicFilterGroupType.AutocaptureEvents,
                     ],
                 })
+
+                await searchAndSelect('trend-element-subject-0', searchText, `prop-filter-${tab}-0`)
 
                 await waitFor(() => {
                     const lastCall = setFilters.mock.calls[setFilters.mock.calls.length - 1][0]
                     expect(lastCall.events).toEqual(
                         expect.arrayContaining([
                             expect.objectContaining({
-                                properties: [
+                                id: expectedEventId,
+                                properties: expect.arrayContaining([
                                     expect.objectContaining({
-                                        key: propertyKey,
-                                        operator,
+                                        key: expectedPropertyKey,
+                                        value: resultValue,
+                                        operator: expectedOperator,
                                         type: PropertyFilterType.Event,
                                     }),
-                                ],
+                                ]),
                             }),
                         ])
                     )
