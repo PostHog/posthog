@@ -7315,6 +7315,13 @@ export namespace Schemas {
       Number2: 2,
     } as const;
 
+    export interface CopyDashboardTileRequest {
+      /** Dashboard id the tile currently belongs to. */
+      fromDashboardId: number;
+      /** Dashboard tile id to copy. */
+      tileId: number;
+    }
+
     export interface CopyFlagsRequest {
       /** Key of the feature flag to copy */
       feature_flag_key: string;
@@ -12664,6 +12671,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `duckdb` - duckdb
+    * `postgres` - postgres
+     */
+    export type EngineEnum = typeof EngineEnum[keyof typeof EngineEnum];
+
+
+    export const EngineEnum = {
+      Duckdb: 'duckdb',
+      Postgres: 'postgres',
+    } as const;
+
+    /**
      * Serializer mixin that handles tags for objects.
      */
     export interface EnterpriseEventDefinition {
@@ -14222,6 +14241,17 @@ export namespace Schemas {
       readonly description: string | null;
     }
 
+    export interface ExternalDataSourceConnectionOption {
+      readonly id: string;
+      /** @nullable */
+      readonly prefix: string | null;
+      /** Backend engine detected for the direct connection.
+
+    * `duckdb` - duckdb
+    * `postgres` - postgres */
+      readonly engine: EngineEnum | NullEnum | null;
+    }
+
     export interface ExternalDataSourceRevenueAnalyticsConfig {
       enabled?: boolean;
       include_invoiceless_charges?: boolean;
@@ -14542,6 +14572,11 @@ export namespace Schemas {
        */
       description?: string | null;
       readonly access_method: AccessMethodEnum;
+      /** Backend engine detected for the direct connection.
+
+    * `duckdb` - duckdb
+    * `postgres` - postgres */
+      readonly engine: EngineEnum | NullEnum | null;
       readonly last_run_at: string;
       readonly schemas: readonly ExternalDataSourceSerializersSchemasItem[];
       job_inputs?: unknown | null;
@@ -15071,6 +15106,11 @@ export namespace Schemas {
       payloads?: FeatureFlagFiltersSchemaPayloads;
       /** Additional super condition groups used by experiments. */
       super_groups?: FeatureFlagFiltersSchemaSuperGroupsItem[];
+      /**
+       * Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.
+       * @nullable
+       */
+      feature_enrollment?: boolean | null;
     }
 
     export interface FeatureFlagCreateRequestSchema {
@@ -15178,6 +15218,11 @@ export namespace Schemas {
     export interface GitHubBranchesResponse {
       /** List of branch names */
       branches: string[];
+      /**
+       * The default branch of the repository
+       * @nullable
+       */
+      default_branch?: string | null;
     }
 
     export interface GitHubRepo {
@@ -18212,6 +18257,22 @@ export namespace Schemas {
       _create_in_folder?: string;
     }
 
+    export interface NotificationEvent {
+      id: string;
+      notification_type: string;
+      priority: string;
+      title: string;
+      body: string;
+      read: boolean;
+      /** @nullable */
+      read_at: string | null;
+      /** @nullable */
+      resource_type: string | null;
+      resource_id: string;
+      source_url: string;
+      created_at: string;
+    }
+
     export interface NumericScoreDefinitionConfig {
       /**
        * Optional inclusive minimum score.
@@ -18950,6 +19011,15 @@ export namespace Schemas {
       results: ExternalDataSchema[];
     }
 
+    export interface PaginatedExternalDataSourceConnectionOptionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ExternalDataSourceConnectionOption[];
+    }
+
     export interface PaginatedExternalDataSourceSerializersList {
       count: number;
       /** @nullable */
@@ -19199,6 +19269,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: NotebookMinimal[];
+    }
+
+    export interface PaginatedNotificationEventList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: NotificationEvent[];
     }
 
     export interface PaginatedObjectMediaPreviewList {
@@ -22187,6 +22266,11 @@ export namespace Schemas {
        */
       description?: string | null;
       readonly access_method?: AccessMethodEnum;
+      /** Backend engine detected for the direct connection.
+
+    * `duckdb` - duckdb
+    * `postgres` - postgres */
+      readonly engine?: EngineEnum | NullEnum | null;
       readonly last_run_at?: string;
       readonly schemas?: readonly PatchedExternalDataSourceSerializersSchemasItem[];
       job_inputs?: unknown | null;
@@ -29368,6 +29452,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type EnvironmentsDashboardsCopyTileCreateParams = {
+    format?: EnvironmentsDashboardsCopyTileCreateFormat;
+    };
+
+    export type EnvironmentsDashboardsCopyTileCreateFormat = typeof EnvironmentsDashboardsCopyTileCreateFormat[keyof typeof EnvironmentsDashboardsCopyTileCreateFormat];
+
+
+    export const EnvironmentsDashboardsCopyTileCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type EnvironmentsDashboardsMoveTilePartialUpdateParams = {
     format?: EnvironmentsDashboardsMoveTilePartialUpdateFormat;
     };
@@ -29623,6 +29719,21 @@ export namespace Schemas {
     };
 
     export type EnvironmentsExternalDataSourcesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
+    export type EnvironmentsExternalDataSourcesConnectionsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -31158,6 +31269,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type NotificationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type QuickFiltersListParams = {
     /**
      * Number of results to return per page.
@@ -31901,6 +32023,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type DashboardsCopyTileCreateParams = {
+    format?: DashboardsCopyTileCreateFormat;
+    };
+
+    export type DashboardsCopyTileCreateFormat = typeof DashboardsCopyTileCreateFormat[keyof typeof DashboardsCopyTileCreateFormat];
+
+
+    export const DashboardsCopyTileCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type DashboardsMoveTilePartialUpdateParams = {
     format?: DashboardsMoveTilePartialUpdateFormat;
     };
@@ -32262,6 +32396,21 @@ export namespace Schemas {
     };
 
     export type ExternalDataSourcesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
+    export type ExternalDataSourcesConnectionsListParams = {
     /**
      * Number of results to return per page.
      */

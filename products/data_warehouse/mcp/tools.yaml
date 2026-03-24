@@ -394,3 +394,6 @@ tools:
     external-data-sources-update-webhook-inputs-create:
         operation: external_data_sources_update_webhook_inputs_create
         enabled: false
+    external-data-sources-connections-list:
+        operation: external_data_sources_connections_list
+        enabled: false

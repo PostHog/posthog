@@ -1588,6 +1588,32 @@ class TestManagementCommands(BaseTest):
         self.assertIsInstance(result["db_data"], dict)
         self.assertIn("flags", result["db_data"])
 
+    def test_verify_detects_missing_evaluation_metadata(self):
+        from posthog.models.feature_flag.flags_cache import update_flags_cache, verify_team_flags
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Warm the cache normally (includes evaluation_metadata)
+        update_flags_cache(self.team)
+
+        # Simulate a pre-evaluation_metadata cache entry by removing the key
+        cached_data, _source = flags_hypercache.get_from_cache_with_source(self.team)
+        assert cached_data is not None
+        del cached_data["evaluation_metadata"]
+        flags_hypercache.set_cache_value(self.team, cached_data)
+
+        result = verify_team_flags(self.team)
+
+        self.assertEqual(result["status"], "mismatch")
+        self.assertEqual(result["issue"], "MISSING_EVALUATION_METADATA")
+        self.assertIn("db_data", result)
+        self.assertIn("evaluation_metadata", result["db_data"])
+
     @override_settings(FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=0)
     def test_verify_fix_failures_reported(self):
         """Test that fix failures are properly reported."""

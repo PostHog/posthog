@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # uv — Python package manager
-COPY --from=ghcr.io/astral-sh/uv:0.10 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.10.12 /uv /usr/local/bin/uv
 
 # mprocs — process manager used by bin/start
 ARG MPROCS_VERSION=0.7.2
@@ -52,7 +52,8 @@ WORKDIR /workspaces/posthog
 
 # Pre-install Python dependencies (cached layer — rebuilds only when lockfile changes)
 COPY pyproject.toml uv.lock ./
-RUN uv sync
+RUN --mount=from=ghcr.io/astral-sh/uv:0.10.12,source=/uv,target=/bin/uv \
+    uv sync
 
 # Node dependencies are installed in on-create.sh (pnpm workspace
 # requires the full source tree with all workspace package.json files)

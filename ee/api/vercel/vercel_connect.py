@@ -1,13 +1,18 @@
+import json
 import uuid
+import zlib
+import base64
+import hashlib
 from typing import cast
 from urllib.parse import quote, urlencode, urlparse
 
 from django.conf import settings
+from django.core import signing
 from django.core.cache import cache
-from django.core.signing import BadSignature
 from django.http import HttpResponse, HttpResponseRedirect
 
 import structlog
+from cryptography.fernet import Fernet, InvalidToken
 from rest_framework import decorators, exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -27,30 +32,34 @@ ALLOWED_REDIRECT_DOMAINS = {
 }
 
 CONNECT_SESSION_TIMEOUT = 600  # 10 minutes
-CONNECT_COOKIE_NAME = "vercel_connect_session"
-CONNECT_COOKIE_SALT = "vercel_connect"
+USED_TOKEN_CACHE_PREFIX = "vercel_connect_used:"
 
 
-def _get_connect_cache_key(session_key: str) -> str:
-    return f"vercel_connect:{session_key}"
+def _get_fernet() -> Fernet:
+    key = base64.urlsafe_b64encode(hashlib.sha256(settings.VERCEL_CLIENT_INTEGRATION_SECRET.encode()).digest())
+    return Fernet(key)
 
 
-def _get_bound_session_key(request: Request) -> str | None:
-    """Read the CSRF-binding session key from the signed cookie.
+def _sign_connect_session(data: dict) -> str:
+    data["jti"] = str(uuid.uuid4())
+    payload = zlib.compress(json.dumps(data).encode())
+    return _get_fernet().encrypt(payload).decode()
 
-    Uses a signed cookie instead of the Django session because session.flush()
-    is called during SSO login and when switching users, which would destroy
-    the binding and break the flow for unauthenticated users.
-    """
+
+def _load_connect_session(token: str) -> dict:
     try:
-        return request._request.get_signed_cookie(
-            CONNECT_COOKIE_NAME,
-            default=None,
-            salt=CONNECT_COOKIE_SALT,
-            max_age=CONNECT_SESSION_TIMEOUT,
-        )
-    except BadSignature:
-        return None
+        decrypted = _get_fernet().decrypt(token.encode(), ttl=CONNECT_SESSION_TIMEOUT)
+    except InvalidToken:
+        raise signing.BadSignature("Invalid or expired token")
+    return json.loads(zlib.decompress(decrypted))
+
+
+def _mark_token_used(jti: str) -> bool:
+    cache_key = f"{USED_TOKEN_CACHE_PREFIX}{jti}"
+    if cache.get(cache_key):
+        return False
+    cache.set(cache_key, True, timeout=CONNECT_SESSION_TIMEOUT)
+    return True
 
 
 def _validate_next_url(url: str) -> str:
@@ -114,9 +123,7 @@ class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
             )
             raise exceptions.AuthenticationFailed("Vercel authentication failed")
 
-        session_key = str(uuid.uuid4())
-        cache.set(
-            _get_connect_cache_key(session_key),
+        session_token = _sign_connect_session(
             {
                 "access_token": token_response.access_token,
                 "token_type": token_response.token_type,
@@ -125,29 +132,16 @@ class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
                 "team_id": token_response.team_id,
                 "configuration_id": configuration_id,
                 "next_url": next_url,
-            },
-            timeout=CONNECT_SESSION_TIMEOUT,
+            }
         )
 
-        link_url = f"/connect/vercel/link?{urlencode({'session': session_key})}"
+        link_url = f"/connect/vercel/link?{urlencode({'session': session_token})}"
 
         if not request.user.is_authenticated:
             login_url = f"/login?next={quote(link_url)}"
-            response = HttpResponseRedirect(redirect_to=login_url)
+            return HttpResponseRedirect(redirect_to=login_url)
         else:
-            response = HttpResponseRedirect(redirect_to=link_url)
-
-        # Bind session_key via signed cookie so it survives session.flush() during SSO login.
-        response.set_signed_cookie(
-            CONNECT_COOKIE_NAME,
-            session_key,
-            salt=CONNECT_COOKIE_SALT,
-            max_age=CONNECT_SESSION_TIMEOUT,
-            httponly=True,
-            samesite="Lax",
-            secure=not settings.DEBUG,
-        )
-        return response
+            return HttpResponseRedirect(redirect_to=link_url)
 
 
 class VercelConnectLinkSerializer(serializers.Serializer):
@@ -170,13 +164,14 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         session_key = serializer.validated_data["session"]
         organization_id = serializer.validated_data["organization_id"]
 
-        bound_session_key = _get_bound_session_key(request)
-        if bound_session_key != session_key:
-            raise exceptions.ValidationError("Session mismatch. Please restart the linking flow from Vercel.")
+        try:
+            cached_data = _load_connect_session(session_key)
+        except signing.BadSignature:
+            raise exceptions.ValidationError("Session expired or invalid. Please try linking again from Vercel.")
 
-        cached_data = cache.get(_get_connect_cache_key(session_key))
-        if not cached_data:
-            raise exceptions.ValidationError("Session expired. Please try linking again from Vercel.")
+        jti = cached_data.get("jti")
+        if not jti or not _mark_token_used(jti):
+            raise exceptions.ValidationError("Session already used. Please try linking again from Vercel.")
 
         try:
             membership = OrganizationMembership.objects.get(
@@ -224,8 +219,6 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
             created_by=user,
         )
 
-        cache.delete(_get_connect_cache_key(session_key))
-
         logger.info(
             "Vercel connectable account linked",
             installation_id=installation_id,
@@ -234,7 +227,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
             integration="vercel",
         )
 
-        response = Response(
+        return Response(
             {
                 "status": "linked",
                 "organization_id": str(organization_id),
@@ -243,8 +236,6 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
             },
             status=201,
         )
-        response.delete_cookie(CONNECT_COOKIE_NAME)
-        return response
 
     @decorators.action(detail=False, methods=["get"], url_path="session")
     def session_info(self, request: Request) -> Response:
@@ -252,13 +243,10 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         if not session_key:
             raise exceptions.ValidationError("Missing session parameter")
 
-        bound_session_key = _get_bound_session_key(request)
-        if bound_session_key != session_key:
-            raise exceptions.ValidationError("Session mismatch. Please restart the linking flow from Vercel.")
-
-        cached_data = cache.get(_get_connect_cache_key(session_key))
-        if not cached_data:
-            raise exceptions.ValidationError("Session expired. Please try linking again from Vercel.")
+        try:
+            cached_data = _load_connect_session(session_key)
+        except signing.BadSignature:
+            raise exceptions.ValidationError("Session expired or invalid. Please try linking again from Vercel.")
 
         user = cast(User, request.user)
         memberships = OrganizationMembership.objects.filter(

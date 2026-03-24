@@ -19,6 +19,7 @@ import products.mcp_store.backend.api as mcp_store
 import products.signals.backend.views as signals
 import products.conversations.backend.api as conversations
 import products.live_debugger.backend.api as live_debugger
+import products.surveys.backend.api.survey as survey
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.marketing_analytics.backend.api as marketing_analytics
 import products.early_access_features.backend.api as early_access_feature
@@ -77,7 +78,11 @@ from products.llm_analytics.backend.api import (
     ScoreDefinitionViewSet,
     TraceReviewViewSet,
 )
+from products.messaging.backend.api.message_categories import MessageCategoryViewSet
+from products.messaging.backend.api.message_preferences import MessagePreferencesViewSet
+from products.messaging.backend.api.message_templates import MessageTemplatesViewSet
 from products.notebooks.backend.api.notebook import NotebookViewSet
+from products.notifications.backend.presentation.views import NotificationsViewSet
 from products.posthog_ai.backend.api import MCPToolsViewSet
 from products.product_tours.backend.api import ProductTourViewSet
 from products.signals.backend.views import SignalViewSet
@@ -87,7 +92,6 @@ from products.visual_review.backend.presentation.views import (
     RepoViewSet as VisualReviewRepoViewSet,
     RunViewSet as VisualReviewRunViewSet,
 )
-from products.workflows.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
 
 from ee.api.session_summaries import SessionGroupSummaryViewSet
 from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, vercel_resource
@@ -141,7 +145,6 @@ from . import (
     schema_property_group,
     search,
     sharing,
-    survey,
     tagged_item,
     team,
     uploaded_media,
@@ -568,6 +571,13 @@ environments_router.register(
     r"data_modeling_edges",
     EdgeViewSet,
     "environment_data_modeling_edges",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"notifications",
+    NotificationsViewSet,
+    "environment_notifications",
     ["team_id"],
 )
 
