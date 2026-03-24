@@ -366,6 +366,32 @@ const reorderVariantState = (
     }
 }
 
+// Helper function to remap openVariants after reordering to handle keyless variants
+const remapOpenVariantsAfterReorder = (openVariants: string[], fromIndex: number, toIndex: number): string[] => {
+    return openVariants.map((key) => {
+        // Check if this is a keyless variant ID (variant-0, variant-1, etc.)
+        const match = key.match(/^variant-(\d+)$/)
+        if (!match) {
+            // Not a keyless variant, return as-is
+            return key
+        }
+
+        const variantIndex = parseInt(match[1], 10)
+        let newIndex = variantIndex
+
+        // Apply the same reordering logic as reorderVariantState
+        if (variantIndex === fromIndex) {
+            newIndex = toIndex
+        } else if (fromIndex < toIndex && variantIndex > fromIndex && variantIndex <= toIndex) {
+            newIndex = variantIndex - 1
+        } else if (fromIndex > toIndex && variantIndex >= toIndex && variantIndex < fromIndex) {
+            newIndex = variantIndex + 1
+        }
+
+        return `variant-${newIndex}`
+    })
+}
+
 export const getRecordingFilterForFlagVariant = (
     flagKey: string,
     variantKey: string | null,
@@ -899,6 +925,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             [] as string[],
             {
                 setOpenVariants: (_, { openVariants }) => openVariants,
+                moveVariantUp: (state, { index }) => {
+                    // Remap openVariants when variants are reordered
+                    return remapOpenVariantsAfterReorder(state, index, index - 1)
+                },
+                moveVariantDown: (state, { index }) => {
+                    // Remap openVariants when variants are reordered
+                    return remapOpenVariantsAfterReorder(state, index, index + 1)
+                },
+                reorderVariants: (state, { fromIndex, toIndex }) => {
+                    // Remap openVariants when variants are reordered
+                    return remapOpenVariantsAfterReorder(state, fromIndex, toIndex)
+                },
             },
         ],
         payloadExpanded: [

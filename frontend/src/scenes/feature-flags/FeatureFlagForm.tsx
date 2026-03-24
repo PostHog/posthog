@@ -1,6 +1,14 @@
 import './FeatureFlag.scss'
 
-import { DndContext, DragEndEvent, DragOverlay, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
+import {
+    DndContext,
+    DragEndEvent,
+    DragOverlay,
+    DragStartEvent,
+    PointerSensor,
+    useSensor,
+    useSensors,
+} from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
@@ -132,17 +140,17 @@ function SortableVariantHeader({
                         e.currentTarget.style.cursor = 'grab'
                     }}
                 />
-                {variants.length > 1 && (
-                    <LemonButton
-                        size="xsmall"
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            removeVariant(index)
-                        }}
-                        tooltip="Delete variant"
-                        icon={<IconTrash />}
-                    />
-                )}
+                <LemonButton
+                    size="xsmall"
+                    status="danger"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        removeVariant(index)
+                    }}
+                    disabled={variants.length <= 1}
+                    tooltip="Delete variant"
+                    icon={<IconTrash />}
+                />
             </div>
         </div>
     )
@@ -250,7 +258,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         })
     )
 
-    const handleDragStart = (event: any): void => {
+    const handleDragStart = (event: DragStartEvent): void => {
         setActiveId(event.active.id)
     }
 
@@ -276,6 +284,16 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         const index = variants.findIndex((variant, index) => (variant.key || `variant-${index}`) === activeId)
         return index !== -1 ? variants[index] : null
     }
+
+    // Calculate active variant index for drag overlay
+    const activeVariantIndex = activeId
+        ? variants.findIndex((variant, index) => (variant.key || `variant-${index}`) === activeId)
+        : -1
+
+    // Calculate expand/collapse button state
+    const allVariantKeys = variants.map((variant, index) => variant.key || `variant-${index}`)
+    const allExpanded = allVariantKeys.every((key) => openVariants.includes(key))
+    const anyExpanded = openVariants.length > 0
 
     if (!featureFlag) {
         return (
@@ -725,40 +743,26 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         <div className="flex items-center justify-between">
                                             <LemonLabel>Variants</LemonLabel>
                                             <div className="flex gap-1">
-                                                {(() => {
-                                                    const allVariantKeys = variants.map(
-                                                        (variant, index) => variant.key || `variant-${index}`
-                                                    )
-                                                    const allExpanded = allVariantKeys.every((key) =>
-                                                        openVariants.includes(key)
-                                                    )
-                                                    const anyExpanded = openVariants.length > 0
-
-                                                    return (
-                                                        <>
-                                                            {!allExpanded && variants.length > 1 && (
-                                                                <LemonButton
-                                                                    size="small"
-                                                                    icon={<IconExpand />}
-                                                                    onClick={() => setOpenVariants(allVariantKeys)}
-                                                                    tooltip="Expand all variants"
-                                                                >
-                                                                    Expand all
-                                                                </LemonButton>
-                                                            )}
-                                                            {anyExpanded && (
-                                                                <LemonButton
-                                                                    size="small"
-                                                                    icon={<IconCollapse />}
-                                                                    onClick={() => setOpenVariants([])}
-                                                                    tooltip="Collapse all variants"
-                                                                >
-                                                                    Collapse all
-                                                                </LemonButton>
-                                                            )}
-                                                        </>
-                                                    )
-                                                })()}
+                                                {!allExpanded && variants.length > 1 && (
+                                                    <LemonButton
+                                                        size="small"
+                                                        icon={<IconExpand />}
+                                                        onClick={() => setOpenVariants(allVariantKeys)}
+                                                        tooltip="Expand all variants"
+                                                    >
+                                                        Expand all
+                                                    </LemonButton>
+                                                )}
+                                                {anyExpanded && (
+                                                    <LemonButton
+                                                        size="small"
+                                                        icon={<IconCollapse />}
+                                                        onClick={() => setOpenVariants([])}
+                                                        tooltip="Collapse all variants"
+                                                    >
+                                                        Collapse all
+                                                    </LemonButton>
+                                                )}
                                                 <LemonButton
                                                     size="small"
                                                     icon={<IconBalance />}
@@ -896,14 +900,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     <div className="bg-bg-light border rounded p-3 shadow-lg opacity-95">
                                                         <div className="flex gap-2 items-center">
                                                             <Lettermark
-                                                                name={(() => {
-                                                                    const index = variants.findIndex(
-                                                                        (variant, index) =>
-                                                                            (variant.key || `variant-${index}`) ===
-                                                                            activeId
-                                                                    )
-                                                                    return alphabet[index] ?? '?'
-                                                                })()}
+                                                                name={alphabet[activeVariantIndex] ?? '?'}
                                                                 color={LettermarkColor.Gray}
                                                                 size="small"
                                                             />

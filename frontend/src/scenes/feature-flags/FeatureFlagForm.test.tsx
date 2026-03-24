@@ -145,8 +145,11 @@ describe('FeatureFlagForm - Expand/Collapse Buttons', () => {
     })
 
     describe('Collapse All Button', () => {
-        it('renders collapse all button', async () => {
+        it('renders collapse all button when variants are expanded', async () => {
             renderComponent()
+
+            // First expand some variants
+            logic.actions.setOpenVariants(['control', 'test-a'])
 
             await waitFor(() => {
                 expect(screen.getByRole('button', { name: /collapse all variants/i })).toBeInTheDocument()
@@ -155,6 +158,9 @@ describe('FeatureFlagForm - Expand/Collapse Buttons', () => {
 
         it('has correct icon and tooltip', async () => {
             renderComponent()
+
+            // First expand some variants so collapse button is visible
+            logic.actions.setOpenVariants(['control', 'test-a'])
 
             await waitFor(() => {
                 const collapseButton = screen.getByRole('button', { name: /collapse all variants/i })
@@ -185,25 +191,19 @@ describe('FeatureFlagForm - Expand/Collapse Buttons', () => {
         })
 
         it('works when no variants are expanded', async () => {
-            const user = userEvent.setup()
             renderComponent()
 
             // Start with no expanded variants
             logic.actions.setOpenVariants([])
 
             await waitFor(() => {
-                expect(screen.getByRole('button', { name: /collapse all variants/i })).toBeInTheDocument()
+                // Collapse all button should NOT be visible when no variants are expanded
+                expect(screen.queryByRole('button', { name: /collapse all variants/i })).not.toBeInTheDocument()
             })
 
-            await expectLogic(logic, () => {
-                const collapseButton = screen.getByRole('button', { name: /collapse all variants/i })
-                user.click(collapseButton)
-            }).toDispatchActions(['setOpenVariants'])
-
-            // Should still be empty array
-            await waitFor(() => {
-                expect(logic.values.openVariants).toEqual([])
-            })
+            // Since no collapse button is visible, we can't test clicking it
+            // This test just verifies the correct visibility behavior
+            expect(logic.values.openVariants).toEqual([])
         })
     })
 
@@ -467,6 +467,307 @@ describe('FeatureFlagForm - Expand/Collapse Buttons', () => {
 
             await waitFor(() => {
                 expect(logic.values.openVariants).toHaveLength(3)
+            })
+        })
+    })
+
+    describe('Drag and Drop Integration', () => {
+        it('preserves expanded state when dragging variants with keys', async () => {
+            renderComponent()
+
+            // Expand the first two variants
+            logic.actions.setOpenVariants(['control', 'test-a'])
+
+            await waitFor(() => {
+                expect(logic.values.openVariants).toEqual(['control', 'test-a'])
+            })
+
+            // Simulate reordering variants (control moves from index 0 to index 2)
+            logic.actions.reorderVariants(0, 2)
+
+            await waitFor(() => {
+                // openVariants should still contain the same keys since they have proper keys
+                expect(logic.values.openVariants).toEqual(['control', 'test-a'])
+            })
+        })
+
+        it('properly remaps openVariants when dragging keyless variants', async () => {
+            // Set up variants without keys
+            logic.actions.setFeatureFlag({
+                ...MOCK_MULTIVARIATE_FLAG,
+                filters: {
+                    ...MOCK_MULTIVARIATE_FLAG.filters,
+                    multivariate: {
+                        variants: [
+                            { key: '', name: 'Variant A', rollout_percentage: 33 },
+                            { key: '', name: 'Variant B', rollout_percentage: 33 },
+                            { key: '', name: 'Variant C', rollout_percentage: 34 },
+                        ],
+                    },
+                },
+            })
+
+            renderComponent()
+
+            // Expand first and third variants (variant-0 and variant-2)
+            logic.actions.setOpenVariants(['variant-0', 'variant-2'])
+
+            await waitFor(() => {
+                expect(logic.values.openVariants).toEqual(['variant-0', 'variant-2'])
+            })
+
+            // Move first variant (index 0) to last position (index 2)
+            logic.actions.reorderVariants(0, 2)
+
+            await waitFor(() => {
+                // variant-0 becomes variant-2, variant-2 becomes variant-1
+                expect(logic.values.openVariants).toEqual(['variant-2', 'variant-1'])
+            })
+        })
+
+        it('handles complex reordering scenarios with mixed key types', async () => {
+            // Set up mixed variants - some with keys, some without
+            logic.actions.setFeatureFlag({
+                ...MOCK_MULTIVARIATE_FLAG,
+                filters: {
+                    ...MOCK_MULTIVARIATE_FLAG.filters,
+                    multivariate: {
+                        variants: [
+                            { key: 'control', name: 'Control', rollout_percentage: 25 },
+                            { key: '', name: 'Keyless 1', rollout_percentage: 25 },
+                            { key: '', name: 'Keyless 2', rollout_percentage: 25 },
+                            { key: 'test-variant', name: 'Test', rollout_percentage: 25 },
+                        ],
+                    },
+                },
+            })
+
+            renderComponent()
+
+            // Expand control (has key) and second keyless variant (variant-1)
+            logic.actions.setOpenVariants(['control', 'variant-1'])
+
+            await waitFor(() => {
+                expect(logic.values.openVariants).toEqual(['control', 'variant-1'])
+            })
+
+            // Move keyless variant from index 1 to index 3
+            logic.actions.reorderVariants(1, 3)
+
+            await waitFor(() => {
+                // 'control' stays the same (has key), 'variant-1' becomes 'variant-2'
+                expect(logic.values.openVariants).toEqual(['control', 'variant-2'])
+            })
+        })
+
+        it('handles edge cases with single variant', async () => {
+            // Set up single keyless variant
+            logic.actions.setFeatureFlag({
+                ...MOCK_MULTIVARIATE_FLAG,
+                filters: {
+                    ...MOCK_MULTIVARIATE_FLAG.filters,
+                    multivariate: {
+                        variants: [{ key: '', name: 'Single Variant', rollout_percentage: 100 }],
+                    },
+                },
+            })
+
+            renderComponent()
+
+            // Expand the single variant
+            logic.actions.setOpenVariants(['variant-0'])
+
+            await waitFor(() => {
+                expect(logic.values.openVariants).toEqual(['variant-0'])
+            })
+
+            // Try to reorder (should be a no-op with single variant)
+            logic.actions.reorderVariants(0, 0)
+
+            await waitFor(() => {
+                // Should remain the same
+                expect(logic.values.openVariants).toEqual(['variant-0'])
+            })
+        })
+
+        it('handles empty openVariants gracefully during reordering', async () => {
+            renderComponent()
+
+            // Start with no expanded variants
+            logic.actions.setOpenVariants([])
+
+            await waitFor(() => {
+                expect(logic.values.openVariants).toEqual([])
+            })
+
+            // Reorder variants
+            logic.actions.reorderVariants(0, 2)
+
+            await waitFor(() => {
+                // Should remain empty
+                expect(logic.values.openVariants).toEqual([])
+            })
+        })
+
+        it('synchronizes openVariants with moveVariantUp action', async () => {
+            // Set up keyless variants
+            logic.actions.setFeatureFlag({
+                ...MOCK_MULTIVARIATE_FLAG,
+                filters: {
+                    ...MOCK_MULTIVARIATE_FLAG.filters,
+                    multivariate: {
+                        variants: [
+                            { key: '', name: 'First', rollout_percentage: 50 },
+                            { key: '', name: 'Second', rollout_percentage: 50 },
+                        ],
+                    },
+                },
+            })
+
+            renderComponent()
+
+            // Expand second variant (variant-1)
+            logic.actions.setOpenVariants(['variant-1'])
+
+            await waitFor(() => {
+                expect(logic.values.openVariants).toEqual(['variant-1'])
+            })
+
+            // Move second variant up (index 1 to index 0)
+            logic.actions.moveVariantUp(1)
+
+            await waitFor(() => {
+                // variant-1 becomes variant-0
+                expect(logic.values.openVariants).toEqual(['variant-0'])
+            })
+        })
+
+        it('synchronizes openVariants with moveVariantDown action', async () => {
+            // Set up keyless variants
+            logic.actions.setFeatureFlag({
+                ...MOCK_MULTIVARIATE_FLAG,
+                filters: {
+                    ...MOCK_MULTIVARIATE_FLAG.filters,
+                    multivariate: {
+                        variants: [
+                            { key: '', name: 'First', rollout_percentage: 50 },
+                            { key: '', name: 'Second', rollout_percentage: 50 },
+                        ],
+                    },
+                },
+            })
+
+            renderComponent()
+
+            // Expand first variant (variant-0)
+            logic.actions.setOpenVariants(['variant-0'])
+
+            await waitFor(() => {
+                expect(logic.values.openVariants).toEqual(['variant-0'])
+            })
+
+            // Move first variant down (index 0 to index 1)
+            logic.actions.moveVariantDown(0)
+
+            await waitFor(() => {
+                // variant-0 becomes variant-1
+                expect(logic.values.openVariants).toEqual(['variant-1'])
+            })
+        })
+    })
+
+    describe('Keyless Variant ID Remapping Logic', () => {
+        it('demonstrates why remapping is necessary for keyless variants', async () => {
+            // Set up 3 keyless variants
+            logic.actions.setFeatureFlag({
+                ...MOCK_MULTIVARIATE_FLAG,
+                filters: {
+                    ...MOCK_MULTIVARIATE_FLAG.filters,
+                    multivariate: {
+                        variants: [
+                            { key: '', name: 'Original First', rollout_percentage: 33 },
+                            { key: '', name: 'Original Second', rollout_percentage: 33 },
+                            { key: '', name: 'Original Third', rollout_percentage: 34 },
+                        ],
+                    },
+                },
+            })
+
+            renderComponent()
+
+            // Initially: variant-0, variant-1, variant-2 map to indices 0, 1, 2
+            // Expand first and third variants (variant-0 and variant-2)
+            logic.actions.setOpenVariants(['variant-0', 'variant-2'])
+
+            await waitFor(() => {
+                expect(logic.values.openVariants).toEqual(['variant-0', 'variant-2'])
+            })
+
+            // MOVE: First variant (index 0) to last position (index 2)
+            // This reorders the array: [second, third, first]
+            // So now:
+            // - Index 0 has "Original Second" (gets ID variant-0)
+            // - Index 1 has "Original Third" (gets ID variant-1)
+            // - Index 2 has "Original First" (gets ID variant-2)
+            logic.actions.reorderVariants(0, 2)
+
+            await waitFor(() => {
+                // Without remapping, openVariants would still be ['variant-0', 'variant-2']
+                // This would mean:
+                // - "Original Second" (now at index 0) would appear expanded ❌
+                // - "Original Third" (now at index 1) would appear collapsed ❌
+                // - "Original First" (now at index 2) would appear expanded ✅
+
+                // With remapping:
+                // - variant-0 (Original First) moved to index 2 → becomes variant-2
+                // - variant-2 (Original Third) moved to index 1 → becomes variant-1
+                expect(logic.values.openVariants).toEqual(['variant-2', 'variant-1'])
+
+                // This means:
+                // - "Original Second" (index 0, variant-0) appears collapsed ✅
+                // - "Original Third" (index 1, variant-1) appears expanded ✅
+                // - "Original First" (index 2, variant-2) appears expanded ✅
+            })
+        })
+
+        it('verifies the remapping algorithm handles complex multi-step reordering', async () => {
+            // Set up 4 keyless variants for more complex reordering
+            logic.actions.setFeatureFlag({
+                ...MOCK_MULTIVARIATE_FLAG,
+                filters: {
+                    ...MOCK_MULTIVARIATE_FLAG.filters,
+                    multivariate: {
+                        variants: [
+                            { key: '', name: 'A', rollout_percentage: 25 },
+                            { key: '', name: 'B', rollout_percentage: 25 },
+                            { key: '', name: 'C', rollout_percentage: 25 },
+                            { key: '', name: 'D', rollout_percentage: 25 },
+                        ],
+                    },
+                },
+            })
+
+            renderComponent()
+
+            // Expand variants A (variant-0) and C (variant-2)
+            logic.actions.setOpenVariants(['variant-0', 'variant-2'])
+
+            // Move B (index 1) to the end (index 3): [A, C, D, B]
+            logic.actions.reorderVariants(1, 3)
+
+            await waitFor(() => {
+                // A stays at index 0 → variant-0 unchanged
+                // C moves from index 2 to index 1 → variant-2 becomes variant-1
+                expect(logic.values.openVariants).toEqual(['variant-0', 'variant-1'])
+            })
+
+            // Now move A (index 0) to index 2: [C, D, A, B]
+            logic.actions.reorderVariants(0, 2)
+
+            await waitFor(() => {
+                // A moves from index 0 to index 2 → variant-0 becomes variant-2
+                // C stays at index 0 → variant-1 becomes variant-0
+                expect(logic.values.openVariants).toEqual(['variant-2', 'variant-0'])
             })
         })
     })
