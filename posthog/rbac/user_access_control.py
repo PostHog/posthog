@@ -78,7 +78,7 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "dataset": "llm_analytics",
     "llm_provider_key": "llm_analytics",
     "llm_prompt": "llm_analytics",
-    "experiment": "experiment_saved_metric",
+    "experiment_saved_metric": "experiment",
 }
 
 
