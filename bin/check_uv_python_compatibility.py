@@ -65,28 +65,46 @@ def get_uv_version_from_pyproject() -> str | None:
     return match.group(1) if match else None
 
 
-def get_uv_version_from_dockerfile() -> str | None:
-    """Extract the uv image tag from the Codespaces Dockerfile.
+def _extract_uv_tag(text: str) -> str | None:
+    """Extract a semver uv image tag from a Dockerfile snippet.
 
-    Looks for: --mount=from=ghcr.io/astral-sh/uv:<tag>
-    Returns the tag string, or None if not found or unpinned (e.g. :latest or no tag).
+    Matches both:
+      --mount=from=ghcr.io/astral-sh/uv:<tag>   (devcontainer bind-mount style)
+      FROM ghcr.io/astral-sh/uv:<tag>            (multi-stage FROM style)
+    Returns the tag, or None if absent or not a semver (e.g. 'latest').
     """
-    dockerfile = Path(__file__).parent.parent / ".devcontainer" / "Dockerfile"
-
-    if not dockerfile.exists():
-        return None
-
-    content = dockerfile.read_text()
-    m = re.search(r"--mount=from=ghcr\.io/astral-sh/uv:([^,\s]+)", content)
+    m = re.search(r"ghcr\.io/astral-sh/uv:([^\s,@]+)", text)
     if not m:
         return None
-
     tag = m.group(1)
-    # Reject non-version tags like "latest"
-    if not re.match(r"^\d+\.\d+\.\d+$", tag):
-        return None
+    return tag if re.match(r"^\d+\.\d+\.\d+$", tag) else None
 
-    return tag
+
+def get_uv_versions_from_dockerfiles() -> dict[str, str | None]:
+    """Scan all Dockerfiles in the repo for ghcr.io/astral-sh/uv image references.
+
+    Returns a dict mapping relative Dockerfile path to the pinned version string,
+    or None if the image is referenced but unpinned (e.g. :latest or no tag).
+    Only files that actually reference the uv image are included.
+    """
+    root = Path(__file__).parent.parent
+    results: dict[str, str | None] = {}
+
+    # Collect all Dockerfile* files at root and one level deep in services/
+    candidates: list[Path] = []
+    candidates.extend(root.glob("Dockerfile*"))
+    candidates.extend(root.glob(".devcontainer/Dockerfile*"))
+    candidates.extend(root.glob("services/*/Dockerfile*"))
+
+    for df in sorted(candidates):
+        if not df.is_file():
+            continue
+        content = df.read_text()
+        if "ghcr.io/astral-sh/uv" not in content:
+            continue
+        results[str(df.relative_to(root))] = _extract_uv_tag(content)
+
+    return results
 
 
 def get_uv_version_from_flox() -> str | None:
@@ -298,37 +316,30 @@ def main() -> int:
     print("=" * 60)
     print()
 
-    # Check 4: Codespaces Dockerfile uv image pin
-    print("Check 4: Codespaces Dockerfile uv image pin")
+    # Check 4: Dockerfile uv image pins
+    print("Check 4: Dockerfile uv image pins")
     print("-" * 60)
 
-    dockerfile_uv = get_uv_version_from_dockerfile()
-    if dockerfile_uv is None:
-        # Check whether the Dockerfile exists but has an unpinned/missing tag
-        dockerfile = Path(__file__).parent.parent / ".devcontainer" / "Dockerfile"
-        if not dockerfile.exists():
-            print("⚠ Skipped: .devcontainer/Dockerfile not found")
-            dockerfile_pinned = True
-        else:
-            content = dockerfile.read_text()
-            if "ghcr.io/astral-sh/uv" in content:
-                print("✗ .devcontainer/Dockerfile mounts ghcr.io/astral-sh/uv without a version pin")
-                print("  Change to: --mount=from=ghcr.io/astral-sh/uv:<version>")
+    dockerfile_versions = get_uv_versions_from_dockerfiles()
+    if not dockerfile_versions:
+        print("⚠ Skipped: No Dockerfiles reference ghcr.io/astral-sh/uv")
+        dockerfile_pinned = True
+    else:
+        dockerfile_pinned = True
+        for df_path, df_tag in sorted(dockerfile_versions.items()):
+            if df_tag is None:
+                print(f"✗ {df_path}: ghcr.io/astral-sh/uv is not pinned to a version")
+                print(f"  Pin to: ghcr.io/astral-sh/uv:{uv_version or '<version>'}")
                 print("  See: https://github.com/astral-sh/uv/releases")
                 dockerfile_pinned = False
+            elif uv_version and df_tag != uv_version:
+                print(f"✗ {df_path}: pins uv to {df_tag}, expected {uv_version} (from pyproject.toml)")
+                print(f"  Update to: ghcr.io/astral-sh/uv:{uv_version}")
+                dockerfile_pinned = False
             else:
-                print("⚠ Skipped: No ghcr.io/astral-sh/uv mount found in Dockerfile")
-                dockerfile_pinned = True
-    elif not uv_version:
-        print(f"✓ Dockerfile pins uv to {dockerfile_uv} (pyproject.toml version unavailable for comparison)")
-        dockerfile_pinned = True
-    elif dockerfile_uv != uv_version:
-        print(f"✗ Dockerfile pins uv to {dockerfile_uv}, expected {uv_version} (from pyproject.toml)")
-        print(f"  Update .devcontainer/Dockerfile: --mount=from=ghcr.io/astral-sh/uv:{uv_version}")
-        dockerfile_pinned = False
-    else:
-        print(f"✓ Dockerfile uv pin {dockerfile_uv} matches pyproject.toml")
-        dockerfile_pinned = True
+                print(f"✓ {df_path}: uv pin {df_tag} matches pyproject.toml")
+        if dockerfile_pinned:
+            print(f"  All {len(dockerfile_versions)} Dockerfile(s) pinned correctly")
 
     print()
     print("=" * 60)
