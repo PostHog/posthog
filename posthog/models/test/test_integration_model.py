@@ -21,6 +21,7 @@ from posthog.models.integration import (
     EmailIntegration,
     GitHubIntegration,
     GoogleCloudIntegration,
+    GoogleCloudServiceAccountIntegration,
     Integration,
     OauthIntegration,
     SlackIntegration,
@@ -820,6 +821,23 @@ class TestDatabricksIntegrationModel(BaseTest):
                 client_id="client_id",
                 client_secret="client_secret",
                 created_by=self.user,
+            )
+
+
+class TestGoogleCloudServiceAccountIntegration(BaseTest):
+    def test_raises_on_duplicate_service_account_email(self):
+        _ = GoogleCloudServiceAccountIntegration.integration_from_service_account(
+            team_id=self.team.pk,
+            organization_id=str(self.team.organization.id),
+            service_account_email="test@test.iam.gserviceaccount.com",
+            project_id="test",
+        )
+        with pytest.raises(ValidationError):
+            _ = GoogleCloudServiceAccountIntegration.integration_from_service_account(
+                team_id=self.team.pk + 1,
+                organization_id="a-different-org",
+                service_account_email="test@test.iam.gserviceaccount.com",
+                project_id="test",
             )
 
 
