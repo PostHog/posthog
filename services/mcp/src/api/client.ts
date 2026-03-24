@@ -1063,7 +1063,7 @@ export class ApiClient {
     }
 
     async getGroupTypes(projectId: string): Promise<GroupType[]> {
-        const result = await this.fetchJson<GroupType[]>(`${this.baseUrl}/api/environments/${projectId}/groups_types/`)
+        const result = await this.fetchJson<GroupType[]>(`${this.baseUrl}/api/projects/${projectId}/groups_types/`)
         if (!result.success) {
             throw new Error(result.error.message)
         }

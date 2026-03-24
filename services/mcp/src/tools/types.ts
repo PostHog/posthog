@@ -22,9 +22,9 @@ export type State = {
     clientName: string | undefined
     aiConsentGiven: boolean | undefined
     aiConsentFetchedAt: number | undefined
-    groupTypes: GroupType[] | undefined
-    groupTypesFetchedAt: number | undefined
-} & Record<PrefixedString<'session'>, SessionState>
+} & Record<PrefixedString<'session'>, SessionState> &
+    Record<PrefixedString<'groupTypes'>, GroupType[] | undefined> &
+    Record<PrefixedString<'groupTypesFetchedAt'>, number | undefined>
 
 export type Env = {
     /**

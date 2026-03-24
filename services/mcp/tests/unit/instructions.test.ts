@@ -14,15 +14,15 @@ Some examples here.
 {group_types}`
 
 describe('buildGroupTypesBlock', () => {
-    it('should format group types with singular names', () => {
+    it('should format group types with singular and plural names', () => {
         const groupTypes: GroupType[] = [
             { group_type: 'company', group_type_index: 0, name_singular: 'Company', name_plural: 'Companies' },
             { group_type: 'project', group_type_index: 1, name_singular: 'Project', name_plural: 'Projects' },
         ]
         const result = buildGroupTypesBlock(groupTypes)
         expect(result).toContain('### Group type mapping')
-        expect(result).toContain('- Index 0: "company" (Company)')
-        expect(result).toContain('- Index 1: "project" (Project)')
+        expect(result).toContain('- Index 0: "company" (Company / Companies)')
+        expect(result).toContain('- Index 1: "project" (Project / Projects)')
     })
 
     it('should omit singular name when null', () => {
@@ -52,7 +52,7 @@ describe('buildInstructionsV2', () => {
         const result = buildInstructionsV2(MOCK_TEMPLATE, '  some guidelines  ', groupTypes)
         expect(result).toContain('some guidelines')
         expect(result).toContain('### Group type mapping')
-        expect(result).toContain('- Index 0: "company" (Company)')
+        expect(result).toContain('- Index 0: "company" (Company / Companies)')
         expect(result).not.toContain('{guidelines}')
         expect(result).not.toContain('{group_types}')
     })

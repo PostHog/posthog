@@ -58,8 +58,6 @@ export class MCP extends McpAgent<Env> {
         clientName: undefined,
         aiConsentGiven: undefined,
         aiConsentFetchedAt: undefined,
-        groupTypes: undefined,
-        groupTypesFetchedAt: undefined,
     }
 
     _cache: DurableObjectCache<State> | undefined
@@ -474,8 +472,8 @@ export class MCP extends McpAgent<Env> {
         const GROUP_TYPES_TTL_MS = 5 * 60 * 1000 // 5 minutes
 
         try {
-            const cached = await this.cache.get('groupTypes')
-            const fetchedAt = await this.cache.get('groupTypesFetchedAt')
+            const cached = await this.cache.get(`groupTypes:${projectId}`)
+            const fetchedAt = await this.cache.get(`groupTypesFetchedAt:${projectId}`)
             const isStale = !fetchedAt || Date.now() - fetchedAt > GROUP_TYPES_TTL_MS
 
             if (cached !== undefined && !isStale) {
@@ -484,13 +482,24 @@ export class MCP extends McpAgent<Env> {
 
             if (cached !== undefined) {
                 // Stale — revalidate in background, return cached immediately
-                this.fetchAndCacheGroupTypes(projectId).catch(() => {})
+                this.ctx.waitUntil(
+                    this.fetchAndCacheGroupTypes(projectId).catch((error) => {
+                        getPostHogClient(!!CUSTOM_API_BASE_URL).captureException(error, undefined, {
+                            tag: 'max_ai',
+                            context: 'group_types_background_revalidation',
+                        })
+                    })
+                )
                 return cached
             }
 
             // No cache — fetch synchronously
             return await this.fetchAndCacheGroupTypes(projectId)
-        } catch {
+        } catch (error) {
+            getPostHogClient(!!CUSTOM_API_BASE_URL).captureException(error, undefined, {
+                tag: 'max_ai',
+                context: 'get_or_fetch_group_types',
+            })
             return undefined
         }
     }
@@ -498,8 +507,8 @@ export class MCP extends McpAgent<Env> {
     private async fetchAndCacheGroupTypes(projectId: string): Promise<GroupType[]> {
         const api = await this.api()
         const groupTypes = await api.getGroupTypes(projectId)
-        await this.cache.set('groupTypes', groupTypes)
-        await this.cache.set('groupTypesFetchedAt', Date.now())
+        await this.cache.set(`groupTypes:${projectId}`, groupTypes)
+        await this.cache.set(`groupTypesFetchedAt:${projectId}`, Date.now())
         return groupTypes
     }
 }

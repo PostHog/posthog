@@ -33,7 +33,6 @@ Table | Description
 `system.exports` | Export jobs
 `system.feature_flags` | Feature flags for controlling rollouts
 `system.groups` | Group entities
-`system.group_type_mappings` | Group type definitions
 `system.ingestion_warnings` | Data ingestion issues
 `system.insight_variables` | SQL, dashboard, and insight variables for dynamic query filtering
 `system.insights` | Visual and textual representations of aggregated data
