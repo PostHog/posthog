@@ -1190,9 +1190,9 @@ def is_unique_service_account_by_organization_id(service_account_email: str, org
     )
     for integration in same_service_account_integrations:
         if str(integration.team.organization.id) != organization_id:
-            return True
+            return False
 
-    return False
+    return True
 
 
 class GoogleCloudServiceAccountIntegration:
@@ -1214,7 +1214,7 @@ class GoogleCloudServiceAccountIntegration:
         created_by: User | None = None,
     ) -> Integration:
         if private_key is None:
-            if is_unique_service_account_by_organization_id(service_account_email, organization_id):
+            if not is_unique_service_account_by_organization_id(service_account_email, organization_id):
                 raise ValidationError("Cannot create Google Cloud service account integration: Invalid service account")
 
         sensitive_config = {}
