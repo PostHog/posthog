@@ -559,7 +559,7 @@ class TestSFRecordTimestampStamping:
         ]
         records = build_salesforce_records(classifications, pl.DataFrame())
 
-        classified_at = datetime.now(UTC).strftime(SF_DATETIME_FORMAT)
+        classified_at = datetime(2026, 3, 15, 10, 0, 0, tzinfo=UTC).strftime(SF_DATETIME_FORMAT)
         for record in records:
             record["customer_archetype_classified_at__c"] = classified_at
 
