@@ -8,6 +8,8 @@ Tests cover:
 - Data format compatibility with service
 """
 
+from typing import Any
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -17,13 +19,17 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from posthog.models import FeatureFlag, Tag, Team
+from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
 from posthog.models.feature_flag.flags_cache import (
     _compute_flag_dependencies,
+    _extract_cohort_ids_from_flag_filters,
     _extract_direct_dependency_ids,
     _get_feature_flags_for_service,
     _get_feature_flags_for_teams_batch,
+    _get_referenced_cohorts,
     _get_team_ids_with_recently_updated_flags,
+    _serialize_cohort,
     clear_flags_cache,
     flags_hypercache,
     get_flags_from_cache,
@@ -57,6 +63,7 @@ class TestServiceFlagsCache(BaseTest):
                 "flags_with_missing_deps": [],
                 "transitive_deps": {},
             },
+            "cohorts": [],
         }
 
     def test_get_feature_flags_for_service_with_flags(self):
@@ -402,6 +409,70 @@ class TestServiceFlagsCache(BaseTest):
         # Cache should now load from DB (source will be "db")
         flags, source = flags_hypercache.get_from_cache_with_source(self.team)
         assert source == "db"
+
+    def test_get_feature_flags_for_service_includes_referenced_cohorts(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "a@a.com", "type": "person"}]}],
+                }
+            },
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="cohort-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [{"type": "cohort", "value": cohort.id}], "rollout_percentage": 100}],
+            },
+        )
+        result = _get_feature_flags_for_service(self.team)
+        assert len(result["cohorts"]) == 1
+        assert result["cohorts"][0]["id"] == cohort.id
+        assert result["cohorts"][0]["name"] == "Test Cohort"
+
+    def test_get_feature_flags_for_teams_batch_isolates_cohorts_per_team(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        cohort_a = Cohort.objects.create(
+            team=self.team,
+            name="Cohort A",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "a@a.com", "type": "person"}]}],
+                }
+            },
+        )
+        cohort_b = Cohort.objects.create(
+            team=other_team,
+            name="Cohort B",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "b@b.com", "type": "person"}]}],
+                }
+            },
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-a",
+            created_by=self.user,
+            filters={"groups": [{"properties": [{"type": "cohort", "value": cohort_a.id}], "rollout_percentage": 100}]},
+        )
+        FeatureFlag.objects.create(
+            team=other_team,
+            key="flag-b",
+            created_by=self.user,
+            filters={"groups": [{"properties": [{"type": "cohort", "value": cohort_b.id}], "rollout_percentage": 100}]},
+        )
+        result = _get_feature_flags_for_teams_batch([self.team, other_team])
+        assert len(result[self.team.id]["cohorts"]) == 1
+        assert result[self.team.id]["cohorts"][0]["id"] == cohort_a.id
+        assert len(result[other_team.id]["cohorts"]) == 1
+        assert result[other_team.id]["cohorts"][0]["id"] == cohort_b.id
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
@@ -2556,3 +2627,385 @@ class TestComputeFlagDependenciesIntegration(BaseTest):
         assert ctx["transitive_deps"][str(flag_b.id)] == [flag_c.id]
         assert ctx["transitive_deps"][str(flag_c.id)] == []
         assert ctx["dependency_stages"] == [[flag_c.id], [flag_b.id], [flag_a.id]]
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test")
+class TestExtractCohortIdsFromFlagFilters(BaseTest):
+    def test_extracts_cohort_ids_from_active_flag(self):
+        flags_data = [
+            {
+                "active": True,
+                "filters": {
+                    "groups": [{"properties": [{"type": "cohort", "value": 42}]}],
+                },
+            }
+        ]
+        assert _extract_cohort_ids_from_flag_filters(flags_data) == {42}
+
+    @parameterized.expand(
+        [
+            ("inactive", {"active": False}),
+            ("deleted", {"active": True, "deleted": True}),
+        ]
+    )
+    def test_skips_excluded_flag(self, _name, flag_overrides):
+        flags_data = [
+            {
+                **flag_overrides,
+                "filters": {
+                    "groups": [{"properties": [{"type": "cohort", "value": 42}]}],
+                },
+            }
+        ]
+        assert _extract_cohort_ids_from_flag_filters(flags_data) == set()
+
+    def test_handles_string_cohort_value(self):
+        flags_data = [
+            {
+                "active": True,
+                "filters": {
+                    "groups": [{"properties": [{"type": "cohort", "value": "42"}]}],
+                },
+            }
+        ]
+        assert _extract_cohort_ids_from_flag_filters(flags_data) == {42}
+
+    def test_skips_non_cohort_properties(self):
+        flags_data = [
+            {
+                "active": True,
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {"type": "person", "key": "email", "value": "test@test.com"},
+                                {"type": "cohort", "value": 5},
+                            ]
+                        }
+                    ],
+                },
+            }
+        ]
+        assert _extract_cohort_ids_from_flag_filters(flags_data) == {5}
+
+    def test_handles_malformed_value(self):
+        flags_data = [
+            {
+                "active": True,
+                "filters": {
+                    "groups": [{"properties": [{"type": "cohort", "value": "not_a_number"}]}],
+                },
+            }
+        ]
+        assert _extract_cohort_ids_from_flag_filters(flags_data) == set()
+
+    def test_returns_empty_for_no_flags(self):
+        assert _extract_cohort_ids_from_flag_filters([]) == set()
+
+    def test_deduplicates_cohort_ids(self):
+        flags_data = [
+            {
+                "active": True,
+                "filters": {
+                    "groups": [
+                        {"properties": [{"type": "cohort", "value": 42}]},
+                        {"properties": [{"type": "cohort", "value": 42}]},
+                    ],
+                },
+            },
+            {
+                "active": True,
+                "filters": {
+                    "groups": [{"properties": [{"type": "cohort", "value": 42}]}],
+                },
+            },
+        ]
+        assert _extract_cohort_ids_from_flag_filters(flags_data) == {42}
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test")
+class TestGetReferencedCohorts(BaseTest):
+    def test_returns_empty_when_no_cohorts_referenced(self):
+        flags_data = [
+            {
+                "active": True,
+                "filters": {
+                    "groups": [{"properties": [{"type": "person", "key": "email", "value": "x"}]}],
+                },
+            }
+        ]
+        assert _get_referenced_cohorts(self.team.id, flags_data) == []
+
+    def test_returns_referenced_cohort(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "a@a.com", "type": "person"}]}],
+                }
+            },
+        )
+        flags_data = [
+            {
+                "active": True,
+                "filters": {
+                    "groups": [{"properties": [{"type": "cohort", "value": cohort.id}]}],
+                },
+            }
+        ]
+        result = _get_referenced_cohorts(self.team.id, flags_data)
+        assert len(result) == 1
+        assert result[0]["id"] == cohort.id
+        assert result[0]["name"] == "Test Cohort"
+
+    def test_includes_transitive_cohort_deps(self):
+        cohort_b = Cohort.objects.create(
+            team=self.team,
+            name="Leaf Cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "b@b.com", "type": "person"}]}],
+                }
+            },
+        )
+        cohort_a = Cohort.objects.create(
+            team=self.team,
+            name="Parent Cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "id", "value": cohort_b.id, "type": "cohort"}]}],
+                }
+            },
+        )
+        flags_data = [
+            {
+                "active": True,
+                "filters": {
+                    "groups": [{"properties": [{"type": "cohort", "value": cohort_a.id}]}],
+                },
+            }
+        ]
+        result = _get_referenced_cohorts(self.team.id, flags_data)
+        result_ids = {c["id"] for c in result}
+        assert cohort_a.id in result_ids
+        assert cohort_b.id in result_ids
+
+    def test_excludes_deleted_cohorts(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Deleted",
+            deleted=True,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "a@a.com", "type": "person"}]}],
+                }
+            },
+        )
+        flags_data = [
+            {
+                "active": True,
+                "filters": {
+                    "groups": [{"properties": [{"type": "cohort", "value": cohort.id}]}],
+                },
+            }
+        ]
+        assert _get_referenced_cohorts(self.team.id, flags_data) == []
+
+    def test_excludes_other_team_cohorts(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        cohort = Cohort.objects.create(
+            team=other_team,
+            name="Other Team Cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "a@a.com", "type": "person"}]}],
+                }
+            },
+        )
+        flags_data = [
+            {
+                "active": True,
+                "filters": {
+                    "groups": [{"properties": [{"type": "cohort", "value": cohort.id}]}],
+                },
+            }
+        ]
+        assert _get_referenced_cohorts(self.team.id, flags_data) == []
+
+    def test_handles_circular_cohort_deps(self):
+        cohort_a = Cohort.objects.create(
+            team=self.team,
+            name="A",
+            filters={"properties": {"type": "OR", "values": []}},
+        )
+        cohort_b = Cohort.objects.create(
+            team=self.team,
+            name="B",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "id", "value": cohort_a.id, "type": "cohort"}]}],
+                }
+            },
+        )
+        # Update A to reference B (creating a cycle)
+        cohort_a.filters = {
+            "properties": {
+                "type": "OR",
+                "values": [{"type": "OR", "values": [{"key": "id", "value": cohort_b.id, "type": "cohort"}]}],
+            }
+        }
+        cohort_a.save()
+
+        flags_data = [
+            {
+                "active": True,
+                "filters": {
+                    "groups": [{"properties": [{"type": "cohort", "value": cohort_a.id}]}],
+                },
+            }
+        ]
+        # Should terminate without infinite loop
+        result = _get_referenced_cohorts(self.team.id, flags_data)
+        result_ids = {c["id"] for c in result}
+        assert cohort_a.id in result_ids
+        assert cohort_b.id in result_ids
+
+    def test_terminates_at_depth_limit(self):
+        chain: list[Cohort] = []
+        for i in range(25):
+            filters: dict[str, Any] = {"properties": {"type": "OR", "values": []}}
+            if chain:
+                filters["properties"]["values"] = [
+                    {"type": "OR", "values": [{"key": "id", "value": chain[-1].id, "type": "cohort"}]}
+                ]
+            cohort = Cohort.objects.create(team=self.team, name=f"chain-{i}", filters=filters)
+            chain.append(cohort)
+
+        flags_data = [
+            {
+                "active": True,
+                "filters": {
+                    "groups": [{"properties": [{"type": "cohort", "value": chain[-1].id}]}],
+                },
+            }
+        ]
+        result = _get_referenced_cohorts(self.team.id, flags_data)
+        # BFS should stop at depth 20, returning fewer than all 25 cohorts
+        assert len(result) <= 20  # BFS loads at most 20 cohorts
+        assert len(result) < 25
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test")
+class TestSerializeCohort(BaseTest):
+    def test_serializes_all_required_fields(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test",
+            description="A test cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "a@a.com", "type": "person"}]}],
+                }
+            },
+        )
+        result = _serialize_cohort(cohort)
+
+        # All 16 fields required by the Rust Cohort struct must be present
+        expected_fields = {
+            "id",
+            "name",
+            "description",
+            "team_id",
+            "deleted",
+            "filters",
+            "query",
+            "version",
+            "pending_version",
+            "count",
+            "is_calculating",
+            "is_static",
+            "errors_calculating",
+            "groups",
+            "created_by_id",
+            "cohort_type",
+        }
+        assert set(result.keys()) == expected_fields
+        assert result["id"] == cohort.id
+        assert result["team_id"] == self.team.id
+        assert result["name"] == "Test"
+        assert result["deleted"] is False
+        assert result["is_static"] is False
+        assert result["is_calculating"] is False
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test")
+class TestCohortChangedFlagsCacheSignal(BaseTest):
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    @patch("posthog.tasks.feature_flags.update_team_service_flags_cache")
+    def test_fires_on_cohort_definition_change(self, mock_task):
+        cohort = Cohort.objects.create(team=self.team, name="test")
+        mock_task.reset_mock()
+        cohort.name = "updated"
+        cohort.save()
+        mock_task.delay.assert_called_with(self.team.id)
+
+    @parameterized.expand(
+        [
+            ("is_calculating", "is_calculating", True),
+            ("count", "count", 100),
+            ("version", "version", 2),
+        ]
+    )
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    @patch("posthog.tasks.feature_flags.update_team_service_flags_cache")
+    def test_skips_recalculation_only_save(self, _name, field, value, mock_task):
+        cohort = Cohort.objects.create(team=self.team, name="test")
+        mock_task.reset_mock()
+        setattr(cohort, field, value)
+        cohort.save(update_fields=[field])
+        mock_task.delay.assert_not_called()
+
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    @patch("posthog.tasks.feature_flags.update_team_service_flags_cache")
+    def test_skips_cohort_type_only_save(self, mock_task):
+        cohort = Cohort.objects.create(team=self.team, name="test")
+        mock_task.reset_mock()
+        cohort.cohort_type = "behavioral"
+        cohort.save(update_fields=["cohort_type"])
+        mock_task.delay.assert_not_called()
+
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    @patch("posthog.tasks.feature_flags.update_team_service_flags_cache")
+    def test_fires_on_mixed_recalculation_and_definition_fields(self, mock_task):
+        cohort = Cohort.objects.create(team=self.team, name="test")
+        mock_task.reset_mock()
+        cohort.name = "updated"
+        cohort.count = 50
+        cohort.save(update_fields=["name", "count"])
+        mock_task.delay.assert_called_with(self.team.id)
+
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    @patch("posthog.tasks.feature_flags.update_team_service_flags_cache")
+    def test_fires_on_cohort_delete(self, mock_task):
+        cohort = Cohort.objects.create(team=self.team, name="test")
+        mock_task.reset_mock()
+        cohort.delete()
+        mock_task.delay.assert_called_with(self.team.id)
+
+    @override_settings(FLAGS_REDIS_URL=None)
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    @patch("posthog.tasks.feature_flags.update_team_service_flags_cache")
+    def test_skips_when_no_flags_redis_url(self, mock_task):
+        cohort = Cohort.objects.create(team=self.team, name="test")
+        mock_task.reset_mock()
+        cohort.name = "updated"
+        cohort.save()
+        mock_task.delay.assert_not_called()

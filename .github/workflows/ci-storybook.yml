@@ -48,12 +48,12 @@ jobs:
             - name: Detect snapshot mode
               id: detect
               env:
-                  HAS_UPDATE_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'update-snapshots') }}
+                  GH_TOKEN: ${{ github.token }}
               run: |
                   if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
                     echo "mode=check" >> $GITHUB_OUTPUT
                     echo "Fork detected - running in CHECK mode (no commits allowed)"
-                  elif [ "$HAS_UPDATE_LABEL" == "true" ]; then
+                  elif [ -n "${{ github.event.pull_request.number }}" ] && gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels --jq '.[].name' | grep -q '^update-snapshots$'; then
                     echo "mode=update" >> $GITHUB_OUTPUT
                     echo "::notice::🔄 Running in UPDATE mode - 'update-snapshots' label detected"
                   else
@@ -505,7 +505,7 @@ jobs:
                       const body = `${marker}
                       ### Storybook visual regression tests failed
 
-                      **If your changes intentionally update UI snapshots:** add the \`update-snapshots\` label, then push an empty commit or merge master to trigger a new run. Snapshots will be auto-committed.
+                      **If your changes intentionally update UI snapshots:** add the \`update-snapshots\` label, then re-run the workflow. Snapshots will be auto-committed.
 
                       **If you didn't change any UI:** this is likely a flaky snapshot — wait for a fix to land on master.`.replace(/^                      /gm, '');
 

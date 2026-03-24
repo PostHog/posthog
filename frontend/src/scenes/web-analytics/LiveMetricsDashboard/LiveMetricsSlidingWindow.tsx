@@ -43,8 +43,6 @@ export class LiveMetricsSlidingWindow {
         if (data.browser) {
             this.addBrowserToBucket(bucket, data.browser.browserType, data.browser.deviceId)
         }
-
-        this.prune()
     }
 
     addGeoDataPoint(eventTs: number, countryCode: string, distinctId: string): void {
@@ -53,7 +51,6 @@ export class LiveMetricsSlidingWindow {
         }
         const bucket = this.getOrCreateBucket(eventTs)
         this.addCountryToBucket(bucket, countryCode, distinctId)
-        this.prune()
     }
 
     extendBucketData(eventTs: number, data: SlidingWindowBucket): void {
@@ -98,8 +95,6 @@ export class LiveMetricsSlidingWindow {
                 }
             }
         }
-
-        this.prune()
     }
 
     private addUserToBucket(bucket: SlidingWindowBucket, userId: string): void {
@@ -208,7 +203,7 @@ export class LiveMetricsSlidingWindow {
         }
     }
 
-    private prune(): void {
+    prune(): void {
         const nowTs = Date.now() / 1000
         const threshold = nowTs - this.windowSizeSeconds
         for (const [ts, bucket] of this.buckets.entries()) {
