@@ -152,11 +152,11 @@ Pass `excludedProperties` and assert the excluded items do not appear:
 
 ```tsx
 renderFilter({
-  excludedProperties: { [TaxonomicFilterGroupType.PersonProperties]: ['email'] },
+  excludedProperties: { [TaxonomicFilterGroupType.PersonProperties]: ['location'] },
 })
 
 await waitFor(() => {
-  expect(screen.queryByText('email')).not.toBeInTheDocument()
+  expect(screen.queryByText('location')).not.toBeInTheDocument()
 })
 ```
 
