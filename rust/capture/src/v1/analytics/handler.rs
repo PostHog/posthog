@@ -10,16 +10,26 @@ use crate::v1::context::Context;
 use crate::{log_stat_error, router, v1};
 
 pub async fn handle_request(
-    _state: State<router::State>,
+    state: State<router::State>,
     headers: HeaderMap,
     query: AxumQuery<Query>,
     ip: InsecureClientIp,
     _method: Method,
-    _path: MatchedPath,
-    _body: Body,
+    path: MatchedPath,
+    body: Body,
 ) -> Result<Response, v1::Error> {
-    let _context = Context::new(&headers)
-        .map_err(|err| log_and_return_header_error(err, &headers, &ip, &query))?;
+    let context = Context::new(&headers)
+        .map_err(|err| log_and_return_header_error(err, &headers, &ip, &query, &path))?;
+
+    let _bytes = v1::util::extract_body_with_timeout(
+        body,
+        state.event_payload_size_limit,
+        state.body_chunk_read_timeout,
+        state.body_read_chunk_size_kb,
+        path.as_str(),
+    )
+    .await
+    .map_err(|err| log_and_return_body_error(err, &context, &ip, &query, &path))?;
 
     unimplemented!()
 }
@@ -29,6 +39,7 @@ fn log_and_return_header_error(
     headers: &HeaderMap,
     ip: &InsecureClientIp,
     query: &Query,
+    path: &MatchedPath,
 ) -> v1::Error {
     let token = raw_header_str(headers, POSTHOG_API_TOKEN);
     let request_id = raw_header_str(headers, POSTHOG_REQUEST_ID);
@@ -50,6 +61,30 @@ fn log_and_return_header_error(
         content_encoding = %content_encoding,
         client_ip = %ip.0,
         query = ?query,
+        path = %path.as_str(),
+    );
+    err
+}
+
+fn log_and_return_body_error(
+    err: v1::Error,
+    context: &Context,
+    ip: &InsecureClientIp,
+    query: &Query,
+    path: &MatchedPath,
+) -> v1::Error {
+    log_stat_error!(err,
+        token = %context.api_token,
+        request_id = %context.request_id,
+        sdk_info = %context.sdk_info,
+        attempt = context.attempt,
+        client_timestamp = %context.client_timestamp,
+        user_agent = %context.user_agent,
+        content_type = %context.content_type,
+        content_encoding = ?context.content_encoding,
+        client_ip = %ip.0,
+        query = ?query,
+        path = %path.as_str(),
     );
     err
 }

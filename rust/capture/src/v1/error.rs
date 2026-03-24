@@ -88,6 +88,12 @@ pub enum Error {
     #[error("unsupported content encoding: {0}")]
     UnsupportedEncoding(String),
 
+    // 408 - validation_error
+    #[error("request timed out")]
+    RequestTimeout,
+    #[error("body read stalled after receiving {0} bytes")]
+    BodyReadTimeout(usize),
+
     // 429 - rate_limit_error
     #[error("billing limit exceeded")]
     BillingLimitExceeded,
@@ -118,7 +124,9 @@ impl Error {
             | Self::MissingEventName
             | Self::MissingDistinctId
             | Self::MissingEventUuid
-            | Self::InvalidTimestamp => "validation_error",
+            | Self::InvalidTimestamp
+            | Self::RequestTimeout
+            | Self::BodyReadTimeout(_) => "validation_error",
 
             Self::MissingApiToken | Self::InvalidApiToken(_) => "authentication_error",
 
@@ -145,6 +153,8 @@ impl Error {
             Self::MissingDistinctId => "missing_distinct_id",
             Self::MissingEventUuid => "missing_event_uuid",
             Self::InvalidTimestamp => "invalid_timestamp",
+            Self::RequestTimeout => "request_timeout",
+            Self::BodyReadTimeout(_) => "body_read_timeout",
             Self::MissingApiToken => "missing_api_token",
             Self::InvalidApiToken(_) => "invalid_api_token",
             Self::PayloadTooLarge(_) => "payload_too_large",
@@ -170,6 +180,7 @@ impl Error {
             | Self::MissingDistinctId
             | Self::MissingEventUuid
             | Self::InvalidTimestamp
+            | Self::RequestTimeout
             | Self::MissingApiToken
             | Self::InvalidApiToken(_)
             | Self::PayloadTooLarge(_)
@@ -177,6 +188,9 @@ impl Error {
             | Self::UnsupportedEncoding(_)
             | Self::BillingLimitExceeded
             | Self::RateLimited(_) => Level::WARN,
+
+            // body read timeout: error-level despite being 4xx
+            Self::BodyReadTimeout(_) => Level::ERROR,
 
             // 5xx server errors: error
             Self::InternalError(_) | Self::ServiceUnavailable(_) | Self::GatewayTimeout => {
@@ -208,6 +222,8 @@ impl Error {
             | Self::MissingDistinctId
             | Self::MissingEventUuid
             | Self::InvalidTimestamp => StatusCode::BAD_REQUEST,
+
+            Self::RequestTimeout | Self::BodyReadTimeout(_) => StatusCode::REQUEST_TIMEOUT,
 
             Self::MissingApiToken | Self::InvalidApiToken(_) => StatusCode::UNAUTHORIZED,
 
