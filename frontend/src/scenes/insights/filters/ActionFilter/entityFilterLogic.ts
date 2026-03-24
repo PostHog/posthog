@@ -424,7 +424,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             eventUsageLogic.actions.reportInsightFilterSet(sanitizedFilters)
         },
         setEntityFilterVisibility: async ({ index, value }) => {
-            const entityName = values.localFilters[index]?.name ?? undefined
+            const entityName = values.localFilters[index]?.name || undefined
             eventUsageLogic.actions.reportEntityFilterVisibilitySet(index, value, entityName)
         },
     })),

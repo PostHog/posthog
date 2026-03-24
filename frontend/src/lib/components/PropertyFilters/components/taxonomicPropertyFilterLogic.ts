@@ -97,7 +97,9 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
         openDropdown: () => {
             const existingFilter = props.filters[props.filterIndex]
             if (!existingFilter || !isValidPropertyFilter(existingFilter)) {
-                eventUsageLogic.actions.reportTaxonomicFilterAddFilterClicked(props.eventNames?.[0])
+                if (eventUsageLogic.isMounted()) {
+                    eventUsageLogic.actions.reportTaxonomicFilterAddFilterClicked(props.eventNames?.[0])
+                }
             }
         },
         selectItem: ({ taxonomicGroup, propertyKey, itemPropertyFilterType, item }) => {
