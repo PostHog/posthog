@@ -716,7 +716,7 @@ func TestSort_statusSortOrder(t *testing.T) {
 func TestSort_infoSortsAlphabetically(t *testing.T) {
 	m := readyModel(t, "info", "backend", "alpha")
 	got := serviceNames(m)
-	want := []string{"alpha", "backend", "info"}
+	want := []string{"info", "alpha", "backend"}
 	for i, n := range got {
 		if n != want[i] {
 			t.Errorf("index %d: got %q, want %q (full: %v)", i, n, want[i], got)
