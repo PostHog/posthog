@@ -353,9 +353,9 @@ mod tests {
         let cohorts = vec![
             make_cohort(1, Some(CohortType::Static), None),
             make_cohort(2, Some(CohortType::PersonProperty), backfill_ts),
-            make_cohort(3, Some(CohortType::Realtime), None),          // no backfill
-            make_cohort(4, Some(CohortType::Realtime), backfill_ts),   // should be selected
-            make_cohort(5, Some(CohortType::Behavioral), None),        // no backfill
+            make_cohort(3, Some(CohortType::Realtime), None), // no backfill
+            make_cohort(4, Some(CohortType::Realtime), backfill_ts), // should be selected
+            make_cohort(5, Some(CohortType::Behavioral), None), // no backfill
             make_cohort(6, Some(CohortType::Behavioral), backfill_ts), // should be selected
             make_cohort(7, Some(CohortType::Analytical), backfill_ts),
             make_cohort(8, None, backfill_ts),
