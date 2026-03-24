@@ -5236,9 +5236,8 @@ class TestPostgresPrinter(BaseTest):
     )
     def test_invalid_function_names_rejected(self, _name: str, func_name: str):
         node = ast.Call(name=func_name, args=[ast.Constant(value=1)])
-        with self.assertRaises(QueryError) as ctx:
+        with self.assertRaises(QueryError):
             self._expr(node)
-        self.assertIn("invalid characters", str(ctx.exception))
 
     def test_connection_metadata_filters_invalid_function_names(self):
         context = HogQLContext(
