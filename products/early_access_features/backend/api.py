@@ -307,7 +307,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
         else:
             feature_flag_key = slugify(validated_data["name"])
 
-            filters = {
+            filters: dict[str, Any] = {
                 "groups": default_condition,
             }
 
