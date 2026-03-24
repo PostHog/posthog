@@ -164,7 +164,7 @@ def _calculate_experiment_regular_metric_sync(
             error_message=f"Unknown metric type: {metric_type}",
         )
 
-    if not experiment.is_launched:
+    if not experiment.start_date:
         return ExperimentRegularMetricResult(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
@@ -411,7 +411,7 @@ def _calculate_experiment_saved_metric_sync(
             error_message=f"Unknown metric type: {metric_type}",
         )
 
-    if not experiment.is_launched:
+    if not experiment.start_date:
         return ExperimentSavedMetricResult(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
@@ -553,7 +553,7 @@ def _backfill_experiment_metric_sync(recalculation_id: str) -> dict[str, Any]:
         recalculation_request.save(update_fields=["status"])
 
     experiment = recalculation_request.experiment
-    if not experiment.is_launched:
+    if not experiment.start_date:
         raise ValueError(f"Experiment {experiment.id} has no start_date")
 
     team_tz = ZoneInfo(experiment.team.timezone) if experiment.team.timezone else ZoneInfo("UTC")

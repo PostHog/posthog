@@ -993,7 +993,7 @@ class ExperimentService:
         if not flag:
             raise ValidationError("Experiment does not have a feature flag")
 
-        if not experiment.is_launched:
+        if not experiment.start_date:
             raise ValidationError("Experiment does not have a start date")
 
         if experiment.exposure_cohort:
@@ -1160,16 +1160,16 @@ class ExperimentService:
                 queryset = queryset.order_by(f"{'-' if order_value.startswith('-') else ''}computed_duration")
             elif order_value in ["status", "-status"]:
                 queryset = queryset.annotate(
-                    computed_status=Case(
+                    status_sort_key=Case(
                         When(start_date__isnull=True, then=Value(0)),
                         When(end_date__isnull=True, then=Value(1)),
                         default=Value(2),
                     )
                 )
                 if order_value.startswith("-"):
-                    queryset = queryset.order_by(F("computed_status").desc())
+                    queryset = queryset.order_by(F("status_sort_key").desc())
                 else:
-                    queryset = queryset.order_by(F("computed_status").asc())
+                    queryset = queryset.order_by(F("status_sort_key").asc())
             else:
                 queryset = queryset.order_by(order_value)
         else:
@@ -1295,7 +1295,7 @@ class ExperimentService:
         """Retrieve timeseries results for an experiment-metric combination."""
         project_tz = ZoneInfo(experiment.team.timezone) if experiment.team.timezone else ZoneInfo("UTC")
 
-        if not experiment.is_launched:
+        if not experiment.start_date:
             raise ValidationError("Experiment has not been started yet")
         start_date = experiment.start_date.date()
         end_date = experiment.end_date.date() if experiment.end_date else date.today()

@@ -170,7 +170,7 @@ class ExperimentQueryRunner(QueryRunner):
         """
         query_string, placeholders = builder.get_exposure_query_for_precomputation()
 
-        if not self.experiment.is_launched:
+        if not self.experiment.start_date:
             raise ValidationError("Experiment must have a start date for lazy computation")
 
         date_from = self.experiment.start_date
