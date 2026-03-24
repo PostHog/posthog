@@ -33,10 +33,7 @@ use crate::{
         FLAG_HASH_KEY_QUERY_RESULT, FLAG_HASH_KEY_RETRIES_COUNTER, FLAG_PERSON_PROCESSING_TIME,
         FLAG_PERSON_QUERY_TIME,
     },
-    properties::{
-        property_matching::match_property,
-        property_models::{OperatorType, PropertyFilter},
-    },
+    properties::property_models::{OperatorType, PropertyFilter},
 };
 
 use super::{flag_group_type_mapping::GroupTypeIndex, flag_matching::FlagEvaluationState};
@@ -527,25 +524,6 @@ fn classify_and_track_error(error: &FlagError, operation: &str, will_retry: bool
     }
 
     common_metrics::inc(FLAG_DATABASE_ERROR_COUNTER, &labels, 1);
-}
-
-/// Check if all properties match the given filters
-pub fn all_properties_match(
-    flag_condition_properties: &[PropertyFilter],
-    matching_property_values: &HashMap<String, Value>,
-) -> bool {
-    flag_condition_properties
-        .iter()
-        .all(|property| match_property(property, matching_property_values, false).unwrap_or(false))
-}
-
-pub fn all_flag_condition_properties_match(
-    flag_condition_properties: &[PropertyFilter],
-    flag_evaluation_results: &HashMap<FeatureFlagId, FlagValue>,
-) -> bool {
-    flag_condition_properties
-        .iter()
-        .all(|property| match_flag_value_to_flag_filter(property, flag_evaluation_results))
 }
 
 // Attempts to match a flag condition filter that depends on another flag
