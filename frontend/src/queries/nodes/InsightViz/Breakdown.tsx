@@ -26,6 +26,7 @@ export function Breakdown({ insightProps }: EditorFilterProps): JSX.Element {
                 updateBreakdownFilter={updateBreakdownFilter}
                 updateDisplay={updateDisplay}
                 showLabel={!editorPanelsEnabled}
+                showInlineOptions={editorPanelsEnabled}
                 disabledReason={
                     isTrends && !isSingleSeriesOutput && hasDataWarehouseSeries
                         ? 'Breakdowns are not supported for multiple series types when at least one of them is a data warehouse series.'
