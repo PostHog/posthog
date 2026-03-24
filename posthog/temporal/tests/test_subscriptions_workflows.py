@@ -710,15 +710,12 @@ async def test_partial_export_failure_delivers_successful_assets(
 
     subscription = await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user)
 
-    # First insight fails, the other two succeed
+    # First insight fails with a system error, the other two succeed
     fail_insight_id = insights[0].id
 
     def fake_export(asset_obj, **kwargs):
         if asset_obj.insight_id == fail_insight_id:
-            asset_obj.failure_type = "user"
-            asset_obj.exception_type = "ExcelColumnLimitExceeded"
-            asset_obj.save(update_fields=["failure_type", "exception_type"])
-            raise ExcelColumnLimitExceeded()
+            raise RuntimeError("ClickHouse connection timeout")
         asset_obj.content_location = "s3://bucket/ok.png"
         asset_obj.save(update_fields=["content_location"])
 
@@ -754,7 +751,7 @@ async def test_partial_export_failure_delivers_successful_assets(
         delivered_assets = call[0][2]  # third positional arg is assets list
         assert len(delivered_assets) == 3
 
-    # One subscription-level SLO event: failure (not all assets succeeded)
+    # One subscription-level SLO event: failure (system error is a real SLO failure)
     completed_calls = [
         c for c in mock_slo_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
     ]
