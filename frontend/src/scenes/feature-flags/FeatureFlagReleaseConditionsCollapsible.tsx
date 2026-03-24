@@ -256,29 +256,7 @@ function UnreachableConditionBanner({
     )
 }
 
-const SortableCondition = ({
-    group,
-    index,
-    totalGroups,
-    affectedUsers,
-    totalUsers,
-    aggregationTargetName,
-    onMoveUp,
-    onMoveDown,
-    onDuplicate,
-    onRemove,
-    updateConditionSet,
-    taxonomicGroupTypes,
-    filtersTaxonomicOptions,
-    releaseFilters,
-    variants,
-    openConditions,
-    handleOpenConditionsChange,
-    flagId,
-    id,
-    isAnyItemDragging,
-    isDragDropEnabled = false,
-}: {
+interface ConditionProps {
     group: FeatureFlagGroupTypeWithSortKey
     index: number
     totalGroups: number
@@ -305,12 +283,83 @@ const SortableCondition = ({
     flagId?: FeatureFlagLogicProps['id']
     id: string
     isAnyItemDragging: boolean
-    isDragDropEnabled?: boolean
-}): JSX.Element => {
+}
+
+const DraggableCondition = (props: ConditionProps): JSX.Element => {
     const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
-        id: group.sort_key!, // sort_key is guaranteed by ensureSortKeys() in the logic
+        id: props.group.sort_key!, // sort_key is guaranteed by ensureSortKeys() in the logic
     })
 
+    return (
+        <ConditionContent
+            {...props}
+            attributes={attributes}
+            listeners={listeners}
+            setNodeRef={setNodeRef}
+            setActivatorNodeRef={setActivatorNodeRef}
+            transform={transform}
+            transition={transition}
+            isDragging={isDragging}
+            isDragDropEnabled={true}
+        />
+    )
+}
+
+const StaticCondition = (props: ConditionProps): JSX.Element => {
+    return (
+        <ConditionContent
+            {...props}
+            attributes={{}}
+            listeners={undefined}
+            setNodeRef={() => {}}
+            setActivatorNodeRef={() => {}}
+            transform={null}
+            transition={undefined}
+            isDragging={false}
+            isDragDropEnabled={false}
+        />
+    )
+}
+
+const ConditionContent = ({
+    group,
+    index,
+    totalGroups,
+    affectedUsers,
+    totalUsers,
+    aggregationTargetName,
+    onMoveUp,
+    onMoveDown,
+    onDuplicate,
+    onRemove,
+    updateConditionSet,
+    taxonomicGroupTypes,
+    filtersTaxonomicOptions,
+    releaseFilters,
+    variants,
+    openConditions,
+    handleOpenConditionsChange,
+    flagId,
+    id,
+    isAnyItemDragging,
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+    isDragDropEnabled,
+}: ConditionProps & {
+    attributes: any
+    listeners: any
+    setNodeRef: any
+    setActivatorNodeRef: any
+    transform: any
+    transition: any
+    isDragging: boolean
+    isDragDropEnabled: boolean
+}): JSX.Element => {
     const [originalWidth, setOriginalWidth] = useState<number | undefined>(undefined)
 
     // Combined ref callback
@@ -953,7 +1002,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                             or
                                         </div>
                                     )}
-                                    <SortableCondition
+                                    <DraggableCondition
                                         key={`condition-${group.sort_key!}`}
                                         group={group as FeatureFlagGroupTypeWithSortKey}
                                         index={index}
@@ -975,7 +1024,6 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         flagId={flagId}
                                         id={id || 'feature-flag-conditions'}
                                         isAnyItemDragging={isAnyItemDragging}
-                                        isDragDropEnabled={isDragDropEnabled}
                                     />
                                 </React.Fragment>
                             ))}
@@ -1021,7 +1069,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                     or
                                 </div>
                             )}
-                            <SortableCondition
+                            <StaticCondition
                                 key={`condition-${group.sort_key!}`}
                                 group={group as FeatureFlagGroupTypeWithSortKey}
                                 index={index}
@@ -1043,7 +1091,6 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                 flagId={flagId}
                                 id={id || 'feature-flag-conditions'}
                                 isAnyItemDragging={false}
-                                isDragDropEnabled={false}
                             />
                         </React.Fragment>
                     ))
