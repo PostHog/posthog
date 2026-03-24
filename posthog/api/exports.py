@@ -302,7 +302,6 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                 team_id=team.id,
             ),
             extra_properties={
-                "exported_asset_id": instance.id,
                 "source": source,
                 "export_format": instance.export_format,
             },

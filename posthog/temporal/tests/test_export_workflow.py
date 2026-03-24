@@ -77,7 +77,7 @@ async def test_successful_export(
     props = _get_slo_completed_props(mock_analytics)
     assert props["outcome"] == SloOutcome.SUCCESS
     assert props["operation"] == "export"
-    assert props["exported_asset_id"] == asset.id
+    assert props["resource_id"] == str(asset.id)
     assert props["export_format"] == EXPORT_FORMAT
     assert props["error"] is None
 
