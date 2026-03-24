@@ -68,6 +68,7 @@ from posthog.tasks.email import (
 from posthog.utils import get_instance_available_sso_providers, get_ip_address, get_short_user_agent
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
+logger = structlog.get_logger("posthog.auth")
 mfa_logger = structlog.get_logger("posthog.auth.mfa")
 
 USER_AUTH_METHOD_MISMATCH = Counter(
@@ -149,7 +150,8 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
 
     try:
         return auth(request, backend)
-    except (AuthFailed, AuthMissingParameter):
+    except (AuthFailed, AuthMissingParameter) as e:
+        logger.warning("SSO login failed, redirecting to login page", exc_info=e)
         return redirect("/login?error_code=improperly_configured_sso")
 
 
