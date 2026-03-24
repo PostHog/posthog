@@ -139,6 +139,8 @@ ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_KAFKA_TABLE = (
 )
 ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_MV = f"{ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE}_mv"
 
+ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_ASSIGNED_ENTITY_TYPE_CH = "Nullable(Enum8('user' = 1, 'role' = 2))"
+
 ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
@@ -148,8 +150,8 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     issue_name Nullable(VARCHAR),
     issue_description Nullable(VARCHAR),
     issue_status VARCHAR,
-    assigned_user_id Nullable(Int64),
-    assigned_role_id Nullable(UUID),
+    assigned_entity_type {assigned_entity_type},
+    assigned_entity_id Nullable(String),
     first_seen DateTime64(3, 'UTC'),
     is_deleted Int8,
     version Int64
@@ -171,6 +173,7 @@ ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE_SQL = lambda on_cluster=True
     table_name=ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE,
     on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     engine=ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE_ENGINE(),
+    assigned_entity_type=ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_ASSIGNED_ENTITY_TYPE_CH,
     extra_fields=f"""
     {KAFKA_COLUMNS_WITH_PARTITION}
     , {index_by_kafka_timestamp(ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE)}
@@ -185,6 +188,7 @@ KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE_SQL = (
             KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED,
             group="clickhouse-error-tracking-issue-fingerprint-denormalized",
         ),
+        assigned_entity_type=ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_ASSIGNED_ENTITY_TYPE_CH,
         extra_fields="",
     )
 )
@@ -203,8 +207,8 @@ issue_id,
 issue_name,
 issue_description,
 issue_status,
-assigned_user_id,
-assigned_role_id,
+assigned_entity_type,
+assigned_entity_id,
 first_seen,
 is_deleted,
 version,
@@ -229,13 +233,14 @@ WRITABLE_ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE_SQL = (
             data_table=ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_TABLE,
             cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER,
         ),
+        assigned_entity_type=ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED_ASSIGNED_ENTITY_TYPE_CH,
         extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
     )
 )
 
 
 INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_DENORMALIZED = """
-INSERT INTO error_tracking_issue_fingerprint_denormalized (fingerprint, issue_id, team_id, issue_name, issue_description, issue_status, assigned_user_id, assigned_role_id, first_seen, is_deleted, version, _timestamp, _offset, _partition) SELECT %(fingerprint)s, %(issue_id)s, %(team_id)s, %(issue_name)s, %(issue_description)s, %(issue_status)s, %(assigned_user_id)s, %(assigned_role_id)s, %(first_seen)s, %(is_deleted)s, %(version)s, now(), 0, 0 VALUES
+INSERT INTO error_tracking_issue_fingerprint_denormalized (fingerprint, issue_id, team_id, issue_name, issue_description, issue_status, assigned_entity_type, assigned_entity_id, first_seen, is_deleted, version, _timestamp, _offset, _partition) SELECT %(fingerprint)s, %(issue_id)s, %(team_id)s, %(issue_name)s, %(issue_description)s, %(issue_status)s, %(assigned_entity_type)s, %(assigned_entity_id)s, %(first_seen)s, %(is_deleted)s, %(version)s, now(), 0, 0 VALUES
 """
 
 
