@@ -233,7 +233,7 @@ const CdpFunctionsRearrangePartialUpdateSchema = HogFunctionsRearrangePartialUpd
 
 const cdpFunctionsRearrangePartialUpdate = (): ToolBase<
     typeof CdpFunctionsRearrangePartialUpdateSchema,
-    Schemas.HogFunction
+    Schemas.HogFunction[]
 > => ({
     name: 'cdp-functions-rearrange-partial-update',
     schema: CdpFunctionsRearrangePartialUpdateSchema,
@@ -243,7 +243,7 @@ const cdpFunctionsRearrangePartialUpdate = (): ToolBase<
         if (params.orders !== undefined) {
             body['orders'] = params.orders
         }
-        const result = await context.api.request<Schemas.HogFunction>({
+        const result = await context.api.request<Schemas.HogFunction[]>({
             method: 'PATCH',
             path: `/api/projects/${projectId}/hog_functions/rearrange/`,
             body,

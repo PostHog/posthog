@@ -25,41 +25,49 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         spans: {
             __default: [] as Span[],
             loadSpans: async (): Promise<Span[]> => {
-                const response = await api.tracing.listSpans()
+                const response = await api.tracing.listSpans({
+                    dateRange: { date_from: '-1h' },
+                    orderBy: 'latest',
+                    limit: 100,
+                })
                 return response.results as Span[]
             },
         },
         traceSpans: {
             __default: [] as Span[],
             loadTraceSpans: async (traceId: string): Promise<Span[]> => {
-                const response = await api.tracing.getTrace(traceId)
+                const response = await api.tracing.getTrace(traceId, { date_from: '-24h' })
                 return response.results as Span[]
-            },
-        },
-        sparklineRows: {
-            __default: [] as SparklineRow[],
-            loadSparkline: async (): Promise<SparklineRow[]> => {
-                const response = await api.tracing.sparkline()
-                return response.results as SparklineRow[]
             },
         },
     }),
 
     selectors({
         sparklineData: [
-            (s) => [s.sparklineRows],
-            (rows: SparklineRow[]): TracingSparklineData => {
-                if (!rows.length) {
+            (s) => [s.spans],
+            (spans: Span[]): TracingSparklineData => {
+                if (!spans.length) {
                     return { data: [], dates: [] }
                 }
 
-                const timeBuckets = [...new Set(rows.map((r) => r.time))].sort()
-                const services = [...new Set(rows.map((r) => r.service))].sort()
-
+                const bucketMinutes = 5
                 const countMap = new Map<string, number>()
-                for (const row of rows) {
-                    countMap.set(`${row.time}|${row.service}`, row.count)
+                const timeBucketsSet = new Set<string>()
+                const servicesSet = new Set<string>()
+
+                for (const span of spans) {
+                    const ts = new Date(span.timestamp)
+                    ts.setSeconds(0, 0)
+                    ts.setMinutes(Math.floor(ts.getMinutes() / bucketMinutes) * bucketMinutes)
+                    const bucket = ts.toISOString()
+                    timeBucketsSet.add(bucket)
+                    servicesSet.add(span.service_name)
+                    const key = `${bucket}|${span.service_name}`
+                    countMap.set(key, (countMap.get(key) ?? 0) + 1)
                 }
+
+                const timeBuckets = [...timeBucketsSet].sort()
+                const services = [...servicesSet].sort()
 
                 const data = services.map((service, i) => ({
                     name: service,
@@ -74,6 +82,5 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
 
     afterMount(({ actions }) => {
         actions.loadSpans()
-        actions.loadSparkline()
     }),
 ])

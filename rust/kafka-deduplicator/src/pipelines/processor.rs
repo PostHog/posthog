@@ -5,7 +5,7 @@
 
 use std::time::Instant;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use tracing::warn;
 
 use crate::metrics::MetricsHelper;
@@ -210,44 +210,58 @@ pub fn get_store_or_drop(
 /// Batch read from RocksDB with metrics.
 ///
 /// Reads multiple keys from the timestamp column family and records the duration.
-pub fn batch_read_timestamp_records(
+/// Runs on a blocking thread to avoid starving the tokio async runtime.
+pub async fn batch_read_timestamp_records(
     store: &DeduplicationStore,
     keys: Vec<&[u8]>,
 ) -> Result<Vec<Option<Vec<u8>>>> {
-    let start = Instant::now();
-    let results = store.multi_get_timestamp_records(keys)?;
-    let duration = start.elapsed();
-    metrics::histogram!(ROCKSDB_MULTI_GET_DURATION_MS, "cf" => "timestamp")
-        .record(duration.as_millis() as f64);
-    Ok(results)
+    let store = store.clone();
+    let owned_keys: Vec<Vec<u8>> = keys.into_iter().map(|k| k.to_vec()).collect();
+    tokio::task::spawn_blocking(move || {
+        let key_refs: Vec<&[u8]> = owned_keys.iter().map(|k| k.as_slice()).collect();
+        let start = Instant::now();
+        let results = store.multi_get_timestamp_records(key_refs)?;
+        let duration = start.elapsed();
+        metrics::histogram!(ROCKSDB_MULTI_GET_DURATION_MS, "cf" => "timestamp")
+            .record(duration.as_millis() as f64);
+        Ok(results)
+    })
+    .await
+    .context("RocksDB batch read task panicked")?
 }
 
 /// Batch write to RocksDB with metrics.
 ///
 /// Writes multiple key-value pairs to the timestamp column family and records the duration.
-pub fn batch_write_timestamp_records(
+/// Runs on a blocking thread to avoid starving the tokio async runtime.
+pub async fn batch_write_timestamp_records(
     store: &DeduplicationStore,
-    writes: &[(Vec<u8>, Vec<u8>)],
+    writes: Vec<(Vec<u8>, Vec<u8>)>,
 ) -> Result<()> {
     if writes.is_empty() {
         return Ok(());
     }
 
-    let entries: Vec<TimestampBatchEntry> = writes
-        .iter()
-        .map(|(key, value)| TimestampBatchEntry {
-            key: key.as_slice(),
-            value: value.as_slice(),
-        })
-        .collect();
+    let store = store.clone();
+    tokio::task::spawn_blocking(move || {
+        let entries: Vec<TimestampBatchEntry> = writes
+            .iter()
+            .map(|(key, value)| TimestampBatchEntry {
+                key: key.as_slice(),
+                value: value.as_slice(),
+            })
+            .collect();
 
-    let start = Instant::now();
-    store.put_timestamp_records_batch(entries)?;
-    let duration = start.elapsed();
-    metrics::histogram!(ROCKSDB_PUT_BATCH_DURATION_MS, "cf" => "timestamp")
-        .record(duration.as_millis() as f64);
+        let start = Instant::now();
+        store.put_timestamp_records_batch(entries)?;
+        let duration = start.elapsed();
+        metrics::histogram!(ROCKSDB_PUT_BATCH_DURATION_MS, "cf" => "timestamp")
+            .record(duration.as_millis() as f64);
 
-    Ok(())
+        Ok(())
+    })
+    .await
+    .context("RocksDB batch write task panicked")?
 }
 
 #[cfg(test)]
@@ -309,11 +323,11 @@ mod tests {
             (b"key1".to_vec(), b"value1".to_vec()),
             (b"key2".to_vec(), b"value2".to_vec()),
         ];
-        batch_write_timestamp_records(&store, &writes).unwrap();
+        batch_write_timestamp_records(&store, writes).await.unwrap();
 
         // Read them back
         let keys: Vec<&[u8]> = vec![b"key1", b"key2", b"key3"];
-        let results = batch_read_timestamp_records(&store, keys).unwrap();
+        let results = batch_read_timestamp_records(&store, keys).await.unwrap();
 
         assert_eq!(results.len(), 3);
         assert_eq!(results[0], Some(b"value1".to_vec()));
@@ -321,9 +335,8 @@ mod tests {
         assert_eq!(results[2], None); // key3 doesn't exist
     }
 
-    #[test]
-    fn test_batch_write_empty() {
-        // Should not panic on empty writes
+    #[tokio::test]
+    async fn test_batch_write_empty() {
         let temp_dir = TempDir::new().unwrap();
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
@@ -332,7 +345,7 @@ mod tests {
         };
         let store = DeduplicationStore::new(config, "test-topic".to_string(), 0).unwrap();
 
-        let result = batch_write_timestamp_records(&store, &[]);
+        let result = batch_write_timestamp_records(&store, vec![]).await;
         assert!(result.is_ok());
     }
 }

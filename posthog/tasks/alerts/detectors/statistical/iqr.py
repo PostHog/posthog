@@ -31,13 +31,13 @@ class IQRDetector(BaseDetector):
     function (same approach as pyod's predict_proba).
 
     Config:
-        threshold: float - Anomaly probability threshold (default: 0.9)
+        threshold: float - Anomaly probability threshold (default: 0.95)
         multiplier: float - IQR multiplier for fences (default: 1.5)
         window: int - Rolling window size (default: 30)
     """
 
     def detect(self, data: np.ndarray) -> DetectionResult:
-        threshold = self.config.get("threshold", 0.9)
+        threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
         multiplier = self.config.get("multiplier", 1.5)
         window = self.config.get("window", 30)
 
@@ -87,7 +87,7 @@ class IQRDetector(BaseDetector):
         )
 
     def detect_batch(self, data: np.ndarray) -> DetectionResult:
-        threshold = self.config.get("threshold", 0.9)
+        threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
         multiplier = self.config.get("multiplier", 1.5)
         window = self.config.get("window", 30)
 
@@ -136,7 +136,7 @@ class IQRDetector(BaseDetector):
     def get_default_config(cls) -> dict[str, Any]:
         return {
             "type": DetectorType.IQR.value,
-            "threshold": 0.9,
+            "threshold": cls.DEFAULT_THRESHOLD,
             "multiplier": 1.5,
             "window": 30,
         }

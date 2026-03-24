@@ -10,6 +10,7 @@ from posthog.temporal.ai.posthog_code_slack_interactivity import (
 )
 from posthog.temporal.ai.posthog_code_slack_mention import (
     PostHogCodeSlackMentionWorkflow,
+    classify_posthog_code_task_needs_repo_activity,
     collect_posthog_code_thread_messages_activity,
     create_posthog_code_routing_rule_activity,
     create_posthog_code_task_for_repo_activity,
@@ -116,6 +117,7 @@ AI_ACTIVITIES = [
     collect_posthog_code_thread_messages_activity,
     create_posthog_code_routing_rule_activity,
     select_posthog_code_repository_activity,
+    classify_posthog_code_task_needs_repo_activity,
     post_posthog_code_no_repos_activity,
     post_posthog_code_repo_picker_activity,
     create_posthog_code_task_for_repo_activity,

@@ -11,10 +11,14 @@ from products.batch_exports.backend.temporal.destinations.bigquery_batch_export 
     BigQueryField,
     BigQueryTable,
     BigQueryType,
+    GoogleCloudServiceAccountIntegration,
     StartQueryTimeoutError,
 )
 from products.batch_exports.backend.tests.temporal.destinations.bigquery.utils import (
     SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS,
+)
+from products.batch_exports.backend.tests.temporal.destinations.s3.utils import (
+    check_valid_credentials as has_valid_aws_credentials,
 )
 
 
@@ -100,3 +104,20 @@ async def test_create_table(fields, time_partitioning, bigquery_client, bigquery
         assert all(field.name in created for field in fields)
     finally:
         await client.delete_table(table)
+
+
+@SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
+@pytest.mark.asyncio
+@pytest.mark.parametrize("integration", ["impersonated", "key_file"], indirect=True)
+async def test_from_service_account_integration(
+    integration,
+):
+    """Can initialize client from integration configured."""
+    if not await has_valid_aws_credentials() and not integration.has_key():
+        pytest.skip("AWS credentials not available and required for impersonated integration")
+
+    client = BigQueryClient.from_service_account_integration(GoogleCloudServiceAccountIntegration(integration))
+    # This triggers a credential refresh, just to make sure it is correctly set up.
+    results = list(client.sync_client.query("SELECT 1").result())
+
+    assert results[0].values()[0] == 1

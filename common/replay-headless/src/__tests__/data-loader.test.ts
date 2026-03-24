@@ -31,7 +31,13 @@ const mockResponse = (
     body: string | object,
     status = 200,
     statusText = 'OK'
-): { ok: boolean; status: number; statusText: string; text: () => Promise<string>; json: () => Promise<unknown> } => ({
+): {
+    ok: boolean
+    status: number
+    statusText: string
+    text: () => Promise<string>
+    json: () => Promise<unknown>
+} => ({
     ok: status >= 200 && status < 300,
     status,
     statusText,
@@ -45,7 +51,13 @@ const jsonlBlock = (windowId: string, timestamps: number[]): string =>
         .map((ts) =>
             JSON.stringify({
                 windowId,
-                data: [{ type: 4, timestamp: ts, data: { href: 'https://example.com', width: 1920, height: 1080 } }],
+                data: [
+                    {
+                        type: 4,
+                        timestamp: ts,
+                        data: { href: 'https://example.com', width: 1920, height: 1080 },
+                    },
+                ],
             })
         )
         .join('\n')

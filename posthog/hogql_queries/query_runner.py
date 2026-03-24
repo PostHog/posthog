@@ -874,6 +874,17 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    if kind == "TraceSpansQuery":
+        from products.tracing.backend.logic import TraceSpansQueryRunner
+
+        return TraceSpansQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind == "PropertyValuesQuery":
         from posthog.hogql_queries.property_values_query_runner import PropertyValuesQueryRunner
 

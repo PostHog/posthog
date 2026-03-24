@@ -2,9 +2,9 @@ import './TextCard.scss'
 
 import { EditorContent } from '@tiptap/react'
 import clsx from 'clsx'
-import React, { useEffect } from 'react'
+import React, { memo, useEffect, useMemo } from 'react'
 
-import 'lib/components/MarkdownEditor/RichMarkdownEditor.scss'
+import 'lib/components/MarkdownEditor/shared/RichMarkdownEditor.scss'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { DashboardResizeHandles } from 'lib/components/Cards/handles'
 import { EditModeEdgeOverlay } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
@@ -27,6 +27,8 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
     moreButtonOverlay?: MoreProps['overlay']
     /** Called when the user mousedowns on the card body (drag handle) in view mode to enter edit mode. */
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
+    /** Whether editing controls (three-dots menu) should be shown. False hides them on template dashboards in view mode. */
+    showEditingControls?: boolean
 }
 
 interface TextCardBodyProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'className'> {
@@ -34,10 +36,12 @@ interface TextCardBodyProps extends Pick<React.HTMLAttributes<HTMLDivElement>, '
     closeDetails?: () => void
 }
 
-export function TextContent({ text, closeDetails, className }: TextCardBodyProps): JSX.Element {
+function TextContentImpl({ text, closeDetails, className }: TextCardBodyProps): JSX.Element {
+    const initialDoc = useMemo(() => markdownToTextCardDoc(text), [text])
+
     const editor = useRichContentEditor({
         extensions: TEXT_CARD_MARKDOWN_READONLY_EXTENSIONS,
-        initialContent: markdownToTextCardDoc(text),
+        initialContent: initialDoc,
         disabled: true,
     })
 
@@ -46,8 +50,8 @@ export function TextContent({ text, closeDetails, className }: TextCardBodyProps
             return
         }
 
-        editor.commands.setContent(markdownToTextCardDoc(text), { emitUpdate: false })
-    }, [editor, text])
+        editor.commands.setContent(initialDoc, { emitUpdate: false })
+    }, [editor, initialDoc])
 
     return (
         <div className={clsx('w-full', className)} onClick={() => closeDetails?.()}>
@@ -62,6 +66,9 @@ export function TextContent({ text, closeDetails, className }: TextCardBodyProps
     )
 }
 
+export const TextContent = memo(TextContentImpl)
+TextContent.displayName = 'TextContent'
+
 function TextCardInternal(
     {
         textTile,
@@ -73,6 +80,7 @@ function TextCardInternal(
         canEnterEditModeFromEdge,
         onEnterEditModeFromEdge,
         onDragHandleMouseDown,
+        showEditingControls,
         ...divProps
     }: TextCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -83,11 +91,18 @@ function TextCardInternal(
         throw new Error('TextCard requires text')
     }
 
-    const shouldHideMoreButton = placement === DashboardPlacement.Public
+    const shouldHideMoreButton = placement === DashboardPlacement.Public || showEditingControls === false
+
+    const isTransparent = textTile.transparent_background
 
     return (
         <div
-            className={clsx('TextCard bg-surface-primary border rounded flex flex-col', className)}
+            className={clsx(
+                'TextCard rounded flex flex-col',
+                !isTransparent && 'bg-surface-primary border',
+                isTransparent && showResizeHandles && 'border border-dashed border-border',
+                className
+            )}
             data-attr="text-card"
             {...divProps}
             ref={ref}
@@ -102,7 +117,7 @@ function TextCardInternal(
                 className={clsx('TextCard__body w-full', onDragHandleMouseDown && 'cursor-grab')}
                 onMouseDown={onDragHandleMouseDown}
             >
-                <TextContent text={text.body} className="p-4 pr-14" />
+                <TextContent text={text.body} className={shouldHideMoreButton ? 'p-4' : 'p-4 pr-14'} />
             </div>
 
             {canEnterEditModeFromEdge && !showResizeHandles && onEnterEditModeFromEdge && (

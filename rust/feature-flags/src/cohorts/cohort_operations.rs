@@ -1,4 +1,5 @@
 use serde_json::Value;
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
@@ -366,11 +367,12 @@ pub fn evaluate_dynamic_cohorts(
 /// 1. Checking each filter's cohort ID
 /// 2. Looking up the match result in the cohort_matches map
 /// 3. Applying the appropriate operator (IN/NOT_IN)
-pub fn apply_cohort_membership_logic(
-    cohort_filters: &[PropertyFilter],
+pub fn apply_cohort_membership_logic<F: Borrow<PropertyFilter>>(
+    cohort_filters: &[F],
     cohort_matches: &HashMap<CohortId, bool>,
 ) -> Result<bool, FlagError> {
     for filter in cohort_filters {
+        let filter = filter.borrow();
         let cohort_id = filter
             .get_cohort_id()
             .ok_or(FlagError::CohortFiltersParsingError)?;

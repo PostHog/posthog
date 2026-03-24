@@ -16,6 +16,10 @@
             "description": "A UUID string identifying this data warehouse saved query.",
             "type": "string"
         },
+        "is_test": {
+            "description": "Whether this view is for testing only and will auto-expire.",
+            "type": "boolean"
+        },
         "name": {
             "description": "Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.",
             "maxLength": 128,

@@ -10,8 +10,8 @@ import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { AI_EVENT_TYPES } from '../ai'
 import { AiEventSubpipelineInput, createAiEventSubpipeline } from '../ai/pipelines/ai-event-subpipeline'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
-import { AiEventOutput, EventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
 import { SplitAiEventsStepConfig } from '../event-processing/split-ai-events-step'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 import { TopHogWrapper } from '../pipelines/extensions/tophog'
 import {
@@ -20,6 +20,7 @@ import {
 } from './client-ingestion-warning-subpipeline'
 import { EventSubpipelineInput, createEventSubpipeline } from './event-subpipeline'
 import { HeatmapSubpipelineInput, createHeatmapSubpipeline } from './heatmap-subpipeline'
+import { AiEventOutput, EventOutput, HeatmapsOutput } from './outputs'
 
 export type PerDistinctIdPipelineInput = EventSubpipelineInput &
     HeatmapSubpipelineInput &
@@ -27,10 +28,8 @@ export type PerDistinctIdPipelineInput = EventSubpipelineInput &
     AiEventSubpipelineInput
 
 export interface PerDistinctIdPipelineConfig {
-    options: EventPipelineRunnerOptions & {
-        CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
-    }
-    outputs: IngestionOutputs<EventOutput | AiEventOutput>
+    options: EventPipelineRunnerOptions
+    outputs: IngestionOutputs<EventOutput | AiEventOutput | HeatmapsOutput>
     splitAiEventsConfig: SplitAiEventsStepConfig
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
@@ -85,10 +84,10 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
                     .branch('heatmap', (b) =>
                         createHeatmapSubpipeline(b, {
                             options,
+                            outputs,
                             teamManager,
                             groupTypeManager,
                             groupStore,
-                            kafkaProducer,
                         })
                     )
                     .branch('ai', (b) =>

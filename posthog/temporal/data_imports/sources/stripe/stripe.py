@@ -1,18 +1,22 @@
 import dataclasses
 from collections.abc import Callable
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, get_args, get_type_hints
 
 import orjson
 import pyarrow as pa
 from asgiref.sync import async_to_sync
 from stripe import ListObject, StripeClient
+from stripe._webhook_endpoint_service import WebhookEndpointService
 from structlog.types import FilteringBoundLogger
 
+from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from posthog.temporal.data_imports.sources.common.base import WebhookCreationResult
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
+from posthog.temporal.data_imports.sources.generated_configs import StripeSourceConfig
 from posthog.temporal.data_imports.sources.stripe.constants import (
     ACCOUNT_RESOURCE_NAME,
     BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -28,13 +32,15 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     PRICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME,
     REFUND_RESOURCE_NAME,
+    RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
     SUBSCRIPTION_RESOURCE_NAME,
 )
 from posthog.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
-from posthog.temporal.data_imports.sources.stripe.settings import INCREMENTAL_FIELDS
+from posthog.temporal.data_imports.sources.stripe.settings import APPEND_ONLY_INCREMENTAL_FIELDS
 
 from products.data_warehouse.backend.models.external_table_definitions import get_dlt_mapping_for_external_table
 
+LOGGER = get_logger(__name__)
 DEFAULT_LIMIT = 100
 
 
@@ -109,7 +115,7 @@ def get_rows(
     logger.debug(f"Stripe: reading from resource {resource}")
 
     # Get the incremental field name for this endpoint
-    incremental_field_config = INCREMENTAL_FIELDS.get(endpoint, [])
+    incremental_field_config = APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, [])
     incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else "created"
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -227,7 +233,7 @@ def stripe_source(
     column_hints = {key: value.get("data_type") for key, value in column_mapping.items()}
 
     # Get the incremental field name for partition keys
-    incremental_field_config = INCREMENTAL_FIELDS.get(endpoint, [])
+    incremental_field_config = APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, [])
     incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else "created"
 
     webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)()
@@ -318,3 +324,57 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
         raise StripePermissionError(missing_permissions)  # type: ignore
 
     return True
+
+
+def create_webhook(config: StripeSourceConfig, webhook_url: str) -> WebhookCreationResult:
+    logger = LOGGER.bind()
+
+    hints = get_type_hints(WebhookEndpointService.CreateParams, include_extras=True)
+    enabled_events_type = hints["enabled_events"]
+    list_inner = get_args(enabled_events_type)[0]
+    possible_event_values: tuple[str] = get_args(list_inner)
+
+    prefixes_set = set(RESOURCE_TO_STRIPE_WEBHOOK_EVENT.values())
+    filtered_events = [e for e in possible_event_values if any(e.startswith(f"{p}.") for p in prefixes_set)]
+
+    if not filtered_events:
+        return WebhookCreationResult(
+            success=False,
+            error="Could not determine valid webhook events. Please create the webhook manually.",
+        )
+
+    try:
+        client = StripeClient(
+            config.stripe_secret_key,
+            stripe_account=config.stripe_account_id,
+            stripe_version="2024-09-30.acacia",
+            max_network_retries=2,
+        )
+
+        endpoint = client.webhook_endpoints.create(
+            params={
+                "url": webhook_url,
+                "enabled_events": filtered_events,  # type: ignore
+                "description": "PostHog data warehouse webhook",
+            }
+        )
+
+        extra_inputs: dict[str, Any] = {}
+        if endpoint.secret:
+            extra_inputs["signing_secret"] = endpoint.secret
+
+        return WebhookCreationResult(success=True, extra_inputs=extra_inputs)
+    except Exception as e:
+        error_str = str(e)
+        logger.warning(
+            "Failed to create Stripe webhook",
+            error=error_str,
+        )
+
+        if "permission" in error_str.lower() or "403" in error_str or "forbidden" in error_str.lower():
+            return WebhookCreationResult(
+                success=False,
+                error="Your Stripe API key doesn't have permission to create webhooks. Please add the 'Write' permission for 'Webhook endpoints' to your API key, or create the webhook manually.",
+            )
+
+        return WebhookCreationResult(success=False, error=f"Failed to create webhook automatically: {error_str}")
