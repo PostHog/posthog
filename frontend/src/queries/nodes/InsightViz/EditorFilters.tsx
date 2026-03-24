@@ -64,6 +64,7 @@ import {
 
 import { Breakdown } from './Breakdown'
 import { CumulativeStickinessFilter } from './CumulativeStickinessFilter'
+import { DateRangeFilter } from './DateRangeFilter'
 import { EditorFilterGroup } from './EditorFilterGroup'
 import { GlobalAndOrFilters } from './GlobalAndOrFilters'
 import { LifecycleToggles } from './LifecycleToggles'
@@ -245,6 +246,19 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     : null,
             ]),
         },
+        ...(editorPanelsEnabled
+            ? [
+                  {
+                      title: 'Date range',
+                      editorFilters: [
+                          {
+                              key: 'date-range',
+                              component: DateRangeFilter,
+                          },
+                      ],
+                  },
+              ]
+            : []),
         {
             title: editorPanelsEnabled
                 ? isFunnels
