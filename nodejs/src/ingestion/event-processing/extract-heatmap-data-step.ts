@@ -45,7 +45,7 @@ export function createExtractHeatmapDataStep<TInput extends ExtractHeatmapDataSt
                         HEATMAPS_OUTPUT,
                         heatmapEvents.map((rawEvent) => ({
                             key: eventUuid,
-                            value: JSON.stringify(rawEvent),
+                            value: Buffer.from(JSON.stringify(rawEvent)),
                         }))
                     )
                 )

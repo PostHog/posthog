@@ -376,6 +376,8 @@ class ExperimentService:
         }
         if params.get("ensure_experience_continuity") is not None:
             feature_flag_data["ensure_experience_continuity"] = params["ensure_experience_continuity"]
+        else:
+            feature_flag_data["ensure_experience_continuity"] = self.team.flags_persistence_default or False
         if create_in_folder is not None:
             feature_flag_data["_create_in_folder"] = create_in_folder
 
@@ -1160,16 +1162,16 @@ class ExperimentService:
                 queryset = queryset.order_by(f"{'-' if order_value.startswith('-') else ''}computed_duration")
             elif order_value in ["status", "-status"]:
                 queryset = queryset.annotate(
-                    computed_status=Case(
+                    status_sort_key=Case(
                         When(start_date__isnull=True, then=Value(0)),
                         When(end_date__isnull=True, then=Value(1)),
                         default=Value(2),
                     )
                 )
                 if order_value.startswith("-"):
-                    queryset = queryset.order_by(F("computed_status").desc())
+                    queryset = queryset.order_by(F("status_sort_key").desc())
                 else:
-                    queryset = queryset.order_by(F("computed_status").asc())
+                    queryset = queryset.order_by(F("status_sort_key").asc())
             else:
                 queryset = queryset.order_by(order_value)
         else:
@@ -1394,7 +1396,7 @@ class ExperimentService:
         fingerprint: str,
     ) -> dict:
         """Create an idempotent recalculation request for experiment timeseries data."""
-        if not experiment.start_date:
+        if not experiment.is_launched:
             raise ValidationError("Cannot recalculate timeseries for experiment that hasn't started")
 
         existing_recalculation = ExperimentTimeseriesRecalculation.objects.filter(

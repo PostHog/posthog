@@ -166,11 +166,11 @@ describe('IngestionOutputs', () => {
                 events: { topic: 'clickhouse_events', producer },
             })
 
-            await outputs.queueMessages('events', [{ value: 'msg1' }, { value: 'msg2' }])
+            await outputs.queueMessages('events', [{ value: Buffer.from('msg1') }, { value: Buffer.from('msg2') }])
 
             expect(producer.queueMessages).toHaveBeenCalledWith({
                 topic: 'clickhouse_events',
-                messages: [{ value: 'msg1' }, { value: 'msg2' }],
+                messages: [{ value: Buffer.from('msg1') }, { value: Buffer.from('msg2') }],
             })
         })
     })
