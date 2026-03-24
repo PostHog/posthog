@@ -44,6 +44,7 @@ import {
     CohortType,
     DashboardMode,
     DashboardTile,
+    DashboardWidgetType,
     DashboardType,
     EntityType,
     Experiment,
@@ -469,6 +470,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             insight: Partial<QueryBasedInsightModel> | null,
             dashboardId: number | null
         ) => ({ insight, dashboardId }),
+        reportCopiedDashboardTileToDashboard: (
+            fromDashboardId: number,
+            toDashboardId: number,
+            tileType: DashboardWidgetType
+        ) => ({ fromDashboardId, toDashboardId, tileType }),
         reportSavedInsightTabChanged: (tab: string) => ({ tab }),
         reportSavedInsightFilterUsed: (filterKeys: string[]) => ({ filterKeys }),
         reportSavedInsightNewInsightClicked: (insightType: string) => ({ insightType }),
@@ -477,8 +483,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
         reportExperimentWizardStarted: (guideVisible: boolean) => ({ guideVisible }),
         reportExperimentWizardGuideToggled: (visible: boolean, currentStep: string) => ({ visible, currentStep }),
-        reportExperimentPaused: (experiment: Experiment) => ({ experiment }),
-        reportExperimentResumed: (experiment: Experiment) => ({ experiment }),
         reportExperimentStopped: (experiment: Experiment) => ({ experiment }),
         reportExperimentReset: (experiment: Experiment) => ({ experiment }),
         reportExperimentCreated: (
@@ -1380,6 +1384,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 dashboard_id: dashboardId,
             })
         },
+        reportCopiedDashboardTileToDashboard: async ({ fromDashboardId, toDashboardId, tileType }) => {
+            posthog.capture('dashboard widget copied to other dashboard', {
+                from_dashboard_id: fromDashboardId,
+                to_dashboard_id: toDashboardId,
+                tile_type: tileType,
+            })
+        },
         reportInsightsTableCalcToggled: async (payload) => {
             posthog.capture('insights table calc toggled', payload)
         },
@@ -1420,16 +1431,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                     delay,
                 })
             }
-        },
-        reportExperimentPaused: ({ experiment }) => {
-            posthog.capture('experiment paused', {
-                ...getEventPropertiesForExperiment(experiment),
-            })
-        },
-        reportExperimentResumed: ({ experiment }) => {
-            posthog.capture('experiment resumed', {
-                ...getEventPropertiesForExperiment(experiment),
-            })
         },
         reportExperimentStopped: ({ experiment }) => {
             posthog.capture('experiment stopped', {

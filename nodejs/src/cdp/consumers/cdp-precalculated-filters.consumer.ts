@@ -1,6 +1,5 @@
 import { Message } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
-import { v4 as uuidv4 } from 'uuid'
 
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import {
@@ -95,10 +94,8 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
         }
 
         try {
-            // Use random UUIDs as keys to ensure proper partition distribution
             const messages = events.map((event) => ({
                 value: JSON.stringify(event.payload),
-                key: uuidv4(),
             }))
 
             await this.kafkaProducer.queueMessages({

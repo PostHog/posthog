@@ -2,9 +2,9 @@ import './TextCard.scss'
 
 import { EditorContent } from '@tiptap/react'
 import clsx from 'clsx'
-import React, { useEffect } from 'react'
+import React, { memo, useEffect, useMemo } from 'react'
 
-import 'lib/components/MarkdownEditor/RichMarkdownEditor.scss'
+import 'lib/components/MarkdownEditor/shared/RichMarkdownEditor.scss'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { DashboardResizeHandles } from 'lib/components/Cards/handles'
 import { EditModeEdgeOverlay } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
@@ -36,10 +36,12 @@ interface TextCardBodyProps extends Pick<React.HTMLAttributes<HTMLDivElement>, '
     closeDetails?: () => void
 }
 
-export function TextContent({ text, closeDetails, className }: TextCardBodyProps): JSX.Element {
+function TextContentImpl({ text, closeDetails, className }: TextCardBodyProps): JSX.Element {
+    const initialDoc = useMemo(() => markdownToTextCardDoc(text), [text])
+
     const editor = useRichContentEditor({
         extensions: TEXT_CARD_MARKDOWN_READONLY_EXTENSIONS,
-        initialContent: markdownToTextCardDoc(text),
+        initialContent: initialDoc,
         disabled: true,
     })
 
@@ -48,8 +50,8 @@ export function TextContent({ text, closeDetails, className }: TextCardBodyProps
             return
         }
 
-        editor.commands.setContent(markdownToTextCardDoc(text), { emitUpdate: false })
-    }, [editor, text])
+        editor.commands.setContent(initialDoc, { emitUpdate: false })
+    }, [editor, initialDoc])
 
     return (
         <div className={clsx('w-full', className)} onClick={() => closeDetails?.()}>
@@ -63,6 +65,9 @@ export function TextContent({ text, closeDetails, className }: TextCardBodyProps
         </div>
     )
 }
+
+export const TextContent = memo(TextContentImpl)
+TextContent.displayName = 'TextContent'
 
 function TextCardInternal(
     {
