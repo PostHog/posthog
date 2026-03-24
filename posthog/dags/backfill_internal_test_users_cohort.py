@@ -50,10 +50,9 @@ def create_internal_test_users_cohorts_op(
         context.log.warning(f"{not_found} team IDs not found in the database, skipping")
 
     # Bulk-create all cohorts in a single INSERT.
-    # There is no unique constraint on (team_id, kind), so there's a small TOCTOU
-    # window where a user could create the cohort via the UI between our check above
-    # and this insert. That's acceptable for a one-off backfill: the worst case is a
-    # duplicate cohort row which is harmless (the UI always queries with .first()).
+    # No race condition: the INTERNAL_TEST_USERS kind can only be set by this
+    # backfill (or get_or_create_internal_test_users_cohort), not by users
+    # through the UI, so no concurrent creation can happen.
     cohorts_to_create = [
         Cohort(
             team=team,
