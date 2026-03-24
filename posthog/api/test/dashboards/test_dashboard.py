@@ -25,7 +25,7 @@ from posthog.models.dashboard_tile import Text
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.models.group_type_mapping import GROUP_TYPES_CACHE_KEY_PREFIX, GROUP_TYPES_STALE_CACHE_KEY_PREFIX
 from posthog.models.insight_variable import InsightVariable
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project import Project
 from posthog.models.quick_filter import QuickFilter
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -1721,6 +1721,35 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         dashboard = self.dashboard_api.get_dashboard(dashboard_id)
         assert len(dashboard["tiles"]) == 1
+
+    @parameterized.expand([("source",), ("target",)])
+    def test_move_tile_respects_access_control(self, blocked_dashboard: str) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        user2 = self._create_user("test2@posthog.com", level=OrganizationMembership.Level.MEMBER)
+
+        dashboard_one_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard one"})
+        dashboard_two_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard two"})
+        self.dashboard_api.create_insight(
+            {"filters": {"events": [{"id": "$pageview"}], "insight": "TRENDS"}, "dashboards": [dashboard_one_id]}
+        )
+        dashboard_one = self.dashboard_api.get_dashboard(dashboard_one_id)
+        tile = dashboard_one["tiles"][0]
+
+        blocked_id = dashboard_one_id if blocked_dashboard == "source" else dashboard_two_id
+        AccessControl.objects.create(resource="dashboard", resource_id=blocked_id, team=self.team, access_level="none")
+
+        self.client.force_login(user2)
+
+        move_response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_one_id}/move_tile",
+            {"tile": tile, "toDashboard": dashboard_two_id},
+        )
+        self.assertEqual(move_response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_update_text_tile_cannot_hijack_other_teams_tile(self) -> None:
         other_org, _, other_team = Organization.objects.bootstrap(self.user, name="other org")

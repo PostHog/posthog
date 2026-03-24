@@ -671,6 +671,8 @@ def get_feature_flags_for_team_in_cache(project_id: int) -> Optional[list[Featur
                 contexts_list = flag_data.pop("evaluation_contexts", None)
                 if contexts_list is None:
                     contexts_list = flag_data.pop("evaluation_tags", None)
+                else:
+                    flag_data.pop("evaluation_tags", None)  # discard legacy key if present
                 flag = FeatureFlag(**flag_data)
                 flag._evaluation_tag_names = contexts_list
                 flags.append(flag)

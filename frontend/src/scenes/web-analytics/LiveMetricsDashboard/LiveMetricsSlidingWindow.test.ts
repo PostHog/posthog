@@ -119,6 +119,7 @@ describe('LiveMetricsSlidingWindow', () => {
             window.addDataPoint(toUnixSeconds(relativeTime(-30 * MINUTE)), 'user-old', { pageviews: 1 })
             tickMinute()
             window.addDataPoint(toUnixSeconds(relativeTime(-1 * MINUTE)), 'user-new', { pageviews: 1 })
+            window.prune()
 
             expect(window.getSortedBuckets()).toHaveLength(1)
         })
@@ -450,6 +451,7 @@ describe('LiveMetricsSlidingWindow', () => {
                 pageviews: 1,
                 device: { deviceId: 'device-3', deviceType: 'Desktop' },
             })
+            window.prune()
 
             const breakdown = window.getDeviceBreakdown()
             expect(getDeviceCount(breakdown, 'Mobile')).toBe(1)
@@ -476,6 +478,7 @@ describe('LiveMetricsSlidingWindow', () => {
                 pageviews: 1,
                 device: { deviceId: 'device-2', deviceType: 'Desktop' },
             })
+            window.prune()
 
             const breakdown = window.getDeviceBreakdown()
             expect(getDeviceCount(breakdown, 'Mobile')).toBe(1)
@@ -552,6 +555,7 @@ describe('LiveMetricsSlidingWindow', () => {
             tickMinute()
 
             window.addDataPoint(toUnixSeconds(relativeTime(MINUTE)), 'user-3', { pageviews: 1 })
+            window.prune()
 
             expect(window.getTotalUniqueUsers()).toBe(2)
             expect(window.getSortedBuckets()).toHaveLength(2)
@@ -568,6 +572,7 @@ describe('LiveMetricsSlidingWindow', () => {
             tickMinute()
 
             window.addDataPoint(toUnixSeconds(relativeTime(MINUTE)), 'user-2', { pageviews: 1 })
+            window.prune()
 
             expect(window.getTotalUniqueUsers()).toBe(2)
         })
@@ -624,6 +629,7 @@ describe('LiveMetricsSlidingWindow', () => {
             tickMinute()
 
             window.addGeoDataPoint(toUnixSeconds(relativeTime(MINUTE)), 'GB', 'user-3')
+            window.prune()
 
             const breakdown = window.getCountryBreakdown()
             expect(getCountryCount(breakdown, 'US')).toBe(1)
@@ -641,6 +647,7 @@ describe('LiveMetricsSlidingWindow', () => {
             tickMinute()
 
             window.addGeoDataPoint(toUnixSeconds(relativeTime(MINUTE)), 'US', 'user-2')
+            window.prune()
 
             const breakdown = window.getCountryBreakdown()
             expect(getCountryCount(breakdown, 'US')).toBe(2)

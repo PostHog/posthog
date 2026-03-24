@@ -3,6 +3,7 @@ use serde::ser::{SerializeMap, Serializer};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
+use crate::cohorts::cohort_models::Cohort;
 use crate::properties::property_models::PropertyFilter;
 
 /// Deserializes a JSON object with string keys into `HashMap<i32, HashSet<i32>>`.
@@ -47,7 +48,7 @@ where
 
 /// Pre-computed dependency metadata, built by Django at cache-write time.
 /// Shipped as a top-level field alongside the flags array in the hypercache.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
 pub struct EvaluationMetadata {
     /// Flag IDs grouped by evaluation stage. Stage 0 (no deps) first.
     pub dependency_stages: Vec<Vec<i32>>,
@@ -61,12 +62,17 @@ pub struct EvaluationMetadata {
     pub transitive_deps: HashMap<i32, HashSet<i32>>,
 }
 
-/// Wrapper struct for deserializing hypercache format: {"flags": [...]}
+/// Wrapper struct for deserializing hypercache format: {"flags": [...], "cohorts": [...]}
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct HypercacheFlagsWrapper {
     pub flags: Vec<FeatureFlag>,
     #[serde(default)]
     pub evaluation_metadata: Option<EvaluationMetadata>,
+    /// Cohort definitions referenced by flags (including transitive deps).
+    /// Precomputed by Django at cache-write time so the Rust service can skip
+    /// the separate CohortCacheManager PG query.
+    #[serde(default)]
+    pub cohorts: Option<Vec<Cohort>>,
 }
 
 /// New holdout format: `{"id": 42, "exclusion_percentage": 10}`.
@@ -223,4 +229,9 @@ pub struct FeatureFlagList {
     /// or old cache entries.
     #[serde(skip)]
     pub evaluation_metadata: Option<EvaluationMetadata>,
+    /// Cohort definitions referenced by flags (including transitive deps),
+    /// precomputed by Django at cache-write time.
+    /// When present, the matcher uses these instead of querying CohortCacheManager.
+    #[serde(skip)]
+    pub cohorts: Option<Vec<Cohort>>,
 }

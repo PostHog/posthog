@@ -387,7 +387,7 @@ class RemoteConfigThrottle(BurstRateThrottle):
 
 
 class EvaluationTagsChecker:
-    """Helper class to check if evaluation tags feature is enabled.
+    """Helper class to check if evaluation contexts feature is enabled.
 
     This avoids repeated feature flag checks during serialization by computing
     the result once per request.
@@ -395,7 +395,7 @@ class EvaluationTagsChecker:
 
     @staticmethod
     def is_enabled(request) -> bool:
-        """Check if evaluation tags feature is enabled for the request user."""
+        """Check if evaluation contexts feature is enabled for the request user."""
         if not hasattr(request, "user") or request.user.is_anonymous:
             return False
 
@@ -684,7 +684,7 @@ class FeatureFlagSerializer(
         if creation_context == "surveys":
             return attrs
 
-        # Get the team to check if evaluation tags are required
+        # Get the team to check if evaluation contexts are required
         # The context uses a lambda for lazy evaluation
         get_team = self.context.get("get_team")
         if not get_team:
@@ -3083,14 +3083,12 @@ class FeatureFlagViewSet(
         limit = request.validated_query_data["limit"]
         page = request.validated_query_data["page"]
 
-        item_id = kwargs["pk"]
-        if not FeatureFlag.objects_including_soft_deleted.filter(id=item_id, team__project_id=self.project_id).exists():
-            return Response(status=status.HTTP_404_NOT_FOUND)
+        item = self.get_object()
 
         activity_page = load_activity(
             scope="FeatureFlag",
             team_id=self.team_id,
-            item_ids=[str(item_id)],
+            item_ids=[str(item.id)],
             limit=limit,
             page=page,
         )
