@@ -664,7 +664,9 @@ def get_feature_flags_for_team_in_cache(project_id: int) -> Optional[list[Featur
                 # Extract evaluation contexts before creating the model instance since
                 # it's not a DB field. Accept both old and new key names for cache
                 # entries written before or after the rename.
-                contexts_list = flag_data.pop("evaluation_contexts", None) or flag_data.pop("evaluation_tags", None)
+                contexts_list = flag_data.pop("evaluation_contexts", None)
+                if contexts_list is None:
+                    contexts_list = flag_data.pop("evaluation_tags", None)
                 flag = FeatureFlag(**flag_data)
                 flag._evaluation_tag_names = contexts_list
                 flags.append(flag)

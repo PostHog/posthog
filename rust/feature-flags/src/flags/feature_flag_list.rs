@@ -677,7 +677,6 @@ mod tests {
                     "ensure_experience_continuity": false,
                     "evaluation_contexts": [],
                     "evaluation_runtime": "all",
-                    "evaluation_tags": [],
                     "filters": {
                         "groups": [
                             {
@@ -711,7 +710,6 @@ mod tests {
                     "ensure_experience_continuity": false,
                     "evaluation_contexts": [],
                     "evaluation_runtime": "client",
-                    "evaluation_tags": [],
                     "filters": {
                         "groups": [
                             {
@@ -737,7 +735,6 @@ mod tests {
                     "ensure_experience_continuity": false,
                     "evaluation_contexts": [],
                     "evaluation_runtime": "all",
-                    "evaluation_tags": [],
                     "filters": {
                         "groups": [
                             {
@@ -771,7 +768,6 @@ mod tests {
                     "ensure_experience_continuity": false,
                     "evaluation_contexts": [],
                     "evaluation_runtime": "all",
-                    "evaluation_tags": [],
                     "filters": {
                         "groups": [
                             {

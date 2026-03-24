@@ -703,7 +703,7 @@ class FeatureFlagSerializer(
         if request.method == "POST":
             if not evaluation_contexts:
                 raise serializers.ValidationError(
-                    "At least one evaluation context tag is required to create a new feature flag."
+                    "At least one evaluation context is required to create a new feature flag."
                 )
         elif request.method in ["PUT", "PATCH"] and self.instance:
             # Flags that already have evaluation contexts can't have them all removed,
@@ -719,8 +719,8 @@ class FeatureFlagSerializer(
             if existing_context_count > 0:
                 if evaluation_contexts is not None and not evaluation_contexts:
                     raise serializers.ValidationError(
-                        "Cannot remove all evaluation context tags. At least one tag is required because "
-                        "this flag already has evaluation tags and the team requires them."
+                        "Cannot remove all evaluation contexts. At least one evaluation context is required "
+                        "because this flag already has evaluation contexts and the team requires them."
                     )
 
         return attrs

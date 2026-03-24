@@ -55,7 +55,7 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("evaluation context tag", str(response.content))
+        self.assertIn("evaluation context is required", str(response.content))
 
     def test_create_flag_with_empty_tags_when_required(self):
         """Test creating a flag with empty evaluation tags when requirement is enabled should fail"""
@@ -73,7 +73,7 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("evaluation context tag", str(response.content))
+        self.assertIn("evaluation context is required", str(response.content))
 
     def test_create_flag_with_tags_when_required(self):
         """Test creating a flag with evaluation tags when requirement is enabled should succeed"""
@@ -197,7 +197,7 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
 
         # Should fail because the flag has existing evaluation tags
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Cannot remove all evaluation context tags", str(response.content))
+        self.assertIn("Cannot remove all evaluation contexts", str(response.content))
 
     def test_update_flag_keep_some_evaluation_tags_when_required(self):
         """Test that updating to keep at least one evaluation tag succeeds"""
@@ -337,7 +337,7 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
 
         # Should fail because experiments are subject to the requirement
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("evaluation context tag", str(response.content))
+        self.assertIn("evaluation context is required", str(response.content))
 
     def test_create_experiment_flag_with_tags_when_required(self):
         """Test that experiment flags can be created with tags when requirement is enabled"""
