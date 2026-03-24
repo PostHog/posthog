@@ -2163,6 +2163,12 @@ class GitHubIntegration:
             except requests.RequestException:
                 break
             if response.status_code != 200:
+                logger.warning(
+                    "GitHubIntegration.list_branches pagination stopped",
+                    status_code=response.status_code,
+                    page=current_page,
+                    repo=repo,
+                )
                 break
             try:
                 body = response.json()
@@ -2200,6 +2206,8 @@ class GitHubIntegration:
         """Get the default branch for a repository."""
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
         access_token = self.integration.sensitive_config.get("access_token")
+        if not access_token:
+            raise ValueError("GitHub access token not configured")
 
         response = requests.get(
             f"https://api.github.com/repos/{repo_path}",
@@ -2215,7 +2223,7 @@ class GitHubIntegration:
             repo_data = response.json()
             return repo_data.get("default_branch", "main")
         else:
-            return "main"
+            raise Exception(f"Failed to get default branch: HTTP {response.status_code}")
 
     def create_branch(self, repository: str, branch_name: str, base_branch: str | None = None) -> dict[str, Any]:
         """Create a new branch from a base branch."""
