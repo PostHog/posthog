@@ -4,53 +4,72 @@ The batch exports frontend code currently lives in `frontend/src/scenes/data-pip
 
 ## Architecture
 
-### Logics
+### Component tree
 
-```text
-batchExportDataLogic          Loads and caches a batch export's config from the API.
-    │                           Lightweight, mountable independently (e.g. from hog function backfills).
-    │
-batchExportConfigFormLogic      Form logic for creating/editing batch export configurations.
-    ├── connects to             Owns form state, validation, dirty-checking, test steps, save/delete.
-    │   batchExportDataLogic  Reads config data from batchExportDataLogic.
-    │
-batchExportRunsLogic            Loads and manages batch export runs.
-    ├── connects to             Grouping by date, retry, cancel, pagination.
-    │   batchExportDataLogic
-    │
-batchExportBackfillsLogic       Loads and manages batch export backfills.
-    ├── connects to             Listing, cancellation, polling for row estimates.
-    │   batchExportDataLogic
-    │   batchExportBackfillModalLogic
-    │
-batchExportBackfillModalLogic   Form logic for the backfill creation modal.
-    ├── connects to             Date range selection, schedule display, submission.
-    │   batchExportDataLogic
-    │
-batchExportSceneLogic           Tab navigation and URL sync for the batch export scene.
-                                Defined inline in BatchExportScene.tsx.
+```mermaid
+graph TD
+    S[BatchExportScene<br/><i>BindLogic: configFormLogic</i>]
+    S --> Conf[BatchExportConfiguration]
+    S --> Runs[BatchExportRuns]
+    S --> BF[BatchExportBackfills]
+    S --> Met[BatchExportsMetrics]
+
+    Conf --> GEF[BatchExportGeneralEditFields]
+    Conf --> DEF[BatchExportsEditFields]
+    Conf --> SB[BatchExportConfigurationSaveButton]
+    Conf --> CCB[BatchExportConfigurationClearChangesButton]
+    Conf --> CT[BatchExportConfigurationTests]
+    Runs --> BFM[BatchExportBackfillModal]
+    BF --> BFM
 ```
 
-### Components
+| Component                                    | Logics used                                           | Description                                                                                                              |
+| -------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `BatchExportScene`                           | `batchExportConfigFormLogic`, `batchExportSceneLogic` | Top-level scene. Mounts `batchExportConfigFormLogic` via `BindLogic`, renders tabs.                                      |
+| `BatchExportConfiguration`                   | `batchExportConfigFormLogic`                          | Configuration/editing form.                                                                                              |
+| `BatchExportConfigurationSaveButton`         | `batchExportConfigFormLogic`                          | Save button for the config form.                                                                                         |
+| `BatchExportConfigurationClearChangesButton` | `batchExportConfigFormLogic`                          | Clear-changes button for the config form.                                                                                |
+| `BatchExportConfigurationTests`              | `batchExportConfigFormLogic`                          | Destination-specific configuration tests.                                                                                |
+| `BatchExportGeneralEditFields`               | —                                                     | General form fields (name, interval, model).                                                                             |
+| `BatchExportsEditFields`                     | —                                                     | Destination-specific form fields.                                                                                        |
+| `BatchExportRuns`                            | `batchExportRunsLogic`                                | Runs tab — table of latest runs.                                                                                         |
+| `BatchExportBackfills`                       | `batchExportBackfillsLogic`                           | Backfills tab — table of backfills with cancel/create actions.                                                           |
+| `BatchExportBackfillModal`                   | `batchExportBackfillModalLogic`                       | Modal for creating a new backfill with date range picker. Rendered by both `BatchExportRuns` and `BatchExportBackfills`. |
+| `BatchExportsMetrics`                        | `appMetricsLogic`                                     | Metrics tab — batch export metrics charts.                                                                               |
+| `RenderBatchExportIcon`                      | —                                                     | Renders the icon for a batch export destination type.                                                                    |
 
-| Component                         | Description                                                                         |
-| --------------------------------- | ----------------------------------------------------------------------------------- |
-| `BatchExportScene`                | Top-level scene. Mounts `batchExportConfigFormLogic` via `BindLogic`, renders tabs. |
-| `BatchExportConfiguration`        | Configuration/editing form (uses `batchExportConfigFormLogic`).                     |
-| `BatchExportConfigurationButtons` | Save and clear-changes buttons for the config form.                                 |
-| `BatchExportEditForm`             | The form fields for editing a batch export destination.                             |
-| `BatchExportRuns`                 | Runs tab — table of export runs grouped by date.                                    |
-| `BatchExportBackfills`            | Backfills tab — table of backfills with cancel/create actions.                      |
-| `BatchExportBackfillModal`        | Modal for creating a new backfill with date range picker.                           |
-| `BatchExportsMetrics`             | Metrics tab — charts for export performance.                                        |
-| `BatchExportIcon`                 | Renders the icon for a batch export destination type.                               |
+### Logic dependencies
+
+Each arrow represents a `connect()` call (the source logic reads values/actions from the target).
+
+```mermaid
+graph TD
+    A[batchExportDataLogic]
+
+    B[batchExportConfigFormLogic] -->|connect| A
+    C[batchExportRunsLogic] -->|connect| A
+    D[batchExportBackfillsLogic] -->|connect| A
+    D -->|connect| E
+    E[batchExportBackfillModalLogic] -->|connect| A
+
+    F[batchExportSceneLogic]
+```
+
+| Logic                           | Description                                                                                                                                                            |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `batchExportDataLogic`          | Loads and caches a batch export's configuration from the API. Keyed by export ID. All other logics connect here for config data.                                       |
+| `batchExportConfigFormLogic`    | Form logic for creating/editing batch export configurations. Owns form state, validation, test steps, save, and delete. Mounted by `BatchExportScene` via `BindLogic`. |
+| `batchExportRunsLogic`          | Loads and manages batch export runs. Handles grouping by date, retry, cancel, and pagination.                                                                          |
+| `batchExportBackfillsLogic`     | Loads and manages batch export backfills. Handles listing, cancellation, and polling for row count estimates after creation.                                           |
+| `batchExportBackfillModalLogic` | Form logic for the backfill creation modal. Manages date range selection, schedule display, and submission.                                                            |
+| `batchExportSceneLogic`         | Tab navigation and URL sync for the batch export scene. Defined inline in `BatchExportScene.tsx`.                                                                      |
 
 ### External consumers
 
 `HogFunctionBackfills` (in `scenes/hog-functions/backfills/`) renders the backfills tab
 for hog function destinations backed by a batch export. It mounts `batchExportDataLogic`
 and `batchExportBackfillsLogic` via `BindLogic` — this works because these logics only
-depend on the lightweight config logic, not the heavyweight form logic.
+depend on the data logic, not the form logic.
 
 ## Tests
 
