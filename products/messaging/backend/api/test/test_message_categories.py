@@ -5,7 +5,9 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 
 from rest_framework import status
 
-from posthog.models import MessageCategory, Team
+from posthog.models import Team
+
+from products.messaging.backend.models.message_category import MessageCategory
 
 
 class TestMessageCategoryAPI(APIBaseTest):
@@ -204,7 +206,7 @@ class TestMessageCategoryAPI(APIBaseTest):
 
     def test_import_preferences_csv_without_categories(self):
         """Test CSV import when no categories exist"""
-        with patch("products.workflows.backend.api.message_categories.CustomerIOImportService") as mock_service_class:
+        with patch("products.messaging.backend.api.message_categories.CustomerIOImportService") as mock_service_class:
             mock_service = MagicMock()
             mock_service_class.return_value = mock_service
             mock_service.process_preferences_csv.return_value = {

@@ -4,9 +4,14 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models import MessageCategory, MessageRecipientPreference
-from posthog.models.message_preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID, PreferenceStatus
 from posthog.plugins import plugin_server_api
+
+from products.messaging.backend.models.message_category import MessageCategory
+from products.messaging.backend.models.message_preferences import (
+    ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
+    MessageRecipientPreference,
+    PreferenceStatus,
+)
 
 
 class OptOutsPagination(PageNumberPagination):

@@ -46,7 +46,9 @@ def _make_event_sequence(
                 event=event,
                 properties=properties,
                 distinct_id=distinct_id,
-                timestamp=datetime.now() - timedelta(days=interval_days * period_index, hours=1, minutes=i),
+                # Use midpoint of each period to avoid flakiness from clock drift
+                # between Python's datetime.now() and ClickHouse's now()
+                timestamp=datetime.now() - timedelta(days=interval_days * period_index, hours=12, minutes=i),
             )
 
 

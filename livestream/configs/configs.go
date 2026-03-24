@@ -58,6 +58,8 @@ type KafkaConfig struct {
 	SessionTimeoutMs                 int    `mapstructure:"session_timeout_ms"`
 	HeartbeatIntervalMs              int    `mapstructure:"heartbeat_interval_ms"`
 	MaxPollIntervalMs                int    `mapstructure:"max_poll_interval_ms"`
+	NotificationEnabled              bool   `mapstructure:"notification_enabled"`
+	NotificationTopic                string `mapstructure:"notification_topic"`
 }
 
 func InitConfigs(filename, configPath string) {
@@ -66,6 +68,8 @@ func InitConfigs(filename, configPath string) {
 
 	viper.SetDefault("kafka.group_id", "livestream")
 	viper.SetDefault("kafka.session_recording_enabled", true)
+	viper.SetDefault("kafka.notification_enabled", false)
+	viper.SetDefault("kafka.notification_topic", "notification_events")
 	viper.SetDefault("session_recording.max_lru_entries", 2_000_000_000)
 	viper.SetDefault("redis.flush_interval_ms", 500)
 
@@ -101,6 +105,8 @@ func InitConfigs(filename, configPath string) {
 	_ = viper.BindEnv("kafka.session_timeout_ms")                  // LIVESTREAM_KAFKA_SESSION_TIMEOUT_MS
 	_ = viper.BindEnv("kafka.heartbeat_interval_ms")               // LIVESTREAM_KAFKA_HEARTBEAT_INTERVAL_MS
 	_ = viper.BindEnv("kafka.max_poll_interval_ms")                // LIVESTREAM_KAFKA_MAX_POLL_INTERVAL_MS
+	_ = viper.BindEnv("kafka.notification_enabled")                // LIVESTREAM_KAFKA_NOTIFICATION_ENABLED
+	_ = viper.BindEnv("kafka.notification_topic")                  // LIVESTREAM_KAFKA_NOTIFICATION_TOPIC
 
 	// Postgres settings
 	_ = viper.BindEnv("postgres.url") // LIVESTREAM_POSTGRES_URL

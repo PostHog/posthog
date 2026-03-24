@@ -5,9 +5,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.models import MessageCategory, MessageRecipientPreference
-from posthog.models.message_category import MessageCategoryType
-from posthog.models.message_preferences import PreferenceStatus
+from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
+from products.messaging.backend.models.message_preferences import MessageRecipientPreference, PreferenceStatus
 
 from .customerio_import_service import CustomerIOImportService
 
@@ -152,7 +151,7 @@ user4@example.com,cio_6,"{""topics"": {""topic_1"": true, ""topic_2"": true}}"
         assert pref2.preferences[str(cat1.id)] == PreferenceStatus.OPTED_OUT.value
         assert pref2.preferences[str(cat2.id)] == PreferenceStatus.OPTED_OUT.value
 
-    @patch("products.workflows.backend.services.customerio_import_service.CustomerIOClient")
+    @patch("products.messaging.backend.services.customerio_import_service.CustomerIOClient")
     def test_import_api_data_complete_flow(self, mock_client_class):
         """Test API import flow including categories and globally unsubscribed users"""
         mock_client = MagicMock()
@@ -262,7 +261,7 @@ user4@example.com,cio_6,"{""topics"": {""topic_1"": true, ""topic_2"": true}}"
         new_pref = MessageRecipientPreference.objects.get(team_id=self.team.id, identifier="user2@example.com")
         assert new_pref.preferences[str(cat1.id)] == PreferenceStatus.OPTED_OUT.value
 
-    @patch("products.workflows.backend.services.customerio_import_service.CustomerIOClient")
+    @patch("products.messaging.backend.services.customerio_import_service.CustomerIOClient")
     def test_api_import_with_invalid_credentials(self, mock_client_class):
         """Test API import handling of invalid credentials"""
         mock_client = MagicMock()

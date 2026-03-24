@@ -319,7 +319,7 @@ class EnterpriseExperimentsViewSet(
         """
         experiment: Experiment = self.get_object()
         service = ExperimentService(team=self.team, user=request.user)
-        archived_experiment = service.archive_experiment(experiment)
+        archived_experiment = service.archive_experiment(experiment, request=request)
         return Response(ExperimentSerializer(archived_experiment, context=self.get_serializer_context()).data)
 
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])

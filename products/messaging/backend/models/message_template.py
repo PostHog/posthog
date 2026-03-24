@@ -14,10 +14,13 @@ class MessageTemplate(UUIDTModel):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
-    message_category = models.ForeignKey("posthog.MessageCategory", on_delete=models.SET_NULL, null=True, blank=True)
+    message_category = models.ForeignKey("messaging.MessageCategory", on_delete=models.SET_NULL, null=True, blank=True)
     content = models.JSONField(default=dict)
     type = models.CharField(max_length=24, blank=True, default="email")
     deleted = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "posthog_messagetemplate"
 
     def __str__(self):
         return self.name

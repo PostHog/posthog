@@ -2,7 +2,9 @@ from posthog.test.base import APIBaseTest
 
 from rest_framework import status
 
-from posthog.models import MessageTemplate, Organization, Team
+from posthog.models import Organization, Team
+
+from products.messaging.backend.models.message_template import MessageTemplate
 
 
 class TestMessageTemplatesAPI(APIBaseTest):

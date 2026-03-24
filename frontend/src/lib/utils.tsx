@@ -1034,6 +1034,9 @@ export function eventToDescription(
     if (event.event === '$autocapture') {
         return autoCaptureEventToDescription(event, shortForm)
     }
+    if (event.event === '$feature_flag_called') {
+        return event.properties.$feature_flag ?? event.event
+    }
     // All other events and actions
     return event.event
 }

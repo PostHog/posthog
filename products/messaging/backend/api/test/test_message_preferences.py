@@ -10,8 +10,9 @@ from parameterized import parameterized
 from requests import Response
 
 import posthog.plugins.plugin_server_api as plugin_server_api
-from posthog.models.message_category import MessageCategory
-from posthog.models.message_preferences import (
+
+from products.messaging.backend.models.message_category import MessageCategory
+from products.messaging.backend.models.message_preferences import (
     ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
     MessageRecipientPreference,
     PreferenceStatus,

@@ -27,6 +27,7 @@ class MessageRecipientPreference(UUIDTModel):
             "team",
             "identifier",
         )
+        db_table = "posthog_messagerecipientpreference"
 
     def __str__(self) -> str:
         return f"Preferences for {self.identifier}"

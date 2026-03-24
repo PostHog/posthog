@@ -28,6 +28,7 @@ class MessageCategory(UUIDTModel):
             "key",
         )
         verbose_name_plural = "message categories"
+        db_table = "posthog_messagecategory"
 
     def __str__(self) -> str:
         return self.name
