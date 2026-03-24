@@ -119,15 +119,12 @@ def document_deltas(
         response = requests.get(base_url, headers=_headers(deploy_key), params=params, timeout=60)
 
         if response.status_code == 400:
-            try:
-                error_data = response.json()
-                if error_data.get("code") == "InvalidWindowToReadDocuments":
-                    raise InvalidWindowError(
-                        f"Delta cursor for table '{table_name}' is older than Convex's ~30 day retention window. "
-                        f"Please trigger a full resync of this source."
-                    )
-            except (ValueError, KeyError):
-                pass
+            error_data = response.json()
+            if error_data.get("code") == "InvalidWindowToReadDocuments":
+                raise InvalidWindowError(
+                    f"Delta cursor for table '{table_name}' is older than Convex's ~30 day retention window. "
+                    f"Please trigger a full resync of this source."
+                )
         response.raise_for_status()
         data = response.json()
 
