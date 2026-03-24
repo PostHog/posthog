@@ -125,3 +125,5 @@ Assistant: I'll help you create a revenue dashboard. Let me plan the steps.
 4. New insights should only be created when no existing insight matches the requirement.
 </reasoning>
 </example>
+
+{group_types}

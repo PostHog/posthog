@@ -27,9 +27,20 @@ import INSTRUCTIONS_TEMPLATE_V2 from '@/templates/instructions-v2.md'
 import type { CloudRegion, Context, State, Tool } from '@/tools/types'
 import type { AnalyticsMetadata, WithAnalytics } from '@/ui-apps/types'
 
-const INSTRUCTIONS_V2 = formatPrompt(INSTRUCTIONS_TEMPLATE_V2, {
-    guidelines: guidelines.trim(),
-})
+function buildInstructionsV2(groupTypes?: GroupType[]): string {
+    let groupTypesBlock = ''
+    if (groupTypes && groupTypes.length > 0) {
+        const lines = groupTypes.map(
+            (gt) =>
+                `- Index ${gt.group_type_index}: "${gt.group_type}"${gt.name_singular ? ` (${gt.name_singular})` : ''}`
+        )
+        groupTypesBlock = `### Group type mapping\n\nGroups aggregate events based on entities, such as organizations or sellers. This project has the following group types. Instead of a group's name, always use its numeric index.\n\n${lines.join('\n')}`
+    }
+    return formatPrompt(INSTRUCTIONS_TEMPLATE_V2, {
+        guidelines: guidelines.trim(),
+        group_types: groupTypesBlock,
+    })
+}
 
 export type RequestProperties = {
     userHash: string
@@ -415,7 +426,6 @@ export class MCP extends McpAgent<Env> {
 
     async init(): Promise<void> {
         const { features, version, organizationId, projectId, readOnly } = this.requestProperties
-        let instructions = version === 2 ? INSTRUCTIONS_V2 : INSTRUCTIONS_TEMPLATE_V1
 
         // Pre-seed cache and fetch group types in parallel
         const groupTypesPromise = projectId ? this.getOrFetchGroupTypes(projectId) : Promise.resolve(undefined)
@@ -428,13 +438,7 @@ export class MCP extends McpAgent<Env> {
 
         // Resolve group types (started above in parallel with cache seeding)
         const groupTypes = await groupTypesPromise
-        if (groupTypes && groupTypes.length > 0) {
-            const lines = groupTypes.map(
-                (gt) =>
-                    `- Index ${gt.group_type_index}: "${gt.group_type}"${gt.name_singular ? ` (${gt.name_singular})` : ''}`
-            )
-            instructions += `\n\n### Group type mapping\n\nGroups aggregate events based on entities, such as organizations or sellers. This project has the following group types. Instead of a group's name, always use its numeric index.\n\n${lines.join('\n')}\n`
-        }
+        const instructions = version === 2 ? buildInstructionsV2(groupTypes) : INSTRUCTIONS_TEMPLATE_V1
 
         this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
 
