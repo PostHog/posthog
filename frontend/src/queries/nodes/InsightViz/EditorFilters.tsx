@@ -7,6 +7,7 @@ import { IconInfo, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { pluralize } from 'lib/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
@@ -75,6 +76,7 @@ export interface EditorFiltersProps {
 
 export function EditorFilters({ query, showing, embedded }: EditorFiltersProps): JSX.Element | null {
     const { hasAvailableFeature } = useValues(userLogic)
+    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_INSIGHT_EDITOR_PANELS')
 
     const { insightProps } = useValues(insightLogic)
     const {
@@ -417,13 +419,26 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             : null,
     ].filter((group): group is InsightEditorFilterGroup => group !== null)
 
-    const filterGroupsGroups = [
-        { title: 'left', editorFilterGroups: leftEditorFilterGroups.filter((group) => group.editorFilters.length > 0) },
-        {
-            title: 'right',
-            editorFilterGroups: rightEditorFilterGroups.filter((group) => group.editorFilters.length > 0),
-        },
-    ]
+    const filterGroupsGroups = editorPanelsEnabled
+        ? [
+              {
+                  title: 'single',
+                  editorFilterGroups: [
+                      ...leftEditorFilterGroups.filter((group) => group.editorFilters.length > 0),
+                      ...rightEditorFilterGroups.filter((group) => group.editorFilters.length > 0),
+                  ],
+              },
+          ]
+        : [
+              {
+                  title: 'left',
+                  editorFilterGroups: leftEditorFilterGroups.filter((group) => group.editorFilters.length > 0),
+              },
+              {
+                  title: 'right',
+                  editorFilterGroups: rightEditorFilterGroups.filter((group) => group.editorFilters.length > 0),
+              },
+          ]
 
     const QueryTypeIcon = QUERY_TYPES_METADATA[query.kind].icon
 
@@ -480,12 +495,20 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         active={maxToolActive}
                     >
                         <div
-                            className={clsx('@container/editor flex flex-row flex-wrap gap-8 bg-surface-primary', {
-                                'p-4 rounded border': !embedded,
-                            })}
+                            className={clsx(
+                                '@container/editor bg-surface-primary',
+                                editorPanelsEnabled ? 'flex flex-col gap-4' : 'flex flex-row flex-wrap gap-8',
+                                { 'p-4 rounded border': !embedded }
+                            )}
                         >
                             {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
-                                <div key={title} className="grow shrink basis-[28rem] flex flex-col gap-4 max-w-full">
+                                <div
+                                    key={title}
+                                    className={clsx(
+                                        'flex flex-col gap-4 max-w-full',
+                                        !editorPanelsEnabled && 'grow shrink basis-[28rem]'
+                                    )}
+                                >
                                     {editorFilterGroups.map((editorFilterGroup) => (
                                         <EditorFilterGroup
                                             key={editorFilterGroup.title}
