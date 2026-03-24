@@ -289,24 +289,33 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
         `Backend requested ${result.uploads.length} upload(s), ${snapshots.length - result.uploads.length} already exist`
     )
 
-    // 5. Upload missing artifacts
+    // 5. Upload missing artifacts (10 concurrent uploads)
     if (result.uploads.length > 0) {
         const hashToSnapshot = new Map(snapshots.map((s) => [s.hash, s]))
+        const CONCURRENCY = 10
+        let uploaded = 0
+        let failed = 0
 
-        for (const upload of result.uploads) {
+        const uploadOne = async (upload: (typeof result.uploads)[number]): Promise<void> => {
             const snapshot = hashToSnapshot.get(upload.content_hash)
             if (!snapshot) {
-                log(`  skip upload ${upload.content_hash.slice(0, 12)} — no matching local snapshot`)
-                continue
+                return
             }
-
             try {
                 await client.uploadToS3(upload, snapshot.data)
-                log(`  uploaded ${snapshot.identifier} (${upload.content_hash.slice(0, 12)})`)
+                uploaded++
             } catch (error) {
+                failed++
                 console.error(`  upload failed ${snapshot.identifier}: ${error}`)
             }
         }
+
+        // Process in batches of CONCURRENCY
+        for (let i = 0; i < result.uploads.length; i += CONCURRENCY) {
+            const batch = result.uploads.slice(i, i + CONCURRENCY)
+            await Promise.all(batch.map(uploadOne))
+        }
+        log(`Uploaded ${uploaded} artifact(s)${failed > 0 ? `, ${failed} failed` : ''}`)
     }
 
     // 6. Complete run
