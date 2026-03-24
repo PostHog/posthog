@@ -9,7 +9,7 @@ from posthog.schema import PersonsOnEventsMode
 
 from posthog.models import Dashboard, DashboardTile, Organization, Team, User
 from posthog.models.cohort import Cohort
-from posthog.models.cohort.cohort import INTERNAL_TEST_USERS_COHORT_NAME
+from posthog.models.cohort.cohort import INTERNAL_TEST_USERS_COHORT_NAME, CohortKind
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.project import Project
 from posthog.models.team import get_team_in_cache, util
@@ -79,6 +79,8 @@ class TestTeam(BaseTest):
         # An internal/test users cohort should be created
         test_users_cohort = Cohort.objects.get(team=team, name=INTERNAL_TEST_USERS_COHORT_NAME)
 
+        self.assertEqual(test_users_cohort.kind, CohortKind.INTERNAL_TEST_USERS)
+
         # Cohort should have $internal_or_test_user filter AND email domain filter (posthog.com is not generic)
         self.assertEqual(
             test_users_cohort.filters,
@@ -127,6 +129,7 @@ class TestTeam(BaseTest):
 
         # Cohort should only have $internal_or_test_user filter (no email domain for gmail.com)
         test_users_cohort = Cohort.objects.get(team=team, name=INTERNAL_TEST_USERS_COHORT_NAME)
+        self.assertEqual(test_users_cohort.kind, CohortKind.INTERNAL_TEST_USERS)
         self.assertEqual(
             test_users_cohort.filters,
             {
