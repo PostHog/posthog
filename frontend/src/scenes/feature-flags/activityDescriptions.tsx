@@ -365,8 +365,6 @@ const featureFlagActionsMapping: Record<
 
         return { description: changes }
     },
-    // Suppressed in favor of evaluation_contexts to avoid duplicate activity entries
-    evaluation_tags: () => null,
     // fields that are excluded on the backend
     id: () => null,
     created_at: () => null,
