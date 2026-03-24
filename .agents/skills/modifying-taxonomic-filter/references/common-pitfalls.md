@@ -125,7 +125,7 @@ won't catch bugs in search filtering:
     const filtered = search
         ? mockEventDefinitions.filter(e => e.name.includes(search))
         : mockEventDefinitions
-    return { results: filtered, count: filtered.length }
+    return [200, { results: filtered, count: filtered.length }]
 }
 ```
 
