@@ -222,11 +222,13 @@ export function NavTabChat({
                                         </Collapsible>
                                     )}
                                 </Combobox.List>
-                                <Combobox.Empty className="empty:hidden">
-                                    <div className="flex flex-col items-center justify-center text-center py-8 text-muted border border-dashed rounded-md">
-                                        <p className="text-xs mb-0">No chats found</p>
-                                    </div>
-                                </Combobox.Empty>
+                                <div className="p-2 empty:hidden">
+                                    <Combobox.Empty className="empty:hidden">
+                                        <div className="flex flex-col items-center justify-center text-center py-8 text-muted border border-dashed rounded-md">
+                                            <p className="text-xs mb-0">No chats found</p>
+                                        </div>
+                                    </Combobox.Empty>
+                                </div>
                             </>
                         )}
                     </ScrollableShadows>
