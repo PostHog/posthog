@@ -743,16 +743,21 @@ jobs:
 
             - name: Submit to Visual Review
               continue-on-error: true
+              env:
+                  VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
+                  VR_BRANCH: ${{ github.event.pull_request.head.ref }}
+                  VR_COMMIT: ${{ github.event.pull_request.head.sha }}
+                  VR_PR: ${{ github.event.pull_request.number }}
               run: |
                   npx tsx products/visual_review/cli/src/index.ts submit \
                     --dir playwright/__snapshots__/ \
                     --type playwright \
                     --baseline playwright/snapshots.yml \
                     --auto-approve \
-                    --token ${{ secrets.VR_API_TOKEN }} \
-                    --branch ${{ github.event.pull_request.head.ref }} \
-                    --commit ${{ github.event.pull_request.head.sha }} \
-                    --pr ${{ github.event.pull_request.number }}
+                    --token "$VR_TOKEN" \
+                    --branch "$VR_BRANCH" \
+                    --commit "$VR_COMMIT" \
+                    --pr "$VR_PR"
 
             - name: Check baseline changes
               id: check-baseline
