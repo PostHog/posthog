@@ -548,7 +548,8 @@ class InsightSerializer(InsightBasicSerializer):
         # The saved field is a vestige of a removed "insight history" feature (2020).
         # Some functionalities (like search) depend on saved=True, so ensure any
         # update corrects this for older records.
-        # validated_data.setdefault("saved", True)
+        validated_data.setdefault("saved", True)
+
         if validated_data.keys() & Insight.MATERIAL_INSIGHT_FIELDS:
             instance.last_modified_at = now()
             instance.last_modified_by = self.context["request"].user
