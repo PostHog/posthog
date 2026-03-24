@@ -113,55 +113,40 @@ async def test_transient_error_retries_and_succeeds(
     assert props["error"] is None
 
 
+@pytest.mark.parametrize(
+    "error,expected_exception_class,expected_call_count",
+    [
+        (QueryError("Invalid HogQL query"), "QueryError", 1),
+        (RuntimeError("Chrome crashed"), "RuntimeError", 1),
+    ],
+    ids=["non_retryable_user_error", "generic_runtime_error"],
+)
 @patch("posthog.slo.events.posthoganalytics")
 @patch("posthog.temporal.exports.activities.exporter")
-async def test_non_retryable_user_error_fails_immediately(
+async def test_export_failure_emits_slo_failure(
     mock_exporter: MagicMock,
     mock_analytics: MagicMock,
     team,
+    error: Exception,
+    expected_exception_class: str,
+    expected_call_count: int,
 ):
-    """User query errors are non-retryable — called once, SLO reports failure with structured error details
-    extracted from Temporal's ActivityError -> ApplicationError chain."""
     asset = await sync_to_async(ExportedAsset.objects.create)(team=team, export_format=EXPORT_FORMAT)
 
     call_count = 0
 
-    def user_error_export(asset_obj, **kwargs):
+    def failing_export(asset_obj, **kwargs):
         nonlocal call_count
         call_count += 1
-        raise QueryError("Invalid HogQL query")
+        raise error
 
     with pytest.raises(Exception):
         async with await WorkflowEnvironment.start_time_skipping() as env:
-            await _run_export_workflow(env, asset, team, mock_exporter, user_error_export)
+            await _run_export_workflow(env, asset, team, mock_exporter, failing_export)
 
-    assert call_count == 1
+    assert call_count == expected_call_count
 
     props = _get_slo_completed_props(mock_analytics)
     assert props["outcome"] == SloOutcome.FAILURE
     assert props["error"] is not None
-    assert props["error"]["exception_class"] == "QueryError"
-
-
-@patch("posthog.slo.events.posthoganalytics")
-@patch("posthog.temporal.exports.activities.exporter")
-async def test_generic_error_reports_failure_with_traceback(
-    mock_exporter: MagicMock,
-    mock_analytics: MagicMock,
-    team,
-):
-    """Non-Temporal exceptions (no ApplicationError chain) fall back to generic error extraction
-    with exception class name and traceback."""
-    asset = await sync_to_async(ExportedAsset.objects.create)(team=team, export_format=EXPORT_FORMAT)
-
-    with pytest.raises(Exception):
-        async with await WorkflowEnvironment.start_time_skipping() as env:
-            await _run_export_workflow(
-                env, asset, team, mock_exporter, MagicMock(side_effect=RuntimeError("Chrome crashed"))
-            )
-
-    props = _get_slo_completed_props(mock_analytics)
-    assert props["outcome"] == SloOutcome.FAILURE
-    assert props["error"] is not None
-    # Generic errors use the exception class name, not the ApplicationError chain
-    assert "RuntimeError" in str(props["error"])
+    assert expected_exception_class in str(props["error"])

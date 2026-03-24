@@ -1,4 +1,3 @@
-import asyncio
 import threading
 from datetime import timedelta
 from typing import Any
@@ -327,7 +326,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                 execution_timeout=timedelta(minutes=30),
             )
 
-        asyncio.run(_run())
+        async_to_sync(_run)()
         logger.info(
             "export_workflow_dispatched" if force_async else "export_workflow_completed",
             asset_id=instance.id,
