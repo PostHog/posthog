@@ -84,6 +84,12 @@ class PersonDBRouter:
             # Neither model is in persons_db, allow relation on default db
             return None  # Allow default behavior (usually True on 'default' db)
         else:
+            # One model is in persons_db, the other is not.
+            # Allow specific cross-database relationships where the FK constraint is removed (db_constraint=False)
+            # Person -> Team: Person.team has db_constraint=False
+            # GroupTypeMapping -> Team: GroupTypeMapping.team has db_constraint=False
+            # GroupTypeMapping -> Project: GroupTypeMapping.project has db_constraint=False
+            # GroupTypeMapping -> Dashboard: GroupTypeMapping.detail_dashboard has db_constraint=False
             from posthog.models import Person, Project, Team
             from posthog.models.cohort import Cohort, CohortPeople
             from posthog.models.group_type_mapping import GroupTypeMapping
