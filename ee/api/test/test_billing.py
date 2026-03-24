@@ -1253,12 +1253,18 @@ class TestBillingPermissionDeniedForMembers(APILicensedTest):
 
     def test_get_invoices_still_accessible(self):
         response = self.client.get("/api/billing/get_invoices")
-        self.assertIn(response.status_code, [status.HTTP_200_OK, status.HTTP_301_MOVED_PERMANENTLY, status.HTTP_302_FOUND])
+        self.assertIn(
+            response.status_code, [status.HTTP_200_OK, status.HTTP_301_MOVED_PERMANENTLY, status.HTTP_302_FOUND]
+        )
 
     def test_credits_overview_still_accessible(self):
         response = self.client.get("/api/billing/credits/overview")
-        self.assertIn(response.status_code, [status.HTTP_200_OK, status.HTTP_301_MOVED_PERMANENTLY, status.HTTP_302_FOUND])
+        self.assertIn(
+            response.status_code, [status.HTTP_200_OK, status.HTTP_301_MOVED_PERMANENTLY, status.HTTP_302_FOUND]
+        )
 
     def test_coupons_overview_still_accessible(self):
         response = self.client.get("/api/billing/coupons/overview")
-        self.assertIn(response.status_code, [status.HTTP_200_OK, status.HTTP_301_MOVED_PERMANENTLY, status.HTTP_302_FOUND])
+        self.assertIn(
+            response.status_code, [status.HTTP_200_OK, status.HTTP_301_MOVED_PERMANENTLY, status.HTTP_302_FOUND]
+        )
