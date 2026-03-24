@@ -28,9 +28,7 @@ from posthog.models.person.sql import (
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.personhog_client.client import get_personhog_client
 from posthog.personhog_client.converters import proto_person_to_model
-from posthog.personhog_client.gate import use_personhog
 from posthog.personhog_client.metrics import (
     PERSONHOG_ROUTING_ERRORS_TOTAL,
     PERSONHOG_ROUTING_TOTAL,
@@ -226,6 +224,8 @@ def create_person_distinct_id(
 def _fetch_persons_by_distinct_ids_via_personhog(
     team_id: int, distinct_ids: list[str], *, distinct_id_limit: int | None = None
 ) -> list[Person]:
+    from posthog.personhog_client.client import get_personhog_client
+
     client = get_personhog_client()
     if client is None:
         raise RuntimeError("personhog client not configured")
@@ -277,6 +277,8 @@ def _personhog_routed(
 
     Handles gate check, metrics, and error logging for all personhog routing.
     """
+    from posthog.personhog_client.gate import use_personhog
+
     if use_personhog():
         try:
             result = personhog_fn()
@@ -368,6 +370,8 @@ def get_persons_mapped_by_distinct_id(
         return result
 
     def personhog_fn() -> dict[str, Person]:
+        from posthog.personhog_client.client import get_personhog_client
+
         client = get_personhog_client()
         if client is None:
             raise RuntimeError("personhog client not configured")
@@ -401,6 +405,8 @@ def get_persons_mapped_by_distinct_id(
 
 
 def _fetch_persons_by_uuids_via_personhog(team_id: int, uuids: list[str]) -> list[Person]:
+    from posthog.personhog_client.client import get_personhog_client
+
     client = get_personhog_client()
     if client is None:
         raise RuntimeError("personhog client not configured")
@@ -445,6 +451,8 @@ def get_persons_by_uuids(team: Team, uuids: list[str]) -> QuerySet | list[Person
 
 
 def _fetch_person_by_id_via_personhog(team_id: int, person_id: int) -> Optional[Person]:
+    from posthog.personhog_client.client import get_personhog_client
+
     client = get_personhog_client()
     if client is None:
         raise RuntimeError("personhog client not configured")
@@ -476,6 +484,8 @@ def get_person_by_id(team_id: int, person_id: int) -> Optional[Person]:
 
 
 def _fetch_person_by_uuid_via_personhog(team_id: int, uuid: str) -> Optional[Person]:
+    from posthog.personhog_client.client import get_personhog_client
+
     client = get_personhog_client()
     if client is None:
         raise RuntimeError("personhog client not configured")
@@ -507,6 +517,8 @@ def get_person_by_uuid(team_id: int, uuid: str) -> Optional[Person]:
 
 
 def _fetch_person_by_distinct_id_via_personhog(team_id: int, distinct_id: str) -> Optional[Person]:
+    from posthog.personhog_client.client import get_personhog_client
+
     client = get_personhog_client()
     if client is None:
         raise RuntimeError("personhog client not configured")
@@ -552,6 +564,8 @@ def get_person_by_pk_or_uuid(team_id: int, key: str) -> Optional[Person]:
 
 
 def _validate_uuids_via_personhog(team_id: int, uuids: list[str]) -> list[str]:
+    from posthog.personhog_client.client import get_personhog_client
+
     client = get_personhog_client()
     if client is None:
         raise RuntimeError("personhog client not configured")
