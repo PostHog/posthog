@@ -2609,7 +2609,6 @@ class FeatureFlagViewSet(
                     value = value.strip()
                     if value:
                         # Escape regex metacharacters first, then replace spaces with word boundary pattern
-                        import re
 
                         escaped_value = re.escape(value)
                         regex_pattern = escaped_value.replace(r"\ ", r"[\s\-_]*")
