@@ -10,7 +10,7 @@ from django.conf import settings
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 
 import structlog
-from cryptography.fernet import Fernet, InvalidToken
+from cryptography.fernet import Fernet
 from rest_framework import decorators, exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
 from rest_framework_dataclasses.serializers import DataclassSerializer
@@ -139,13 +139,11 @@ class VercelSSOViewSet(VercelErrorResponseMixin, VercelRegionProxyMixin, viewset
                     installation_id=claims.installation_id,
                     integration="vercel",
                 )
-            except (InvalidToken, Exception) as e:
+            except Exception as e:
                 logger.warning("Failed to decrypt cross-region SSO claims token", error=str(e), integration="vercel")
 
         if not params.resource_id and self.current_region == "us" and not self.is_dev_env:
-            existing_claims = VercelIntegration._get_cached_claims(params.code)
-            if existing_claims is None:
-                existing_claims = VercelIntegration._get_sso_claims_from_code(params.code, params.state)
+            existing_claims = VercelIntegration._get_sso_claims_from_code(params.code, params.state)
             if hasattr(existing_claims, "installation_id") and self._should_redirect_to_eu(
                 None, installation_id=existing_claims.installation_id
             ):
@@ -159,6 +157,7 @@ class VercelSSOViewSet(VercelErrorResponseMixin, VercelRegionProxyMixin, viewset
                     integration="vercel",
                 )
                 return HttpResponseRedirect(redirect_to=eu_url)
+            VercelIntegration.set_cached_claims(params.code, existing_claims, timeout=300)
 
         redirect_url = VercelIntegration.authenticate_sso(request=request._request, params=params)
         return HttpResponseRedirect(redirect_to=redirect_url)
