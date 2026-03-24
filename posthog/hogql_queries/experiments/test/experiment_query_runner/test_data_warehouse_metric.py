@@ -1133,3 +1133,197 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         # The test validates that queries with different join keys execute successfully
         # and produce ratio metric results with all required statistical fields
+
+    @snapshot_clickhouse_queries
+    def test_data_warehouse_metric_skips_precomputation(self):
+        """Test that data warehouse metrics skip precomputation even when enabled"""
+        table_name = self.create_data_warehouse_table_with_usage()
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag, start_date=datetime(2023, 1, 1), end_date=datetime(2023, 1, 31)
+        )
+
+        # Enable precomputation
+        experiment.exposure_preaggregation_enabled = True
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        metric = ExperimentMeanMetric(
+            source=ExperimentDataWarehouseNode(
+                table_name=table_name,
+                events_join_key="properties.$user_id",
+                data_warehouse_join_key="userid",
+                timestamp_field="ds",
+                math=ExperimentMetricMathType.TOTAL,
+                math_property=None,
+            ),
+        )
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+        experiment.exposure_criteria = {"filterTestAccounts": False}
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # Populate exposure events
+        for variant, count in [("control", 7), ("test", 9)]:
+            for i in range(count):
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"distinct_{variant}_{i}",
+                    properties={
+                        "$feature_flag_response": variant,
+                        feature_flag_property: variant,
+                        "$feature_flag": feature_flag.key,
+                        "$user_id": f"user_{variant}_{i}",
+                    },
+                    timestamp=datetime(2023, 1, i + 1),
+                )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        with freeze_time("2023-01-07"):
+            result = query_runner.calculate()
+
+        # Verify that precomputation was NOT used
+        self.assertFalse(result.is_precomputed)
+
+        # Verify results are still correct
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_result = result.baseline
+        assert control_result is not None
+        test_result = result.variant_results[0]
+        assert test_result is not None
+
+        self.assertEqual(control_result.sum, 6)
+        self.assertEqual(test_result.sum, 7)
+        self.assertEqual(control_result.number_of_samples, 7)
+        self.assertEqual(test_result.number_of_samples, 9)
+
+    @snapshot_clickhouse_queries
+    def test_ratio_metric_with_dw_skips_precomputation(self):
+        """Test that ratio metrics with data warehouse sources skip precomputation"""
+        usage_table = self.create_data_warehouse_table_with_usage()
+        subscriptions_table = self.create_data_warehouse_table_with_subscriptions()
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag, start_date=datetime(2023, 1, 1), end_date=datetime(2023, 1, 10)
+        )
+
+        # Enable precomputation
+        experiment.exposure_preaggregation_enabled = True
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        metric = ExperimentRatioMetric(
+            numerator=ExperimentDataWarehouseNode(
+                table_name=usage_table,
+                events_join_key="properties.$user_id",
+                data_warehouse_join_key="userid",
+                timestamp_field="ds",
+                math=ExperimentMetricMathType.SUM,
+                math_property="usage",
+            ),
+            denominator=ExperimentDataWarehouseNode(
+                table_name=subscriptions_table,
+                events_join_key="person.properties.email",
+                data_warehouse_join_key="subscription_customer.customer_email",
+                timestamp_field="subscription_created_at",
+                math=ExperimentMetricMathType.TOTAL,
+                math_property=None,
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # Populate exposure events
+        for i in range(7):
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                properties={
+                    "$feature_flag_response": "control",
+                    feature_flag_property: "control",
+                    "$feature_flag": feature_flag.key,
+                    "$user_id": f"user_control_{i}",
+                },
+                timestamp=datetime(2023, 1, i + 1),
+            )
+
+        for i in range(9):
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                properties={
+                    "$feature_flag_response": "test",
+                    feature_flag_property: "test",
+                    "$feature_flag": feature_flag.key,
+                    "$user_id": f"user_test_{i}",
+                },
+                timestamp=datetime(2023, 1, i + 1),
+            )
+
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_control_0"],
+            properties={"email": "john.doe@example.com"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_test_1"],
+            properties={"email": "jane.doe@example.com"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_test_2"],
+            properties={"email": "john.smith@example.com"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_test_3"],
+            properties={"email": "jane.smith@example.com"},
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+
+        with freeze_time("2023-01-10"):
+            result = query_runner.calculate()
+
+        # Verify that precomputation was NOT used
+        self.assertFalse(result.is_precomputed)
+
+        # Verify results are still correct
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_result = result.baseline
+        assert control_result is not None
+        test_result = result.variant_results[0]
+        assert test_result is not None
+
+        # Verify basic result structure
+        self.assertIsNotNone(control_result.sum)
+        self.assertIsNotNone(test_result.sum)
+        self.assertIsNotNone(control_result.denominator_sum)
+        self.assertIsNotNone(test_result.denominator_sum)
