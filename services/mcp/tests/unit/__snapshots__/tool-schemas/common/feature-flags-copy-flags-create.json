@@ -1,0 +1,28 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "copy_schedule": {
+            "default": false,
+            "description": "Whether to also copy scheduled changes for this flag",
+            "type": "boolean"
+        },
+        "feature_flag_key": {
+            "description": "Key of the feature flag to copy",
+            "type": "string"
+        },
+        "from_project": {
+            "description": "Source project ID to copy the flag from",
+            "type": "number"
+        },
+        "target_project_ids": {
+            "description": "List of target project IDs to copy the flag to",
+            "items": {
+                "type": "number"
+            },
+            "maxItems": 50,
+            "type": "array"
+        }
+    },
+    "required": ["feature_flag_key", "from_project", "target_project_ids"],
+    "type": "object"
+}

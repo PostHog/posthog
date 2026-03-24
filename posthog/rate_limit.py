@@ -814,3 +814,13 @@ class ToolbarOAuthRefreshThrottle(IPThrottle):
 
     scope = "toolbar_oauth_refresh"
     rate = "30/minute"
+
+
+class EmailVerifyDomainThrottle(UserRateThrottle):
+    scope = "email_verify_domain"
+    rate = "6/minute"
+
+
+class EmailSendTestThrottle(UserRateThrottle):
+    scope = "email_send_test"
+    rate = "1/minute"

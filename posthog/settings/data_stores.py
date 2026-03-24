@@ -3,6 +3,7 @@ import json
 import time
 from contextlib import suppress
 from functools import lru_cache
+from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -10,6 +11,7 @@ from django.core.exceptions import ImproperlyConfigured
 
 import dj_database_url
 
+from posthog.product_db_config import load_product_db_routes
 from posthog.settings.base_variables import DEBUG, IN_EVAL_TESTING, IS_COLLECT_STATIC, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 from posthog.utils import str_to_int_set
@@ -173,6 +175,65 @@ if persons_db_writer_url:
         DATABASES["persons_db_reader"]["DISABLE_SERVER_SIDE_CURSORS"] = True
 
     DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
+
+
+product_routes = load_product_db_routes(Path(__file__).resolve().parents[2])
+configured_product_databases: set[str] = set()
+
+for route in product_routes:
+    if route.database in configured_product_databases:
+        continue
+
+    db = route.database
+    writer_env = f"PRODUCT_DB_{db.upper()}_WRITER_URL"
+    reader_env = f"PRODUCT_DB_{db.upper()}_READER_URL"
+    writer_alias = f"{db}_db_writer"
+    reader_alias = f"{db}_db_reader"
+
+    writer_url = os.getenv(writer_env)
+    if not writer_url and DEBUG and not TEST:
+        writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/posthog_{db}"
+    elif not writer_url and TEST:
+        writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_DATABASE}_{db}"
+
+    if not writer_url:
+        continue
+
+    DATABASES[writer_alias] = dj_database_url.parse(writer_url, conn_max_age=0)
+    DATABASES[writer_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
+
+    reader_url = os.getenv(reader_env, writer_url)
+    DATABASES[reader_alias] = dj_database_url.parse(reader_url, conn_max_age=0)
+    DATABASES[reader_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
+
+    if TEST:
+        # Tell Django's test runner to create an independent test database and run
+        # migrations (via the router). Without this, test databases are created
+        # but left empty. Reader shares the writer's test database so reads inside
+        # a write transaction see uncommitted data.
+        DATABASES[writer_alias]["TEST"] = {"DEPENDENCIES": []}
+        DATABASES[reader_alias]["TEST"] = {"MIRROR": writer_alias}
+
+    if DISABLE_SERVER_SIDE_CURSORS:
+        DATABASES[writer_alias]["DISABLE_SERVER_SIDE_CURSORS"] = True
+        DATABASES[reader_alias]["DISABLE_SERVER_SIDE_CURSORS"] = True
+
+    # Direct connection for migrations (bypasses PgBouncer). Only registered
+    # when the env var is explicitly set — in dev/test there's no PgBouncer,
+    # so migrations use the writer alias directly.
+    direct_env = f"PRODUCT_DB_{db.upper()}_DIRECT_URL"
+    direct_url = os.getenv(direct_env)
+    if direct_url:
+        direct_alias = f"{db}_db_direct"
+        DATABASES[direct_alias] = dj_database_url.parse(direct_url, conn_max_age=0)
+        DATABASES[direct_alias].setdefault("OPTIONS", {})["connect_timeout"] = 10
+        if DISABLE_SERVER_SIDE_CURSORS:
+            DATABASES[direct_alias]["DISABLE_SERVER_SIDE_CURSORS"] = True
+
+    configured_product_databases.add(db)
+
+if configured_product_databases:
+    DATABASE_ROUTERS.insert(0, "posthog.product_db_router.ProductDBRouter")
 
 # Opt-in to using the read replica
 # Models using this will likely see better query latency, and better performance.

@@ -60,6 +60,7 @@ jobs:
         name: Node.js Code quality
         needs: changes
         runs-on: depot-ubuntu-latest
+        timeout-minutes: 10
         steps:
             - uses: actions/checkout@v6
               with:
@@ -100,6 +101,7 @@ jobs:
         name: Node.js Build
         needs: changes
         runs-on: depot-ubuntu-latest
+        timeout-minutes: 10
         steps:
             - uses: actions/checkout@v6
               with:
@@ -356,6 +358,7 @@ jobs:
         needs: [tests, build, lint]
         name: Node.js Tests Pass
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - run: exit 0

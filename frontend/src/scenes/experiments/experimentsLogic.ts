@@ -299,7 +299,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     }
                 },
                 archiveExperiment: async (id: number) => {
-                    await api.update(`api/projects/${values.currentProjectId}/experiments/${id}`, { archived: true })
+                    await api.create(`api/projects/${values.currentProjectId}/experiments/${id}/archive`)
                     lemonToast.info('Experiment archived')
                     return {
                         ...values.experiments,

@@ -17,7 +17,7 @@ from .cache import invalidate_messages_cache, invalidate_tickets_cache
 from .events import capture_message_received, capture_message_sent
 from .models import Ticket
 from .models.constants import Channel
-from .tasks import post_reply_to_slack
+from .tasks import post_reply_to_slack, send_email_reply
 
 logger = structlog.get_logger(__name__)
 
@@ -269,3 +269,74 @@ def post_slack_reply_on_team_message(sender, instance: Comment, created: bool, *
             logger.exception("slack_reply_signal_failed", item_id=item_id)
 
     transaction.on_commit(do_post_to_slack)
+
+
+@receiver(post_save, sender=Comment)
+def send_email_reply_on_team_message(sender, instance: Comment, created: bool, **kwargs):
+    """
+    When a team member replies to an email-sourced ticket, send the reply
+    back to the customer via email through a Celery task.
+
+    Only triggers for:
+    - Newly created comments (not edits)
+    - Non-private messages
+    - Messages with a created_by (team member, not customer)
+    - Tickets with channel_source="email"
+    """
+    if instance.scope != "conversations_ticket":
+        return
+
+    if not instance.item_id or not created:
+        return
+
+    item_context = instance.item_context
+    if _is_private_message(item_context):
+        return
+
+    created_by_id = _get_comment_created_by_id(instance)
+    if not created_by_id:
+        return
+
+    author_type = item_context.get("author_type") if isinstance(item_context, dict) else None
+    if author_type == "customer":
+        return
+
+    team_id = instance.team_id
+    item_id = instance.item_id
+    comment_id = str(instance.id)
+    content = instance.content or ""
+    rich_content = instance.rich_content
+    created_by = instance.created_by
+
+    def do_send_email():
+        try:
+            ticket = Ticket.objects.filter(
+                id=item_id,
+                team_id=team_id,
+                channel_source=Channel.EMAIL,
+            ).first()
+
+            if not ticket or not ticket.email_from:
+                return
+
+            team = ticket.team
+            settings_dict = team.conversations_settings or {}
+            if not settings_dict.get("email_enabled"):
+                return
+
+            author_name = ""
+            if created_by:
+                author_name = f"{created_by.first_name} {created_by.last_name}".strip() or created_by.email
+
+            cast(Any, send_email_reply).delay(
+                ticket_id=str(ticket.id),
+                team_id=team_id,
+                comment_id=comment_id,
+                content=content,
+                rich_content=rich_content,
+                author_name=author_name,
+            )
+        except Exception:
+            logger.exception("email_reply_signal_failed", item_id=item_id)
+
+    transaction.on_commit(do_send_email)

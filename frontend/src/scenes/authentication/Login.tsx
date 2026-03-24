@@ -59,6 +59,8 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     // our catch-all case, so the message is generic
     sso_enforced: "Please log in with your organization's required SSO method.",
     oauth_cancelled: "Sign in was cancelled. Please try again when you're ready.",
+    invalid_invite:
+        'This invite link is no longer valid. It may have expired or been revoked. Please ask your administrator for a new invite.',
 }
 
 const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'

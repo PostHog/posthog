@@ -16,6 +16,7 @@ import { type AnyPropertyFilter, AvailableFeature, PropertyFilterType, PropertyO
 import { infiniteListLogic } from './infiniteListLogic'
 import { recentTaxonomicFiltersLogic } from './recentTaxonomicFiltersLogic'
 import { TaxonomicFilter } from './TaxonomicFilter'
+import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 
 const meta: Meta<typeof TaxonomicFilter> = {
     title: 'Filters/Taxonomic Filter',
@@ -423,3 +424,46 @@ SuggestedFiltersFiveRecentsWithTruncation.args = {
 }
 SuggestedFiltersFiveRecentsWithTruncation.parameters = SUGGESTED_FILTERS_PARAMETERS
 SuggestedFiltersFourRecents.parameters = SUGGESTED_FILTERS_PARAMETERS
+
+/**
+ * This story demonstrates that PageviewUrls, Screens, and EmailAddresses are promoted
+ * to the top of the group list (after SuggestedFilters and RecentFilters) regardless of
+ * where they appear in the original taxonomicGroupTypes array.
+ */
+export const PromotedGroupsAreReordered: StoryFn<typeof TaxonomicFilter> = (args) => {
+    useMountedLogic(actionsModel)
+    const logicKey = args.taxonomicFilterLogicKey as string
+    const { setSearchQuery } = useActions(taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: logicKey }))
+
+    // Type a search query so all groups (including those with minSearchQueryLength) load
+    // and their Spinners resolve, making the snapshot stable.
+    useOnMountEffect(() => setSearchQuery('check the order of the groups as presented'))
+
+    return (
+        <div className="w-fit border rounded p-2 bg-surface-primary">
+            <SeedRecents count={3} />
+            <TaxonomicFilter {...args} />
+        </div>
+    )
+}
+PromotedGroupsAreReordered.args = {
+    taxonomicFilterLogicKey: 'promoted-groups-reordered',
+    taxonomicGroupTypes: [
+        TaxonomicFilterGroupType.SuggestedFilters,
+        TaxonomicFilterGroupType.Events,
+        TaxonomicFilterGroupType.Actions,
+        TaxonomicFilterGroupType.EventProperties,
+        TaxonomicFilterGroupType.PersonProperties,
+        TaxonomicFilterGroupType.PageviewUrls,
+        TaxonomicFilterGroupType.Screens,
+        TaxonomicFilterGroupType.EmailAddresses,
+    ],
+}
+PromotedGroupsAreReordered.parameters = {
+    ...SUGGESTED_FILTERS_PARAMETERS,
+    docs: {
+        description: {
+            story: 'PageviewUrls, Screens, and EmailAddresses are defined at the end of the group list but get promoted to the top positions, right after Suggested filters and Recents.',
+        },
+    },
+}

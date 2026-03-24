@@ -19,6 +19,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 
@@ -98,6 +99,12 @@ class ExperimentQueryBuilder:
         self.preaggregation_job_ids: list[str] | None = None
         self.force_precomputation = force_precomputation
 
+    # Experiment queries group by (variant, breakdown_values), so the row count is
+    # bounded by num_variants × num_breakdown_values.  The HogQL executor injects
+    # LIMIT 100 when no explicit limit is set, which silently truncates results for
+    # high-cardinality breakdowns.  Set a generous explicit limit to prevent this.
+    QUERY_RESULT_LIMIT = MAX_SELECT_RETURNED_ROWS
+
     def build_query(self) -> ast.SelectQuery:
         """
         Main entry point. Returns complete query built from HogQL with placeholders.
@@ -105,17 +112,20 @@ class ExperimentQueryBuilder:
         assert self.metric is not None, "metric is required for build_query()"
         match self.metric:
             case ExperimentFunnelMetric():
-                return self._build_funnel_query()
+                query = self._build_funnel_query()
             case ExperimentMeanMetric():
-                return self._build_mean_query()
+                query = self._build_mean_query()
             case ExperimentRatioMetric():
-                return self._build_ratio_query()
+                query = self._build_ratio_query()
             case ExperimentRetentionMetric():
-                return self._build_retention_query()
+                query = self._build_retention_query()
             case _:
                 raise NotImplementedError(
                     f"Only funnel, mean, ratio, and retention metrics are supported. Got {type(self.metric)}"
                 )
+
+        query.limit = ast.Constant(value=self.QUERY_RESULT_LIMIT)
+        return query
 
     def get_exposure_timeseries_query(self) -> ast.SelectQuery:
         """
