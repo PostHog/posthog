@@ -1,0 +1,75 @@
+from typing import Any
+
+from django.conf import settings
+
+from temporalio import workflow
+from temporalio.worker import (
+    ExecuteWorkflowInput,
+    Interceptor,
+    WorkflowInboundInterceptor,
+    WorkflowInterceptorClassInput,
+)
+
+from posthog.slo.events import emit_slo_completed, emit_slo_started
+from posthog.slo.types import SloCompletedProperties, SloConfig, SloOutcome, SloStartedProperties
+
+
+class _SloWorkflowInterceptor(WorkflowInboundInterceptor):
+    async def execute_workflow(self, input: ExecuteWorkflowInput) -> Any:
+        slo: SloConfig | None = getattr(input.args[0], "slo", None) if input.args else None
+        if slo is None:
+            return await self.next.execute_workflow(input)
+
+        if not workflow.unsafe.is_replaying():
+            with workflow.unsafe.sandbox_unrestricted():
+                emit_slo_started(
+                    distinct_id=slo.distinct_id,
+                    properties=SloStartedProperties(
+                        operation=slo.operation,
+                        area=slo.area,
+                        team_id=slo.team_id,
+                        resource_id=slo.resource_id,
+                    ),
+                    extra_properties=slo.started_extra or None,
+                )
+
+        start_time = workflow.time()
+        outcome = SloOutcome.SUCCESS
+        try:
+            result = await self.next.execute_workflow(input)
+            outcome = slo.outcome if slo.outcome is not None else SloOutcome.SUCCESS
+            return result
+        except Exception:
+            outcome = slo.outcome if slo.outcome is not None else SloOutcome.FAILURE
+            raise
+        finally:
+            duration_ms = (workflow.time() - start_time) * 1000
+            if not workflow.unsafe.is_replaying():
+                with workflow.unsafe.sandbox_unrestricted():
+                    emit_slo_completed(
+                        distinct_id=slo.distinct_id,
+                        properties=SloCompletedProperties(
+                            operation=slo.operation,
+                            area=slo.area,
+                            team_id=slo.team_id,
+                            outcome=outcome,
+                            resource_id=slo.resource_id,
+                            duration_ms=duration_ms,
+                        ),
+                        extra_properties=slo.completion_context or None,
+                    )
+
+
+class SloInterceptor(Interceptor):
+    """Emits SLO started/completed events for opted-in workflows.
+
+    Workflows opt in by adding ``slo: SloConfig | None = None`` to their input
+    dataclass. See ``SloConfig`` for field documentation.
+    """
+
+    task_queue = settings.ANALYTICS_PLATFORM_TASK_QUEUE
+
+    def workflow_interceptor_class(
+        self, input: WorkflowInterceptorClassInput
+    ) -> type[WorkflowInboundInterceptor] | None:
+        return _SloWorkflowInterceptor

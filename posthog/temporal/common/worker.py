@@ -16,6 +16,7 @@ from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
+from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.llm_analytics.metrics import EvalsMetricsInterceptor
 from posthog.temporal.llm_analytics.sentiment.metrics import (
     SENTIMENT_LATENCY_HISTOGRAM_BUCKETS,
@@ -99,6 +100,7 @@ SUMMARIZATION_LATENCY_HISTOGRAM_BUCKETS = [
 ALL_INTERCEPTOR_CLASSES = [
     LivenessInterceptor,
     PostHogClientInterceptor,
+    SloInterceptor,
     BatchExportsMetricsInterceptor,
     DeleteRecordingsMetricsInterceptor,
     EvalsMetricsInterceptor,
