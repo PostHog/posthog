@@ -182,8 +182,8 @@ describe('Filter Map', () => {
 
         // Ingestion warning was produced for deprecated event via outputs
         expect(mockWarningOutputs.queueMessages).toHaveBeenCalledTimes(1)
-        expect(mockWarningOutputs.queueMessages).toHaveBeenCalledWith(INGESTION_WARNINGS_OUTPUT, [
-            expect.objectContaining({ value: expect.stringContaining('"type":"deprecated_event"') }),
-        ])
+        expect(mockWarningOutputs.queueMessages.mock.calls[0][0]).toBe(INGESTION_WARNINGS_OUTPUT)
+        const warningValue = mockWarningOutputs.queueMessages.mock.calls[0][1][0].value!.toString()
+        expect(warningValue).toContain('"type":"deprecated_event"')
     })
 })

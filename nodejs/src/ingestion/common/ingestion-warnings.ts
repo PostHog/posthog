@@ -72,7 +72,9 @@ export async function emitIngestionWarning(
 
     if (emitted) {
         return outputs
-            .queueMessages(INGESTION_WARNINGS_OUTPUT, [{ value: serializeIngestionWarning(teamId, type, details) }])
+            .queueMessages(INGESTION_WARNINGS_OUTPUT, [
+                { value: Buffer.from(serializeIngestionWarning(teamId, type, details)) },
+            ])
             .then(() => true)
             .catch((error: unknown) => {
                 logger.warn('⚠️', 'Failed to produce ingestion warning', { error, team_id: teamId, type, details })
