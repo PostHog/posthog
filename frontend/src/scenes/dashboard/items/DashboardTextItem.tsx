@@ -1,21 +1,24 @@
+import { useValues } from 'kea'
 import React from 'react'
 
+import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
+import { DashboardWidgetPlacementMenus } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
 import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 
-import type { DashboardPlacement, DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
 
 type BaseTextCardProps = React.ComponentProps<typeof TextCard>
 
 interface DashboardTextItemProps extends Omit<BaseTextCardProps, 'textTile' | 'placement' | 'moreButtonOverlay'> {
     tile: DashboardTile<QueryBasedInsightModel>
     placement: DashboardPlacement
-    otherDashboards: Pick<DashboardType, 'id' | 'name'>[]
+    dashboardId?: number | null
     onEdit: () => void
     onMoveToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
+    onCopyToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
     onDuplicate: () => void
     onRemove?: () => void
     isDragging?: boolean
@@ -25,9 +28,10 @@ function DashboardTextItemInternal(
     {
         tile,
         placement,
-        otherDashboards,
+        dashboardId,
         onEdit,
         onMoveToDashboard,
+        onCopyToDashboard,
         onDuplicate,
         onRemove,
         isDragging,
@@ -35,6 +39,16 @@ function DashboardTextItemInternal(
     }: DashboardTextItemProps,
     ref: React.ForwardedRef<HTMLDivElement>
 ): JSX.Element {
+    const textId = tile.text?.id
+    const { copyToDestinations } = useValues(
+        dashboardWidgetMenusLogic({
+            instanceKey: textId != null ? `text-${textId}` : `text-tile-${tile.id}`,
+            dashboardId,
+            dashboards: undefined,
+            dashboard_tiles: tile.text?.dashboard_tiles,
+        })
+    )
+
     return (
         <TextCard
             ref={ref}
@@ -46,33 +60,11 @@ function DashboardTextItemInternal(
                         Edit text
                     </LemonButton>
 
-                    {onMoveToDashboard && (
-                        <LemonMenu
-                            placement="right-start"
-                            fallbackPlacements={['left-start']}
-                            closeParentPopoverOnClickInside
-                            items={
-                                otherDashboards.length
-                                    ? otherDashboards.map((otherDashboard) => ({
-                                          label: otherDashboard.name || <i>Untitled</i>,
-                                          onClick: () => onMoveToDashboard(otherDashboard),
-                                      }))
-                                    : [
-                                          {
-                                              label: 'No other dashboards',
-                                              disabledReason: 'No other dashboards',
-                                          },
-                                      ]
-                            }
-                        >
-                            <LemonButton
-                                fullWidth
-                                disabledReason={otherDashboards.length ? undefined : 'No other dashboards'}
-                            >
-                                Move to
-                            </LemonButton>
-                        </LemonMenu>
-                    )}
+                    <DashboardWidgetPlacementMenus
+                        placementDestinations={copyToDestinations}
+                        onMoveToDashboard={onMoveToDashboard}
+                        onCopyToDashboard={onCopyToDashboard}
+                    />
 
                     <LemonButton onClick={onDuplicate} fullWidth data-attr="duplicate-text-from-dashboard">
                         Duplicate

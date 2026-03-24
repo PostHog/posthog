@@ -23,8 +23,10 @@ from PIL import Image
 from slack_sdk import WebClient
 
 from posthog.models.comment import Comment
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.uploaded_media import UploadedMedia, save_content_to_object_storage
+from posthog.models.user import User
 
 from .cache import get_cached_slack_user, set_cached_slack_user
 from .formatting import extract_slack_user_ids, slack_to_content_and_rich_content
@@ -126,6 +128,21 @@ def resolve_slack_user(client: WebClient, slack_user_id: str) -> dict:
     except Exception as e:
         logger.warning("slack_support_user_resolve_failed", slack_user_id=slack_user_id, error=str(e))
         return dict(_UNKNOWN_USER)
+
+
+def resolve_posthog_user_for_slack(email: str | None, team: Team) -> User | None:
+    """Match a Slack user's email to a PostHog user within the team's organization."""
+    if not email:
+        return None
+    membership = (
+        OrganizationMembership.objects.filter(
+            organization_id=team.organization_id,
+            user__email=email,
+        )
+        .select_related("user")
+        .first()
+    )
+    return membership.user if membership else None
 
 
 def get_bot_user_id(client: WebClient) -> str | None:
@@ -345,6 +362,10 @@ def create_or_update_slack_ticket(
     # Resolve Slack user info for this message author
     user_info = resolve_slack_user(client, slack_user_id)
 
+    # Check if this Slack user is a PostHog team member
+    posthog_user = resolve_posthog_user_for_slack(user_info.get("email"), team)
+    is_team_member = posthog_user is not None
+
     # Resolve in-message @mentions to display names
     mentioned_ids = extract_slack_user_ids(text, blocks)
     user_names: dict[str, str] = {}
@@ -395,9 +416,11 @@ def create_or_update_slack_ticket(
             item_id=str(ticket.id),
             content=content,
             rich_content=rich_content,
+            created_by=posthog_user,
             item_context={
-                "author_type": "customer",
+                "author_type": "support" if is_team_member else "customer",
                 "is_private": False,
+                "from_slack": True,
                 "slack_user_id": slack_user_id,
                 "slack_author_name": user_info["name"],
                 "slack_author_email": user_info.get("email"),
@@ -406,10 +429,10 @@ def create_or_update_slack_ticket(
             },
         )
 
-        # Increment unread_team_count
-        Ticket.objects.filter(id=ticket.id, team=team).update(
-            unread_team_count=F("unread_team_count") + 1,
-        )
+        if not is_team_member:
+            Ticket.objects.filter(id=ticket.id, team=team).update(
+                unread_team_count=F("unread_team_count") + 1,
+            )
 
         return ticket
 
@@ -441,7 +464,7 @@ def create_or_update_slack_ticket(
         slack_channel_id=slack_channel_id,
         slack_thread_ts=thread_ts,
         slack_team_id=slack_team_id,
-        unread_team_count=1,
+        unread_team_count=0 if is_team_member else 1,
     )
 
     Comment.objects.create(
@@ -450,9 +473,11 @@ def create_or_update_slack_ticket(
         item_id=str(ticket.id),
         content=content,
         rich_content=rich_content,
+        created_by=posthog_user,
         item_context={
-            "author_type": "customer",
+            "author_type": "support" if is_team_member else "customer",
             "is_private": False,
+            "from_slack": True,
             "slack_user_id": slack_user_id,
             "slack_author_name": user_info["name"],
             "slack_author_email": user_info.get("email"),
@@ -644,7 +669,10 @@ def _backfill_thread_replies(
     )
 
     user_cache: dict[str, dict] = {}
+    posthog_user_cache: dict[str, User | None] = {}
     comments_to_create: list[Comment] = []
+    customer_message_count = 0
+    team_message_count = 0
 
     for reply in thread_replies:
         # Match the bot/subtype filtering from handle_support_message
@@ -665,9 +693,19 @@ def _backfill_thread_replies(
             user_cache[reply_user] = resolve_slack_user(client, reply_user)
         user_info = user_cache[reply_user]
 
+        if reply_user not in posthog_user_cache:
+            posthog_user_cache[reply_user] = resolve_posthog_user_for_slack(user_info.get("email"), team)
+        posthog_user = posthog_user_cache[reply_user]
+        is_team_member = posthog_user is not None
+
         cleaned_text, rich_content = slack_to_content_and_rich_content(reply_text, reply_blocks)
         if not cleaned_text and not images:
             continue
+
+        if is_team_member:
+            team_message_count += 1
+        else:
+            customer_message_count += 1
 
         content, rich_content = _build_content_with_images(cleaned_text, rich_content, images)
 
@@ -678,9 +716,11 @@ def _backfill_thread_replies(
                 item_id=str(ticket.id),
                 content=content,
                 rich_content=rich_content,
+                created_by=posthog_user,
                 item_context={
-                    "author_type": "customer",
+                    "author_type": "support" if is_team_member else "customer",
                     "is_private": False,
+                    "from_slack": True,
                     "slack_user_id": reply_user,
                     "slack_author_name": user_info["name"],
                     "slack_author_email": user_info.get("email"),
@@ -695,12 +735,16 @@ def _backfill_thread_replies(
         # messages should not trigger activity log entries or Slack reply notifications.
         created_comments = Comment.objects.bulk_create(comments_to_create)
         last_comment = created_comments[-1]
-        Ticket.objects.filter(id=ticket.id, team=team).update(
-            unread_team_count=F("unread_team_count") + len(comments_to_create),
-            message_count=F("message_count") + len(comments_to_create),
-            last_message_at=last_comment.created_at,
-            last_message_text=(last_comment.content or "")[:500],
-        )
+        update_fields: dict[str, Any] = {
+            "message_count": F("message_count") + len(comments_to_create),
+            "last_message_at": last_comment.created_at,
+            "last_message_text": (last_comment.content or "")[:500],
+        }
+        if customer_message_count:
+            update_fields["unread_team_count"] = F("unread_team_count") + customer_message_count
+        if team_message_count:
+            update_fields["unread_customer_count"] = F("unread_customer_count") + team_message_count
+        Ticket.objects.filter(id=ticket.id, team=team).update(**update_fields)
 
     logger.info(
         "slack_support_reaction_backfill_completed",

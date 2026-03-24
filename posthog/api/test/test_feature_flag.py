@@ -1367,7 +1367,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                             ],
                                             "rollout_percentage": 65,
                                         }
-                                    ]
+                                    ],
                                 },
                             },
                             {
@@ -2111,7 +2111,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                             ],
                                             "rollout_percentage": 65,
                                         }
-                                    ]
+                                    ],
                                 },
                             },
                             {
@@ -2499,7 +2499,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 "action": "created",
                                 "field": "filters",
                                 "before": None,
-                                "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
+                                "after": {
+                                    "groups": [
+                                        {
+                                            "properties": [],
+                                            "rollout_percentage": 74,
+                                        }
+                                    ],
+                                },
                             },
                             {
                                 "action": "changed",
@@ -2611,7 +2618,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 "action": "created",
                                 "field": "filters",
                                 "before": None,
-                                "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
+                                "after": {
+                                    "groups": [
+                                        {
+                                            "properties": [],
+                                            "rollout_percentage": 74,
+                                        }
+                                    ],
+                                },
                             },
                             {
                                 "action": "changed",
@@ -5044,7 +5058,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {
                 "type": "validation_error",
                 "code": "invalid_input",
-                "detail": "Filters are not valid (can only use group properties)",
+                "detail": "Filters are not valid (group properties must match the condition set's group type)",
                 "attr": "filters",
             },
         )
@@ -5067,10 +5081,112 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {
                 "type": "validation_error",
                 "code": "invalid_input",
-                "detail": "Filters are not valid (can only use group properties)",
+                "detail": "Filters are not valid (group-aggregated conditions can only use group properties)",
                 "attr": "filters",
             },
         )
+
+    def test_validation_mixed_aggregation_types_rejected(self):
+        """Test that mixed aggregation types across condition sets are rejected"""
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Mixed aggregation flag",
+                "key": "mixed-aggregation-flag",
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [],
+                            "rollout_percentage": 50,
+                            "aggregation_group_type_index": None,  # Person aggregation
+                        },
+                        {
+                            "properties": [],
+                            "rollout_percentage": 50,
+                            "aggregation_group_type_index": 0,  # Group aggregation
+                        },
+                    ]
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Mixed aggregation types across condition sets are not yet supported. All condition sets must use the same aggregation type.",
+                "attr": "filters",
+            },
+        )
+
+    def test_per_condition_aggregation_normalization(self):
+        """Test that flag-level aggregation is distributed to condition sets without one"""
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Normalized aggregation flag",
+                "key": "normalized-aggregation-flag",
+                "filters": {
+                    "aggregation_group_type_index": 0,
+                    "groups": [
+                        {"properties": [], "rollout_percentage": 100},
+                    ],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        result = response.json()
+        # Flag-level should be preserved
+        self.assertEqual(result["filters"]["aggregation_group_type_index"], 0)
+        # Condition set should have inherited the flag-level value
+        self.assertEqual(result["filters"]["groups"][0]["aggregation_group_type_index"], 0)
+
+    def test_per_condition_aggregation_roundtrip(self):
+        """Test that per-condition aggregation values persist through create/read"""
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        # Create with explicit per-condition value
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Per-condition aggregation flag",
+                "key": "per-condition-aggregation-flag",
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [],
+                            "rollout_percentage": 100,
+                            "aggregation_group_type_index": 0,
+                        },
+                    ],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        flag_id = create_response.json()["id"]
+
+        # Read it back
+        get_response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/")
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+        result = get_response.json()
+
+        # Both flag-level and condition-level should be present and consistent
+        self.assertEqual(result["filters"]["aggregation_group_type_index"], 0)
+        self.assertEqual(result["filters"]["groups"][0]["aggregation_group_type_index"], 0)
 
     def test_validation_empty_groups(self):
         """Test that creating a flag with empty groups raises validation error"""
