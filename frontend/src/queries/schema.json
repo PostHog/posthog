@@ -1911,18 +1911,11 @@
                     "description": "Action name from the plan.",
                     "type": "string"
                 },
-                "optionalInFunnel": {
-                    "type": "boolean"
-                },
                 "properties": {
                     "items": {
                         "$ref": "#/definitions/AssistantPropertyFilter"
                     },
                     "type": "array"
-                },
-                "version": {
-                    "description": "version of the node, used for schema migrations",
-                    "type": "number"
                 }
             },
             "required": ["id", "kind", "name"],
@@ -1946,18 +1939,11 @@
                 "name": {
                     "type": "string"
                 },
-                "optionalInFunnel": {
-                    "type": "boolean"
-                },
                 "properties": {
                     "items": {
                         "$ref": "#/definitions/AssistantPropertyFilter"
                     },
                     "type": "array"
-                },
-                "version": {
-                    "description": "version of the node, used for schema migrations",
-                    "type": "number"
                 }
             },
             "required": ["kind"],
@@ -2397,6 +2383,18 @@
                 }
             },
             "required": ["kind", "retentionFilter"],
+            "type": "object"
+        },
+        "AssistantSeriesProperties": {
+            "additionalProperties": false,
+            "properties": {
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                }
+            },
             "type": "object"
         },
         "AssistantSetPropertyFilter": {

@@ -8393,7 +8393,6 @@ class AssistantLifecycleActionsNode(BaseModel):
     id: int
     kind: Literal["ActionsNode"] = "ActionsNode"
     name: str = Field(..., description="Action name from the plan.")
-    optionalInFunnel: bool | None = None
     properties: (
         list[
             AssistantGenericPropertyFilter1
@@ -8409,7 +8408,6 @@ class AssistantLifecycleActionsNode(BaseModel):
         ]
         | None
     ) = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class AssistantLifecycleEventsNode(BaseModel):
@@ -8420,7 +8418,6 @@ class AssistantLifecycleEventsNode(BaseModel):
     event: str | None = Field(default=None, description="The event or `null` for all events.")
     kind: Literal["EventsNode"] = "EventsNode"
     name: str | None = None
-    optionalInFunnel: bool | None = None
     properties: (
         list[
             AssistantGenericPropertyFilter1
@@ -8436,7 +8433,6 @@ class AssistantLifecycleEventsNode(BaseModel):
         ]
         | None
     ) = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class AssistantLifecycleQuery(BaseModel):

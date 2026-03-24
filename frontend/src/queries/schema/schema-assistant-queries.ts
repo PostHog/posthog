@@ -262,6 +262,10 @@ export interface AssistantInsightsQueryBase {
     aggregation_group_type_index?: integer | null
 }
 
+export interface AssistantSeriesProperties {
+    properties?: AssistantPropertyFilter[]
+}
+
 /**
  * Defines the event series.
  */
@@ -1035,47 +1039,15 @@ export interface AssistantPathsQuery extends AssistantInsightsQueryBase {
 /**
  * Defines the event series for the lifecycle insight. Lifecycle does not support math aggregations.
  */
-export interface AssistantLifecycleEventsNode extends Omit<
-    EventsNode,
-    | 'fixedProperties'
-    | 'properties'
-    | 'math'
-    | 'math_property'
-    | 'math_property_type'
-    | 'math_hogql'
-    | 'math_group_type_index'
-    | 'math_multiplier'
-    | 'math_property_revenue_currency'
-    | 'limit'
-    | 'groupBy'
-    | 'orderBy'
-    | 'response'
-> {
-    properties?: AssistantPropertyFilter[]
-}
+export interface AssistantLifecycleEventsNode
+    extends Pick<EventsNode, 'kind' | 'event' | 'name' | 'custom_name'>, AssistantSeriesProperties {}
 
 /**
  * Defines the action series for the lifecycle insight. Lifecycle does not support math aggregations.
  * You must provide the action ID in the `id` field and the name in the `name` field.
  */
-export interface AssistantLifecycleActionsNode extends Omit<
-    ActionsNode,
-    | 'fixedProperties'
-    | 'properties'
-    | 'math'
-    | 'math_property'
-    | 'math_property_type'
-    | 'math_hogql'
-    | 'math_group_type_index'
-    | 'math_multiplier'
-    | 'math_property_revenue_currency'
-    | 'limit'
-    | 'groupBy'
-    | 'orderBy'
-    | 'response'
-    | 'name'
-> {
-    properties?: AssistantPropertyFilter[]
+export interface AssistantLifecycleActionsNode
+    extends Pick<ActionsNode, 'kind' | 'id' | 'custom_name'>, AssistantSeriesProperties {
     /**
      * Action name from the plan.
      */
