@@ -20,4 +20,4 @@ class IsolationForestDetector(BasePyODDetector):
 
     @classmethod
     def get_default_config(cls) -> dict[str, Any]:
-        return {"type": DetectorType.ISOLATION_FOREST.value, "threshold": 0.9, "n_estimators": 100}
+        return {"type": DetectorType.ISOLATION_FOREST.value, "threshold": cls.DEFAULT_THRESHOLD, "n_estimators": 100}

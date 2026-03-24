@@ -166,17 +166,18 @@ pub async fn setup_hypercache_reader(
     )
 }
 
-/// Create a HyperCacheReader for tests using a mock Redis client (synchronous).
-/// Uses a dummy S3 client that always returns NotFound.
-/// This is useful for tests that need to control Redis behavior via MockRedisClient.
-/// Returns Arc<HyperCacheReader> to match the production pattern.
+/// Create a HyperCacheReader with a mock Redis client and a dummy S3 client
+/// that always returns NotFound. Parameterized for reuse across different
+/// HyperCache namespaces (feature_flags, team_metadata, etc.).
 #[cfg(test)]
-pub fn setup_hypercache_reader_with_mock_redis(
+fn setup_mock_hypercache_reader(
     redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+    namespace: &str,
+    object_name: &str,
+    token_based: bool,
 ) -> Arc<HyperCacheReader> {
     use common_s3::{S3Client, S3Error};
 
-    // Create a simple S3 client that always returns NotFound
     struct DummyS3Client;
 
     #[async_trait]
@@ -186,18 +187,27 @@ pub fn setup_hypercache_reader_with_mock_redis(
         }
     }
 
-    let config = HyperCacheConfig::new(
-        "feature_flags".to_string(),
-        "flags.json".to_string(),
+    let mut config = HyperCacheConfig::new(
+        namespace.to_string(),
+        object_name.to_string(),
         "us-east-1".to_string(),
         "posthog".to_string(),
     );
+    config.token_based = token_based;
     let s3_client: Arc<dyn S3Client + Send + Sync> = Arc::new(DummyS3Client);
     Arc::new(HyperCacheReader::new_with_s3_client(
         redis_client,
         s3_client,
         config,
     ))
+}
+
+/// Create a feature_flags HyperCacheReader with a mock Redis client.
+#[cfg(test)]
+pub fn setup_hypercache_reader_with_mock_redis(
+    redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+) -> Arc<HyperCacheReader> {
+    setup_mock_hypercache_reader(redis_client, "feature_flags", "flags.json", false)
 }
 
 /// Create a HyperCacheReader for team_metadata using the provided Redis client.
@@ -218,6 +228,14 @@ pub async fn setup_team_hypercache_reader(
             .await
             .expect("Failed to create team HyperCacheReader"),
     )
+}
+
+/// Create a team_metadata HyperCacheReader with a mock Redis client.
+#[cfg(test)]
+pub fn setup_team_hypercache_reader_with_mock_redis(
+    redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+) -> Arc<HyperCacheReader> {
+    setup_mock_hypercache_reader(redis_client, "team_metadata", "full_metadata.json", true)
 }
 
 /// Create a HyperCacheReader for remote config (array/config.json).

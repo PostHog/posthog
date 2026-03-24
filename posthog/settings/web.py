@@ -369,7 +369,7 @@ SPECTACULAR_SETTINGS = {
         "PropertyGroupOperator": ["AND", "OR"],
         "OrganizationMembershipLevel": "posthog.models.organization.OrganizationMembership.Level",
         "SetupTaskId": "posthog.models.team.setup_tasks.SetupTaskId",
-        "SurveyType": "posthog.models.surveys.survey.Survey.SurveyType",
+        "SurveyType": "products.surveys.backend.models.Survey.SurveyType",
     },
 }
 

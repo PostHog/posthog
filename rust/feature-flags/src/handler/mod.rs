@@ -124,6 +124,7 @@ async fn process_request_inner(
             context.state.team_hypercache_reader.clone(),
             context.state.flags_hypercache_reader.clone(),
             context.state.team_negative_cache.clone(),
+            *context.state.config.skip_pg_team_fallback,
         );
 
         let (original_distinct_id, team, request) =

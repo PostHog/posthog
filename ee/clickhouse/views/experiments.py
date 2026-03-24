@@ -19,7 +19,6 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
-from posthog.models import Survey
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.evaluation_context import FeatureFlagEvaluationContext
 from posthog.models.filters.filter import Filter
@@ -37,6 +36,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentTimeseriesRecalculation,
 )
 from products.product_tours.backend.models import ProductTour
+from products.surveys.backend.models import Survey
 
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
@@ -303,6 +303,24 @@ class EnterpriseExperimentsViewSet(
         service = ExperimentService(team=self.team, user=request.user)
         launched_experiment = service.launch_experiment(experiment, request=request)
         return Response(ExperimentSerializer(launched_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def archive(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Archive an ended experiment.
+
+        Hides the experiment from the default list view. The experiment can be
+        restored at any time by updating archived=false. Returns 400 if the
+        experiment is already archived or has not ended yet.
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        archived_experiment = service.archive_experiment(experiment)
+        return Response(ExperimentSerializer(archived_experiment, context=self.get_serializer_context()).data)
 
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def duplicate(self, request: Request, *args: Any, **kwargs: Any) -> Response:

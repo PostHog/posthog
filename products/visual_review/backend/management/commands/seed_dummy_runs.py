@@ -59,7 +59,7 @@ class Command(BaseCommand):
 
         # Get or create repo
         repo, created = Repo.objects.get_or_create(
-            team=team,
+            team_id=team.id,
             repo_external_id=0,
             defaults={
                 "repo_full_name": repo_name,

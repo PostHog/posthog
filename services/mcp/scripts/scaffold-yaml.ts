@@ -368,9 +368,15 @@ function syncAll(spec: OpenApiSpec): void {
             if (!file.endsWith('.yaml') && !file.endsWith('.yml')) {
                 continue
             }
+            // Skip query wrapper configs — they don't map to OpenAPI operations
+            const filePath = path.join(DEFINITIONS_DIR, file)
+            const parsed = parseYaml(fs.readFileSync(filePath, 'utf-8'))
+            if (typeof parsed === 'object' && parsed !== null && 'wrappers' in parsed && !('tools' in parsed)) {
+                continue
+            }
             targets.push({
                 product: file.replace(/\.ya?ml$/, ''),
-                filePath: path.join(DEFINITIONS_DIR, file),
+                filePath,
                 subset: false,
             })
         }

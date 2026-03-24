@@ -895,6 +895,7 @@ class TestCustomGoogleOAuth2(APILicensedTest):
 
         extra_args = self.google_oauth.auth_extra_arguments()
 
+        self.assertEqual(extra_args["prompt"], "select_account")
         # Should only contain base arguments from parent class, no login_hint
         self.assertNotIn("login_hint", extra_args)
 
@@ -913,6 +914,38 @@ class TestCustomGoogleOAuth2(APILicensedTest):
         extra_args = self.google_oauth.auth_extra_arguments()
 
         self.assertEqual(extra_args["login_hint"], "test@posthog.com")
+        self.assertEqual(extra_args["prompt"], "select_account")
+
+    def test_auth_extra_arguments_reauth_does_not_force_select_account(self):
+        """Test that reauth flow does not force account picker prompt."""
+        mock_request = type("MockRequest", (), {})()
+        mock_request.GET = {"reauth": "true"}
+
+        mock_strategy = type("MockStrategy", (), {})()
+        mock_strategy.request = mock_request
+        mock_strategy.setting = lambda name, default=None, backend=None: default
+
+        self.google_oauth.strategy = mock_strategy
+
+        extra_args = self.google_oauth.auth_extra_arguments()
+
+        self.assertNotIn("prompt", extra_args)
+
+    def test_auth_extra_arguments_preserves_existing_prompt(self):
+        """Test that auth_extra_arguments appends select_account to existing prompt values."""
+        mock_request = type("MockRequest", (), {})()
+        mock_request.GET = {}
+
+        mock_strategy = type("MockStrategy", (), {})()
+        mock_strategy.request = mock_request
+        mock_strategy.setting = lambda name, default=None, backend=None: default
+
+        self.google_oauth.strategy = mock_strategy
+
+        with patch("ee.api.authentication.GoogleOAuth2.auth_extra_arguments", return_value={"prompt": "consent"}):
+            extra_args = self.google_oauth.auth_extra_arguments()
+
+        self.assertEqual(extra_args["prompt"], "consent select_account")
 
     def test_get_user_id_existing_user_with_sub(self):
         """Test that a user with sub as uid continues using that sub."""

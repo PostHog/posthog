@@ -33,9 +33,12 @@ export type VolumeSparklineRenderArgs = {
     eventMinSpace?: number
 }
 
-/** Rounded top, square bottom: native rx/ry + clip away bottom rounding (same idea as legacy SparklineChart). */
+function roundedTopBarBottomClipPx(borderRadius: number): number {
+    return borderRadius + 1
+}
+
 function roundedTopBarClipPathPx(borderRadius: number): string {
-    return `inset(0 0 ${borderRadius + 1}px 0)`
+    return `inset(0 0 ${roundedTopBarBottomClipPx(borderRadius)}px 0)`
 }
 
 function hashColorId(color: string): string {
@@ -186,12 +189,14 @@ export function renderVolumeSparkline(svgEl: SVGSVGElement, args: VolumeSparklin
 
         if (barHeight > 0) {
             const clip = roundedTopBarClipPathPx(borderRadius)
+            const bottomClipPx = roundedTopBarBottomClipPx(borderRadius)
+            const barRectHeight = chartHeight - barTop + bottomClipPx
             g.append('rect')
                 .attr('class', 'bar-main')
                 .attr('x', barX)
-                .attr('y', barTop + borderRadius)
+                .attr('y', barTop)
                 .attr('width', barW)
-                .attr('height', chartHeight - barTop)
+                .attr('height', barRectHeight)
                 .attr('rx', borderRadius)
                 .attr('ry', borderRadius)
                 .style('clip-path', clip)
@@ -200,9 +205,9 @@ export function renderVolumeSparkline(svgEl: SVGSVGElement, args: VolumeSparklin
             g.append('rect')
                 .attr('class', 'bar-hover-overlay')
                 .attr('x', barX)
-                .attr('y', barTop + borderRadius)
+                .attr('y', barTop)
                 .attr('width', barW)
-                .attr('height', chartHeight - barTop)
+                .attr('height', barRectHeight)
                 .attr('rx', borderRadius)
                 .attr('ry', borderRadius)
                 .style('clip-path', clip)
@@ -226,7 +231,6 @@ export function renderVolumeSparkline(svgEl: SVGSVGElement, args: VolumeSparklin
             onHoverChange?.(i, d)
             if (showAxisHover) {
                 const axis = svg.select('.volume-sparkline-x-axis-hover')
-                // Only underline the x-axis segment on empty bins; non-empty bins use bar fill only
                 if (d.value === 0) {
                     axis.attr('x1', barX)
                         .attr('x2', barX + barW)
