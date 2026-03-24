@@ -960,7 +960,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
                     if (schema.sync_type === null) {
                         showToast = true
-                        schema.should_sync = true
+                        schema.should_sync = schema.should_sync_default ?? true
 
                         // Use incremental if available
                         if (schema.incremental_available || schema.append_available) {

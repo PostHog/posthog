@@ -12,6 +12,7 @@ import {
     getDisplayLabelsToggleText,
     isDisplayLabelsEnabledInInsightQuery,
 } from 'lib/components/Cards/InsightCard/displayLabelsToggle'
+import { canToggleLegendInInsightQuery, getLegendToggleText } from 'lib/components/Cards/InsightCard/legendToggle'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -448,17 +449,19 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     : true,
         ],
         canToggleDisplayLabelsForInsight: [
-            (s) => [s.insight],
-            (insight) => !!insight.query && canToggleDisplayLabelsInInsightQuery(insight.query),
+            (s) => [s.query],
+            (query) => !!query && canToggleDisplayLabelsInInsightQuery(query),
         ],
+        canToggleLegendForInsight: [(s) => [s.query], (query) => !!query && canToggleLegendInInsightQuery(query)],
         displayLabelsShownForInsight: [
-            (s) => [s.insight],
-            (insight) => !!insight.query && isDisplayLabelsEnabledInInsightQuery(insight.query),
+            (s) => [s.query],
+            (query) => !!query && isDisplayLabelsEnabledInInsightQuery(query),
         ],
         displayLabelsToggleTextForInsight: [
-            (s) => [s.insight],
-            (insight) => (insight.query ? getDisplayLabelsToggleText(insight.query) : 'Show values on series'),
+            (s) => [s.query],
+            (query) => (query ? getDisplayLabelsToggleText(query) : 'Show values on series'),
         ],
+        legendToggleTextForInsight: [(s) => [s.query], (query) => (query ? getLegendToggleText(query) : 'Show legend')],
         insightChanged: [
             (s) => [s.insight, s.savedInsight],
             (insight, savedInsight): boolean => {

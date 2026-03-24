@@ -14,3 +14,4 @@ class SourceSchema:
     columns: list[tuple[str, str, bool]] = field(default_factory=list)
     foreign_keys: list[tuple[str, str, str]] = field(default_factory=list)
     description: str | None = None
+    should_sync_default: bool = True

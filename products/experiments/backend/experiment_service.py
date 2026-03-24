@@ -602,7 +602,8 @@ class ExperimentService:
     # Archive
     # ------------------------------------------------------------------
 
-    def archive_experiment(self, experiment: Experiment) -> Experiment:
+    @transaction.atomic
+    def archive_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
         """Archive an ended experiment: validate it has ended, set archived=True."""
         if experiment.archived:
             raise ValidationError("Experiment is already archived.")
@@ -611,7 +612,27 @@ class ExperimentService:
 
         experiment.archived = True
         experiment.save()
+
+        self._report_experiment_archived(experiment, request=request)
+
         return experiment
+
+    def _report_experiment_archived(
+        self,
+        experiment: Experiment,
+        *,
+        request: Any | None = None,
+    ) -> None:
+        if request is None:
+            return
+
+        report_user_action(
+            self.user,
+            "experiment archived",
+            experiment.get_analytics_metadata(),
+            team=experiment.team,
+            request=request,
+        )
 
     # ------------------------------------------------------------------
     # Update

@@ -5458,6 +5458,21 @@ export interface ExternalDataSourceCreatePayload {
     access_method?: 'warehouse' | 'direct'
     payload: Record<string, any>
 }
+
+export interface ExternalDataSourceConnectionMetadata {
+    database?: string | null
+    version?: string | null
+    engine?: 'duckdb' | 'postgres' | null
+    function_source?: string | null
+    available_functions?: string[]
+}
+
+export interface ExternalDataSourceConnectionOption {
+    id: string
+    prefix: string | null
+    engine?: 'duckdb' | 'postgres' | null
+}
+
 export interface ExternalDataSource {
     id: string
     source_id: string
@@ -5467,6 +5482,7 @@ export interface ExternalDataSource {
     prefix: string | null
     description: string | null
     access_method?: 'warehouse' | 'direct'
+    engine?: 'duckdb' | 'postgres' | null
     latest_error: string | null
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]
@@ -5528,6 +5544,7 @@ export interface ExternalDataSourceSyncSchema {
     append_available: boolean
     supports_webhooks: boolean
     description?: string | null
+    should_sync_default: boolean
 }
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
@@ -5541,6 +5558,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     incremental_field_type: string | null
     sync_frequency: DataWarehouseSyncInterval
     description?: string | null
+    should_sync_default?: boolean
 }
 
 export enum ExternalDataSchemaStatus {

@@ -210,6 +210,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                         render: (_, item: UnifiedSource): JSX.Element => (
                             <DataWarehouseSourceIcon
                                 type={item.nativeSource?.source_type || item.table?.source_type || ''}
+                                engine={item.nativeSource?.engine}
                             />
                         ),
                     },

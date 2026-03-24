@@ -21,7 +21,6 @@ from posthog.models import (
     Insight,
     InsightVariable,
     Organization,
-    Survey,
     Team,
 )
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -41,6 +40,7 @@ from products.early_access_features.backend.models import EarlyAccessFeature
 from products.error_tracking.backend.models import ErrorTrackingIssue
 from products.experiments.backend.models.experiment import Experiment
 from products.notebooks.backend.models import Notebook
+from products.surveys.backend.models import Survey
 
 ALL_SYSTEM_TABLE_NAMES = sorted(SystemTables().children.keys())
 

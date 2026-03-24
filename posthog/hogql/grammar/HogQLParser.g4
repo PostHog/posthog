@@ -53,10 +53,10 @@ kvPairList: kvPair (COMMA kvPair)* COMMA?;
 // SELECT statement
 select: (selectSetStmt | selectStmt | hogqlxTagElement) SEMICOLON? EOF;
 
-selectStmtWithParens: selectStmt | LPAREN selectSetStmt RPAREN | placeholder;
+selectStmtWithParens: selectStmt | withClause LPAREN selectSetStmt RPAREN | LPAREN selectSetStmt RPAREN | placeholder;
 
 subsequentSelectSetClause: (EXCEPT ALL (BY NAME)? | EXCEPT (BY NAME)? | UNION ALL (BY NAME)? | UNION DISTINCT (BY NAME)? | UNION (BY NAME)? | INTERSECT ALL (BY NAME)? | INTERSECT DISTINCT (BY NAME)? | INTERSECT (BY NAME)?) selectStmtWithParens;
-selectSetStmt: selectStmtWithParens (subsequentSelectSetClause)* limitAndOffsetClauseOptional?;
+selectSetStmt: selectStmtWithParens (subsequentSelectSetClause)* orderByClause? limitAndOffsetClauseOptional?;
 limitAndOffsetClauseOptional
     : LIMIT columnExpr PERCENT? (COMMA columnExpr)? (WITH TIES)?
     | LIMIT columnExpr PERCENT? (WITH TIES)? OFFSET columnExpr
@@ -91,7 +91,8 @@ windowClause: WINDOW identifier AS LPAREN windowExpr RPAREN (COMMA identifier AS
 prewhereClause: PREWHERE columnExpr;
 whereClause: WHERE columnExpr;
 groupByClause: GROUP BY (
-    (CUBE | ROLLUP) LPAREN columnExprList RPAREN
+    ALL
+    | (CUBE | ROLLUP) LPAREN columnExprList RPAREN
     | GROUPING SETS LPAREN groupingSetList RPAREN
     | columnExprList
     );
@@ -113,17 +114,21 @@ valuesClause: VALUES valuesRow (COMMA valuesRow)*;
 valuesRow: LPAREN columnExpr (COMMA columnExpr)* RPAREN;
 
 joinExpr
-    : joinExpr joinOp? JOIN joinExpr joinConstraintClause  # JoinExprOp
+    : joinExpr NATURAL? joinOp? JOIN joinExpr joinConstraintClause?  # JoinExprOp
+    | joinExpr POSITIONAL JOIN joinExpr joinConstraintClause?                # JoinExprPositional
     | joinExpr joinOpCross joinExpr                                          # JoinExprCrossOp
+    | joinExpr PIVOT LPAREN columnExprList pivotColumnList (GROUP BY columnExprList)? RPAREN  # JoinExprPivot
+    | joinExpr UNPIVOT (INCLUDE NULLS)? LPAREN unpivotColumnList RPAREN      # JoinExprUnpivot
     | tableExpr FINAL? sampleClause?                                         # JoinExprTable
     | LPAREN joinExpr RPAREN                                                 # JoinExprParens
     ;
 joinOp
-    : ((ALL | ANY | ASOF)? INNER | INNER (ALL | ANY | ASOF)? | (ALL | ANY | ASOF) | ANTI | SEMI)  # JoinOpInner
+    : ((ALL | ANY | ASOF)? INNER | INNER (ALL | ANY | ASOF)? | (ALL | ANY | ASOF) | ANTI | SEMI | ASOF (ANTI | SEMI))  # JoinOpInner
     | ( (SEMI | ALL | ANTI | ANY | ASOF)? (LEFT | RIGHT) OUTER?
       | (LEFT | RIGHT) OUTER? (SEMI | ALL | ANTI | ANY | ASOF)?
+      | ASOF (ANTI | SEMI) (LEFT | RIGHT) OUTER?
       )                                                                             # JoinOpLeftRight
-    | ((ALL | ANY)? FULL OUTER? | FULL OUTER? (ALL | ANY)?)                         # JoinOpFull
+    | ((ALL | ANY | ASOF)? FULL OUTER? | FULL OUTER? (ALL | ANY | ASOF)?)           # JoinOpFull
     ;
 joinOpCross
     : CROSS JOIN
@@ -158,7 +163,8 @@ winFrameBound: (CURRENT ROW | UNBOUNDED PRECEDING | UNBOUNDED FOLLOWING | column
 // Columns
 expr: columnExpr EOF;
 columnTypeExpr
-    : identifier LPAREN identifier columnTypeExpr (COMMA identifier columnTypeExpr)* COMMA? RPAREN  # ColumnTypeExprNested   // Nested
+    : columnTypeExpr LBRACKET DECIMAL_LITERAL? RBRACKET                                             # ColumnTypeExprArray    // INTEGER[], VARCHAR[3]
+    | identifier LPAREN identifier columnTypeExpr (COMMA identifier columnTypeExpr)* COMMA? RPAREN  # ColumnTypeExprNested   // Nested
     | identifier LPAREN enumValue (COMMA enumValue)* COMMA? RPAREN                                  # ColumnTypeExprEnum     // Enum
     | identifier LPAREN columnTypeExpr (COMMA columnTypeExpr)* COMMA? RPAREN                        # ColumnTypeExprComplex  // Array, Tuple
     | identifier LPAREN columnExprList? RPAREN                                               # ColumnTypeExprParam    // FixedString(N)
@@ -197,12 +203,16 @@ columnExpr
       | LPAREN ASTERISK REPLACE LPAREN columnsReplaceList RPAREN RPAREN
       )                                                                                   # ColumnExprColumnsReplace
     | COLUMNS LPAREN ASTERISK RPAREN                                                      # ColumnExprColumnsAll
+    | COLUMNS LPAREN identifier DOT ASTERISK EXCLUDE LPAREN identifierList RPAREN REPLACE LPAREN columnsReplaceList RPAREN RPAREN  # ColumnExprColumnsQualifiedExcludeReplace
+    | COLUMNS LPAREN identifier DOT ASTERISK EXCLUDE LPAREN identifierList RPAREN RPAREN  # ColumnExprColumnsQualifiedExclude
+    | COLUMNS LPAREN identifier DOT ASTERISK REPLACE LPAREN columnsReplaceList RPAREN RPAREN  # ColumnExprColumnsQualifiedReplace
+    | COLUMNS LPAREN identifier DOT ASTERISK RPAREN                                       # ColumnExprColumnsQualifiedAll
     | ASTERISK COLUMNS LPAREN STRING_LITERAL RPAREN                                      # ColumnExprSpreadColumnsRegex
     | ASTERISK COLUMNS LPAREN columnExprList RPAREN                                      # ColumnExprSpreadColumnsList
-    | identifier (LPAREN columnExprs=columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList=columnExprList? RPAREN)? OVER LPAREN windowExpr RPAREN # ColumnExprWinFunction
-    | identifier (LPAREN columnExprs=columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList=columnExprList? RPAREN)? OVER identifier               # ColumnExprWinFunctionTarget
     | identifier LPAREN columnExprs=columnExprList? RPAREN withinGroupClause                                                                        # ColumnExprFunctionWithinGroup
-    | identifier (LPAREN columnExprs=columnExprList? RPAREN)? LPAREN DISTINCT? columnArgList=columnExprList? RPAREN                                 # ColumnExprFunction
+    | identifier (LPAREN columnExprs=columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList=columnExprList? RPAREN)? (FILTER LPAREN WHERE filterExpr=columnExpr RPAREN)? OVER LPAREN windowExpr RPAREN # ColumnExprWinFunction
+    | identifier (LPAREN columnExprs=columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList=columnExprList? RPAREN)? (FILTER LPAREN WHERE filterExpr=columnExpr RPAREN)? OVER identifier               # ColumnExprWinFunctionTarget
+    | identifier (LPAREN columnExprs=columnExprList? RPAREN)? LPAREN DISTINCT? columnArgList=columnExprList? (ORDER BY orderExprList)? RPAREN (FILTER LPAREN WHERE filterExpr=columnExpr RPAREN)?  # ColumnExprFunction
     | columnExpr LPAREN selectSetStmt RPAREN                                              # ColumnExprCallSelect
     | columnExpr LPAREN columnExprList? RPAREN                                            # ColumnExprCall
     | hogqlxTagElement                                                                    # ColumnExprTagElement
@@ -243,6 +253,7 @@ columnExpr
                  | operator=IREGEX_DOUBLE                                                 // =~*
                  | operator=NOT_IREGEX                                                    // !~*
                  ) right=columnExpr                                                       # ColumnExprPrecedence3
+    | columnExpr IGNORE NULLS                                                            # ColumnExprIgnoreNulls
     | columnExpr IS NOT? NULL_SQL                                                         # ColumnExprIsNull
     | columnExpr IS NOT? DISTINCT FROM columnExpr                                         # ColumnExprIsDistinctFrom
     | columnExpr NULLISH columnExpr                                                       # ColumnExprNullish
@@ -258,7 +269,7 @@ columnExpr
     | LPAREN selectSetStmt RPAREN                                                         # ColumnExprSubquery  // single-column only
     | LPAREN columnExpr RPAREN                                                            # ColumnExprParens    // single-column only
     | LPAREN columnExprList RPAREN                                                        # ColumnExprTuple
-    | LBRACKET columnExprList? RBRACKET                                                   # ColumnExprArray
+    | ARRAY? LBRACKET columnExprList? RBRACKET                                              # ColumnExprArray
     | LBRACE (kvPairList)? RBRACE                                                         # ColumnExprDict
     | columnLambdaExpr                                                                    # ColumnExprLambda
     | identifier COLONEQUALS columnExpr                                                   # ColumnExprNamedArg
@@ -316,13 +327,17 @@ tableExpr
     | tableFunctionExpr                                 # TableExprFunction
     | LPAREN selectSetStmt RPAREN                       # TableExprSubquery
     | LPAREN valuesClause RPAREN                        # TableExprValues
-    | tableExpr UNPIVOT LPAREN unpivotColumnList RPAREN # TableExprUnpivot
+    | tableExpr PIVOT LPAREN columnExprList pivotColumnList (GROUP BY columnExprList)? RPAREN # TableExprPivot
+    | tableExpr UNPIVOT (INCLUDE NULLS)? LPAREN unpivotColumnList RPAREN # TableExprUnpivot
     | tableExpr (alias | AS identifier) columnAliases?  # TableExprAlias
     | hogqlxTagElement                                  # TableExprTag
     | placeholder                                       # TableExprPlaceholder
     ;
+
+pivotColumnList: FOR pivotColumn+;
+pivotColumn: columnExprTupleOrSingle IN LPAREN columnExprList RPAREN;
 unpivotColumnList: unpivotColumn (COMMA unpivotColumn)* COMMA?;
-unpivotColumn: columnExprTupleOrSingle FOR columnExprTupleOrSingle IN LPAREN columnExprList RPAREN;
+unpivotColumn: columnExprTupleOrSingle FOR columnExprTupleOrSingle IN LPAREN columnExprList RPAREN (columnExprTupleOrSingle IN LPAREN columnExprList RPAREN)*;
 columnExprTupleOrSingle: LPAREN columnExprList RPAREN | columnExpr;
 columnAliases: LPAREN identifier (COMMA identifier)* RPAREN;
 tableFunctionExpr: identifier LPAREN tableArgList? RPAREN;
@@ -351,12 +366,12 @@ keyword
     // except NULL_SQL, INF, NAN_SQL
     : ALL | AND | ANTI | ANY | ARRAY | AS | ASCENDING | ASOF | BETWEEN | BOTH | BY | CASE
     | CAST | COHORT | COLLATE | COLUMNS | CROSS | CUBE | CURRENT | DATE | DESC | DESCENDING
-    | DISTINCT | ELSE | END | EXCLUDE | EXTRACT | FINAL | FIRST
+    | DISTINCT | ELSE | END | EXCLUDE | EXTRACT | FILTER | FINAL | FIRST
     | FOR | FOLLOWING | FROM | FULL | GROUP | HAVING | ID | IS
-    | GROUPING | IF | ILIKE | IN | INNER | INTERVAL | JOIN | KEY
+    | GROUPING | IF | IGNORE | ILIKE | INCLUDE | IN | INNER | INTERVAL | JOIN | KEY
     | LAMBDA | LAST | LEADING | LEFT | LIKE | LIMIT
-    | NAME | NOT | NULLS | OFFSET | ON | OR | ORDER | OUTER | OVER | PARTITION
-    | PRECEDING | PREWHERE | QUALIFY | RANGE | RECURSIVE | REPLACE | RETURN | RIGHT | ROLLUP | ROW
+    | NAME | NATURAL | NOT | NULLS | OFFSET | ON | OR | ORDER | OUTER | OVER | PARTITION
+    | PIVOT | POSITIONAL | PRECEDING | PREWHERE | QUALIFY | RANGE | RECURSIVE | REPLACE | RETURN | RIGHT | ROLLUP | ROW
     | ROWS | SAMPLE | SELECT | SEMI | SETS | SETTINGS | SUBSTRING
     | THEN | TIES | TIMESTAMP | TOTALS | TRAILING | TRIM | TRUNCATE | TRY_CAST | TO | TOP
     | UNBOUNDED | UNION | UNPIVOT | USING | VALUES | WHEN | WHERE | WINDOW | WITH

@@ -862,6 +862,19 @@ describe('lib/utils', () => {
             ).toEqual('clicked "hello"')
         })
 
+        it.each([
+            ['with a flag key', { $feature_flag: 'my-flag-key' }, 'my-flag-key'],
+            ['without the flag key property', {}, '$feature_flag_called'],
+        ])('handles feature flag called events %s', (_, properties, expected) => {
+            expect(
+                eventToDescription({
+                    ...baseEvent,
+                    event: '$feature_flag_called',
+                    properties,
+                })
+            ).toEqual(expected)
+        })
+
         it('handles unknown event/action', () => {
             expect(
                 eventToDescription({

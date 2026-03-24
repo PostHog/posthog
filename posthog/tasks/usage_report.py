@@ -40,8 +40,6 @@ from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionTy
 from posthog.models.organization import Organization
 from posthog.models.plugin import PluginConfig
 from posthog.models.property.util import get_property_string_expr
-from posthog.models.surveys.survey import Survey
-from posthog.models.surveys.util import get_unique_survey_event_uuids_sql_subquery
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
@@ -56,6 +54,8 @@ from products.data_warehouse.backend.models import (
     ExternalDataSchema,
 )
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingSymbolSet
+from products.surveys.backend.models import Survey
+from products.surveys.backend.util import get_unique_survey_event_uuids_sql_subquery
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)

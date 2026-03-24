@@ -549,7 +549,7 @@ class VercelIntegration:
     def _build_secrets(team: Team) -> list[dict[str, str]]:
         return [
             {
-                "name": "NEXT_PUBLIC_POSTHOG_KEY",
+                "name": "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN",
                 "value": team.api_token,
             },
             {

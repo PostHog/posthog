@@ -27,7 +27,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
-import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -53,7 +53,7 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { getDisplayLabelsToggleText, toggleDisplayLabelsInInsightQuery } from './displayLabelsToggle'
+import { DashboardInsightActions } from './DashboardInsightActions'
 import { InsightCardProps } from './InsightCard'
 import { InsightDetails } from './InsightDetails'
 import { InsightMoveToDashboardMenu } from './InsightMoveToDashboardMenu'
@@ -127,14 +127,15 @@ export function InsightMeta({
         variablesOverride: variablesOverride ?? null,
         tileFiltersOverride: tile?.filters_overrides ?? null,
     }
-    const { insightFeedback, canToggleDisplayLabelsForInsight } = useValues(insightLogic(insightLogicProps))
+    const { insightFeedback, canToggleDisplayLabelsForInsight, canToggleLegendForInsight } = useValues(
+        insightLogic(insightLogicProps)
+    )
     const { setInsightFeedback } = useActions(insightLogic(insightLogicProps))
     const { exportContext, insightData } = useValues(insightDataLogic(insightLogicProps))
     const { samplingFactor } = useValues(insightVizDataLogic(insightLogicProps))
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { updateInsightDirect } = useActions(insightsModel)
-    const { reportDashboardInsightMetaUpdated, reportDashboardInsightValuesOnSeriesToggled } =
-        useActions(eventUsageLogic)
+    const { reportDashboardInsightMetaUpdated } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const showCompactTile =
@@ -147,7 +148,6 @@ export function InsightMeta({
         placement === DashboardPlacement.Builtin
 
     const isSqlInsight = isDataVisualizationNode(insight.query)
-    const displayLabelsToggleText = getDisplayLabelsToggleText(insight.query)
     const showCompactHeading = !showCompactTile || (!filtersOverride?.date_from && !isSqlInsight)
 
     const topHeadingProps = {
@@ -173,6 +173,7 @@ export function InsightMeta({
               )
             : true
     const canToggleDisplayLabels = isDashboardCardPlacement && canEditInsight && canToggleDisplayLabelsForInsight
+    const canToggleLegend = isDashboardCardPlacement && canEditInsight && canToggleLegendForInsight
 
     // For dashboard-specific actions (remove from dashboard, change tile color), check dashboard permissions
     const currentDashboard = dashboardId ? nameSortedDashboards.find((d) => d.id === dashboardId) : null
@@ -378,33 +379,18 @@ export function InsightMeta({
                     >
                         Duplicate
                     </LemonButton>
-                    {canToggleDisplayLabels && (
-                        <>
-                            <LemonDivider />
-                            <LemonButton
-                                onClick={() => {
-                                    const query = toggleDisplayLabelsInInsightQuery(insight.query)
-                                    if (query !== insight.query) {
-                                        updateInsightDirect(insight, { query })
-                                        reportDashboardInsightValuesOnSeriesToggled(
-                                            dashboardId,
-                                            insight.id,
-                                            DashboardEventSource.MoreDropdown
-                                        )
-                                    }
-                                }}
-                                fullWidth
-                            >
-                                {displayLabelsToggleText}
-                            </LemonButton>
-                            <LemonDivider />
-                        </>
-                    )}
+                    <DashboardInsightActions
+                        insight={insight}
+                        insightLogicProps={insightLogicProps}
+                        dashboardId={dashboardId}
+                        canToggleDisplayLabels={canToggleDisplayLabels}
+                        canToggleLegend={canToggleLegend}
+                    />
 
                     {/* Dashboard related */}
                     {canEditDashboard && (
                         <>
-                            {!canToggleDisplayLabels && <LemonDivider />}
+                            {!canToggleDisplayLabels && !canToggleLegend && <LemonDivider />}
                             {showCompactTile && toggleShowDescription && !!insight.description && (
                                 <LemonButton onClick={toggleShowDescription} fullWidth>
                                     {tile?.show_description === false ? 'Show description' : 'Hide description'}

@@ -46,8 +46,8 @@ export const getNextJSClientSteps = (ctx: OnboardingComponentsContext): StepDefi
             content: (
                 <>
                     <Markdown>
-                        Add your PostHog API key and host to your `.env.local` file and to your hosting provider (e.g.
-                        Vercel, Netlify). These values need to start with `NEXT_PUBLIC_` to be accessible on the
+                        Add your PostHog project token and host to your `.env.local` file and to your hosting provider
+                        (e.g. Vercel, Netlify). These values need to start with `NEXT_PUBLIC_` to be accessible on the
                         client-side.
                     </Markdown>
                     <CodeBlock
@@ -56,7 +56,7 @@ export const getNextJSClientSteps = (ctx: OnboardingComponentsContext): StepDefi
                                 language: 'bash',
                                 file: '.env.local',
                                 code: dedent`
-                                    NEXT_PUBLIC_POSTHOG_KEY=<ph_project_token>
+                                    NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=<ph_project_token>
                                     NEXT_PUBLIC_POSTHOG_HOST=<ph_client_api_host>
                                 `,
                             },
@@ -92,7 +92,7 @@ export const getNextJSClientSteps = (ctx: OnboardingComponentsContext): StepDefi
                                             code: dedent`
                                                 import posthog from 'posthog-js'
 
-                                                posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {
+                                                posthog.init(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN!, {
                                                     api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
                                                     defaults: '2026-01-30'
                                                 })
@@ -123,7 +123,7 @@ export const getNextJSClientSteps = (ctx: OnboardingComponentsContext): StepDefi
 
                                                 export function PostHogProvider({ children }: { children: React.ReactNode }) {
                                                   useEffect(() => {
-                                                    posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY as string, {
+                                                    posthog.init(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN as string, {
                                                       api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
                                                       defaults: '2026-01-30'
                                                     })
@@ -187,7 +187,7 @@ export const getNextJSClientSteps = (ctx: OnboardingComponentsContext): StepDefi
                                                 export default function App({ Component, pageProps }: AppProps) {
 
                                                   useEffect(() => {
-                                                    posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY as string, {
+                                                    posthog.init(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN as string, {
                                                       api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
                                                       defaults: '2026-01-30',
                                                       loaded: (posthog) => {
@@ -353,7 +353,7 @@ export const getNextJSServerSteps = (ctx: OnboardingComponentsContext): StepDefi
                                                 import { PostHog } from 'posthog-node'
 
                                                 export async function POST(request: Request) {
-                                                    const posthog = new PostHog(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {
+                                                    const posthog = new PostHog(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN!, {
                                                         host: process.env.NEXT_PUBLIC_POSTHOG_HOST
                                                     })
 
@@ -380,7 +380,7 @@ export const getNextJSServerSteps = (ctx: OnboardingComponentsContext): StepDefi
                                                 import { PostHog } from 'posthog-node'
 
                                                 export async function myServerAction() {
-                                                    const posthog = new PostHog(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {
+                                                    const posthog = new PostHog(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN!, {
                                                         host: process.env.NEXT_PUBLIC_POSTHOG_HOST
                                                     })
 
@@ -411,7 +411,7 @@ export const getNextJSServerSteps = (ctx: OnboardingComponentsContext): StepDefi
                                                     req: NextApiRequest,
                                                     res: NextApiResponse
                                                 ) {
-                                                    const posthog = new PostHog(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {
+                                                    const posthog = new PostHog(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN!, {
                                                         host: process.env.NEXT_PUBLIC_POSTHOG_HOST
                                                     })
 
