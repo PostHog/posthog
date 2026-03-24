@@ -12,6 +12,7 @@ from posthog.slo.events import emit_slo_completed, emit_slo_started
 from posthog.slo.types import SloArea, SloCompletedProperties, SloOperation, SloStartedProperties
 from posthog.sync import database_sync_to_async
 from posthog.tasks import exporter
+from posthog.tasks.exports.failure_handler import SYSTEM_ERROR_NAMES
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.exports.types import (
     EmitDeliveryOutcomeInput,
@@ -60,6 +61,8 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
             )
             # Wrap in ApplicationError to propagate failure metadata as details
             # while preserving the exception class name for retry policy matching.
+            # Only known transient errors (CH/network) are worth retrying — unknown
+            # errors like Chrome crashes or programming errors should fail fast.
             # Detail order: [exception_class, duration_ms, export_format, attempt, error_trace]
             raise ApplicationError(
                 str(e),
@@ -69,6 +72,7 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
                 temporalio.activity.info().attempt,
                 error_trace,
                 type=exception_class,
+                non_retryable=exception_class not in SYSTEM_ERROR_NAMES,
             ) from e
 
         duration_ms = (time.monotonic() - start) * 1000
