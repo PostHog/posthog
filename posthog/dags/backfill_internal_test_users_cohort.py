@@ -3,6 +3,9 @@ import dagster
 from posthog.dags.common import JobOwners
 from posthog.dags.common.ops import get_all_team_ids_op
 from posthog.exceptions_capture import capture_exception
+from posthog.models.cohort import Cohort
+from posthog.models.cohort.cohort import CohortKind, get_or_create_internal_test_users_cohort
+from posthog.models.team import Team
 
 
 @dagster.op
@@ -11,9 +14,6 @@ def create_internal_test_users_cohorts_op(
     team_ids: list[int],
 ) -> dict[str, int]:
     """Create internal/test users cohort for teams that don't already have one."""
-    from posthog.models.cohort import Cohort
-    from posthog.models.cohort.cohort import CohortKind, get_or_create_internal_test_users_cohort
-    from posthog.models.team import Team
 
     # Find teams that already have the cohort so we can skip them in bulk
     teams_with_cohort = set(
