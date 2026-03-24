@@ -64,6 +64,7 @@ rules:
                               |BatchExport
                               |BatchExportBackfill
                               |BatchImport
+                              |ButtonTile
                               |ChangeRequest
                               |ClusteringConfig
                               |ClusteringJob
@@ -90,6 +91,7 @@ rules:
                               |DataWarehouseTable
                               |DesktopRecording
                               |EarlyAccessFeature
+                              |EmailMessageMapping
                               |EvaluationContext
                               |Edge
                               |Endpoint
@@ -129,6 +131,7 @@ rules:
                               |Link
                               |LiveDebuggerBreakpoint
                               |LogsAlertConfiguration
+                              |LogsView
                               |LLMModelConfiguration
                               |LLMPrompt
                               |LLMProviderKey
@@ -168,6 +171,7 @@ rules:
                               |Tag
                               |Task
                               |TaskRun
+                              |TeamConversationsEmailConfig
                               |Text
                               |Threshold
                               |Ticket
@@ -240,6 +244,7 @@ rules:
                         |BatchExport
                         |BatchExportBackfill
                         |BatchImport
+                        |ButtonTile
                         |ChangeRequest
                         |ClusteringConfig
                         |ClusteringJob
@@ -266,6 +271,7 @@ rules:
                         |DataWarehouseTable
                         |DesktopRecording
                         |EarlyAccessFeature
+                        |EmailMessageMapping
                         |EvaluationContext
                         |Edge
                         |Endpoint
@@ -343,6 +349,7 @@ rules:
                         |Tag
                         |Task
                         |TaskRun
+                        |TeamConversationsEmailConfig
                         |Text
                         |Threshold
                         |Ticket

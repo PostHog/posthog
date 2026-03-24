@@ -14,7 +14,8 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.messaging.backfill_precalculated_person_properties_coordinator_workflow import (
     BackfillPrecalculatedPersonPropertiesCoordinatorInputs,
 )
-from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import PersonPropertyFilter
+from posthog.temporal.messaging.filter_storage import store_filters
+from posthog.temporal.messaging.types import PersonPropertyFilter
 
 logger = structlog.get_logger(__name__)
 
@@ -257,10 +258,16 @@ class Command(BaseCommand):
             # Connect to Temporal
             client = await async_connect()
 
-            # Create coordinator workflow inputs with deduplicated filters
+            # Store filters in Redis and get storage key
+            filter_storage_key = store_filters(filters, team_id)
+            self.stdout.write(
+                self.style.SUCCESS(f"Stored {len(filters)} filters in Redis with key: {filter_storage_key}")
+            )
+
+            # Create coordinator workflow inputs with filter storage key
             inputs = BackfillPrecalculatedPersonPropertiesCoordinatorInputs(
                 team_id=team_id,
-                filters=filters,
+                filter_storage_key=filter_storage_key,
                 cohort_ids=cohort_ids,
                 parallelism=parallelism,
                 batch_size=batch_size,

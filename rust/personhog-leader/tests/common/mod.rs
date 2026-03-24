@@ -132,10 +132,9 @@ pub fn start_router(
             lease_ttl: 10,
             heartbeat_interval: Duration::from_secs(3),
         },
-        Arc::new(handler),
     );
     let token = cancel.child_token();
-    tokio::spawn(async move { router.run(token).await })
+    tokio::spawn(async move { router.run(token, Arc::new(handler)).await })
 }
 
 // ── Leader pod ──────────────────────────────────────────────

@@ -1,12 +1,12 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-03-18 20:07:47 UTC
+// Generated at: 2026-03-23 20:09:13 UTC
 
 export type CanonicalProvider =
     | 'default'
     | 'ai21-fp8'
     | 'aion-labs'
     | 'aion-labs-bf16'
-    | 'akashml-fp16'
+    | 'akashml-fp8'
     | 'alibaba'
     | 'alibaba-opensource'
     | 'amazon-bedrock'
@@ -65,6 +65,7 @@ export type CanonicalProvider =
     | 'io-net-bf16'
     | 'io-net-fp16'
     | 'io-net-fp8'
+    | 'io-net-int4'
     | 'ionstream-fp8'
     | 'liquid'
     | 'mancer-fp8'
@@ -117,7 +118,6 @@ export type CanonicalProvider =
     | 'seed-fp8'
     | 'siliconflow-fp8'
     | 'siliconflow-int4'
-    | 'stealth'
     | 'stepfun-fp8'
     | 'streamlake-fp16'
     | 'switchpoint'

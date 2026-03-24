@@ -292,6 +292,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                                 id: typeof id === 'undefined' ? filter.id : id,
                                 name: typeof name === 'undefined' ? filter.name : name,
                                 type: typeof type === 'undefined' ? filter.type : type,
+                                custom_name: typeof custom_name === 'undefined' ? filter.custom_name : custom_name,
                                 ...fieldValues,
                             } as LocalFilter
 
@@ -423,7 +424,8 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             eventUsageLogic.actions.reportInsightFilterSet(sanitizedFilters)
         },
         setEntityFilterVisibility: async ({ index, value }) => {
-            eventUsageLogic.actions.reportEntityFilterVisibilitySet(index, value)
+            const entityName = values.localFilters[index]?.name || undefined
+            eventUsageLogic.actions.reportEntityFilterVisibilitySet(index, value, entityName)
         },
     })),
     events(({ actions, props, values }) => ({

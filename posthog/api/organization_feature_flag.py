@@ -1,10 +1,11 @@
 import copy
 
 import structlog
-from rest_framework import mixins, status, viewsets
+from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.response import Response
 
 from posthog.api.cohort import CohortSerializer
+from posthog.api.documentation import extend_schema
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -15,6 +16,41 @@ from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.filters.filter import Filter
 from posthog.models.scheduled_change import ScheduledChange
 from posthog.user_permissions import UserPermissions
+
+
+class CopyFlagsRequestSerializer(serializers.Serializer):
+    feature_flag_key = serializers.CharField(required=True, help_text="Key of the feature flag to copy")
+    from_project = serializers.IntegerField(required=True, help_text="Source project ID to copy the flag from")
+    target_project_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=True,
+        max_length=50,
+        help_text="List of target project IDs to copy the flag to",
+    )
+    copy_schedule = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether to also copy scheduled changes for this flag",
+    )
+
+
+class CopyFlagsResultSerializer(serializers.Serializer):
+    project_id = serializers.IntegerField(required=False, help_text="Project ID (present on failure)")
+    error_message = serializers.CharField(required=False, help_text="Error message (present on failure)")
+
+
+class CopyFlagsSuccessItemSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="ID of the created feature flag")
+    key = serializers.CharField(help_text="Key of the feature flag")
+    name = serializers.CharField(help_text="Name of the feature flag")
+    active = serializers.BooleanField(help_text="Whether the flag is active")
+    team_id = serializers.IntegerField(help_text="Team ID the flag was copied to")
+
+
+class CopyFlagsResponseSerializer(serializers.Serializer):
+    success = CopyFlagsSuccessItemSerializer(many=True, help_text="List of successfully copied flags")
+    failed = CopyFlagsResultSerializer(many=True, help_text="List of failed copy attempts")
+
 
 logger = structlog.get_logger(__name__)
 
@@ -60,6 +96,10 @@ class OrganizationFeatureFlagView(
 
         return Response(flags_data)
 
+    @extend_schema(
+        request=CopyFlagsRequestSerializer,
+        responses={200: CopyFlagsResponseSerializer},
+    )
     @action(detail=False, methods=["post"], url_path="copy_flags")
     def copy_flags(self, request, *args, **kwargs):
         body = request.data
@@ -107,7 +147,7 @@ class OrganizationFeatureFlagView(
                 failed_projects.append(
                     {
                         "project_id": target_project_id,
-                        "errors": "Project not found.",
+                        "error_message": "Project not found.",
                     }
                 )
                 continue
@@ -280,7 +320,9 @@ class OrganizationFeatureFlagView(
                 failed_projects.append(
                     {
                         "project_id": target_project_id,
-                        "errors": str(e) if not feature_flag_serializer.errors else feature_flag_serializer.errors,
+                        "error_message": str(e)
+                        if not feature_flag_serializer.errors
+                        else feature_flag_serializer.errors,
                     }
                 )
 

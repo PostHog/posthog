@@ -33,21 +33,6 @@ import type {
     LogsQueryInput,
     LogsQueryResponse,
 } from '../schema/logs.js'
-import type {
-    CreateSurveyInput,
-    GetSurveySpecificStatsInput,
-    GetSurveyStatsInput,
-    ListSurveysInput,
-    SurveyResponseStatsOutput,
-    UpdateSurveyInput,
-} from '../schema/surveys.js'
-import {
-    CreateSurveyInputSchema,
-    GetSurveySpecificStatsInputSchema,
-    GetSurveyStatsInputSchema,
-    ListSurveysInputSchema,
-    UpdateSurveyInputSchema,
-} from '../schema/surveys.js'
 import type { Schemas } from './generated.js'
 import { globalRateLimiter } from './rate-limiter.js'
 
@@ -150,6 +135,8 @@ export class ApiClient {
         path: string
         body?: Record<string, unknown>
         query?: Record<string, string | number | boolean | (string | number)[] | undefined>
+        headers?: Record<string, string>
+        responseType?: 'json' | 'text'
     }): Promise<T> {
         const searchParams = new URLSearchParams()
         if (opts.query) {
@@ -162,10 +149,24 @@ export class ApiClient {
         const qs = searchParams.toString()
         const url = `${this.baseUrl}${opts.path}${qs ? `?${qs}` : ''}`
 
-        const result = await this.fetchJson<T>(url, {
+        const fetchOptions: RequestInit = {
             method: opts.method,
             ...(opts.body ? { body: JSON.stringify(opts.body) } : {}),
-        })
+            ...(opts.headers ? { headers: opts.headers } : {}),
+        }
+
+        if (opts.responseType === 'text') {
+            const response = await this.fetch(url, fetchOptions)
+            if (!response.ok) {
+                const errorText = await response.text()
+                throw new Error(
+                    `Request failed:\nURL: ${opts.method} ${url}\nStatus Code: ${response.status} (${response.statusText})\nError Message: ${errorText}`
+                )
+            }
+            return (await response.text()) as T
+        }
+
+        const result = await this.fetchJson<T>(url, fetchOptions)
 
         if (!result.success) {
             throw new Error(result.error.message)
@@ -238,13 +239,17 @@ export class ApiClient {
                     )
                 }
 
-                // 204 No Content (e.g. DELETE) returns no body
-                if (response.status === 204) {
-                    return { success: true, data: undefined as T }
+                const rawText = await response.text()
+                if (!rawText) {
+                    return { success: true, data: {} as T }
                 }
 
-                const rawData = await response.json()
-                return { success: true, data: rawData as T }
+                try {
+                    const rawData = JSON.parse(rawText)
+                    return { success: true, data: rawData as T }
+                } catch {
+                    return { success: true, data: rawText as T }
+                }
             } catch (error) {
                 // Only retry on rate limit errors, not other errors
                 if (error instanceof Error && error.message.includes('Rate limit')) {
@@ -803,7 +808,7 @@ export class ApiClient {
 
                 return this.fetchJson<Schemas.Insight>(`${this.baseUrl}/api/projects/${projectId}/insights/`, {
                     method: 'POST',
-                    body: JSON.stringify(validatedInput),
+                    body: JSON.stringify({ ...validatedInput, saved: true }),
                 })
             },
 
@@ -942,125 +947,6 @@ export class ApiClient {
                     success: true,
                     data: result.data,
                 }
-            },
-        }
-    }
-
-    surveys({ projectId }: { projectId: string }): Endpoint {
-        return {
-            list: async ({ params }: { params?: ListSurveysInput } = {}): Promise<Result<Array<Schemas.Survey>>> => {
-                const validatedParams = params ? ListSurveysInputSchema.parse(params) : undefined
-                const searchParams = new URLSearchParams()
-
-                if (validatedParams?.limit) {
-                    searchParams.append('limit', String(validatedParams.limit))
-                }
-                if (validatedParams?.offset) {
-                    searchParams.append('offset', String(validatedParams.offset))
-                }
-                if (validatedParams?.search) {
-                    searchParams.append('search', validatedParams.search)
-                }
-
-                const url = `${this.baseUrl}/api/projects/${projectId}/surveys/${searchParams.toString() ? `?${searchParams}` : ''}`
-
-                const result = await this.fetchJson<{ results: Schemas.Survey[] }>(url)
-
-                if (result.success) {
-                    return { success: true, data: result.data.results }
-                }
-
-                return result
-            },
-
-            get: async ({ surveyId }: { surveyId: string }): Promise<Result<Schemas.Survey>> => {
-                return this.fetchJson<Schemas.Survey>(`${this.baseUrl}/api/projects/${projectId}/surveys/${surveyId}/`)
-            },
-
-            create: async ({ data }: { data: CreateSurveyInput }): Promise<Result<Schemas.Survey>> => {
-                const validatedInput = CreateSurveyInputSchema.parse(data)
-
-                return this.fetchJson<Schemas.Survey>(`${this.baseUrl}/api/projects/${projectId}/surveys/`, {
-                    method: 'POST',
-                    body: JSON.stringify(validatedInput),
-                })
-            },
-
-            update: async ({
-                surveyId,
-                data,
-            }: {
-                surveyId: string
-                data: UpdateSurveyInput
-            }): Promise<Result<Schemas.Survey>> => {
-                const validatedInput = UpdateSurveyInputSchema.parse(data)
-
-                return this.fetchJson<Schemas.Survey>(
-                    `${this.baseUrl}/api/projects/${projectId}/surveys/${surveyId}/`,
-                    {
-                        method: 'PATCH',
-                        body: JSON.stringify(validatedInput),
-                    }
-                )
-            },
-
-            delete: async ({
-                surveyId,
-                softDelete = true,
-            }: {
-                surveyId: string
-                softDelete?: boolean
-            }): Promise<Result<{ success: boolean; message: string }>> => {
-                try {
-                    const fetchOptions: RequestInit = {
-                        method: softDelete ? 'PATCH' : 'DELETE',
-                    }
-
-                    if (softDelete) {
-                        fetchOptions.body = JSON.stringify({ archived: true })
-                    }
-
-                    const response = await this.fetch(
-                        `${this.baseUrl}/api/projects/${projectId}/surveys/${surveyId}/`,
-                        fetchOptions
-                    )
-
-                    if (!response.ok) {
-                        throw new Error(`Failed to ${softDelete ? 'archive' : 'delete'} survey: ${response.statusText}`)
-                    }
-
-                    return {
-                        success: true,
-                        data: {
-                            success: true,
-                            message: `Survey ${softDelete ? 'archived' : 'deleted'} successfully`,
-                        },
-                    }
-                } catch (error) {
-                    return { success: false, error: error as Error }
-                }
-            },
-
-            globalStats: async ({ params }: { params?: GetSurveyStatsInput } = {}): Promise<
-                Result<SurveyResponseStatsOutput>
-            > => {
-                const validatedParams = GetSurveyStatsInputSchema.parse(params)
-
-                const searchParams = getSearchParamsFromRecord(validatedParams)
-
-                const url = `${this.baseUrl}/api/projects/${projectId}/surveys/stats/${searchParams.toString() ? `?${searchParams}` : ''}`
-
-                return this.fetchJson<SurveyResponseStatsOutput>(url)
-            },
-
-            stats: async (params: GetSurveySpecificStatsInput): Promise<Result<SurveyResponseStatsOutput>> => {
-                const validatedParams = GetSurveySpecificStatsInputSchema.parse(params)
-
-                const searchParams = getSearchParamsFromRecord(validatedParams)
-
-                const url = `${this.baseUrl}/api/projects/${projectId}/surveys/${validatedParams.survey_id}/stats/${searchParams.toString() ? `?${searchParams}` : ''}`
-
-                return this.fetchJson<SurveyResponseStatsOutput>(url)
             },
         }
     }

@@ -1219,6 +1219,80 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn(BREAKDOWN_NULL_STRING_LABEL, hogql_text)
         self.assertNotIn(BREAKDOWN_OTHER_STRING_LABEL, hogql_text)
 
+    def test_materialization_failure_after_query_change_returns_success_with_error(self):
+        from products.data_warehouse.backend.models import DataWarehouseTable
+
+        initial_query = {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 10"}
+        endpoint = create_endpoint_with_version(
+            name="mat_fail_test",
+            team=self.team,
+            query=initial_query,
+            created_by=self.user,
+            is_active=True,
+        )
+        version = endpoint.versions.first()
+
+        # Set up materialization on v1
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name=f"{endpoint.name}_v1",
+            team=self.team,
+            query=initial_query,
+            is_materialized=True,
+            sync_frequency_interval=timedelta(hours=24),
+            origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
+        )
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name=f"{endpoint.name}_v1_table",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern=f"s3://test-bucket/{endpoint.name}_v1_table",
+        )
+        saved_query.table = table
+        saved_query.save()
+        version.saved_query = saved_query
+        version.save()
+
+        # Update with a new query — version creation succeeds, but materialization fails
+        new_query = {"kind": "HogQLQuery", "query": "SELECT * FROM events WHERE timestamp > now() - INTERVAL 1 DAY"}
+        with mock.patch.object(
+            EndpointViewSet, "_enable_materialization_inner", side_effect=Exception("Temporal unavailable")
+        ):
+            response = self.client.put(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {"query": new_query},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        # New version was created despite materialization failure
+        endpoint.refresh_from_db()
+        self.assertEqual(endpoint.current_version, 2)
+
+        # Response includes materialization error
+        self.assertIn("materialization_error", response.json())
+        self.assertIn("Failed to enable materialization", response.json()["materialization_error"])
+
+    def test_materialization_failure_without_query_change_still_raises(self):
+        endpoint = create_endpoint_with_version(
+            name="mat_fail_no_version",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        with mock.patch.object(
+            EndpointViewSet, "_enable_materialization_inner", side_effect=Exception("Temporal unavailable")
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {"is_materialized": True, "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
 
 @pytest.mark.asyncio
 class TestEndpointMaterializationTemporal:
@@ -1261,7 +1335,7 @@ class TestEndpointMaterializationTemporal:
         assert saved_query is not None
 
         # Get the schedule that should be created
-        schedule = get_saved_query_schedule(saved_query)
+        schedule = await sync_to_async(get_saved_query_schedule)(saved_query)
 
         # Verify schedule configuration
         from temporalio.client import ScheduleActionStartWorkflow, ScheduleOverlapPolicy
@@ -1270,10 +1344,9 @@ class TestEndpointMaterializationTemporal:
         assert schedule.action.id == str(saved_query.id)
         assert schedule.action.task_queue == DATA_MODELING_TASK_QUEUE
 
-        # Verify schedule interval matches sync_frequency_interval
-        intervals = schedule.spec.intervals
-        assert len(intervals) == 1
-        assert intervals[0].every == timedelta(hours=12)
+        # Verify schedule uses calendar spec (medium interval for 12h)
+        assert len(schedule.spec.calendars) == 1
+        assert schedule.spec.jitter == timedelta(hours=1)
 
         # Verify schedule policy
         assert schedule.policy.overlap == ScheduleOverlapPolicy.SKIP
@@ -1287,20 +1360,20 @@ class TestEndpointMaterializationTemporal:
 
         saved_query = await sync_to_async(get_saved_query)(version)
 
-        # Test 1-hour frequency
+        # Test 1-hour frequency (short interval: calendar with minute buckets, 1min jitter)
         saved_query.sync_frequency_interval = timedelta(hours=1)
-        schedule = get_saved_query_schedule(saved_query)
-        assert schedule.spec.intervals[0].every == timedelta(hours=1)
+        schedule = await sync_to_async(get_saved_query_schedule)(saved_query)
+        assert len(schedule.spec.calendars) == 1
         assert schedule.spec.jitter == timedelta(minutes=1)
 
-        # Test 12-hour frequency
+        # Test 12-hour frequency (medium interval: calendar with hour buckets, 1hr jitter)
         saved_query.sync_frequency_interval = timedelta(hours=12)
-        schedule = get_saved_query_schedule(saved_query)
-        assert schedule.spec.intervals[0].every == timedelta(hours=12)
-        assert schedule.spec.jitter == timedelta(minutes=30)
+        schedule = await sync_to_async(get_saved_query_schedule)(saved_query)
+        assert len(schedule.spec.calendars) == 1
+        assert schedule.spec.jitter == timedelta(hours=1)
 
-        # Test 24-hour frequency
+        # Test 24-hour frequency (medium interval: calendar with hour buckets, 1hr jitter)
         saved_query.sync_frequency_interval = timedelta(hours=24)
-        schedule = get_saved_query_schedule(saved_query)
-        assert schedule.spec.intervals[0].every == timedelta(hours=24)
+        schedule = await sync_to_async(get_saved_query_schedule)(saved_query)
+        assert len(schedule.spec.calendars) == 1
         assert schedule.spec.jitter == timedelta(hours=1)

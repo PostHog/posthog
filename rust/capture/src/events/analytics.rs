@@ -15,7 +15,7 @@ use crate::{
     api::CaptureError,
     debug_or_info, error_tracking_sampler,
     event_restrictions::{EventContext as RestrictionEventContext, EventRestrictionService},
-    prometheus::report_dropped_events,
+    prometheus::{report_clock_skew, report_dropped_events},
     router, sinks,
     utils::uuid_v7,
     v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext},
@@ -66,20 +66,23 @@ pub fn process_single_event(
         .unwrap_or(false);
 
     // Parse the event timestamp
-    let computed_timestamp = common_types::timestamp::parse_event_timestamp(
+    let parsed_timestamp = common_types::timestamp::parse_event_timestamp(
         event.timestamp.as_deref(),
         event.offset,
         sent_at_utc,
         ignore_sent_at,
         context.now,
     );
+    if let Some(skew) = parsed_timestamp.clock_skew {
+        report_clock_skew(skew);
+    }
 
     let event_name = event.event.clone();
 
     let mut metadata = ProcessedEventMetadata {
         data_type,
         session_id: None,
-        computed_timestamp: Some(computed_timestamp),
+        computed_timestamp: Some(parsed_timestamp.timestamp),
         event_name: event_name.clone(),
         force_overflow: false,
         skip_person_processing: false,
@@ -87,7 +90,7 @@ pub fn process_single_event(
         redirect_to_topic: None,
     };
 
-    if historical_cfg.should_reroute(metadata.data_type, computed_timestamp) {
+    if historical_cfg.should_reroute(metadata.data_type, parsed_timestamp.timestamp) {
         metrics::counter!(
             "capture_events_rerouted_historical",
             &[("reason", "timestamp")]
@@ -110,7 +113,7 @@ pub fn process_single_event(
         sent_at: context.sent_at,
         token: context.token.clone(),
         event: event_name,
-        timestamp: computed_timestamp,
+        timestamp: parsed_timestamp.timestamp,
         is_cookieless_mode: event
             .extract_is_cookieless_mode()
             .ok_or(CaptureError::InvalidCookielessMode)?,

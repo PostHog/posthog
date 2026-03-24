@@ -209,8 +209,8 @@ export function Nav(): JSX.Element {
                     orientation={isLayoutNavCollapsed ? 'vertical' : 'horizontal'}
                 >
                     {!isLayoutNavCollapsed && (
-                        <>
-                            <Tabs.List className="relative flex items-center gap-1 shrink-0 z-0 pb-2 pt-1 px-2">
+                        <div className="p-1">
+                            <Tabs.List className="relative flex items-center gap-1 shrink-0 z-0 p-1 rounded-lg bg-(--color-bg-fill-highlight-50) dark:bg-surface-primary">
                                 {TAB_CONFIG.map((tab) => (
                                     <Tabs.Tab
                                         key={tab.id}
@@ -218,7 +218,7 @@ export function Nav(): JSX.Element {
                                         render={(props) => (
                                             <ButtonPrimitive
                                                 {...props}
-                                                className="group data-[composite-item-active]:bg-fill-button-tertiary-active w-1/2 justify-center"
+                                                className="group data-[composite-item-active]:bg-surface-tertiary w-1/2 justify-center"
                                                 data-attr={`nav-tab-${tab.id}`}
                                             >
                                                 <span
@@ -246,17 +246,20 @@ export function Nav(): JSX.Element {
                                     />
                                 ))}
                             </Tabs.List>
-
-                            <div className="h-px bg-border-primary -mx-1 w-[calc(100%+var(--spacing)*4)]" />
-                        </>
+                        </div>
                     )}
 
                     <div className="flex-1 overflow-hidden relative">
-                        <Tabs.Panel value="home" className="absolute inset-0 flex flex-col" keepMounted>
+                        <Tabs.Panel value="home" className="absolute inset-0 flex flex-col" keepMounted tabIndex={-1}>
                             <NavTabBrowse />
                         </Tabs.Panel>
                         {!isLayoutNavCollapsed && (
-                            <Tabs.Panel value="chat" className="absolute inset-0 flex flex-col" keepMounted>
+                            <Tabs.Panel
+                                value="chat"
+                                className="absolute inset-0 flex flex-col"
+                                keepMounted
+                                tabIndex={-1}
+                            >
                                 <Suspense
                                     fallback={
                                         <div className="flex flex-col gap-px px-1 pt-2">
@@ -274,7 +277,9 @@ export function Nav(): JSX.Element {
                         )}
                     </div>
 
-                    <div className="border-b border-primary h-px" />
+                    <div className="px-2">
+                        <div className="h-px bg-border-primary " />
+                    </div>
 
                     <div className="p-1">
                         <NavBarFooter isLayoutNavCollapsed={isLayoutNavCollapsed} />

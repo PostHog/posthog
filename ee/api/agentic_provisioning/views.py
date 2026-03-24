@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import time
 import secrets
 from datetime import timedelta
 from typing import Any, cast
@@ -15,6 +16,7 @@ from django.http import HttpResponseRedirect
 from django.http.response import HttpResponseBase
 from django.utils import timezone
 
+import requests
 import structlog
 import posthoganalytics
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
@@ -30,6 +32,8 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_oauth_access_token, generate_random_oauth_refresh_token
 from posthog.utils import get_instance_region
+
+from ee.settings import BILLING_SERVICE_URL
 
 from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX, RESOURCE_SERVICE_CACHE_PREFIX
 from .region_proxy import stripe_region_proxy
@@ -54,73 +58,86 @@ ACCESS_TOKEN_EXPIRY_SECONDS = 365 * 24 * 3600
 
 
 # ---------------------------------------------------------------------------
-# Service catalog — two plans (free + pay_as_you_go) and one deployable
-# (analytics). The deployable provisions a PostHog project and defaults to the
-# free plan. When pay_as_you_go is selected, Stripe collects SPT for
-# usage-based billing across all products.
+# Service catalog — a single free deployable (analytics) that provisions a
+# PostHog project. Paid plan (pay_as_you_go with SPT) will be re-added once
+# billing integration is complete.
 # ---------------------------------------------------------------------------
 
-FREE_PLAN_ID = "free"
-PAY_AS_YOU_GO_PLAN_ID = "pay_as_you_go"
-USAGE_BASED_PRICING = {"type": "freeform", "freeform": "Usage-based pricing"}
 ANALYTICS_SERVICE_ID = "analytics"
 
 ALL_CATEGORIES: list[str] = ["analytics", "feature_flags", "ai"]
 
-FREE_PLAN_SERVICE: dict[str, Any] = {
-    "id": FREE_PLAN_ID,
-    "description": "Free — generous free tier across all PostHog products, no credit card required.",
-    "categories": ALL_CATEGORIES,
-    "pricing": {"type": "free"},
-    "kind": "plan",
-}
+SERVICES_CACHE_KEY = "agentic_provisioning:services"
+SERVICES_CACHE_TTL = 3600
+SERVICES_CACHE_RETRY_TTL = 300
+SERVICES_CACHE_EXPIRES_KEY = "agentic_provisioning:services:expires_at"
+SERVICES_CACHE_STORE_TTL = 86400
 
-PAY_AS_YOU_GO_PLAN_SERVICE: dict[str, Any] = {
-    "id": PAY_AS_YOU_GO_PLAN_ID,
-    "description": "Pay-as-you-go — usage-based pricing across all PostHog products with no minimum commitment.",
-    "categories": ALL_CATEGORIES,
-    "pricing": {
-        "type": "paid",
-        "paid": USAGE_BASED_PRICING,
-    },
-    "kind": "plan",
-}
+_EXCLUDED_PRODUCT_TYPES = {"platform_and_support", "integrations"}
 
-ANALYTICS_DEPLOYABLE_SERVICE: dict[str, Any] = {
-    "id": ANALYTICS_SERVICE_ID,
-    "description": "PostHog — product analytics, session replay, feature flags, A/B testing, surveys, and more.",
-    "categories": ALL_CATEGORIES,
-    "pricing": {
-        "type": "component",
-        "component": {
-            "options": [
-                {
-                    "parent_service_ids": [FREE_PLAN_ID],
-                    "type": "free",
-                },
-                {
-                    "parent_service_ids": [PAY_AS_YOU_GO_PLAN_ID],
-                    "type": "paid",
-                    "paid": {
-                        "type": "freeform",
-                        "freeform": "Usage-based pricing",
-                    },
-                },
-            ]
-        },
-    },
-    "kind": "deployable",
-}
+_FALLBACK_DESCRIPTION = "PostHog — product analytics, session replay, realtime destinations, feature flags & experiments, surveys, data warehouse, error tracking, llm analytics, logs, posthog ai, emails, and more."
 
-# For backwards compat, POSTHOG_SERVICE_ID is the deployable that gets provisioned
-POSTHOG_SERVICE_ID = ANALYTICS_SERVICE_ID
+
+def _build_analytics_service(description: str) -> dict[str, Any]:
+    return {
+        "id": ANALYTICS_SERVICE_ID,
+        "description": description,
+        "categories": ALL_CATEGORIES,
+        "pricing": {"type": "free"},
+        "kind": "deployable",
+    }
+
+
+def _fetch_services_from_billing() -> list[dict[str, Any]] | None:
+    """Fetch product catalog from billing and build the service list."""
+    try:
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/products-v2",
+            params={"plan": "standard"},
+        )
+        res.raise_for_status()
+        products = res.json().get("products", [])
+    except Exception:
+        logger.exception("agentic_provisioning.services.billing_fetch_failed")
+        return None
+
+    product_names = [
+        p.get("name", "")
+        for p in products
+        if p.get("type", "") not in _EXCLUDED_PRODUCT_TYPES and not p.get("inclusion_only")
+    ]
+    description = f"PostHog — {', '.join(n for n in product_names if n).lower()}, and more."
+
+    return [_build_analytics_service(description)]
 
 
 def _get_services() -> list[dict[str, Any]]:
-    return [FREE_PLAN_SERVICE, PAY_AS_YOU_GO_PLAN_SERVICE, ANALYTICS_DEPLOYABLE_SERVICE]
+    cached = cache.get(SERVICES_CACHE_KEY)
+    expires_at = cache.get(SERVICES_CACHE_EXPIRES_KEY)
+
+    now = time.time()
+    if cached is not None and expires_at is not None and now < expires_at:
+        return cached
+
+    services = _fetch_services_from_billing()
+    if services is not None:
+        cache.set(SERVICES_CACHE_KEY, services, SERVICES_CACHE_STORE_TTL)
+        cache.set(SERVICES_CACHE_EXPIRES_KEY, now + SERVICES_CACHE_TTL, SERVICES_CACHE_STORE_TTL)
+        return services
+
+    if cached is not None:
+        logger.warning("agentic_provisioning.services.serving_stale_cache")
+        cache.set(SERVICES_CACHE_EXPIRES_KEY, now + SERVICES_CACHE_RETRY_TTL, SERVICES_CACHE_STORE_TTL)
+        return cached
+
+    logger.warning("agentic_provisioning.services.no_cache_fallback")
+    fallback = [_build_analytics_service(_FALLBACK_DESCRIPTION)]
+    cache.set(SERVICES_CACHE_KEY, fallback, SERVICES_CACHE_RETRY_TTL)
+    cache.set(SERVICES_CACHE_EXPIRES_KEY, now + SERVICES_CACHE_RETRY_TTL, SERVICES_CACHE_RETRY_TTL)
+    return fallback
 
 
-VALID_SERVICE_IDS: set[str] = {FREE_PLAN_ID, PAY_AS_YOU_GO_PLAN_ID, ANALYTICS_SERVICE_ID}
+VALID_SERVICE_IDS: set[str] = {ANALYTICS_SERVICE_ID}
 
 
 # ---------------------------------------------------------------------------
@@ -593,7 +610,7 @@ def provisioning_resources_create(request: Request) -> Response:
     except Team.DoesNotExist:
         return _error_response("team_not_found", "Team not found", resource_id=str(team_id), status=404)
 
-    resolved_service_id = service_id or POSTHOG_SERVICE_ID
+    resolved_service_id = service_id or ANALYTICS_SERVICE_ID
     cache.set(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}", resolved_service_id, timeout=None)
 
     region = get_instance_region() or "US"
@@ -670,7 +687,7 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
             "credential_rotation_failed", "Failed to rotate credentials", resource_id=resource_id, status=500
         )
 
-    service_id = cache.get(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}") or POSTHOG_SERVICE_ID
+    service_id = cache.get(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}") or ANALYTICS_SERVICE_ID
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
@@ -732,7 +749,7 @@ def _resolve_resource_response(request: Request, resource_id: str) -> Response:
             status=404,
         )
 
-    service_id = cache.get(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}") or POSTHOG_SERVICE_ID
+    service_id = cache.get(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}") or ANALYTICS_SERVICE_ID
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 

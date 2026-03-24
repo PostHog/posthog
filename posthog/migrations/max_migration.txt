@@ -1,1 +1,1 @@
-1054_add_detector_fields
+1064_migrate_messaging_models

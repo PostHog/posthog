@@ -2,6 +2,7 @@ import logging
 from typing import Union
 
 from django.db import transaction
+from django.db.models import QuerySet
 
 from django_scim import constants
 from django_scim.adapters import SCIMGroup
@@ -138,6 +139,10 @@ class PostHogSCIMGroup(SCIMGroup):
                     )
             except User.DoesNotExist:
                 continue
+            except ValueError:
+                # Skip non-user members (e.g., nested group references from IdPs)
+                logger.warning("scim_group_skip_invalid_member_id", extra={"member_value": user_id})
+                continue
 
         # Remove members no longer in the group
         RoleMembership.objects.filter(role=role, user__id__in=to_remove).delete()
@@ -232,6 +237,10 @@ class PostHogSCIMGroup(SCIMGroup):
                         )
                     except User.DoesNotExist:
                         continue
+                    except ValueError:
+                        # Skip non-user members (e.g., nested group references from IdPs)
+                        logger.warning("scim_group_skip_invalid_member_id", extra={"member_value": user_id})
+                        continue
 
     def handle_remove(self, path: AttrPath, value: Union[str, list, dict], operation: dict) -> None:
         """
@@ -272,9 +281,5 @@ class PostHogSCIMGroup(SCIMGroup):
                     RoleMembership.objects.filter(role=self.obj).delete()
 
     @classmethod
-    def get_for_organization(cls, organization_domain: OrganizationDomain) -> list["PostHogSCIMGroup"]:
-        """
-        Get all roles (groups) for a specific organization.
-        """
-        roles = Role.objects.filter(organization=organization_domain.organization)
-        return [cls(role, organization_domain) for role in roles]
+    def get_queryset_for_organization(cls, organization_domain: OrganizationDomain) -> QuerySet[Role]:
+        return Role.objects.filter(organization=organization_domain.organization).order_by("id")

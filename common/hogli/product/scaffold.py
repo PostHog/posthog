@@ -9,7 +9,7 @@ from pathlib import Path
 
 import click
 
-from .paths import DJANGO_SETTINGS, FRONTEND_PACKAGE_JSON, PRODUCTS_DIR, TACH_TOML, load_structure
+from .paths import DB_ROUTING_YAML, DJANGO_SETTINGS, FRONTEND_PACKAGE_JSON, PRODUCTS_DIR, TACH_TOML, load_structure
 
 
 def flatten_structure(files: dict, prefix: str = "", result: dict | None = None) -> dict[str, dict]:
@@ -101,6 +101,31 @@ def _add_to_django_settings(product_name: str, *, dry_run: bool) -> None:
     _register_in_file(DJANGO_SETTINGS, "Django settings", app_config, write, dry_run=dry_run)
 
 
+def _get_existing_databases() -> list[str]:
+    """Read unique database names from db_routing.yaml."""
+    if not DB_ROUTING_YAML.exists():
+        return []
+    import yaml
+
+    config = yaml.safe_load(DB_ROUTING_YAML.read_text()) or {}
+    return sorted({r["database"] for r in config.get("routes", []) if r.get("database")})
+
+
+def _add_to_db_routing(product_name: str, database_name: str, *, dry_run: bool) -> None:
+    route_entry = f"    - app_label: {product_name}\n      database: {database_name}\n"
+
+    def write(content: str) -> str:
+        return content.rstrip() + "\n" + route_entry
+
+    _register_in_file(
+        DB_ROUTING_YAML,
+        "products/db_routing.yaml",
+        f"app_label: {product_name}",
+        write,
+        dry_run=dry_run,
+    )
+
+
 _VALID_PRODUCT_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
@@ -165,3 +190,26 @@ def bootstrap_product(name: str, dry_run: bool, force: bool) -> None:
     _add_to_tach_toml(name, dry_run=dry_run)
     _add_to_frontend_package_json(name, dry_run=dry_run)
     _add_to_django_settings(name, dry_run=dry_run)
+
+    if dry_run:
+        _add_to_db_routing(name, name, dry_run=True)
+    else:
+        click.echo(
+            "\n  Products get their own database by default — this isolates locks, "
+            "connections, and migrations so one product can't bring down the app. "
+            "This is new but fully working. Reach out in #team-devex with questions."
+        )
+        existing_dbs = _get_existing_databases()
+        if existing_dbs:
+            click.echo(f"  Existing databases: {', '.join(existing_dbs)}")
+            click.echo("  You can share a database with another product from the same team.")
+
+        if click.confirm("  Skip separate database?", default=False):
+            click.echo("  Skipped. You can add it later in products/db_routing.yaml.")
+        else:
+            db_name = click.prompt(
+                "  Database name",
+                default=name,
+                show_default=True,
+            )
+            _add_to_db_routing(name, db_name, dry_run=False)

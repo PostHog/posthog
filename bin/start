@@ -147,8 +147,9 @@ else
     GENERATED_CONFIG="$REPOSITORY_ROOT/.posthog/.generated/mprocs.yaml"
 
     # Generate/regenerate config using hogli (defaults to product_analytics if no config exists)
+    # HOGLI_PROCESS_MANAGER is picked up by dev:generate for telemetry
     if command -v hogli &>/dev/null; then
-        hogli dev:generate 2>/dev/null || true
+        HOGLI_PROCESS_MANAGER="$PROCESS_MANAGER" hogli dev:generate 2>/dev/null || true
     fi
 
     if [[ -f "$GENERATED_CONFIG" ]]; then

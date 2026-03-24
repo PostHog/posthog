@@ -606,10 +606,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'LLM analytics',
         group: 'Products',
         flag: 'LLM_ANALYTICS_EVALUATIONS',
-        accessControl: {
-            resourceType: AccessControlResourceType.LlmAnalytics,
-            minimumAccessLevel: AccessControlLevel.Editor,
-        },
         settings: [
             {
                 id: 'llm-analytics-byok',

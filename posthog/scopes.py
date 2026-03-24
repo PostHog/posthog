@@ -71,6 +71,7 @@ APIScopeObject = Literal[
     "survey",
     "ticket",
     "task",
+    "tracing",
     "uploaded_media",
     "user",
     "user_interview_DO_NOT_USE",  # This is a super alpha product, so only exposing here for internal personal API key access

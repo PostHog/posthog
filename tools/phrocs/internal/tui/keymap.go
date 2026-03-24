@@ -14,23 +14,26 @@ type keyMap struct {
 	Restart    key.Binding
 	Stop       key.Binding
 	CopyMode   key.Binding
-	CopyEsc    key.Binding
 	Search     key.Binding
 	SearchNext key.Binding
 	SearchPrev key.Binding
 	Quit       key.Binding
 	Help       key.Binding
 	Backspace  key.Binding
+	Hedgehog   key.Binding
+	Info       key.Binding
+	LazyDocker key.Binding
+	ProcViewer key.Binding
 }
 
 func defaultKeyMap() keyMap {
 	return keyMap{
 		PrevProc: key.NewBinding(
-			key.WithKeys("j", "up"),
+			key.WithKeys("k", "up"),
 			key.WithHelp("↑:", "prev"),
 		),
 		NextProc: key.NewBinding(
-			key.WithKeys("k", "down"),
+			key.WithKeys("j", "down"),
 			key.WithHelp("↓:", "next"),
 		),
 		ScrollUp: key.NewBinding(
@@ -69,10 +72,6 @@ func defaultKeyMap() keyMap {
 			key.WithKeys("c"),
 			key.WithHelp("c:", "copy"),
 		),
-		CopyEsc: key.NewBinding(
-			key.WithKeys("esc"),
-			key.WithHelp("esc:", "esc copy"),
-		),
 		Search: key.NewBinding(
 			key.WithKeys("/"),
 			key.WithHelp("/:", "search"),
@@ -97,6 +96,24 @@ func defaultKeyMap() keyMap {
 			key.WithKeys("backspace"),
 			key.WithHelp("⌫:", "del char"),
 		),
+		Hedgehog: key.NewBinding(
+			key.WithKeys("h"),
+			key.WithHelp("h:", "hedgehog"),
+		),
+		Info: key.NewBinding(
+			key.WithKeys("i"),
+			key.WithHelp("i:", "info"),
+		),
+		LazyDocker: key.NewBinding(
+			key.WithKeys("d"),
+			key.WithHelp("d:", "lazydocker"),
+			key.WithDisabled(),
+		),
+		ProcViewer: key.NewBinding(
+			key.WithKeys("p"),
+			key.WithHelp("p:", "htop"),
+			key.WithDisabled(),
+		),
 	}
 }
 
@@ -109,8 +126,8 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.NextProc, k.PrevProc},
 		{k.ScrollUp, k.ScrollDown},
 		{k.GotoTop, k.GotoBottom},
-		{k.NextPane, k.PrevPane},
-		{k.Restart, k.Stop},
+		{k.NextPane, k.PrevPane, k.LazyDocker, k.ProcViewer},
+		{k.Restart, k.Stop, k.Info},
 		{k.Search, k.SearchNext, k.SearchPrev},
 		{k.CopyMode, k.Quit, k.Help},
 	}
