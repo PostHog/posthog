@@ -1,7 +1,6 @@
 import re
 from datetime import timedelta
 from typing import Optional
-from uuid import UUID
 
 from django.utils.timezone import now
 
@@ -16,7 +15,7 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import Action, Person
 from posthog.models.person.person import get_distinct_ids_for_subquery
-from posthog.models.person.util import get_person_by_id, get_person_by_uuid
+from posthog.models.person.util import get_person_by_pk_or_uuid
 from posthog.utils import relative_date_parse
 
 COLUMN_COMMENT_SEPARATOR = " -- "
@@ -292,14 +291,7 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                         )
                 if self.query.personId:
                     with self.timings.measure("person_id"):
-                        try:
-                            UUID(self.query.personId)
-                            person: Optional[Person] = get_person_by_uuid(self.team.pk, self.query.personId)
-                        except ValueError:
-                            try:
-                                person = get_person_by_id(self.team.pk, int(self.query.personId))
-                            except ValueError:
-                                person = None
+                        person: Optional[Person] = get_person_by_pk_or_uuid(self.team.pk, self.query.personId)
                         # Qualify distinct_id with sessions. when person join is present to avoid ambiguity
                         distinct_id_chain: list[str | int] = (
                             ["sessions", "distinct_id"] if self._needs_person_join() else ["distinct_id"]

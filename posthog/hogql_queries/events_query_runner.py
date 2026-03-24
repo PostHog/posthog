@@ -2,7 +2,6 @@ import re
 from datetime import datetime, timedelta
 from functools import cached_property
 from typing import cast
-from uuid import UUID
 
 from django.utils.timezone import now
 
@@ -25,7 +24,7 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, get_query_r
 from posthog.models import Action, Person
 from posthog.models.element import chain_to_elements
 from posthog.models.person.person import get_distinct_ids_for_subquery
-from posthog.models.person.util import get_person_by_id, get_person_by_uuid, get_persons_by_distinct_ids
+from posthog.models.person.util import get_person_by_pk_or_uuid, get_persons_by_distinct_ids
 from posthog.utils import relative_date_parse
 
 logger = structlog.get_logger(__name__)
@@ -204,14 +203,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                         where_exprs.append(action_to_expr(action))
                 if self.query.personId:
                     with self.timings.measure("person_id"):
-                        try:
-                            UUID(self.query.personId)
-                            person: Person | None = get_person_by_uuid(self.team.pk, self.query.personId)
-                        except ValueError:
-                            try:
-                                person = get_person_by_id(self.team.pk, int(self.query.personId))
-                            except ValueError:
-                                person = None
+                        person: Person | None = get_person_by_pk_or_uuid(self.team.pk, self.query.personId)
                         where_exprs.append(
                             ast.CompareOperation(
                                 left=ast.Call(name="cityHash64", args=[ast.Field(chain=["distinct_id"])]),

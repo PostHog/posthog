@@ -476,6 +476,18 @@ def get_person_by_distinct_id(team_id: int, distinct_id: str) -> Optional[Person
     )
 
 
+def get_person_by_pk_or_uuid(team_id: int, key: str) -> Optional[Person]:
+    """Look up a person by UUID or integer PK, routing through personhog when enabled."""
+    try:
+        UUID(key)
+        return get_person_by_uuid(team_id, key)
+    except ValueError:
+        try:
+            return get_person_by_id(team_id, int(key))
+        except ValueError:
+            return None
+
+
 def _validate_uuids_via_personhog(team_id: int, uuids: list[str]) -> list[str]:
     client = get_personhog_client()
     if client is None:
