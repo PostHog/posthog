@@ -387,8 +387,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         from posthog.personhog_client.gate import use_personhog
 
-        # You'll be tempted to exclude people already in the cohort, but that leads to query
-        # timeouts. insert_users_list_by_uuid handles deduplication efficiently instead.
+        # Get person UUIDs for this batch of distinct IDs.
+        # This is limited to the batch size so it will be no more than 1000 items in-memory at a time.
+        # You're going to be tempted to exclude people already in the cohort, but that's not only NOT
+        # necessary, but it leads to query timeouts. The insert_users_list_by_uuid handles ensuring we
+        # don't insert people that are already in the cohort efficiently.
         if use_personhog():
             persons = get_persons_by_distinct_ids(team_id, list(distinct_ids))
             return [str(person.uuid) for person in persons]

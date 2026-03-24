@@ -58,7 +58,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.deletion import reset_deleted_person_distinct_ids
 from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.person import PersonDistinctId
-from posthog.models.person.util import delete_person, get_person_by_uuid, get_persons_by_distinct_ids
+from posthog.models.person.util import delete_person, get_person_by_id, get_person_by_uuid, get_persons_by_distinct_ids
 from posthog.queries.actor_base_query import ActorBaseQuery, get_serialized_people
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
@@ -731,10 +731,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         try:
             uuid.UUID(pk)
             person = get_person_by_uuid(self.team_id, pk)
-            if person is None:
-                raise Person.DoesNotExist
         except ValueError:
-            person = get_pk_or_uuid(Person.objects.filter(team_id=self.team_id), pk).get()
+            person = get_person_by_id(self.team_id, int(pk))
+        if person is None:
+            raise Person.DoesNotExist
 
         event_name = "$delete_person_property"
         distinct_id = person.distinct_ids[0]
