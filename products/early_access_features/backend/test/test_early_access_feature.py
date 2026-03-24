@@ -108,7 +108,7 @@ class TestEarlyAccessFeature(APIBaseTest):
                 "with_rollout_to_all",
                 True,
                 False,
-                [{"properties": [], "rollout_percentage": 100}],
+                [{"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": None}],
             ),
             ("without_rollout_to_all", False, True, None),
         ]
@@ -277,6 +277,7 @@ class TestEarlyAccessFeature(APIBaseTest):
                     {
                         "properties": [{"key": "xyz", "value": "ok", "type": "person"}],
                         "rollout_percentage": None,
+                        "aggregation_group_type_index": None,
                     }
                 ],
                 "payloads": {"true": '"Hick bondoogling? ????"'},
@@ -293,6 +294,7 @@ class TestEarlyAccessFeature(APIBaseTest):
                         "rollout_percentage": 100,
                     }
                 ],
+                "aggregation_group_type_index": None,
             },
         )
 
@@ -401,9 +403,11 @@ class TestEarlyAccessFeature(APIBaseTest):
                     {
                         "properties": [{"key": "xyz", "value": "ok", "type": "person"}],
                         "rollout_percentage": None,
+                        "aggregation_group_type_index": None,
                     }
                 ],
                 "super_groups": None,
+                "aggregation_group_type_index": None,
             },
         )
 

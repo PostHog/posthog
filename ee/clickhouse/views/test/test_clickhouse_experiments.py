@@ -2198,6 +2198,7 @@ class TestExperimentCRUD(APILicensedTest):
                     {
                         "properties": [],
                         "rollout_percentage": 100,
+                        "aggregation_group_type_index": None,
                     }
                 ],
                 "multivariate": {
@@ -2255,6 +2256,7 @@ class TestExperimentCRUD(APILicensedTest):
                     {
                         "properties": [],
                         "rollout_percentage": 100,
+                        "aggregation_group_type_index": None,
                     }
                 ],
                 "multivariate": {
@@ -2323,6 +2325,7 @@ class TestExperimentCRUD(APILicensedTest):
                     {
                         "properties": [],
                         "rollout_percentage": 100,
+                        "aggregation_group_type_index": None,
                     }
                 ],
                 "multivariate": {
