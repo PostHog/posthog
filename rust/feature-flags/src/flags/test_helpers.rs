@@ -133,6 +133,8 @@ pub async fn get_flags_from_redis(
 
     Ok(FeatureFlagList {
         flags: wrapper.flags,
+        evaluation_metadata: wrapper.evaluation_metadata,
+        cohorts: wrapper.cohorts,
         ..Default::default()
     })
 }
@@ -154,6 +156,7 @@ pub async fn update_flags_in_hypercache(
     let wrapper = HypercacheFlagsWrapper {
         flags: flags.flags.clone(),
         evaluation_metadata: flags.evaluation_metadata.clone(),
+        cohorts: flags.cohorts.clone(),
     };
 
     // Match Django's format: JSON string -> Pickle

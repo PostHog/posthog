@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use crate::api::symbol_sets::SymbolSetUpload;
 use anyhow::{anyhow, Result};
 use clap::Subcommand;
+use posthog_symbol_data::{write_symbol_data, AppleDsym};
 
 pub mod source_bundle;
 pub mod upload;
@@ -13,20 +14,28 @@ pub enum DsymSubcommand {
     Upload(upload::Args),
 }
 
-/// Represents a dSYM bundle ready for upload
+/// A single DWARF binary extracted from a dSYM bundle, ready for upload
+struct DsymEntry {
+    /// The UUID of this DWARF binary (used as chunk_id)
+    uuid: String,
+    /// ZIP containing only this DWARF binary (+ optional source files)
+    data: Vec<u8>,
+}
+
+/// Represents a dSYM bundle ready for upload.
+/// Each DWARF binary in the bundle gets its own ZIP, keyed by its UUID.
 pub struct DsymFile {
-    /// The UUIDs of the dSYM (one per architecture, used as chunk_id for matching)
-    pub uuids: Vec<String>,
-    /// The zipped dSYM bundle data
-    pub data: Vec<u8>,
+    entries: Vec<DsymEntry>,
     /// Optional release ID
     pub release_id: Option<String>,
 }
 
 impl DsymFile {
-    /// Create a new DsymFile from a .dSYM bundle path
+    /// Create a new DsymFile from a .dSYM bundle path.
+    /// Each DWARF binary in the bundle gets its own ZIP so that
+    /// stable UUIDs (e.g. app stubs) don't get a new content hash
+    /// when a sibling binary (e.g. debug dylib) changes.
     pub fn new(path: &PathBuf, include_source: bool) -> Result<Self> {
-        // Validate it's a dSYM bundle
         if !path.is_dir() {
             anyhow::bail!("Path {} is not a directory", path.display());
         }
@@ -39,37 +48,49 @@ impl DsymFile {
             );
         }
 
-        // Extract UUIDs from the dSYM (one per architecture for universal binaries)
-        let uuids = extract_dsym_uuids(path)?;
+        let dwarf_dir = path.join("Contents/Resources/DWARF");
+        let uuid_entries = extract_dsym_uuids(path)?;
 
-        // Zip the dSYM bundle
-        let data = zip_dsym_bundle(path, include_source)?;
+        let mut entries = Vec::new();
+        for (uuid, dwarf_filename) in &uuid_entries {
+            let dwarf_path = dwarf_dir.join(dwarf_filename);
+            let data = zip_dwarf_binary(&dwarf_path, include_source)?;
+            entries.push(DsymEntry {
+                uuid: uuid.clone(),
+                data,
+            });
+        }
 
         Ok(Self {
-            uuids,
-            data,
+            entries,
             release_id: None,
         })
     }
-}
 
-impl DsymFile {
-    /// Convert to SymbolSetUploads (one per UUID/architecture)
+    pub fn uuids(&self) -> Vec<&str> {
+        self.entries.iter().map(|e| e.uuid.as_str()).collect()
+    }
+
+    pub fn total_size(&self) -> usize {
+        self.entries.iter().map(|e| e.data.len()).sum()
+    }
+
+    /// Convert to SymbolSetUploads (one per UUID)
     pub fn into_uploads(self) -> Vec<SymbolSetUpload> {
-        self.uuids
+        self.entries
             .into_iter()
-            .map(|uuid| SymbolSetUpload {
-                chunk_id: uuid,
+            .map(|entry| SymbolSetUpload {
+                chunk_id: entry.uuid,
                 release_id: self.release_id.clone(),
-                data: self.data.clone(),
+                data: entry.data,
             })
             .collect()
     }
 }
 
-/// Extract all UUIDs from a dSYM bundle using dwarfdump
-/// Universal binaries have multiple UUIDs (one per architecture)
-fn extract_dsym_uuids(dsym_path: &PathBuf) -> Result<Vec<String>> {
+/// Extract all UUIDs and their corresponding DWARF filenames from a dSYM bundle.
+/// Returns (uuid, dwarf_filename) pairs.
+fn extract_dsym_uuids(dsym_path: &PathBuf) -> Result<Vec<(String, String)>> {
     use std::process::Command;
 
     let output = Command::new("dwarfdump")
@@ -85,22 +106,26 @@ fn extract_dsym_uuids(dsym_path: &PathBuf) -> Result<Vec<String>> {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    // Parse output like: "UUID: 12345678-1234-1234-1234-123456789ABC (arm64) /path/to/file"
-    // Universal binaries have multiple lines, one per architecture
-    let uuids: Vec<String> = stdout
+    // Parse output like: "UUID: 12345678-1234-1234-1234-123456789ABC (arm64) /path/to/DWARF/PostHogExample"
+    let entries: Vec<(String, String)> = stdout
         .lines()
         .filter_map(|line| {
-            line.find("UUID: ").and_then(|uuid_start| {
-                let uuid_part = &line[uuid_start + 6..];
-                uuid_part.find(' ').map(|uuid_end| {
-                    // Uppercase for standard UUID format
-                    uuid_part[..uuid_end].to_uppercase()
-                })
-            })
+            let uuid_start = line.find("UUID: ")? + 6;
+            let uuid_part = &line[uuid_start..];
+            let uuid_end = uuid_part.find(' ')?;
+            let uuid = uuid_part[..uuid_end].to_uppercase();
+
+            // Extract the DWARF filename from the path at end of line
+            // Format: "UUID: <uuid> (<arch>) <full_path>"
+            let path_start = line.rfind(')')? + 2; // Skip ") "
+            let dwarf_path = line.get(path_start..)?;
+            let dwarf_filename = Path::new(dwarf_path).file_name()?.to_str()?.to_string();
+
+            Some((uuid, dwarf_filename))
         })
         .collect();
 
-    if uuids.is_empty() {
+    if entries.is_empty() {
         anyhow::bail!(
             "Could not extract any UUIDs from dSYM at {}. dwarfdump output: {}",
             dsym_path.display(),
@@ -108,16 +133,19 @@ fn extract_dsym_uuids(dsym_path: &PathBuf) -> Result<Vec<String>> {
         );
     }
 
-    Ok(uuids)
+    Ok(entries)
 }
 
-/// Zip a dSYM bundle into memory, optionally including source files
-fn zip_dsym_bundle(dsym_path: &PathBuf, include_source: bool) -> Result<Vec<u8>> {
+/// Create a minimal ZIP containing a single DWARF binary and optional source files.
+/// The ZIP layout is:
+///   dwarf                    — the raw DWARF Mach-O binary
+///   __source/manifest.json   — (optional) source file manifest
+///   __source/...             — (optional) source files
+fn zip_dwarf_binary(dwarf_path: &Path, include_source: bool) -> Result<Vec<u8>> {
     use std::fs::File;
     use std::io::Read;
     use std::io::{Cursor, Write};
     use tracing::info;
-    use walkdir::WalkDir;
 
     let mut buffer = Cursor::new(Vec::new());
 
@@ -126,34 +154,16 @@ fn zip_dsym_bundle(dsym_path: &PathBuf, include_source: bool) -> Result<Vec<u8>>
         let options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated);
 
-        // Collect and sort entries for deterministic zip output
-        let mut entries: Vec<_> = WalkDir::new(dsym_path)
-            .into_iter()
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-        entries.sort_by(|a, b| a.path().cmp(b.path()));
+        // Add the DWARF binary as "dwarf"
+        zip.start_file("dwarf", options)?;
+        let mut file = File::open(dwarf_path)?;
+        let mut contents = Vec::new();
+        file.read_to_end(&mut contents)?;
+        zip.write_all(&contents)?;
 
-        for entry in &entries {
-            let path = entry.path();
-
-            // Create relative path within the zip
-            let relative_path = path.strip_prefix(dsym_path.parent().unwrap_or(dsym_path))?;
-            let zip_path = relative_path.to_string_lossy();
-
-            if path.is_file() {
-                zip.start_file(zip_path.to_string(), options)?;
-                let mut file = File::open(path)?;
-                let mut contents = Vec::new();
-                file.read_to_end(&mut contents)?;
-                zip.write_all(&contents)?;
-            } else if path.is_dir() && path != dsym_path.as_path() {
-                // Add directory entry (but not the root)
-                zip.add_directory(format!("{zip_path}/"), options)?;
-            }
-        }
-
-        // Optionally include source files referenced by DWARF debug info
+        // Optionally include source files referenced by this DWARF binary
         if include_source {
-            match source_bundle::extract_dwarf_source_paths(dsym_path) {
+            match source_bundle::extract_source_paths_from_dwarf(dwarf_path) {
                 Ok(all_paths) => {
                     let filtered = source_bundle::filter_source_paths(&all_paths);
                     info!(
@@ -185,7 +195,9 @@ fn zip_dsym_bundle(dsym_path: &PathBuf, include_source: bool) -> Result<Vec<u8>>
         zip.finish()?;
     }
 
-    Ok(buffer.into_inner())
+    let zip_data = buffer.into_inner();
+    let wrapped = write_symbol_data(AppleDsym { data: zip_data })?;
+    Ok(wrapped)
 }
 
 /// Find all dSYM bundles in a directory

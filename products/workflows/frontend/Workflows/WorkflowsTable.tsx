@@ -18,17 +18,17 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { WorkflowsSceneProps } from '../WorkflowsScene'
+import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
+import { HogFlow } from './hogflows/types'
+import { newWorkflowLogic } from './newWorkflowLogic'
+import { workflowLogic } from './workflowLogic'
+import { WorkflowStatusFilter, workflowsLogic } from './workflowsLogic'
 
 const STATUS_CONFIG: Record<string, { label: string; type: 'success' | 'default' | 'muted' }> = {
     active: { label: 'Active', type: 'success' },
     draft: { label: 'Draft', type: 'default' },
     archived: { label: 'Archived', type: 'muted' },
 }
-import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
-import { HogFlow } from './hogflows/types'
-import { newWorkflowLogic } from './newWorkflowLogic'
-import { workflowLogic } from './workflowLogic'
-import { WorkflowStatusFilter, workflowsLogic } from './workflowsLogic'
 
 function WorkflowTypeTag({ workflow }: { workflow: HogFlow }): JSX.Element {
     const hasMessagingAction = useMemo(() => {
@@ -96,6 +96,7 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
         filteredWorkflows,
         workflowsLoading,
         workflows,
+        hasLoadedWorkflows,
         filters,
         selectedArchivedWorkflowIds,
         allArchivedSelected,
@@ -309,7 +310,8 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
         },
     ]
 
-    const showProductIntroduction = !workflowsLoading && workflows.length === 0 && !filters.search && !filters.createdBy
+    const showProductIntroduction =
+        hasLoadedWorkflows && !workflowsLoading && workflows.length === 0 && !filters.search && !filters.createdBy
 
     return (
         <div className="workflows-section" data-attr="workflows-table" data-loading={workflowsLoading}>

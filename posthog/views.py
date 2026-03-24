@@ -32,12 +32,6 @@ from posthog.health import is_clickhouse_connected, is_kafka_connected
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.integration import SlackIntegration
-from posthog.models.message_category import MessageCategory
-from posthog.models.message_preferences import (
-    ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
-    MessageRecipientPreference,
-    PreferenceStatus,
-)
 from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_token
 from posthog.models.personal_api_key import find_personal_api_key
 from posthog.plugins.plugin_server_api import validate_messaging_preferences_token
@@ -55,6 +49,13 @@ from posthog.utils import (
     is_postgres_alive,
     is_redis_alive,
     render_template,
+)
+
+from products.messaging.backend.models.message_category import MessageCategory
+from products.messaging.backend.models.message_preferences import (
+    ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
+    MessageRecipientPreference,
+    PreferenceStatus,
 )
 
 logger = structlog.get_logger(__name__)

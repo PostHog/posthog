@@ -259,12 +259,16 @@ class GoogleAdsTable(Table[GoogleAdsColumn]):
         *args,
         requires_filter: bool,
         primary_key: list[str],
+        should_sync_default: bool,
+        description: str | None,
         partition_keys: list[str] | None = None,
         extra_where: str | None = None,
         **kwargs,
     ):
         self.requires_filter = requires_filter
         self.primary_key = [pkey.replace(".", "_") for pkey in primary_key]
+        self.should_sync_default = should_sync_default
+        self.description = description
         self.partition_keys = [pkey.replace(".", "_") for pkey in partition_keys] if partition_keys else None
         self.extra_where = extra_where
         super().__init__(*args, **kwargs)
@@ -303,6 +307,9 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int) -> TableSchema
         extra_where = typing.cast(str | None, resource_contents.get("extra_where", None))
         partition_keys = typing.cast(list[str] | None, resource_contents.get("partition_keys", None))
 
+        should_sync_default = resource_contents.get("should_sync_default", True)
+        description = resource_contents.get("description", None)
+
         columns = []
 
         for field_name in field_names:
@@ -335,6 +342,8 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int) -> TableSchema
             partition_keys=partition_keys,
             columns=columns,
             parents=None,
+            should_sync_default=should_sync_default,
+            description=description,
         )
         table_schemas[table_alias] = table
 

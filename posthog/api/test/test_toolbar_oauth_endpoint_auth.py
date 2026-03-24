@@ -19,7 +19,11 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.api.oauth.test_dcr import generate_rsa_key
+from posthog.constants import AvailableFeature
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
 
 
 def _make_oauth_app(organization, user):
@@ -181,6 +185,61 @@ class TestToolbarEndpointOAuthAuth(APIBaseTest):
             HTTP_AUTHORIZATION="Bearer not_a_pha_token",
         )
         assert response.status_code in (401, 403)
+
+
+@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_key()})
+class TestToolbarOAuthBypassesPersonalApiKeyRestriction(APIBaseTest):
+    """
+    When an organization disables personal API keys for members,
+    toolbar OAuth tokens should still work for non-admin users.
+    """
+
+    def setUp(self):
+        super().setUp()
+
+        self.organization.available_product_features = [{"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}]
+        self.organization.members_can_use_personal_api_keys = False
+        self.organization.save()
+
+        self.oauth_app = _make_oauth_app(self.organization, self.user)
+        toolbar_scopes = " ".join(settings.TOOLBAR_OAUTH_SCOPES)
+        self.toolbar_token = _make_token(self.user, self.oauth_app, "pha_bypass_test", scope=toolbar_scopes)
+
+    @parameterized.expand(TestToolbarEndpointOAuthAuth.TOOLBAR_ENDPOINTS)
+    def test_member_with_oauth_token_not_blocked_by_personal_api_key_restriction(
+        self, _label, url_template, method, _scope
+    ):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        self.client.logout()
+        url = url_template.format(team_id=self.team.id)
+        response = getattr(self.client, method)(
+            url,
+            HTTP_AUTHORIZATION=f"Bearer {self.toolbar_token.token}",
+        )
+        assert response.status_code not in (401, 403), (
+            f"OAuth token should bypass personal API key restriction, got {response.status_code}: {response.content[:300]}"
+        )
+
+    def test_member_with_personal_api_key_still_blocked(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            secure_value=hash_key_value(personal_api_key),
+            scopes=["*"],
+        )
+
+        self.client.logout()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+        assert response.status_code == 403, f"Personal API key should still be blocked, got {response.status_code}"
 
 
 @override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_key()})

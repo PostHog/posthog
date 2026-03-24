@@ -34,8 +34,8 @@ import {
 const ERROR_TOAST_ID = 'live-pageviews-error'
 const RECONNECT_TOAST_ID = 'live-pageviews-reconnect'
 const BUCKET_WINDOW_MINUTES = 30
-const BATCH_FLUSH_INTERVAL_MS = 300
-const BATCH_SIZE_THRESHOLD = 10
+const BATCH_FLUSH_INTERVAL_MS = 500
+const BATCH_SIZE_THRESHOLD = 50
 const COOKIELESS_TRANSFORM_PREFIX = 'cookieless_transform'
 const COOKIELESS_TRANSFORM_SEPARATOR = '|||'
 
@@ -64,6 +64,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     for (const { timestamp, bucket } of buckets) {
                         existingWindow.extendBucketData(timestamp / 1000, bucket)
                     }
+                    existingWindow.prune()
                     return existingWindow
                 },
                 addEvents: (window, { events, newerThan }) => {
@@ -95,16 +96,18 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                         }
                     }
 
+                    window.prune()
                     return window
                 },
                 addGeoEvents: (window, { events }) => {
                     const nowTs = Date.now() / 1000
                     for (const event of events) {
                         if (event.countryCode) {
-                            const distinctId = event.distinctId!
+                            const distinctId = event.distinctId
                             window.addGeoDataPoint(nowTs, event.countryCode, distinctId)
                         }
                     }
+                    window.prune()
                     return window
                 },
             },
@@ -164,6 +167,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
 
                 return result
             },
+            { resultEqualityCheck: equal },
         ],
         deviceBreakdown: [
             (s) => [s.slidingWindow, s.windowVersion],
@@ -178,6 +182,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         countryBreakdown: [
             (s) => [s.slidingWindow, s.windowVersion],
             (slidingWindow: LiveMetricsSlidingWindow): CountryBreakdownItem[] => slidingWindow.getCountryBreakdown(),
+            { resultEqualityCheck: equal },
         ],
         topPaths: [
             (s) => [s.slidingWindow, s.windowVersion],
@@ -313,15 +318,27 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             const url = new URL(`${host}/events`)
             url.searchParams.append('geo', 'true')
 
+            cache.geoBatch = [] as LiveGeoEvent[]
+            cache.lastGeoBatchTime = performance.now()
+
             cache.geoConnection = createStreamConnection({
                 url,
                 token,
                 onMessage: (data) => {
                     try {
                         const geoData = JSON.parse(data) as LiveGeoEvent
-                        actions.addGeoEvents([geoData])
+                        if (geoData.countryCode && geoData.distinctId) {
+                            cache.geoBatch.push(geoData)
+                        }
                     } catch (ex) {
                         console.error('Failed to parse geo event:', ex)
+                    }
+
+                    const timeSinceLastBatch = performance.now() - cache.lastGeoBatchTime
+                    if (cache.geoBatch.length >= BATCH_SIZE_THRESHOLD || timeSinceLastBatch > BATCH_FLUSH_INTERVAL_MS) {
+                        actions.addGeoEvents(cache.geoBatch)
+                        cache.geoBatch = []
+                        cache.lastGeoBatchTime = performance.now()
                     }
                 },
                 onError: (error) => {

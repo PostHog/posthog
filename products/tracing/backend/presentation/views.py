@@ -84,6 +84,11 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def trace(self, request: Request, trace_id: str, *args, **kwargs) -> Response:
         query_data = request.data or {}
         date_range = self.get_model(query_data.get("dateRange", {"date_from": "-24h"}), DateRange)
+        try:
+            # verify the trace_id is valid
+            base64.b64encode(bytes.fromhex(trace_id)).decode("ascii")
+        except ValueError:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
 
         spans_query = TraceSpansQuery(
             dateRange=date_range,
