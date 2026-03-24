@@ -80,6 +80,7 @@ class TestCreateOrUpdateSlackTicketTeamMemberDetection(BaseTest):
 
         assert ticket is not None
         comment = Comment.objects.get(item_id=str(ticket.id))
+        assert isinstance(comment.item_context, dict)
         assert comment.item_context["author_type"] == "support"
         assert comment.item_context["from_slack"] is True
         assert comment.created_by_id == self.user.id
@@ -142,6 +143,7 @@ class TestCreateOrUpdateSlackTicketTeamMemberDetection(BaseTest):
 
         assert ticket is not None
         comment = Comment.objects.get(item_id=str(ticket.id))
+        assert isinstance(comment.item_context, dict)
         assert comment.item_context["author_type"] == "customer"
         assert comment.item_context["from_slack"] is True
         assert comment.created_by is None
