@@ -53,6 +53,7 @@ defs = dagster.Definitions(
         backups.incremental_sharded_backup_schedule,
         backups.full_non_sharded_backup_schedule,
         backups.incremental_non_sharded_backup_schedule,
+        part_breaker.break_oversized_parts_schedule,
     ],
     sensors=[
         deletes.run_deletes_after_squash,

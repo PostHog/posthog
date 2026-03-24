@@ -41,37 +41,13 @@ from posthog.dags.common.resources import ClickhouseClusterResource
 # -- Configuration --
 
 STAGING_TABLE_SUFFIX = "_part_breaker"
-DATABASE = "posthog"
-
-# Tables eligible for automated part breaking, configured via PART_BREAKER_ELIGIBLE_TABLES env var.
-# Each must be a Replicated* engine (ReplicatedReplacingMergeTree, etc.).
-# The staging table will be created as a non-replicated equivalent.
-# Set as a comma-separated list in the environment, e.g.:
-#   PART_BREAKER_ELIGIBLE_TABLES="table_a,table_b,table_c"
-# If empty, the job will skip discovery and log a warning.
-
-# Minimum free disk space multiplier — free space must be > this × partition size
-DEFAULT_MIN_FREE_SPACE_MULTIPLIER = 2.0
-
-# Verification tolerance — allow this much count() difference (ReplacingMergeTree dedup)
-# 0.05 = 5% — dedup can reduce rows by up to ~5% on large historical partitions
-DEFAULT_COUNT_TOLERANCE = 0.05
-
-# How often to poll INSERT SELECT progress (seconds)
-PROGRESS_POLL_INTERVAL = 120
-
-# Maximum time to wait for INSERT SELECT (seconds) — 24 hours
-MAX_INSERT_WAIT_TIME = 86400
-
-# Maximum time to wait for replication (seconds) — 2 hours
-MAX_REPLICATION_WAIT_TIME = 7200
 
 PART_BREAKER_RESOURCE_DEFS = {
     "cluster": ClickhouseClusterResource(
         client_settings={
             "max_execution_time": "0",
             "max_memory_usage": "0",
-            "receive_timeout": f"{24 * 60 * 60}",  # 24h — INSERT SELECT can take 16+ hours
+            "receive_timeout": str(settings.PART_BREAKER_RECEIVE_TIMEOUT),
         }
     ),
 }
@@ -82,7 +58,7 @@ class PartBreakerConfig(dagster.Config):
     max_part_size_gib: int = settings.PART_BREAKER_MAX_PART_SIZE_GIB
 
     # Minimum free disk space ratio required before starting
-    min_free_space_multiplier: float = DEFAULT_MIN_FREE_SPACE_MULTIPLIER
+    min_free_space_multiplier: float = settings.PART_BREAKER_MIN_FREE_SPACE_MULTIPLIER
 
     # Maximum partitions to process per run (across all tables)
     max_partitions_per_run: int = settings.PART_BREAKER_MAX_PARTITIONS_PER_RUN
@@ -155,6 +131,11 @@ class BreakResult:
 # -- Helper functions --
 
 
+def _get_database() -> str:
+    """Return the ClickHouse database name from settings."""
+    return settings.CLICKHOUSE_DATABASE
+
+
 def _get_current_yyyymm() -> int:
     """Return current year-month as YYYYMM integer."""
     import datetime
@@ -188,6 +169,7 @@ def _discover_oversized_partitions_on_host(
     Returns raw rows: (partition_id, largest_part_name, largest_part_bytes,
     largest_part_rows, total_partition_bytes, total_partition_rows, total_parts).
     """
+    database = _get_database()
     return client.execute(
         """
         SELECT
@@ -207,7 +189,7 @@ def _discover_oversized_partitions_on_host(
         ORDER BY max(bytes_on_disk) DESC
         """,
         {
-            "database": DATABASE,
+            "database": database,
             "table": table,
             "max_size": max_part_size_bytes,
         },
@@ -292,6 +274,7 @@ def _check_disk_space(client: Client, required_bytes: int, multiplier: float) ->
 
 def _check_no_active_breaker(client: Client, staging_table: str) -> bool:
     """Check that no other part breaker INSERT SELECT is running for this staging table."""
+    database = _get_database()
     rows = client.execute(
         """
         SELECT count()
@@ -301,7 +284,7 @@ def _check_no_active_breaker(client: Client, staging_table: str) -> bool:
         """,
         {
             "pattern1": f"INSERT INTO {staging_table}%",
-            "pattern2": f"INSERT INTO {DATABASE}.{staging_table}%",
+            "pattern2": f"INSERT INTO {database}.{staging_table}%",
         },
     )
     return rows[0][0] == 0
@@ -309,9 +292,10 @@ def _check_no_active_breaker(client: Client, staging_table: str) -> bool:
 
 def _check_staging_table_empty(client: Client, staging_table: str) -> bool:
     """Check that the staging table has no active parts."""
+    database = _get_database()
     rows = client.execute(
         "SELECT count() FROM system.parts WHERE database = %(db)s AND table = %(table)s AND active",
-        {"db": DATABASE, "table": staging_table},
+        {"db": database, "table": staging_table},
     )
     return rows[0][0] == 0
 
@@ -328,79 +312,65 @@ def _check_replication_healthy(client: Client, source_table: str) -> bool:
 def _ensure_staging_table(client: Client, source_table: str, staging_table: str) -> None:
     """Create the non-replicated staging table if it doesn't exist.
 
-    Uses CREATE TABLE ... AS to copy column definitions, with a non-replicated
-    engine equivalent. Parses the source table's engine_full to extract
-    ORDER BY, PARTITION BY, SAMPLE BY, and version column.
-
-    Supports ReplicatedReplacingMergeTree, ReplicatedAggregatingMergeTree,
-    ReplicatedMergeTree, and other Replicated* variants.
+    Uses SHOW CREATE TABLE to get the exact DDL from ClickHouse, then rewrites
+    the engine from Replicated* to its non-replicated equivalent and swaps the
+    table name. This preserves all clauses (PARTITION BY, ORDER BY, SAMPLE BY,
+    TTL, SETTINGS, etc.) exactly as the source table defines them, without
+    fragile regex parsing of engine_full.
     """
     import re
+
+    database = _get_database()
 
     # Check if staging table already exists
     rows = client.execute(
         "SELECT count() FROM system.tables WHERE database = %(db)s AND name = %(table)s",
-        {"db": DATABASE, "table": staging_table},
+        {"db": database, "table": staging_table},
     )
     if rows[0][0] > 0:
         return
 
-    # Get the source table's engine definition
-    rows = client.execute(
-        "SELECT engine_full FROM system.tables WHERE database = %(db)s AND name = %(table)s",
-        {"db": DATABASE, "table": source_table},
+    # Get the exact CREATE TABLE statement from ClickHouse
+    result = client.execute(f"SHOW CREATE TABLE {database}.{source_table}")
+    if not result or not isinstance(result, list):
+        raise RuntimeError(f"Source table {database}.{source_table} not found")
+
+    create_ddl: str = result[0][0]
+
+    # Replace the table name
+    create_ddl = create_ddl.replace(
+        f"CREATE TABLE {database}.{source_table}",
+        f"CREATE TABLE IF NOT EXISTS {database}.{staging_table}",
+        1,
     )
-    if not rows:
-        raise RuntimeError(f"Source table {DATABASE}.{source_table} not found")
 
-    engine_full = rows[0][0]
+    # Replace Replicated* engine with non-replicated equivalent.
+    # SHOW CREATE TABLE outputs e.g.:
+    #   ENGINE = ReplicatedReplacingMergeTree('/path', '{replica}', ver)
+    # We need:
+    #   ENGINE = ReplacingMergeTree(ver)
+    #
+    # The pattern matches: Replicated<Engine>('<zk_path>', '{replica}'[, extra_args])
+    def _strip_replication(m: re.Match) -> str:
+        base_engine = m.group(1)  # e.g., "ReplacingMergeTree", "MergeTree"
+        extra_args = m.group(2)  # e.g., "ver" or None
 
-    # Extract the base engine type: ReplicatedReplacingMergeTree → ReplacingMergeTree
-    # ReplicatedAggregatingMergeTree → AggregatingMergeTree
-    # ReplicatedMergeTree → MergeTree
-    engine_type_match = re.match(r"Replicated(\w+)\(", engine_full)
-    if not engine_type_match:
-        raise RuntimeError(f"Source table {source_table} is not a Replicated engine: {engine_full}")
+        if base_engine == "MergeTree" or not extra_args:
+            return f"{base_engine}()"
+        return f"{base_engine}({extra_args})"
 
-    base_engine = engine_type_match.group(1)  # e.g., "ReplacingMergeTree", "AggregatingMergeTree"
+    create_ddl, count = re.subn(
+        r"Replicated(\w+)\('[^']*',\s*'\{replica\}'(?:,\s*(.+?))?\)",
+        _strip_replication,
+        create_ddl,
+        count=1,
+    )
+    if count == 0:
+        raise RuntimeError(
+            f"Source table {source_table} does not use a Replicated engine, cannot create non-replicated staging table"
+        )
 
-    # Extract constructor args after the replication path and replica name
-    # e.g., ReplicatedReplacingMergeTree('/path', '{replica}', _timestamp) → _timestamp
-    # e.g., ReplicatedReplacingMergeTree('/path', '{replica}') → (no extra args)
-    # e.g., ReplicatedAggregatingMergeTree('/path', '{replica}') → (no extra args)
-    constructor_match = re.match(r"Replicated\w+\('[^']*',\s*'[^']*'(?:,\s*(.+?))?\)", engine_full)
-    extra_args = constructor_match.group(1) if constructor_match and constructor_match.group(1) else ""
-
-    partition_match = re.search(r"PARTITION BY (.+?)(?:\s+ORDER BY|\s+SAMPLE BY|\s+SETTINGS|$)", engine_full)
-    order_match = re.search(r"ORDER BY (.+?)(?:\s+SAMPLE BY|\s+SETTINGS|$)", engine_full)
-    sample_match = re.search(r"SAMPLE BY (.+?)(?:\s+SETTINGS|$)", engine_full)
-
-    if not partition_match or not order_match:
-        raise RuntimeError(f"Could not parse engine definition for {source_table}: {engine_full}")
-
-    partition_by = partition_match.group(1).strip()
-    order_by = order_match.group(1).strip()
-    sample_by = sample_match.group(1).strip() if sample_match else None
-
-    # Build the non-replicated engine definition
-    engine_args = f"({extra_args})" if extra_args else "()"
-    # MergeTree doesn't take constructor args
-    if base_engine == "MergeTree":
-        engine_args = "()"
-    engine_def = f"{base_engine}{engine_args}"
-
-    clauses = f"PARTITION BY {partition_by} ORDER BY {order_by}"
-    if sample_by:
-        clauses += f" SAMPLE BY {sample_by}"
-    clauses += " SETTINGS index_granularity = 8192"
-
-    create_sql = f"""
-        CREATE TABLE IF NOT EXISTS {DATABASE}.{staging_table} AS {DATABASE}.{source_table}
-        ENGINE = {engine_def}
-        {clauses}
-    """
-
-    client.execute(create_sql)
+    client.execute(create_ddl)
 
 
 def _get_partition_key_expr(client: Client, table: str) -> str:
@@ -409,12 +379,13 @@ def _get_partition_key_expr(client: Client, table: str) -> str:
     Returns the expression used in WHERE clauses to filter by partition,
     e.g. 'toYYYYMM(timestamp)'.
     """
+    database = _get_database()
     rows = client.execute(
         "SELECT partition_key FROM system.tables WHERE database = %(db)s AND name = %(table)s",
-        {"db": DATABASE, "table": table},
+        {"db": database, "table": table},
     )
     if not rows or not rows[0][0]:
-        raise RuntimeError(f"Could not determine partition key for {DATABASE}.{table}")
+        raise RuntimeError(f"Could not determine partition key for {database}.{table}")
     return rows[0][0]
 
 
@@ -431,8 +402,9 @@ def _cast_partition_id(partition_id: str):
 
 def _get_baseline_count(client: Client, source_table: str, partition_key_expr: str, partition_id: str) -> int:
     """Get the logical row count for a partition."""
+    database = _get_database()
     rows = client.execute(
-        f"SELECT count() FROM {DATABASE}.{source_table} WHERE {partition_key_expr} = %(partition_id)s",
+        f"SELECT count() FROM {database}.{source_table} WHERE {partition_key_expr} = %(partition_id)s",
         {"partition_id": _cast_partition_id(partition_id)},
     )
     return rows[0][0]
@@ -444,23 +416,22 @@ def _run_insert_select(
     """Run INSERT SELECT from source table into staging table.
 
     Returns the query_id for monitoring.
+    Settings (max_execution_time, max_memory_usage) are inherited from the
+    cluster resource — no per-query overrides needed.
     """
     import uuid
 
+    database = _get_database()
     query_id = str(uuid.uuid4())
 
     client.execute(
         f"""
-        INSERT INTO {DATABASE}.{staging_table}
-        SELECT * FROM {DATABASE}.{source_table}
+        INSERT INTO {database}.{staging_table}
+        SELECT * FROM {database}.{source_table}
         WHERE {partition_key_expr} = %(partition_id)s
         """,
         {"partition_id": _cast_partition_id(partition_id)},
         query_id=query_id,
-        settings={
-            "max_execution_time": "0",
-            "max_memory_usage": "0",
-        },
     )
     return query_id
 
@@ -470,14 +441,15 @@ def _get_staging_stats(client: Client, staging_table: str, partition_id: str) ->
 
     Returns (row_count, part_count, largest_part_gib).
     """
-    count_rows = client.execute(f"SELECT count() FROM {DATABASE}.{staging_table}")
+    database = _get_database()
+    count_rows = client.execute(f"SELECT count() FROM {database}.{staging_table}")
     row_count = count_rows[0][0]
 
     parts_rows = client.execute(
         "SELECT count() AS part_count, max(bytes_on_disk) AS largest_bytes "
         "FROM system.parts "
         "WHERE database = %(db)s AND table = %(table)s AND active AND partition_id = %(partition_id)s",
-        {"db": DATABASE, "table": staging_table, "partition_id": partition_id},
+        {"db": database, "table": staging_table, "partition_id": partition_id},
     )
     part_count = parts_rows[0][0]
     largest_bytes = parts_rows[0][1] if parts_rows[0][1] else 0
@@ -488,13 +460,17 @@ def _get_staging_stats(client: Client, staging_table: str, partition_id: str) ->
 
 def _replace_partition(client: Client, source_table: str, staging_table: str, partition_id: str) -> None:
     """Atomically replace the partition in the source table from the staging table."""
+    database = _get_database()
     client.execute(
-        f"ALTER TABLE {DATABASE}.{source_table} REPLACE PARTITION '{partition_id}' FROM {DATABASE}.{staging_table}"
+        f"ALTER TABLE {database}.{source_table} REPLACE PARTITION '{partition_id}' FROM {database}.{staging_table}"
     )
 
 
-def _wait_for_replication(client: Client, source_table: str, max_wait: int = MAX_REPLICATION_WAIT_TIME) -> None:
+def _wait_for_replication(client: Client, source_table: str, max_wait: int | None = None) -> None:
     """Wait for replication queue to drain for the source table."""
+    if max_wait is None:
+        max_wait = settings.PART_BREAKER_MAX_REPLICATION_WAIT_TIME
+
     start = time.time()
     while time.time() - start < max_wait:
         rows = client.execute(
@@ -511,8 +487,9 @@ def _wait_for_replication(client: Client, source_table: str, max_wait: int = MAX
 
 def _truncate_staging(client: Client, staging_table: str) -> None:
     """Truncate the staging table."""
+    database = _get_database()
     client.execute(
-        f"TRUNCATE TABLE {DATABASE}.{staging_table}",
+        f"TRUNCATE TABLE {database}.{staging_table}",
         settings={"max_table_size_to_drop": "0"},
     )
 
@@ -527,6 +504,12 @@ def discover_oversized_partitions(
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ):
     """Find all partitions with oversized parts across the cluster."""
+    if config.max_part_size_gib < settings.PART_BREAKER_MIN_PART_SIZE_GIB_FLOOR:
+        raise dagster.Failure(
+            f"max_part_size_gib={config.max_part_size_gib} is below the minimum of {settings.PART_BREAKER_MIN_PART_SIZE_GIB_FLOOR} GiB. "
+            f"This would flag too many partitions. Raise the threshold or adjust PART_BREAKER_MIN_PART_SIZE_GIB_FLOOR env var."
+        )
+
     max_size_bytes = config.max_part_size_gib * 1024**3
     tables = config.tables if config.tables else settings.PART_BREAKER_ELIGIBLE_TABLES
 
@@ -555,9 +538,19 @@ def discover_oversized_partitions(
             f"total {p.total_partition_gib:.1f} GiB in {p.total_parts} parts"
         )
 
-    # Limit to max_partitions_per_run, smallest first (faster, lower risk)
+    # Pick 1 partition per shard (smallest first — faster, lower risk),
+    # then cap at max_partitions_per_run total.
     partitions.sort(key=lambda p: p.largest_part_bytes)
-    partitions = partitions[: config.max_partitions_per_run]
+    seen_shards: set[int] = set()
+    selected: list[OversizedPartition] = []
+    for p in partitions:
+        if p.shard_num in seen_shards:
+            continue
+        seen_shards.add(p.shard_num)
+        selected.append(p)
+        if len(selected) >= config.max_partitions_per_run:
+            break
+    partitions = selected
 
     for p in partitions:
         yield dagster.DynamicOutput(
@@ -566,7 +559,7 @@ def discover_oversized_partitions(
         )
 
 
-@dagster.op
+@dagster.op(out=dagster.Out(metadata={}))
 def break_partition(
     context: dagster.OpExecutionContext,
     config: PartBreakerConfig,
@@ -578,6 +571,7 @@ def break_partition(
     partition_id = partition.partition_id
     source_table = partition.table
     staging_table = partition.staging_table
+    database = _get_database()
 
     context.log.info(
         f"Processing {source_table} shard {shard}, partition {partition_id} "
@@ -595,101 +589,114 @@ def break_partition(
         context.log.info(f"Ensuring staging table {staging_table} exists...")
         _ensure_staging_table(client, source_table, staging_table)
 
-        # Step 2: Pre-flight checks
-        context.log.info("Running pre-flight checks...")
+        try:
+            # Step 2: Pre-flight checks
+            context.log.info("Running pre-flight checks...")
 
-        has_space, free_bytes = _check_disk_space(
-            client, partition.total_partition_bytes, config.min_free_space_multiplier
-        )
-        if not has_space:
-            free_gib = free_bytes / (1024**3)
-            required_gib = partition.total_partition_gib * config.min_free_space_multiplier
-            raise RuntimeError(
-                f"Insufficient disk space: {free_gib:.1f} GiB free, "
-                f"need {required_gib:.1f} GiB (partition is {partition.total_partition_gib:.1f} GiB)"
+            has_space, free_bytes = _check_disk_space(
+                client, partition.total_partition_bytes, config.min_free_space_multiplier
             )
-
-        if not _check_no_active_breaker(client, staging_table):
-            raise RuntimeError(f"Another part breaker INSERT SELECT is already running for {staging_table}")
-
-        if not _check_staging_table_empty(client, staging_table):
-            context.log.warning(f"Staging table {staging_table} not empty — truncating before proceeding")
-            _truncate_staging(client, staging_table)
-
-        if not _check_replication_healthy(client, source_table):
-            raise RuntimeError(f"Replication queue is backed up (>100 entries) for {source_table}")
-
-        # Step 3: Get partition key expression and record baseline count
-        partition_key_expr = _get_partition_key_expr(client, source_table)
-        context.log.info(f"Partition key: {partition_key_expr}")
-
-        context.log.info(f"Recording baseline count for partition {partition_id}...")
-        baseline_count = _get_baseline_count(client, source_table, partition_key_expr, partition_id)
-        context.log.info(f"Baseline count: {baseline_count:,}")
-
-        if baseline_count == 0:
-            raise RuntimeError(f"Baseline count is 0 for {source_table} partition {partition_id} — nothing to process")
-
-        # Step 4: INSERT SELECT into staging table
-        context.log.info(
-            f"Starting INSERT SELECT for {source_table} partition {partition_id} "
-            f"({partition.total_partition_gib:.1f} GiB, {partition.total_partition_rows:,} physical rows)..."
-        )
-        query_id = _run_insert_select(client, source_table, staging_table, partition_key_expr, partition_id)
-        context.log.info(f"INSERT SELECT complete (query_id: {query_id})")
-
-        # Step 5: Verify staging table
-        context.log.info("Verifying staging table...")
-        staging_count, staging_parts, staging_largest_gib = _get_staging_stats(client, staging_table, partition_id)
-        context.log.info(
-            f"Staging table: {staging_count:,} rows in {staging_parts} parts (largest: {staging_largest_gib:.1f} GiB)"
-        )
-
-        # Verify count is within tolerance
-        if baseline_count > 0:
-            diff_pct = abs(staging_count - baseline_count) / baseline_count
-            if diff_pct > config.count_tolerance:
-                _truncate_staging(client, staging_table)
+            if not has_space:
+                free_gib = free_bytes / (1024**3)
+                required_gib = partition.total_partition_gib * config.min_free_space_multiplier
                 raise RuntimeError(
-                    f"Staging count {staging_count:,} differs from baseline {baseline_count:,} "
-                    f"by {diff_pct:.2%} (tolerance: {config.count_tolerance:.2%}). "
-                    f"Staging table truncated. Investigate before retrying."
+                    f"Insufficient disk space: {free_gib:.1f} GiB free, "
+                    f"need {required_gib:.1f} GiB (partition is {partition.total_partition_gib:.1f} GiB)"
                 )
 
-        # Check that parts are actually smaller
-        max_size_gib = config.max_part_size_gib
-        if staging_largest_gib > max_size_gib:
-            context.log.warning(
-                f"Staging table's largest part ({staging_largest_gib:.1f} GiB) "
-                f"still exceeds threshold ({max_size_gib} GiB). "
-                f"INSERT SELECT may not have broken the part sufficiently."
+            if not _check_no_active_breaker(client, staging_table):
+                raise RuntimeError(f"Another part breaker INSERT SELECT is already running for {staging_table}")
+
+            if not _check_staging_table_empty(client, staging_table):
+                context.log.warning(f"Staging table {staging_table} not empty — truncating before proceeding")
+                _truncate_staging(client, staging_table)
+
+            if not _check_replication_healthy(client, source_table):
+                raise RuntimeError(f"Replication queue is backed up (>100 entries) for {source_table}")
+
+            # Step 3: Get partition key expression and record baseline count
+            partition_key_expr = _get_partition_key_expr(client, source_table)
+            context.log.info(f"Partition key: {partition_key_expr}")
+
+            context.log.info(f"Recording baseline count for partition {partition_id}...")
+            baseline_count = _get_baseline_count(client, source_table, partition_key_expr, partition_id)
+            context.log.info(f"Baseline count: {baseline_count:,}")
+
+            if baseline_count == 0:
+                raise RuntimeError(
+                    f"Baseline count is 0 for {source_table} partition {partition_id} — nothing to process"
+                )
+
+            # Step 4: INSERT SELECT into staging table
+            context.log.info(
+                f"Starting INSERT SELECT for {source_table} partition {partition_id} "
+                f"({partition.total_partition_gib:.1f} GiB, {partition.total_partition_rows:,} physical rows)..."
+            )
+            query_id = _run_insert_select(client, source_table, staging_table, partition_key_expr, partition_id)
+            context.log.info(f"INSERT SELECT complete (query_id: {query_id})")
+
+            # Step 5: Verify staging table
+            context.log.info("Verifying staging table...")
+            staging_count, staging_parts, staging_largest_gib = _get_staging_stats(client, staging_table, partition_id)
+            context.log.info(
+                f"Staging table: {staging_count:,} rows in {staging_parts} parts "
+                f"(largest: {staging_largest_gib:.1f} GiB)"
             )
 
-        # Step 6: REPLACE PARTITION (atomic swap)
-        context.log.info(f"Replacing partition {partition_id} in {source_table}...")
-        _replace_partition(client, source_table, staging_table, partition_id)
-        context.log.info("REPLACE PARTITION complete")
+            # Verify count is within tolerance
+            if baseline_count > 0:
+                diff_pct = abs(staging_count - baseline_count) / baseline_count
+                if diff_pct > config.count_tolerance:
+                    _truncate_staging(client, staging_table)
+                    raise RuntimeError(
+                        f"Staging count {staging_count:,} differs from baseline {baseline_count:,} "
+                        f"by {diff_pct:.2%} (tolerance: {config.count_tolerance:.2%}). "
+                        f"Staging table truncated. Investigate before retrying."
+                    )
 
-        # Step 7: Wait for replication
-        context.log.info("Waiting for replication to complete...")
-        _wait_for_replication(client, source_table)
-        context.log.info("Replication complete")
+            # Check that parts are actually smaller
+            max_size_gib = config.max_part_size_gib
+            if staging_largest_gib > max_size_gib:
+                context.log.warning(
+                    f"Staging table's largest part ({staging_largest_gib:.1f} GiB) "
+                    f"still exceeds threshold ({max_size_gib} GiB). "
+                    f"INSERT SELECT may not have broken the part sufficiently."
+                )
 
-        # Step 8: Post-replace verification
-        context.log.info("Verifying post-replace count...")
-        post_count = _get_baseline_count(client, source_table, partition_key_expr, partition_id)
-        context.log.info(f"Post-replace count: {post_count:,}")
+            # Step 6: REPLACE PARTITION (atomic swap)
+            context.log.info(f"Replacing partition {partition_id} in {source_table}...")
+            _replace_partition(client, source_table, staging_table, partition_id)
+            context.log.info("REPLACE PARTITION complete")
 
-        # Get new largest part size from the source table
-        parts_rows = client.execute(
-            "SELECT max(bytes_on_disk) FROM system.parts "
-            "WHERE database = %(db)s AND table = %(table)s AND active AND partition_id = %(partition_id)s",
-            {"db": DATABASE, "table": source_table, "partition_id": partition_id},
-        )
-        new_largest_bytes = parts_rows[0][0] if parts_rows[0][0] else 0
-        new_largest_gib = new_largest_bytes / (1024**3)
+            # Step 7: Wait for replication
+            context.log.info("Waiting for replication to complete...")
+            _wait_for_replication(client, source_table)
+            context.log.info("Replication complete")
 
-        # Step 9: Truncate staging table
+            # Step 8: Post-replace verification
+            context.log.info("Verifying post-replace count...")
+            post_count = _get_baseline_count(client, source_table, partition_key_expr, partition_id)
+            context.log.info(f"Post-replace count: {post_count:,}")
+
+            # Get new largest part size from the source table
+            parts_rows = client.execute(
+                "SELECT max(bytes_on_disk) FROM system.parts "
+                "WHERE database = %(db)s AND table = %(table)s AND active AND partition_id = %(partition_id)s",
+                {"db": database, "table": source_table, "partition_id": partition_id},
+            )
+            new_largest_bytes = parts_rows[0][0] if parts_rows[0][0] else 0
+            new_largest_gib = new_largest_bytes / (1024**3)
+
+        except Exception:
+            # Ensure staging table is cleaned up on any failure to avoid blocking the next run
+            context.log.warning("Error during partition break — truncating staging table before re-raising")
+            try:
+                _truncate_staging(client, staging_table)
+            except Exception as cleanup_err:
+                context.log.exception(f"Failed to truncate staging table during cleanup: {cleanup_err}")
+            raise
+
+        # Step 9: Truncate staging table (happy path)
         context.log.info("Truncating staging table...")
         _truncate_staging(client, staging_table)
 
@@ -707,12 +714,20 @@ def break_partition(
             duration_seconds=duration,
         )
 
-    # Execute on this shard's offline node
-    result = cluster.map_any_host_in_shards_by_role(
-        {shard: _process},
-        node_role=NodeRole.DATA,
-        workload=Workload.OFFLINE,
-    ).result()
+    # Execute on this shard's offline node.
+    # Catch all exceptions so a single shard failure doesn't kill the entire job —
+    # other shards' work is already committed (REPLACE PARTITION is atomic).
+    try:
+        result = cluster.map_any_host_in_shards_by_role(
+            {shard: _process},
+            node_role=NodeRole.DATA,
+            workload=Workload.OFFLINE,
+        ).result()
+    except Exception:
+        context.log.exception(
+            f"Failed to break {source_table} shard {shard}, partition {partition_id} — will retry on next run"
+        )
+        return None
 
     # Extract the single result
     break_result = next(iter(result.values()))
@@ -726,6 +741,20 @@ def break_partition(
         f"took {break_result.duration_seconds / 3600:.1f}h"
     )
 
+    # Emit structured metadata for Dagster UI visibility
+    context.add_output_metadata(
+        {
+            "table": break_result.table,
+            "shard": break_result.shard_num,
+            "partition": break_result.partition_id,
+            "old_largest_gib": round(break_result.old_largest_part_gib, 1),
+            "new_largest_gib": round(break_result.new_largest_part_gib, 1),
+            "new_part_count": break_result.new_part_count,
+            "duration_hours": round(break_result.duration_seconds / 3600, 1),
+            "count_diff_pct": round(break_result.count_diff_pct * 100, 2),
+        }
+    )
+
     return break_result
 
 
@@ -736,12 +765,15 @@ def report_results(
 ):
     """Summarize the results of the part breaking run."""
     completed = [r for r in results if r is not None]
+    failed_count = len(results) - len(completed)
 
-    if not completed:
+    if not completed and failed_count == 0:
         context.log.info("No partitions were processed (dry run or nothing to do)")
         return
 
-    context.log.info(f"Part breaker completed: {len(completed)} partition(s) processed")
+    context.log.info(
+        f"Part breaker completed: {len(completed)} succeeded, {failed_count} failed out of {len(results)} partition(s)"
+    )
     for r in completed:
         context.log.info(
             f"  {r.table} shard {r.shard_num}, partition {r.partition_id}: "
@@ -750,14 +782,21 @@ def report_results(
             f"count diff: {r.count_diff_pct:.2%})"
         )
 
+    if failed_count > 0:
+        context.log.warning(f"{failed_count} partition(s) failed — check individual op logs for details")
+
 
 # -- Dagster Job --
 
 
 @dagster.job(
-    tags={"owner": JobOwners.TEAM_CLICKHOUSE.value},
+    tags={
+        "owner": JobOwners.TEAM_CLICKHOUSE.value,
+        # Disable slack alerts during initial validation — remove once stable
+        "disable_slack_notifications": True,
+    },
     resource_defs=PART_BREAKER_RESOURCE_DEFS,
-    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 2}),
+    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": settings.PART_BREAKER_MAX_CONCURRENT}),
 )
 def break_oversized_parts():
     """Find and break oversized parts across sharded ClickHouse tables.
@@ -772,14 +811,14 @@ def break_oversized_parts():
 
 
 # -- Schedule --
-# Start with manual triggers only. Enable schedule after validation.
-# Uncomment when ready:
-#
-# @dagster.schedule(
-#     job=break_oversized_parts,
-#     cron_schedule="0 2 * * 6",  # Saturdays at 2am UTC
-#     execution_timezone="UTC",
-# )
-# @skip_if_already_running
-# def break_oversized_parts_schedule(context: dagster.ScheduleEvaluationContext):
-#     return dagster.RunRequest()
+# Starts STOPPED — enable via the Dagster UI when ready.
+
+
+@dagster.schedule(
+    job=break_oversized_parts,
+    cron_schedule=settings.PART_BREAKER_SCHEDULE,
+    execution_timezone="UTC",
+    default_status=dagster.DefaultScheduleStatus.STOPPED,
+)
+def break_oversized_parts_schedule(context: dagster.ScheduleEvaluationContext):
+    return dagster.RunRequest()
