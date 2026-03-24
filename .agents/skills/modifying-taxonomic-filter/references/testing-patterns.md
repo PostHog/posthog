@@ -11,8 +11,8 @@ Mock it to render children with fixed dimensions:
 
 ```tsx
 jest.mock('lib/components/AutoSizer', () => ({
-  AutoSizer: ({ children }: { children: (info: { height: number; width: number }) => JSX.Element }) =>
-    children({ height: 400, width: 400 }),
+  AutoSizer: ({ renderProp }: { renderProp: (info: { height: number; width: number }) => JSX.Element }) =>
+    renderProp({ height: 400, width: 400 }),
 }))
 ```
 
