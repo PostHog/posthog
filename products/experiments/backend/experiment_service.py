@@ -376,6 +376,8 @@ class ExperimentService:
         }
         if params.get("ensure_experience_continuity") is not None:
             feature_flag_data["ensure_experience_continuity"] = params["ensure_experience_continuity"]
+        else:
+            feature_flag_data["ensure_experience_continuity"] = self.team.flags_persistence_default or False
         if create_in_folder is not None:
             feature_flag_data["_create_in_folder"] = create_in_folder
 
