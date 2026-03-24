@@ -87,7 +87,7 @@ const renderFilter = (props: Partial<TaxonomicFilterProps> = {}): RenderResult =
 ```tsx
 const expectActiveTab = (type: string): void => {
   const tab = screen.getByTestId(`taxonomic-tab-${type}`)
-  expect(tab.querySelector('.LemonTag--primary')).not.toBeNull()
+  expect(tab).toHaveClass('LemonTag--primary')
 }
 ```
 
