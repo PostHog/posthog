@@ -100,8 +100,18 @@ tools:
         operation: feature_flags_update
         enabled: false
     feature-flags-activity-retrieve:
-        operation: feature_flags_activity_retrieve
-        enabled: false
+        operation: feature_flags_activity_retrieve_2
+        enabled: true
+        scopes:
+            - activity_log:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get feature flag activity log
+        description: >
+            Get the audit trail for a specific feature flag by ID. Returns a paginated list of changes
+            including who made changes, what was changed, and when. Use limit and page query params for pagination.
     feature-flags-create-static-cohort-for-flag-create:
         operation: feature_flags_create_static_cohort_for_flag_create
         enabled: false
@@ -109,8 +119,18 @@ tools:
         operation: feature_flags_dashboard_create
         enabled: false
     feature-flags-dependent-flags-retrieve:
-        operation: feature_flags_dependent_flags_retrieve
-        enabled: false
+        operation: feature_flags_dependent_flags_list
+        enabled: true
+        scopes:
+            - feature_flag:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get dependent feature flags
+        description: >
+            Get other active feature flags that depend on this flag. Use this to understand flag dependency
+            chains before making changes to a flag's rollout conditions or disabling it.
     feature-flags-enrich-usage-dashboard-create:
         operation: feature_flags_enrich_usage_dashboard_create
         enabled: false
@@ -119,7 +139,17 @@ tools:
         enabled: false
     feature-flags-status-retrieve:
         operation: feature_flags_status_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - feature_flag:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get feature flag status
+        description: >
+            Check the health and evaluation status of a feature flag by ID. Returns a status
+            (active, stale, deleted, or unknown) and a human-readable reason explaining the status.
     feature-flags-bulk-delete-create:
         operation: feature_flags_bulk_delete_create
         enabled: false
@@ -128,7 +158,18 @@ tools:
         enabled: false
     feature-flags-evaluation-reasons-retrieve:
         operation: feature_flags_evaluation_reasons_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - feature_flag:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get feature flag evaluation reasons
+        description: >
+            Debug why feature flags evaluate a certain way for a given user. Provide a distinct_id
+            and optionally groups to see each flag's evaluated value and the reason for that evaluation
+            (e.g. condition_match, no_condition_match, disabled).
     feature-flags-local-evaluation-retrieve:
         operation: feature_flags_local_evaluation_retrieve
         enabled: false
@@ -140,7 +181,29 @@ tools:
         enabled: false
     feature-flags-user-blast-radius-create:
         operation: feature_flags_user_blast_radius_create
-        enabled: false
+        enabled: true
+        scopes:
+            - feature_flag:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get user blast radius
+        description: >
+            Assess the impact of a feature flag release condition before applying it. Provide a condition
+            object and optionally a group_type_index to see how many users would be affected relative
+            to the total user count.
     feature-flags-copy-flags-create:
         operation: feature_flags_copy_flags_create
-        enabled: false
+        enabled: true
+        scopes:
+            - feature_flag:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Copy feature flag across projects
+        description: >
+            Copy a feature flag from one project to other projects within the same organization.
+            Provide the flag key, source project ID, and a list of target project IDs. Optionally
+            copy scheduled changes with copy_schedule. Returns lists of successful and failed copies.

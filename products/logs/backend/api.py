@@ -30,8 +30,9 @@ from products.logs.backend.log_attributes_query_runner import LogAttributesQuery
 from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
 from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, LogsQueryResponse, LogsQueryRunner
 from products.logs.backend.sparkline_query_runner import SparklineQueryRunner
+from products.logs.backend.views_api import LogsViewViewSet
 
-__all__ = ["LogsViewSet", "LogExplainViewSet", "LogsAlertViewSet"]
+__all__ = ["LogsViewSet", "LogExplainViewSet", "LogsAlertViewSet", "LogsViewViewSet"]
 
 LOGS_MAX_EXPORT_ROWS = 10_000
 

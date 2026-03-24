@@ -611,7 +611,7 @@ pub struct Config {
     #[envconfig(from = "TEAM_NEGATIVE_CACHE_CAPACITY", default = "10000")]
     pub team_negative_cache_capacity: u64,
 
-    #[envconfig(from = "TEAM_NEGATIVE_CACHE_TTL_SECONDS", default = "300")]
+    #[envconfig(from = "TEAM_NEGATIVE_CACHE_TTL_SECONDS", default = "30")]
     pub team_negative_cache_ttl_seconds: u64,
 
     // TTL for the Redis-backed per-token auth cache (positive hits).
@@ -619,6 +619,14 @@ pub struct Config {
     // signals are proven reliable in production.
     #[envconfig(from = "AUTH_TOKEN_CACHE_TTL_SECONDS", default = "300")]
     pub auth_token_cache_ttl_seconds: u64,
+
+    // When true, skip the PostgreSQL fallback for team token lookups.
+    // HyperCache (Redis/S3) is treated as the source of truth — a cache
+    // miss means the token is invalid. Transient errors (Redis/S3 timeouts)
+    // bypass the fallback entirely and are not negative-cached.
+    // Gated for safe rollout.
+    #[envconfig(from = "SKIP_PG_TEAM_FALLBACK", default = "false")]
+    pub skip_pg_team_fallback: FlexBool,
 
     #[envconfig(from = "SERVICE_MODE", default = "all")]
     pub service_mode: ServiceMode,
@@ -825,7 +833,8 @@ impl Config {
             skip_writes: FlexBool(false),
             thread_pool_cores: 0,
             team_negative_cache_capacity: 10_000,
-            team_negative_cache_ttl_seconds: 300,
+            team_negative_cache_ttl_seconds: 30,
+            skip_pg_team_fallback: FlexBool(false),
             service_mode: ServiceMode::All,
             auth_token_cache_ttl_seconds: 300,
         }

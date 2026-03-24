@@ -161,7 +161,7 @@ def get_signals_stream() -> list[EvalSignalCase]:
     return stream
 
 
-class TestGroupingPipeline:
+class EvalGroupingPipeline:
     @pytest.fixture(autouse=True)
     def _setup(self, posthog_client, openai_client, gemini_client, mock_temporal, limit, no_capture, online):
         self.posthog_client = posthog_client
@@ -183,7 +183,7 @@ class TestGroupingPipeline:
         root_logger.setLevel(previous_level)
 
     @pytest.mark.django_db(transaction=True)
-    async def test_grouping_pipeline(self):
+    async def eval_grouping_pipeline(self):
         stream = get_signals_stream()
         if self.limit:
             stream = stream[: self.limit]

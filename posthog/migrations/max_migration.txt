@@ -1,1 +1,1 @@
-1062_migrate_links_models
+1065_add_cohort_kind

@@ -457,6 +457,10 @@ class TestResolver(BaseTest):
 
         self.assertEqual(table_names, ["events", "persons"])
 
+    def test_select_set_order_by_prints(self):
+        printed = self._print_hogql("select 1 union all select 2 order by 1")
+        self.assertEqual(printed, "SELECT 1 LIMIT 50000 UNION ALL SELECT 2 ORDER BY 1 ASC LIMIT 50000")
+
     def test_ctes_loop(self):
         with self.assertRaises(QueryError) as e:
             self._print_hogql("with cte as (select * from cte) select * from cte")
@@ -595,6 +599,13 @@ class TestResolver(BaseTest):
         self.assertEqual(
             printed,
             "WITH page_view_stats AS (SELECT 1 AS a) SELECT a FROM page_view_stats LIMIT 50000 UNION ALL WITH purchase_stats AS (SELECT 2 AS a) SELECT a FROM page_view_stats LIMIT 50000",
+        )
+
+    def test_with_clause_before_parens_select_set(self):
+        printed = self._print_hogql("WITH cte AS (SELECT 1 AS a) (SELECT a FROM cte UNION ALL SELECT a FROM cte)")
+        self.assertEqual(
+            printed,
+            "WITH cte AS (SELECT 1 AS a) SELECT a FROM cte LIMIT 50000 UNION ALL SELECT a FROM cte LIMIT 50000",
         )
 
     def test_ctes_scalar_subquery(self):
@@ -1573,6 +1584,59 @@ class TestResolver(BaseTest):
             expr = self._select("SELECT * FROM events UNPIVOT (field_value FOR field_name IN (does_not_exist))")
             resolve_types(expr, self.context, dialect="postgres")
 
+    def test_pivot_basic_resolves(self):
+        expr = self._select("SELECT 1 FROM events PIVOT (count() FOR event IN ('a'))")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert isinstance(expr.select_from, ast.JoinExpr)
+        assert isinstance(expr.select_from.table, ast.PivotExpr)
+        assert isinstance(expr.select_from.type, ast.SelectQueryType)
+
+        pivot = expr.select_from.table
+        column_expr = pivot.columns[0].column
+        if isinstance(column_expr, ast.Alias):
+            column_expr = column_expr.expr
+        assert isinstance(column_expr, ast.Field)
+        assert isinstance(column_expr.type, ast.FieldType)
+
+    def test_pivot_join_basic_resolves(self):
+        expr = self._select("SELECT 1 FROM events JOIN events AS e2 ON 1 PIVOT (count() FOR events.event IN ('a'))")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert isinstance(expr.select_from, ast.JoinExpr)
+        assert isinstance(expr.select_from.table, ast.PivotExpr)
+        pivot = expr.select_from.table
+        assert isinstance(pivot.table, ast.JoinExpr)
+        column_expr = pivot.columns[0].column
+        if isinstance(column_expr, ast.Alias):
+            column_expr = column_expr.expr
+        assert isinstance(column_expr, ast.Field)
+        assert isinstance(column_expr.type, ast.FieldType)
+
+    def test_pivot_expression_column_resolves(self):
+        expr = self._select("SELECT 1 FROM events PIVOT (count() FOR toYear(timestamp) IN (2015))")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert isinstance(expr.select_from, ast.JoinExpr)
+        assert isinstance(expr.select_from.table, ast.PivotExpr)
+
+    def test_pivot_expression_unknown_column_error(self):
+        with self.assertRaisesMessage(QueryError, 'PIVOT column "does_not_exist" was not found'):
+            expr = self._select("SELECT 1 FROM events PIVOT (count() FOR toYear(does_not_exist) IN (2015))")
+            resolve_types(expr, self.context, dialect="postgres")
+
+    def test_pivot_aggregate_unknown_column_error(self):
+        with self.assertRaisesMessage(QueryError, 'PIVOT column "thing" was not found'):
+            expr = self._select("SELECT 1 FROM events PIVOT (sum(thing) FOR toYear(timestamp) IN (2015))")
+            resolve_types(expr, self.context, dialect="postgres")
+
+    def test_pivot_unknown_column_error(self):
+        with self.assertRaisesMessage(QueryError, 'PIVOT column "does_not_exist" was not found'):
+            expr = self._select("SELECT 1 FROM events PIVOT (count() FOR does_not_exist IN ('a'))")
+            resolve_types(expr, self.context, dialect="postgres")
+
+    def test_pivot_non_postgres_dialect_error(self):
+        with self.assertRaisesMessage(QueryError, "PIVOT is not allowed in clickhouse dialect"):
+            expr = self._select("SELECT 1 FROM events PIVOT (count() FOR event IN ('a'))")
+            resolve_types(expr, self.context, dialect="clickhouse")
+
     def test_limit_with_ties_postgres_error(self):
         with self.assertRaisesMessage(QueryError, "WITH TIES is not supported in postgres dialect"):
             expr = self._select("SELECT 1 FROM events ORDER BY 1 LIMIT 1 WITH TIES")
@@ -1583,6 +1647,52 @@ class TestResolver(BaseTest):
         expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
         assert isinstance(expr.select[0], ast.PositionalRef)
         assert isinstance(expr.select[1], ast.PositionalRef)
+
+    def test_function_call_order_by_resolves(self):
+        expr = self._select("SELECT sum(event ORDER BY timestamp DESC) FROM events")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert isinstance(expr.select[0], ast.Call)
+        call = expr.select[0]
+        assert call.order_by is not None
+        assert len(call.order_by) == 1
+        assert call.order_by[0].order == "DESC"
+        order_expr = call.order_by[0].expr
+        if isinstance(order_expr, ast.Alias):
+            order_expr = order_expr.expr
+        assert isinstance(order_expr, ast.Field)
+        assert isinstance(order_expr.type, ast.FieldType)
+
+    def test_function_call_filter_resolves(self):
+        expr = self._select("SELECT sum(event) FILTER (WHERE event = 'a') FROM events")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert isinstance(expr.select[0], ast.Call)
+        call = expr.select[0]
+        assert call.filter_expr is not None
+        assert isinstance(call.filter_expr, ast.CompareOperation)
+        left = call.filter_expr.left
+        if isinstance(left, ast.Alias):
+            left = left.expr
+        assert isinstance(left, ast.Field)
+        assert isinstance(left.type, ast.FieldType)
+
+    def test_unpivot_include_nulls_resolves(self):
+        expr = self._select(
+            "SELECT field_name, field_value FROM events UNPIVOT INCLUDE NULLS (field_value FOR field_name IN (event))"
+        )
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert isinstance(expr.select_from, ast.JoinExpr)
+        assert isinstance(expr.select_from.table, ast.UnpivotExpr)
+        assert expr.select_from.table.include_nulls is True
+
+    def test_unpivot_join_basic_resolves(self):
+        expr = self._select(
+            "SELECT field_name, field_value FROM events JOIN events AS e2 ON 1 "
+            "UNPIVOT (field_value FOR field_name IN (events.event))"
+        )
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert isinstance(expr.select_from, ast.JoinExpr)
+        assert isinstance(expr.select_from.table, ast.UnpivotExpr)
+        assert isinstance(expr.select_from.type, ast.SelectQueryType)
 
     def test_positional_refs_non_postgres_error(self):
         with self.assertRaisesMessage(QueryError, "Positional references are not allowed in clickhouse dialect"):
