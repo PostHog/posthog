@@ -280,7 +280,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         try:
             source = SourceRegistry.get_source(ExternalDataSourceType(instance.source_type))
             return isinstance(source, WebhookSource)
-        except Exception:
+        except Exception as e:
+            capture_exception(e)
             return False
 
     def get_status(self, instance: ExternalDataSource) -> str:
@@ -972,7 +973,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if not isinstance(source, WebhookSource):
             return Response(
                 status=status.HTTP_200_OK,
-                data={"supports_webhooks": False},
+                data={
+                    "supports_webhooks": False,
+                    "exists": False,
+                    "webhook_url": None,
+                    "schema_mapping": {},
+                    "external_status": None,
+                },
             )
 
         hog_function = HogFunction.objects.filter(

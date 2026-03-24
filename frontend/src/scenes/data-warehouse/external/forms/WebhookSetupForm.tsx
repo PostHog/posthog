@@ -1,3 +1,4 @@
+import { LogicWrapper } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconCopy, IconRefresh } from '@posthog/icons'
@@ -19,7 +20,7 @@ interface WebhookSetupFormProps {
     webhookCreating: boolean
     onCreateWebhook: () => void
     /** kea-forms logic and formKey for the manual webhook field inputs form */
-    formLogic?: any
+    formLogic?: LogicWrapper
     formKey?: string
 }
 
@@ -136,6 +137,7 @@ export function WebhookUrlDisplay({ url }: { url: string }): JSX.Element {
                     icon={<IconCopy />}
                     size="small"
                     type="secondary"
+                    aria-label="Copy webhook URL"
                     onClick={() => void copyToClipboard(url, 'webhook URL')}
                 />
             </div>

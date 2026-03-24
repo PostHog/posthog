@@ -391,7 +391,7 @@ def get_external_webhook_info(config: StripeSourceConfig, webhook_url: str) -> E
 
         endpoints = client.webhook_endpoints.list(params={"limit": 100})
 
-        for endpoint in endpoints.data:
+        for endpoint in endpoints.auto_paging_iter():
             if endpoint.url == webhook_url:
                 return ExternalWebhookInfo(
                     exists=True,

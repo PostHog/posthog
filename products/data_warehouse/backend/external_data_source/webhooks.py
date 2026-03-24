@@ -12,7 +12,7 @@ from posthog.temporal.data_imports.sources.common.config import Config
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 
 
-def get_webhook_url(hog_function_id: str | object) -> str:
+def get_webhook_url(hog_function_id: str) -> str:
     webhooks_host = {
         "US": "https://webhooks.us.posthog.com",
         "EU": "https://webhooks.eu.posthog.com",
