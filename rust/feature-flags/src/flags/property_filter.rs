@@ -53,6 +53,9 @@ impl PropertyFilter {
     /// - Valid pattern: stores `CompiledRegex::Compiled`
     /// - Invalid pattern: stores `CompiledRegex::InvalidPattern`
     pub fn prepare_regex(&mut self) {
+        if self.compiled_regex.is_some() {
+            return;
+        }
         let operator = self.operator.unwrap_or(OperatorType::Exact);
         if !matches!(operator, OperatorType::Regex | OperatorType::NotRegex) {
             return;
