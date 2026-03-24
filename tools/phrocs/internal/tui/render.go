@@ -53,7 +53,7 @@ func (m Model) renderHeader() string {
 
 	var sortInfo string
 	if m.sortMode != SortName {
-		sortInfo = headerMetaStyle.Render(fmt.Sprintf("sort:%s", m.sortMode))
+		sortInfo = headerMetaStyle.Render(fmt.Sprintf("▼ %s", m.sortMode))
 	}
 
 	spacerW := max(m.width-lipgloss.Width(stripesStyle)-lipgloss.Width(brand)-lipgloss.Width(sortInfo)-lipgloss.Width(procInfo)-lipgloss.Width(meta)-1, 0)
@@ -70,12 +70,7 @@ func (m Model) renderSidebar() string {
 	// Determine the vertical slice of the services list to render based
 	// on the current cursor position and servicesOffset
 	start := min(max(m.servicesOffset, 0), max(0, len(m.services)-1))
-	end := min(len(m.services), start+h)
-
-	canScrollUp := start > 0
-	canScrollDown := end < len(m.services)
-
-	visibleH := m.sidebarVisibleItems()
+	canScrollUp, canScrollDown, visibleH := m.sidebarScrollState()
 	visibleEnd := min(len(m.services), start+visibleH)
 
 	var rows []string
@@ -123,34 +118,36 @@ func (m Model) sidebarHeight() int {
 	return max(h, 1)
 }
 
-// sidebarVisibleItems returns how many process rows fit in the sidebar,
-// accounting for scroll arrow indicators that consume a row each.
-func (m Model) sidebarVisibleItems() int {
+// sidebarScrollState computes whether scroll arrows are needed and how many
+// process rows fit. Arrows are derived from offset and list length only,
+// avoiding the circular dependency where arrow visibility depends on visible
+// count which depends on arrow visibility.
+func (m Model) sidebarScrollState() (canScrollUp, canScrollDown bool, visibleH int) {
 	h := m.sidebarHeight()
-	if len(m.services) <= h {
-		return h
+	n := len(m.services)
+	if n <= h {
+		return false, false, h
 	}
 
-	start := min(max(m.servicesOffset, 0), max(0, len(m.services)-1))
-	end := min(len(m.services), start+h)
-
-	canScrollUp := start > 0
-	canScrollDown := end < len(m.services)
-
+	start := min(max(m.servicesOffset, 0), max(0, n-1))
+	canScrollUp = start > 0
+	// Tentatively deduct one row for the up arrow
+	avail := h
 	if canScrollUp {
-		h--
+		avail--
 	}
+	// Check whether the remaining rows can show everything from start onward
+	canScrollDown = start+avail < n
 	if canScrollDown {
-		h--
+		avail--
 	}
-
-	return max(h, 1)
+	return canScrollUp, canScrollDown, max(avail, 1)
 }
 
 // Keep selected process row within the visible
 // sidebar window by adjusting servicesOffset
 func (m *Model) ensureSidebarCursorVisible() {
-	h := m.sidebarVisibleItems()
+	_, _, h := m.sidebarScrollState()
 	if len(m.services) <= m.sidebarHeight() {
 		m.servicesOffset = 0
 		return

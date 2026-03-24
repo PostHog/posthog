@@ -209,7 +209,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.sortServices()
-		m.ensureSidebarCursorVisible()
 
 	// Container-related messages only relevant in docker mode
 	case docker.ContainerListMsg:
@@ -453,7 +452,7 @@ func (m Model) buildContent() string {
 }
 
 // statusSortOrder returns a numeric rank for sorting by status.
-// Running/pending processes sort first, crashed last.
+// Running/pending processes sort first, done last.
 func statusSortOrder(s process.Status) int {
 	switch s {
 	case process.StatusRunning:
@@ -484,6 +483,7 @@ func (m *Model) sortServices() {
 
 	sort.SliceStable(m.services, func(i, j int) bool {
 		a, b := m.services[i], m.services[j]
+
 		switch m.sortMode {
 		case SortCPU:
 			return a.CPUPercent() > b.CPUPercent()
@@ -495,7 +495,14 @@ func (m *Model) sortServices() {
 				return sa < sb
 			}
 			return a.Name < b.Name
-		default: // SortName
+		default:
+			// Always place info at the top of the list
+			if a.Name == "info" {
+				return true
+			}
+			if b.Name == "info" {
+				return false
+			}
 			return a.Name < b.Name
 		}
 	})
