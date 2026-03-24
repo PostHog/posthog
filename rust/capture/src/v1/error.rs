@@ -65,6 +65,8 @@ pub enum Error {
     EmptyBody,
     #[error("request batch is empty")]
     EmptyBatch,
+    #[error("invalid batch: {0}")]
+    InvalidBatch(String),
     #[error("event submitted without an event name")]
     MissingEventName,
     #[error("event submitted without a distinct_id")]
@@ -124,6 +126,7 @@ impl Error {
             | Self::RequestParsingError(_)
             | Self::EmptyBody
             | Self::EmptyBatch
+            | Self::InvalidBatch(_)
             | Self::MissingEventName
             | Self::MissingDistinctId
             | Self::MissingEventUuid
@@ -153,6 +156,7 @@ impl Error {
             Self::RequestParsingError(_) => "request_parsing_error",
             Self::EmptyBody => "empty_body",
             Self::EmptyBatch => "empty_batch",
+            Self::InvalidBatch(_) => "invalid_batch",
             Self::MissingEventName => "missing_event_name",
             Self::MissingDistinctId => "missing_distinct_id",
             Self::MissingEventUuid => "missing_event_uuid",
@@ -181,6 +185,7 @@ impl Error {
             | Self::RequestParsingError(_)
             | Self::EmptyBody
             | Self::EmptyBatch
+            | Self::InvalidBatch(_)
             | Self::MissingEventName
             | Self::MissingDistinctId
             | Self::MissingEventUuid
@@ -224,6 +229,7 @@ impl Error {
             | Self::RequestParsingError(_)
             | Self::EmptyBody
             | Self::EmptyBatch
+            | Self::InvalidBatch(_)
             | Self::MissingEventName
             | Self::MissingDistinctId
             | Self::MissingEventUuid

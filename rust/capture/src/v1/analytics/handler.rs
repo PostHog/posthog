@@ -22,6 +22,9 @@ pub async fn handle_request(
     let context = Context::new(&headers, &ip, &query, method.clone(), path.as_str())
         .map_err(|err| log_and_return_header_error(err, &headers, &ip, &query, &method, &path))?;
 
+    // TODO: purposely chatty, for now
+    tracing::info!(ctx = ?context, "handle_request called");
+
     let raw_bytes = v1::util::extract_body_with_timeout(
         body,
         state.event_payload_size_limit,
@@ -59,7 +62,13 @@ pub async fn handle_request(
         return Err(err);
     }
 
-    unimplemented!()
+    match super::process::process_batch(&context, batch).await {
+        Ok(resp) => Ok(resp),
+        Err(err) => {
+            log_stat_error!(err, ctx = &context);
+            Err(err)
+        }
+    }
 }
 
 fn log_and_return_header_error(
