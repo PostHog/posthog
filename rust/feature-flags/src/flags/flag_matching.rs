@@ -1450,6 +1450,7 @@ impl FeatureFlagMatcher {
                 }
             }
 
+            // Evaluate cohort filters, if any.
             if !cohort_filters.is_empty() {
                 let cohorts = match &self.flag_evaluation_state.cohorts {
                     Some(cohorts) => cohorts.clone(),
