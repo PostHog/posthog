@@ -189,6 +189,7 @@ class TestDuplicateResourceToNewTeam(BaseTest):
         copied = new_surveys[0]
         assert copied.team == dest_team
         assert copied.linked_insight_id == new_insights[0].pk
+        assert copied.linked_insight is not None
         assert copied.linked_insight.team == dest_team
         assert list(copied.actions.values_list("pk", flat=True)) == [new_actions[0].pk]
         assert copied.conditions is not None
