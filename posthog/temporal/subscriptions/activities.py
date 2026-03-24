@@ -4,17 +4,6 @@ import temporalio.activity
 from slack_sdk.errors import SlackApiError
 from structlog import get_logger
 
-from posthog.exceptions_capture import capture_exception
-from posthog.models.exported_asset import ExportedAsset
-from posthog.models.subscription import Subscription
-from posthog.sync import database_sync_to_async
-from posthog.temporal.subscriptions.types import (
-    CreateExportAssetsInputs,
-    CreateExportAssetsResult,
-    DeliverSubscriptionInputs,
-    FetchDueSubscriptionsActivityInputs,
-)
-
 from ee.tasks.subscriptions import (
     SLACK_USER_CONFIG_ERRORS,
     SUPPORTED_TARGET_TYPES,
@@ -24,6 +13,16 @@ from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_r
 from ee.tasks.subscriptions.slack_subscriptions import (
     get_slack_integration_for_team,
     send_slack_message_with_integration_async,
+)
+from posthog.exceptions_capture import capture_exception
+from posthog.models.exported_asset import ExportedAsset
+from posthog.models.subscription import Subscription
+from posthog.sync import database_sync_to_async
+from posthog.temporal.subscriptions.types import (
+    CreateExportAssetsInputs,
+    CreateExportAssetsResult,
+    DeliverSubscriptionInputs,
+    FetchDueSubscriptionsActivityInputs,
 )
 
 LOGGER = get_logger(__name__)
