@@ -5,7 +5,6 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from freezegun import freeze_time
-from parameterized import parameterized
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
@@ -14,6 +13,7 @@ from django.utils.timezone import now
 
 import jwt
 from dateutil.relativedelta import relativedelta
+from parameterized import parameterized
 from requests import Response, get
 from rest_framework import status
 
