@@ -25,6 +25,7 @@ Safety properties:
 """
 
 import time
+import logging
 from dataclasses import dataclass
 from typing import Optional
 
@@ -259,16 +260,37 @@ def _discover_oversized_partitions(
     return results
 
 
-def _check_disk_space(client: Client, required_bytes: int, multiplier: float) -> tuple[bool, int]:
-    """Check if the offline node has enough free disk space.
+def _check_disk_space(
+    client: Client, source_table: str, partition_id: str, required_bytes: int, multiplier: float
+) -> tuple[bool, int]:
+    """Check if the node has enough free disk space on the disk(s) holding this partition.
+
+    Looks up which disk(s) the partition's active parts reside on, then sums
+    the free space across those disks. This handles setups where data lives on
+    disks named something other than 'default'.
 
     Returns (has_enough, free_bytes).
     """
-    rows = client.execute("SELECT free_space FROM system.disks WHERE name = 'default'")
-    if not rows:
+    database = _get_database()
+    # Find the distinct disk(s) this partition's parts live on
+    disk_result = client.execute(
+        "SELECT DISTINCT disk_name FROM system.parts "
+        "WHERE database = %(db)s AND table = %(table)s AND active AND partition_id = %(partition_id)s",
+        {"db": database, "table": source_table, "partition_id": partition_id},
+    )
+    if not isinstance(disk_result, list) or not disk_result:
         return False, 0
 
-    free_bytes = rows[0][0]
+    disk_names = [row[0] for row in disk_result]
+    # Sum free space across all disks holding this partition's data
+    space_result = client.execute(
+        "SELECT sum(free_space) FROM system.disks WHERE name IN %(disks)s",
+        {"disks": disk_names},
+    )
+    if not isinstance(space_result, list) or not space_result or space_result[0][0] is None:
+        return False, 0
+
+    free_bytes: int = space_result[0][0]
     return free_bytes >= required_bytes * multiplier, free_bytes
 
 
@@ -302,9 +324,10 @@ def _check_staging_table_empty(client: Client, staging_table: str) -> bool:
 
 def _check_replication_healthy(client: Client, source_table: str) -> bool:
     """Check that the replication queue is not backed up."""
+    database = _get_database()
     rows = client.execute(
-        "SELECT count() FROM system.replication_queue WHERE table = %(table)s",
-        {"table": source_table},
+        "SELECT count() FROM system.replication_queue WHERE database = %(db)s AND table = %(table)s",
+        {"db": database, "table": source_table},
     )
     return rows[0][0] < 100
 
@@ -471,15 +494,21 @@ def _wait_for_replication(client: Client, source_table: str, max_wait: int | Non
     if max_wait is None:
         max_wait = settings.PART_BREAKER_MAX_REPLICATION_WAIT_TIME
 
+    database = _get_database()
     start = time.time()
     while time.time() - start < max_wait:
         rows = client.execute(
-            "SELECT count() FROM system.replication_queue WHERE table = %(table)s",
-            {"table": source_table},
+            "SELECT count() FROM system.replication_queue WHERE database = %(db)s AND table = %(table)s",
+            {"db": database, "table": source_table},
         )
         queue_size = rows[0][0]
         if queue_size == 0:
             return
+        elapsed = int(time.time() - start)
+        # Log progress so long waits are visible in the Dagster UI
+        logging.getLogger(__name__).info(
+            f"Replication queue for {source_table}: {queue_size} entries remaining ({elapsed}s elapsed)"
+        )
         time.sleep(30)
 
     raise RuntimeError(f"Replication queue did not drain within {max_wait}s for {source_table}")
@@ -594,7 +623,7 @@ def break_partition(
             context.log.info("Running pre-flight checks...")
 
             has_space, free_bytes = _check_disk_space(
-                client, partition.total_partition_bytes, config.min_free_space_multiplier
+                client, source_table, partition_id, partition.total_partition_bytes, config.min_free_space_multiplier
             )
             if not has_space:
                 free_gib = free_bytes / (1024**3)
@@ -677,6 +706,15 @@ def break_partition(
             context.log.info("Verifying post-replace count...")
             post_count = _get_baseline_count(client, source_table, partition_key_expr, partition_id)
             context.log.info(f"Post-replace count: {post_count:,}")
+
+            if baseline_count > 0:
+                post_diff_pct = abs(post_count - baseline_count) / baseline_count
+                if post_diff_pct > config.count_tolerance:
+                    raise RuntimeError(
+                        f"Post-replace count {post_count:,} differs from baseline {baseline_count:,} "
+                        f"by {post_diff_pct:.2%} (tolerance: {config.count_tolerance:.2%}). "
+                        f"REPLACE PARTITION succeeded but data may have diverged. Investigate."
+                    )
 
             # Get new largest part size from the source table
             parts_rows = client.execute(
