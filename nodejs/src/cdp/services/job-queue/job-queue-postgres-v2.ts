@@ -1,4 +1,5 @@
 import { chunk } from 'lodash'
+import { DateTime } from 'luxon'
 import { Gauge } from 'prom-client'
 
 import { parseJSON } from '~/utils/json-parse'
@@ -82,7 +83,13 @@ export class CyclotronJobQueuePostgresV2 {
 
             pendingJobsGauge.set(this.pendingJobs.size)
 
-            await consumeBatch(invocations)
+            const { backgroundTask } = await consumeBatch(invocations)
+
+            // Await the background task to ensure job state updates (retry/ack/fail)
+            // complete before the next poll cycle. Without this, the janitor can reset
+            // stalled jobs before the retry call updates their state, causing workflows
+            // to restart from the beginning instead of resuming.
+            await backgroundTask
 
             pendingJobsGauge.set(this.pendingJobs.size)
         })
@@ -154,7 +161,16 @@ export class CyclotronJobQueuePostgresV2 {
                     await job.ack()
                 } else {
                     const stateBuffer = serializeState(result.invocation)
-                    await job.retry({ state: stateBuffer })
+                    const delayMs = result.invocation.queueScheduledAt
+                        ? Math.max(
+                              0,
+                              DateTime.isDateTime(result.invocation.queueScheduledAt)
+                                  ? result.invocation.queueScheduledAt.diff(DateTime.now()).as('milliseconds')
+                                  : new Date(result.invocation.queueScheduledAt as unknown as string).getTime() -
+                                        Date.now()
+                          ) || 0 // NaN safety: invalid dates produce NaN, fall back to 0
+                        : 0
+                    await job.retry({ state: stateBuffer, delayMs })
                 }
             })
         )
