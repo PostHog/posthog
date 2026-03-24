@@ -5,7 +5,6 @@ from unittest.mock import MagicMock, patch
 
 import jwt
 import requests as req
-from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -439,17 +438,30 @@ class TestVercelProxyCrossRegion(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert response.json() == {"error": "No Vercel integration found for this organization"}
 
-    @parameterized.expand(
-        [
-            ("eu_region", "https://eu.posthog.com"),
-            ("dev_env", "http://localhost:8000"),
-        ]
-    )
-    def test_cross_region_not_attempted_in_non_us_region(self, _name, site_url, mock_license):
+    def test_cross_region_not_attempted_in_eu_region(self, mock_license):
         mock_license.return_value = self.license
 
         with patch("ee.api.vercel.vercel_proxy.django_settings") as mock_settings:
-            mock_settings.SITE_URL = site_url
+            mock_settings.SITE_URL = "https://eu.posthog.com"
+            mock_settings.REGION_US_DOMAIN = "us.posthog.com"
+            mock_settings.REGION_EU_DOMAIN = "eu.posthog.com"
+
+            with patch("ee.api.vercel.vercel_proxy.requests.post") as mock_post:
+                response = self.unauthenticated_client.post(
+                    "/api/vercel/proxy/",
+                    {"path": "/billing/invoices", "method": "POST", "body": {}},
+                    format="json",
+                    **self._get_auth_headers(),
+                )
+
+                assert response.status_code == status.HTTP_404_NOT_FOUND
+                mock_post.assert_not_called()
+
+    def test_cross_region_not_attempted_in_dev_env(self, mock_license):
+        mock_license.return_value = self.license
+
+        with patch("ee.api.vercel.vercel_proxy.django_settings") as mock_settings:
+            mock_settings.SITE_URL = "http://localhost:8000"
             mock_settings.REGION_US_DOMAIN = "us.posthog.com"
             mock_settings.REGION_EU_DOMAIN = "eu.posthog.com"
 
