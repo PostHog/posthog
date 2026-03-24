@@ -296,7 +296,10 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                             UUID(self.query.personId)
                             person: Optional[Person] = get_person_by_uuid(self.team.pk, self.query.personId)
                         except ValueError:
-                            person = get_person_by_id(self.team.pk, int(self.query.personId))
+                            try:
+                                person = get_person_by_id(self.team.pk, int(self.query.personId))
+                            except ValueError:
+                                person = None
                         # Qualify distinct_id with sessions. when person join is present to avoid ambiguity
                         distinct_id_chain: list[str | int] = (
                             ["sessions", "distinct_id"] if self._needs_person_join() else ["distinct_id"]

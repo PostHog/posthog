@@ -208,7 +208,10 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                             UUID(self.query.personId)
                             person: Person | None = get_person_by_uuid(self.team.pk, self.query.personId)
                         except ValueError:
-                            person = get_person_by_id(self.team.pk, int(self.query.personId))
+                            try:
+                                person = get_person_by_id(self.team.pk, int(self.query.personId))
+                            except ValueError:
+                                person = None
                         where_exprs.append(
                             ast.CompareOperation(
                                 left=ast.Call(name="cityHash64", args=[ast.Field(chain=["distinct_id"])]),

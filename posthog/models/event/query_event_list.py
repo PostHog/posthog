@@ -55,7 +55,10 @@ def parse_request_params(
                 UUID(v)
                 person = get_person_by_uuid(team.pk, v)
             except ValueError:
-                person = get_person_by_id(team.pk, int(v))
+                try:
+                    person = get_person_by_id(team.pk, int(v))
+                except ValueError:
+                    person = None
             params.update({"distinct_ids": get_distinct_ids_for_subquery(person, team)})
         elif k == "distinct_id":
             result += "AND distinct_id = %(distinct_id)s "

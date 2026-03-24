@@ -732,7 +732,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             uuid.UUID(pk)
             person = get_person_by_uuid(self.team_id, pk)
         except ValueError:
-            person = get_person_by_id(self.team_id, int(pk))
+            try:
+                person = get_person_by_id(self.team_id, int(pk))
+            except ValueError:
+                raise Person.DoesNotExist
         if person is None:
             raise Person.DoesNotExist
 
