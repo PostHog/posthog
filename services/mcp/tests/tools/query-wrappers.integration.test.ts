@@ -104,6 +104,41 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
         })
     })
 
+    describe('query-stickiness', () => {
+        it('should execute a basic stickiness query and return formatted results', async () => {
+            const tool = getToolByName(
+                GENERATED_TOOLS as Record<string, () => ToolBase<ZodObjectAny>>,
+                'query-stickiness'
+            )
+            const result = (await tool.handler(context, {
+                series: [{ kind: 'EventsNode', event: '$pageview' }],
+                dateRange: { date_from: '-7d' },
+            })) as any
+
+            expect(result).toHaveProperty('results')
+            expect(result).toHaveProperty('_posthogUrl')
+            expect(typeof result.results).toBe('string')
+        })
+
+        it('should generate a valid PostHog URL with StickinessQuery kind', async () => {
+            const tool = getToolByName(
+                GENERATED_TOOLS as Record<string, () => ToolBase<ZodObjectAny>>,
+                'query-stickiness'
+            )
+            const result = (await tool.handler(context, {
+                series: [{ kind: 'EventsNode', event: '$pageview' }],
+                dateRange: { date_from: '-7d' },
+            })) as any
+
+            expect(result._posthogUrl).toContain('/insights/new?q=')
+            const url = new URL(result._posthogUrl)
+            const queryParam = url.searchParams.get('q')
+            expect(queryParam).toBeTruthy()
+            const parsed = JSON.parse(decodeURIComponent(queryParam!))
+            expect(parsed.kind).toBe('StickinessQuery')
+        })
+    })
+
     describe('query-traces-list', () => {
         it('should execute a traces query and return formatted results', async () => {
             const tool = getToolByName(

@@ -8,7 +8,7 @@ from __future__ import annotations
 from enum import Enum, StrEnum
 from typing import Any, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, TypeAdapter
 
 
 class SchemaRoot(RootModel[Any]):
@@ -450,6 +450,28 @@ class AssistantSetPropertyFilterOperator(StrEnum):
     IS_NOT_SET = "is_not_set"
 
 
+class AssistantStickinessDisplayType(StrEnum):
+    ACTIONS_LINE_GRAPH = "ActionsLineGraph"
+    ACTIONS_BAR = "ActionsBar"
+    ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
+
+
+class AssistantStickinessFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    display: AssistantStickinessDisplayType | None = Field(
+        default=AssistantStickinessDisplayType.ACTIONS_LINE_GRAPH,
+        description=(
+            "Visualization type for the stickiness chart. `ActionsLineGraph` - line"
+            " chart (default). `ActionsBar` - bar chart. `ActionsAreaGraph` - area"
+            " chart."
+        ),
+    )
+    showLegend: bool | None = Field(default=False, description="Whether to show the legend describing series.")
+    showValuesOnSeries: bool | None = Field(default=False, description="Whether to show a value on each data point.")
+
+
 class AssistantStringOrBooleanValuePropertyFilterOperator(StrEnum):
     EXACT = "exact"
     IS_NOT = "is_not"
@@ -541,8 +563,42 @@ class AssistantToolCallMessage(BaseModel):
     )
 
 
-class AssistantTrendsDisplayType(RootModel[str | Any]):
-    root: str | Any
+class AssistantTrendsDisplayType(
+    RootModel[
+        Literal["Auto"]
+        | Literal["ActionsLineGraph"]
+        | Literal["ActionsBar"]
+        | Literal["ActionsUnstackedBar"]
+        | Literal["ActionsAreaGraph"]
+        | Literal["ActionsLineGraphCumulative"]
+        | Literal["BoldNumber"]
+        | Literal["ActionsPie"]
+        | Literal["ActionsBarValue"]
+        | Literal["ActionsTable"]
+        | Literal["WorldMap"]
+        | Literal["CalendarHeatmap"]
+        | Literal["TwoDimensionalHeatmap"]
+        | Literal["BoxPlot"]
+        | Any
+    ]
+):
+    root: (
+        Literal["Auto"]
+        | Literal["ActionsLineGraph"]
+        | Literal["ActionsBar"]
+        | Literal["ActionsUnstackedBar"]
+        | Literal["ActionsAreaGraph"]
+        | Literal["ActionsLineGraphCumulative"]
+        | Literal["BoldNumber"]
+        | Literal["ActionsPie"]
+        | Literal["ActionsBarValue"]
+        | Literal["ActionsTable"]
+        | Literal["WorldMap"]
+        | Literal["CalendarHeatmap"]
+        | Literal["TwoDimensionalHeatmap"]
+        | Literal["BoxPlot"]
+        | Any
+    )
 
 
 class Display(StrEnum):
@@ -587,7 +643,7 @@ class AutocompleteCompletionItemKind(StrEnum):
     CONSTRUCTOR = "Constructor"
     FIELD = "Field"
     VARIABLE = "Variable"
-    CLASS_ = "Class"
+    CLASS = "Class"
     STRUCT = "Struct"
     INTERFACE = "Interface"
     MODULE = "Module"
@@ -810,7 +866,7 @@ class ConditionalFormattingRule(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    bytecode: list
+    bytecode: list[Any]
     color: str
     colorMode: ColorMode | None = None
     columnName: str
@@ -974,7 +1030,7 @@ class CurrencyCode(StrEnum):
     TMT = "TMT"
     TND = "TND"
     TOP = "TOP"
-    TRY_ = "TRY"
+    TRY = "TRY"
     TTD = "TTD"
     TWD = "TWD"
     TZS = "TZS"
@@ -1348,8 +1404,8 @@ class Metric(StrEnum):
 
 
 class EnsembleOperator(StrEnum):
-    AND_ = "and"
-    OR_ = "or"
+    AND = "and"
+    OR = "or"
 
 
 class EntityType(StrEnum):
@@ -1466,7 +1522,7 @@ class EventDefinition(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    elements: list
+    elements: list[Any]
     event: str
     properties: dict[str, Any]
 
@@ -1921,8 +1977,8 @@ class FileSystemViewLogEntry(BaseModel):
 
 
 class FilterLogicalOperator(StrEnum):
-    AND_ = "AND"
-    OR_ = "OR"
+    AND = "AND"
+    OR = "OR"
 
 
 class FlagPropertyFilter(BaseModel):
@@ -2003,7 +2059,7 @@ class FunnelTimeToConvertResults(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    average_conversion_time: float | None = None
+    average_conversion_time: float | None
     bins: list[list[int]]
 
 
@@ -2152,8 +2208,8 @@ class HogCompileResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    bytecode: list
-    locals: list
+    bytecode: list[Any]
+    locals: list[Any]
 
 
 class HogLanguage(StrEnum):
@@ -2246,8 +2302,8 @@ class HogQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    bytecode: list | None = None
-    coloredBytecode: list | None = None
+    bytecode: list[Any] | None = None
+    coloredBytecode: list[Any] | None = None
     results: Any
     stdout: str | None = None
 
@@ -2390,9 +2446,9 @@ class LinearIssueSignalExtra(BaseModel):
     number: float
     priority: float
     priority_label: str
-    state_name: str | None = None
-    state_type: str | None = None
-    team_name: str | None = None
+    state_name: str | None
+    state_type: str | None
+    team_name: str | None
     updated_at: str
     url: str
 
@@ -2563,14 +2619,25 @@ class MarketingIntegrationConfig1(BaseModel):
         extra="forbid",
     )
     campaignTableName: Literal["campaign"] = "campaign"
-    defaultSources: list[str] = Field(..., max_length=10, min_length=10)
+    defaultSources: list[
+        Literal["google"]
+        | Literal["adwords"]
+        | Literal["youtube"]
+        | Literal["display"]
+        | Literal["gmail"]
+        | Literal["google_maps"]
+        | Literal["google_play"]
+        | Literal["google_discover"]
+        | Literal["admob"]
+        | Literal["waze"]
+    ] = Field(..., max_length=10, min_length=10)
     idField: Literal["campaign_id"] = "campaign_id"
     nameField: Literal["campaign_name"] = "campaign_name"
     primarySource: Literal["google"] = "google"
     sourceType: Literal["GoogleAds"] = "GoogleAds"
     statsTableName: Literal["campaign_overview_stats"] = "campaign_overview_stats"
-    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
-    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
+    tableExclusions: list[Literal["stats"]] = Field(..., max_length=1, min_length=1)
+    tableKeywords: list[Literal["campaign"]] = Field(..., max_length=1, min_length=1)
 
 
 class MarketingIntegrationConfig2(BaseModel):
@@ -2578,23 +2645,45 @@ class MarketingIntegrationConfig2(BaseModel):
         extra="forbid",
     )
     campaignTableName: Literal["campaign_groups"] = "campaign_groups"
-    defaultSources: list[str] = Field(..., max_length=2, min_length=2)
+    defaultSources: list[Literal["linkedin"] | Literal["li"]] = Field(..., max_length=2, min_length=2)
     idField: Literal["id"] = "id"
     nameField: Literal["name"] = "name"
     primarySource: Literal["linkedin"] = "linkedin"
     sourceType: Literal["LinkedinAds"] = "LinkedinAds"
     statsTableName: Literal["campaign_group_stats"] = "campaign_group_stats"
-    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
-    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
+    tableExclusions: list[Literal["stats"]] = Field(..., max_length=1, min_length=1)
+    tableKeywords: list[Literal["campaign_groups"]] = Field(..., max_length=1, min_length=1)
 
 
 class ConversionActionTypes(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    fallback: list[str] = Field(..., max_length=5, min_length=5)
-    omni: list[str] = Field(..., max_length=5, min_length=5)
-    specific: list[str] = Field(..., max_length=9, min_length=9)
+    fallback: list[
+        Literal["purchase"]
+        | Literal["lead"]
+        | Literal["complete_registration"]
+        | Literal["app_install"]
+        | Literal["subscribe"]
+    ] = Field(..., max_length=5, min_length=5)
+    omni: list[
+        Literal["omni_purchase"]
+        | Literal["omni_lead"]
+        | Literal["omni_complete_registration"]
+        | Literal["omni_app_install"]
+        | Literal["omni_subscribe"]
+    ] = Field(..., max_length=5, min_length=5)
+    specific: list[
+        Literal["offsite_conversion.fb_pixel_purchase"]
+        | Literal["app_custom_event.fb_mobile_purchase"]
+        | Literal["offsite_conversion.fb_pixel_lead"]
+        | Literal["onsite_conversion.lead_grouped"]
+        | Literal["offsite_conversion.fb_pixel_complete_registration"]
+        | Literal["app_custom_event.fb_mobile_complete_registration"]
+        | Literal["offsite_complete_registration_add_meta_leads"]
+        | Literal["mobile_app_install"]
+        | Literal["offsite_conversion.fb_pixel_subscribe"]
+    ] = Field(..., max_length=9, min_length=9)
 
 
 class MarketingIntegrationConfig3(BaseModel):
@@ -2603,14 +2692,24 @@ class MarketingIntegrationConfig3(BaseModel):
     )
     campaignTableName: Literal["campaigns"] = "campaigns"
     conversionActionTypes: ConversionActionTypes
-    defaultSources: list[str] = Field(..., max_length=9, min_length=9)
+    defaultSources: list[
+        Literal["meta"]
+        | Literal["facebook"]
+        | Literal["instagram"]
+        | Literal["messenger"]
+        | Literal["fb"]
+        | Literal["whatsapp"]
+        | Literal["audience_network"]
+        | Literal["facebook_marketplace"]
+        | Literal["threads"]
+    ] = Field(..., max_length=9, min_length=9)
     idField: Literal["id"] = "id"
     nameField: Literal["name"] = "name"
     primarySource: Literal["meta"] = "meta"
     sourceType: Literal["MetaAds"] = "MetaAds"
     statsTableName: Literal["campaign_stats"] = "campaign_stats"
-    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
-    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
+    tableExclusions: list[Literal["stats"]] = Field(..., max_length=1, min_length=1)
+    tableKeywords: list[Literal["campaigns"]] = Field(..., max_length=1, min_length=1)
 
 
 class MarketingIntegrationConfig4(BaseModel):
@@ -2618,14 +2717,14 @@ class MarketingIntegrationConfig4(BaseModel):
         extra="forbid",
     )
     campaignTableName: Literal["campaigns"] = "campaigns"
-    defaultSources: list[str] = Field(..., max_length=1, min_length=1)
+    defaultSources: list[Literal["tiktok"]] = Field(..., max_length=1, min_length=1)
     idField: Literal["campaign_id"] = "campaign_id"
     nameField: Literal["campaign_name"] = "campaign_name"
     primarySource: Literal["tiktok"] = "tiktok"
     sourceType: Literal["TikTokAds"] = "TikTokAds"
     statsTableName: Literal["campaign_report"] = "campaign_report"
-    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
-    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
+    tableExclusions: list[Literal["report"]] = Field(..., max_length=1, min_length=1)
+    tableKeywords: list[Literal["campaigns"]] = Field(..., max_length=1, min_length=1)
 
 
 class MarketingIntegrationConfig5(BaseModel):
@@ -2633,14 +2732,14 @@ class MarketingIntegrationConfig5(BaseModel):
         extra="forbid",
     )
     campaignTableName: Literal["campaigns"] = "campaigns"
-    defaultSources: list[str] = Field(..., max_length=1, min_length=1)
+    defaultSources: list[Literal["reddit"]] = Field(..., max_length=1, min_length=1)
     idField: Literal["id"] = "id"
     nameField: Literal["name"] = "name"
     primarySource: Literal["reddit"] = "reddit"
     sourceType: Literal["RedditAds"] = "RedditAds"
     statsTableName: Literal["campaign_report"] = "campaign_report"
-    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
-    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
+    tableExclusions: list[Literal["report"]] = Field(..., max_length=1, min_length=1)
+    tableKeywords: list[Literal["campaigns"]] = Field(..., max_length=1, min_length=1)
 
 
 class MarketingIntegrationConfig6(BaseModel):
@@ -2648,14 +2747,14 @@ class MarketingIntegrationConfig6(BaseModel):
         extra="forbid",
     )
     campaignTableName: Literal["campaigns"] = "campaigns"
-    defaultSources: list[str] = Field(..., max_length=2, min_length=2)
+    defaultSources: list[Literal["bing"] | Literal["microsoft"]] = Field(..., max_length=2, min_length=2)
     idField: Literal["id"] = "id"
     nameField: Literal["name"] = "name"
     primarySource: Literal["bing"] = "bing"
     sourceType: Literal["BingAds"] = "BingAds"
     statsTableName: Literal["campaign_performance_report"] = "campaign_performance_report"
-    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
-    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
+    tableExclusions: list[Literal["performance"]] = Field(..., max_length=1, min_length=1)
+    tableKeywords: list[Literal["campaigns"]] = Field(..., max_length=1, min_length=1)
 
 
 class MarketingIntegrationConfig7(BaseModel):
@@ -2663,16 +2762,22 @@ class MarketingIntegrationConfig7(BaseModel):
         extra="forbid",
     )
     campaignTableName: Literal["campaigns"] = "campaigns"
-    conversionFields: list[str] = Field(..., max_length=3, min_length=3)
-    conversionValueFields: list[str] = Field(..., max_length=3, min_length=3)
-    defaultSources: list[str] = Field(..., max_length=1, min_length=1)
+    conversionFields: list[
+        Literal["conversion_purchases"] | Literal["conversion_sign_ups"] | Literal["conversion_subscribe"]
+    ] = Field(..., max_length=3, min_length=3)
+    conversionValueFields: list[
+        Literal["conversion_purchases_value"]
+        | Literal["conversion_sign_ups_value"]
+        | Literal["conversion_subscribe_value"]
+    ] = Field(..., max_length=3, min_length=3)
+    defaultSources: list[Literal["snapchat"]] = Field(..., max_length=1, min_length=1)
     idField: Literal["id"] = "id"
     nameField: Literal["name"] = "name"
     primarySource: Literal["snapchat"] = "snapchat"
     sourceType: Literal["SnapchatAds"] = "SnapchatAds"
     statsTableName: Literal["campaign_stats_daily"] = "campaign_stats_daily"
-    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
-    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
+    tableExclusions: list[Literal["stats_daily"]] = Field(..., max_length=1, min_length=1)
+    tableKeywords: list[Literal["campaigns"]] = Field(..., max_length=1, min_length=1)
 
 
 class MarketingIntegrationConfig8(BaseModel):
@@ -2680,14 +2785,14 @@ class MarketingIntegrationConfig8(BaseModel):
         extra="forbid",
     )
     campaignTableName: Literal["campaigns"] = "campaigns"
-    defaultSources: list[str] = Field(..., max_length=1, min_length=1)
+    defaultSources: list[Literal["pinterest"]] = Field(..., max_length=1, min_length=1)
     idField: Literal["id"] = "id"
     nameField: Literal["name"] = "name"
     primarySource: Literal["pinterest"] = "pinterest"
     sourceType: Literal["PinterestAds"] = "PinterestAds"
     statsTableName: Literal["campaign_analytics"] = "campaign_analytics"
-    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
-    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
+    tableExclusions: list[Literal["analytics"]] = Field(..., max_length=1, min_length=1)
+    tableKeywords: list[Literal["campaigns"]] = Field(..., max_length=1, min_length=1)
 
 
 class MarketingIntegrationConfig(
@@ -2755,8 +2860,8 @@ class SpendHistoryItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    breakdown_type: BillingSpendResponseBreakdownType | None = None
-    breakdown_value: str | list[str] | None = None
+    breakdown_type: BillingSpendResponseBreakdownType | None
+    breakdown_value: str | list[str] | None
     data: list[float]
     dates: list[str]
     id: float
@@ -2767,8 +2872,8 @@ class UsageHistoryItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    breakdown_type: BillingUsageResponseBreakdownType | None = None
-    breakdown_value: str | list[str] | None = None
+    breakdown_type: BillingUsageResponseBreakdownType | None
+    breakdown_value: str | list[str] | None
     data: list[float]
     dates: list[str]
     id: float
@@ -2883,9 +2988,9 @@ class MaxExperimentVariantResultBayesian(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    chance_to_win: float | None = None
-    credible_interval: list[float] | None = None
-    delta: float | None = None
+    chance_to_win: float | None
+    credible_interval: list[float] | None
+    delta: float | None
     key: str
     significant: bool
 
@@ -2894,10 +2999,10 @@ class MaxExperimentVariantResultFrequentist(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    confidence_interval: list[float] | None = None
-    delta: float | None = None
+    confidence_interval: list[float] | None
+    delta: float | None
     key: str
-    p_value: float | None = None
+    p_value: float | None
     significant: bool
 
 
@@ -3437,7 +3542,7 @@ class PropertyOperator(StrEnum):
     NOT_BETWEEN = "not_between"
     MIN = "min"
     MAX = "max"
-    IN_ = "in"
+    IN = "in"
     NOT_IN = "not_in"
     IS_CLEANED_PATH_EXACT = "is_cleaned_path_exact"
     FLAG_EVALUATES_TO = "flag_evaluates_to"
@@ -3512,8 +3617,8 @@ class QueryResponseAlternative7(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    bytecode: list | None = None
-    coloredBytecode: list | None = None
+    bytecode: list[Any] | None = None
+    coloredBytecode: list[Any] | None = None
     results: Any
     stdout: str | None = None
 
@@ -3552,7 +3657,7 @@ class ReasoningMessage(BaseModel):
     id: str | None = None
     parent_tool_call_id: str | None = None
     substeps: list[str] | None = None
-    type: Literal["ai/reasoning"] = "ai/reasoning"
+    type: Literal["ai/reasoning"] = Field(default="ai/reasoning", deprecated="The model should not be used")
 
 
 class RecordingDurationFilter(BaseModel):
@@ -3589,7 +3694,7 @@ class RecordingPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    key: DurationType | str
+    key: DurationType | Literal["snapshot_source"] | Literal["visited_page"] | Literal["comment_text"]
     label: str | None = None
     operator: PropertyOperator
     type: Literal["recording"] = "recording"
@@ -3609,7 +3714,7 @@ class RedditAdsTableKeywords(StrEnum):
 
 
 class RefreshType(StrEnum):
-    ASYNC_ = "async"
+    ASYNC = "async"
     ASYNC_EXCEPT_ON_CACHE_MISS = "async_except_on_cache_miss"
     BLOCKING = "blocking"
     FORCE_ASYNC = "force_async"
@@ -3805,7 +3910,7 @@ class SessionEventsItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    events: list[list] = Field(
+    events: list[list[Any]] = Field(
         ...,
         description=(
             "List of events for this session, each event is a list of field values matching the query columns"
@@ -3931,7 +4036,7 @@ class SimilarIssue(BaseModel):
     distance: float
     first_seen: str
     id: str
-    library: str | None = None
+    library: str | None
     name: str
     status: str
 
@@ -3978,7 +4083,7 @@ class SourceFieldFileUploadJsonFormatConfig(BaseModel):
         extra="forbid",
     )
     format: Literal[".json"] = ".json"
-    keys: str | list[str]
+    keys: Literal["*"] | list[str]
 
 
 class SourceFieldInputConfigType(StrEnum):
@@ -4582,10 +4687,10 @@ class ZendeskTicketSignalExtra(BaseModel):
         extra="forbid",
     )
     created_at: str
-    priority: str | None = None
+    priority: str | None
     status: str
     tags: list[str]
-    type: str | None = None
+    type: str | None
     url: str
 
 
@@ -4627,8 +4732,10 @@ class AlertCondition(BaseModel):
     type: AlertConditionType
 
 
-class ApprovalCardUIStatus(RootModel[ApprovalDecisionStatus | str]):
-    root: ApprovalDecisionStatus | str
+class ApprovalCardUIStatus(
+    RootModel[ApprovalDecisionStatus | Literal["approving"] | Literal["rejecting"] | Literal["custom"]]
+):
+    root: ApprovalDecisionStatus | Literal["approving"] | Literal["rejecting"] | Literal["custom"]
 
 
 class AssistantArrayPropertyFilter(BaseModel):
@@ -4845,7 +4952,7 @@ class AssistantFunnelsFilter(BaseModel):
         ),
     )
     exclusions: list[AssistantFunnelsExclusionEventsNode] | None = Field(
-        default=[],
+        default_factory=list,
         description=(
             "Users may want to use exclusion events to filter out conversions in which"
             " a particular event occurred between specific steps. These events must not"
@@ -5494,7 +5601,7 @@ class CohortPropertyFilter(BaseModel):
     cohort_name: str | None = None
     key: Literal["id"] = "id"
     label: str | None = None
-    operator: PropertyOperator | None = PropertyOperator.IN_
+    operator: PropertyOperator | None = PropertyOperator.IN
     type: Literal["cohort"] = "cohort"
     value: int
 
@@ -5651,7 +5758,7 @@ class EndpointsUsageOverviewItem(BaseModel):
     changeFromPreviousPct: float | None = None
     key: EndpointsUsageOverviewItemKey
     previous: float | None = None
-    value: float | None = None
+    value: float | None
 
 
 class ErrorTrackingExternalReferenceIntegration(BaseModel):
@@ -5969,7 +6076,7 @@ class FunnelsFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    bin_count: float | str | None = None
+    bin_count: float | Literal["auto"] | None = None
     breakdown_attribution_type: BreakdownAttributionType | None = None
     breakdown_attribution_value: float | None = None
     exclusions: list[FunnelExclusionLegacy] | None = None
@@ -6264,10 +6371,10 @@ class MaxExperimentSummaryContext(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    description: str | None = None
-    experiment_id: float | str
+    description: str | None
+    experiment_id: float | Literal["new"] | Literal["web"]
     experiment_name: str
-    exposures: dict[str, float] | None = None
+    exposures: dict[str, float] | None
     primary_metrics_results: list[MaxExperimentMetricResult]
     secondary_metrics_results: list[MaxExperimentMetricResult]
     stats_method: ExperimentStatsMethod
@@ -6410,7 +6517,7 @@ class PlanningStep(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    description: str
+    description: str = Field(..., deprecated="The class should not be used")
     status: PlanningStepStatus
 
 
@@ -6436,11 +6543,11 @@ class ProductItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    category: str | None = None
-    iconType: str | None = None
+    category: str | None
+    iconType: str | None
     intents: list[ProductKey]
     path: str
-    type: str | None = None
+    type: str | None
 
 
 class ProductsData(BaseModel):
@@ -6457,7 +6564,7 @@ class PropertyValueItem(BaseModel):
         extra="forbid",
     )
     count: int | None = None
-    name: str | float | bool | None = None
+    name: str | float | bool | None
 
 
 class QueryResponseAlternative9(BaseModel):
@@ -6684,7 +6791,7 @@ class RevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -6810,7 +6917,7 @@ class RevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -6834,14 +6941,14 @@ class RevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class RevenueExampleEventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -6865,7 +6972,7 @@ class RevenueExampleEventsQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class SavedInsightNode(BaseModel):
@@ -6976,7 +7083,7 @@ class SessionAttributionExplorerQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -7000,14 +7107,14 @@ class SessionAttributionExplorerQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class SessionBatchEventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description=(
@@ -7027,7 +7134,7 @@ class SessionBatchEventsQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     session_events: list[SessionEventsItem] | None = Field(
         default=None,
         description=("Events grouped by session ID. Only populated when group_by_session=True."),
@@ -7098,7 +7205,7 @@ class SessionsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description=(
@@ -7117,7 +7224,7 @@ class SessionsQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -7268,7 +7375,7 @@ class SurveyAnalysisQuestionGroup(BaseModel):
     questionId: str | None = Field(default="unknown", description="Question identifier")
     questionName: str | None = Field(default="Unknown question", description="Question text")
     responses: list[SurveyAnalysisResponseItem] | None = Field(
-        default=[], description="List of responses for this question"
+        default_factory=list, description="List of responses for this question"
     )
 
 
@@ -7356,7 +7463,7 @@ class TaskExecutionItem(BaseModel):
     )
     artifact_ids: list[str] | None = None
     description: str
-    id: str
+    id: str = Field(..., deprecated="The class should not be used")
     progress_text: str | None = None
     prompt: str
     status: TaskExecutionStatus
@@ -7370,7 +7477,7 @@ class TaskExecutionMessage(BaseModel):
     id: str | None = None
     parent_tool_call_id: str | None = None
     tasks: list[TaskExecutionItem]
-    type: Literal["ai/task_execution"] = "ai/task_execution"
+    type: Literal["ai/task_execution"] = Field(default="ai/task_execution", deprecated="The class should not be used")
 
 
 class TeamTaxonomyItem(BaseModel):
@@ -7400,7 +7507,7 @@ class TestBasicQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -7436,7 +7543,7 @@ class TestCachedBasicQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None,
@@ -7575,12 +7682,12 @@ class TrendsFilter(BaseModel):
         default=None, description="detailed results table"
     )
     display: ChartDisplayType | None = ChartDisplayType.ACTIONS_LINE_GRAPH
-    formula: str | None = None
+    formula: str | None = Field(default=None, deprecated="Use formulaNodes instead.")
     formulaNodes: list[TrendsFormulaNode] | None = Field(
         default=None,
         description=("List of formulas with optional custom names. Takes precedence over formula/formulas if set."),
     )
-    formulas: list[str] | None = None
+    formulas: list[str] | None = Field(default=None, deprecated="Use formulaNodes instead.")
     goalLines: list[GoalLine] | None = Field(default=None, description="Goal Lines")
     hiddenLegendIndexes: list[int] | None = None
     hideWeekends: bool | None = False
@@ -7643,7 +7750,7 @@ class UsageMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    change_from_previous_pct: float | None = None
+    change_from_previous_pct: float | None
     display: UsageMetricDisplay
     format: UsageMetricFormat
     id: str
@@ -7688,7 +7795,7 @@ class UserProductListItem(BaseModel):
     id: str
     product_path: str
     reason: UserProductListReason
-    reason_text: str | None = None
+    reason_text: str | None
     updated_at: str
 
 
@@ -7729,7 +7836,7 @@ class WebExternalClicksTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -7748,20 +7855,20 @@ class WebExternalClicksTableQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     samplingRate: SamplingRate | None = None
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class WebGoalsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -7780,13 +7887,13 @@ class WebGoalsQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     samplingRate: SamplingRate | None = None
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class WebOverviewQueryResponse(BaseModel):
@@ -7851,7 +7958,7 @@ class WebStatsTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -7870,13 +7977,13 @@ class WebStatsTableQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     samplingRate: SamplingRate | None = None
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
     usedPreAggregatedTables: bool | None = None
 
 
@@ -7945,7 +8052,7 @@ class ActorsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description=(
@@ -7965,7 +8072,7 @@ class ActorsQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -8194,7 +8301,31 @@ class AssistantFunnelsQuery(BaseModel):
             | AssistantElementPropertyFilter5
         ]
         | None
-    ) = Field(default=[], description="Property filters for all series")
+    ) = Field(
+        default_factory=lambda: TypeAdapter(
+            list[
+                AssistantCohortPropertyFilter
+                | AssistantHogQLPropertyFilter
+                | AssistantFlagPropertyFilter
+                | AssistantGenericPropertyFilter1
+                | AssistantGenericPropertyFilter2
+                | AssistantGenericPropertyFilter3
+                | AssistantGenericPropertyFilter4
+                | AssistantGenericPropertyFilter5
+                | AssistantGroupPropertyFilter1
+                | AssistantGroupPropertyFilter2
+                | AssistantGroupPropertyFilter3
+                | AssistantGroupPropertyFilter4
+                | AssistantGroupPropertyFilter5
+                | AssistantElementPropertyFilter1
+                | AssistantElementPropertyFilter2
+                | AssistantElementPropertyFilter3
+                | AssistantElementPropertyFilter4
+                | AssistantElementPropertyFilter5
+            ]
+        ).validate_python([]),
+        description="Property filters for all series",
+    )
     samplingFactor: float | None = Field(
         default=None,
         description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
@@ -8239,7 +8370,31 @@ class AssistantInsightsQueryBase(BaseModel):
             | AssistantElementPropertyFilter5
         ]
         | None
-    ) = Field(default=[], description="Property filters for all series")
+    ) = Field(
+        default_factory=lambda: TypeAdapter(
+            list[
+                AssistantCohortPropertyFilter
+                | AssistantHogQLPropertyFilter
+                | AssistantFlagPropertyFilter
+                | AssistantGenericPropertyFilter1
+                | AssistantGenericPropertyFilter2
+                | AssistantGenericPropertyFilter3
+                | AssistantGenericPropertyFilter4
+                | AssistantGenericPropertyFilter5
+                | AssistantGroupPropertyFilter1
+                | AssistantGroupPropertyFilter2
+                | AssistantGroupPropertyFilter3
+                | AssistantGroupPropertyFilter4
+                | AssistantGroupPropertyFilter5
+                | AssistantElementPropertyFilter1
+                | AssistantElementPropertyFilter2
+                | AssistantElementPropertyFilter3
+                | AssistantElementPropertyFilter4
+                | AssistantElementPropertyFilter5
+            ]
+        ).validate_python([]),
+        description="Property filters for all series",
+    )
     samplingFactor: float | None = Field(
         default=None,
         description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
@@ -8367,11 +8522,228 @@ class AssistantRetentionQuery(BaseModel):
             | AssistantElementPropertyFilter5
         ]
         | None
-    ) = Field(default=[], description="Property filters for all series")
+    ) = Field(
+        default_factory=lambda: TypeAdapter(
+            list[
+                AssistantCohortPropertyFilter
+                | AssistantHogQLPropertyFilter
+                | AssistantFlagPropertyFilter
+                | AssistantGenericPropertyFilter1
+                | AssistantGenericPropertyFilter2
+                | AssistantGenericPropertyFilter3
+                | AssistantGenericPropertyFilter4
+                | AssistantGenericPropertyFilter5
+                | AssistantGroupPropertyFilter1
+                | AssistantGroupPropertyFilter2
+                | AssistantGroupPropertyFilter3
+                | AssistantGroupPropertyFilter4
+                | AssistantGroupPropertyFilter5
+                | AssistantElementPropertyFilter1
+                | AssistantElementPropertyFilter2
+                | AssistantElementPropertyFilter3
+                | AssistantElementPropertyFilter4
+                | AssistantElementPropertyFilter5
+            ]
+        ).validate_python([]),
+        description="Property filters for all series",
+    )
     retentionFilter: AssistantRetentionFilter = Field(..., description="Properties specific to the retention insight")
     samplingFactor: float | None = Field(
         default=None,
         description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
+    )
+
+
+class AssistantStickinessActionsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: str | None = None
+    id: int
+    kind: Literal["ActionsNode"] = "ActionsNode"
+    math: (
+        BaseMathType
+        | FunnelMathType
+        | PropertyMathType
+        | CountPerActorMathType
+        | ExperimentMetricMathType
+        | CalendarHeatmapMathType
+        | Literal["unique_group"]
+        | Literal["hogql"]
+        | None
+    ) = None
+    math_group_type_index: MathGroupTypeIndex | None = None
+    math_multiplier: float | None = None
+    math_property: str | None = None
+    math_property_type: str | None = None
+    name: str = Field(..., description="Action name from the plan.")
+    optionalInFunnel: bool | None = None
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class AssistantStickinessEventsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: str | None = None
+    event: str | None = Field(default=None, description="The event or `null` for all events.")
+    kind: Literal["EventsNode"] = "EventsNode"
+    math: (
+        BaseMathType
+        | FunnelMathType
+        | PropertyMathType
+        | CountPerActorMathType
+        | ExperimentMetricMathType
+        | CalendarHeatmapMathType
+        | Literal["unique_group"]
+        | Literal["hogql"]
+        | None
+    ) = None
+    math_group_type_index: MathGroupTypeIndex | None = None
+    math_multiplier: float | None = None
+    math_property: str | None = None
+    math_property_type: str | None = None
+    name: str | None = None
+    optionalInFunnel: bool | None = None
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class AssistantStickinessQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    compareFilter: CompareFilter | None = Field(
+        default=None,
+        description=("Compare to date range. When enabled, shows the current and previous period side by side."),
+    )
+    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+        default=None, description="Date range for the query"
+    )
+    filterTestAccounts: bool | None = Field(
+        default=False,
+        description=("Exclude internal and test users by applying the respective filters"),
+    )
+    interval: IntervalType | None = Field(
+        default=IntervalType.DAY,
+        description=(
+            "Granularity of the response. Can be one of `hour`, `day`, `week` or"
+            ' `month`. This determines what counts as one "interval" for stickiness'
+            " measurement. For example, with `day` interval over a 30-day range, the"
+            " X-axis shows 1 through 30 days, and each bar/point shows how many users"
+            " performed the event on exactly that many days."
+        ),
+    )
+    kind: Literal["StickinessQuery"] = "StickinessQuery"
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = Field(
+        default_factory=lambda: TypeAdapter(
+            list[
+                AssistantCohortPropertyFilter
+                | AssistantHogQLPropertyFilter
+                | AssistantFlagPropertyFilter
+                | AssistantGenericPropertyFilter1
+                | AssistantGenericPropertyFilter2
+                | AssistantGenericPropertyFilter3
+                | AssistantGenericPropertyFilter4
+                | AssistantGenericPropertyFilter5
+                | AssistantGroupPropertyFilter1
+                | AssistantGroupPropertyFilter2
+                | AssistantGroupPropertyFilter3
+                | AssistantGroupPropertyFilter4
+                | AssistantGroupPropertyFilter5
+                | AssistantElementPropertyFilter1
+                | AssistantElementPropertyFilter2
+                | AssistantElementPropertyFilter3
+                | AssistantElementPropertyFilter4
+                | AssistantElementPropertyFilter5
+            ]
+        ).validate_python([]),
+        description="Property filters for all series",
+    )
+    samplingFactor: float | None = Field(
+        default=None,
+        description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
+    )
+    series: list[AssistantStickinessEventsNode | AssistantStickinessActionsNode] = Field(
+        ...,
+        description=(
+            "Events or actions to include. Each series measures how many intervals"
+            " (e.g. days) within the date range a user performed the event."
+            " Prioritize the more popular and fresh events and actions. When the"
+            " `math` field is omitted on a series, it defaults to counting unique"
+            " persons."
+        ),
+    )
+    stickinessFilter: AssistantStickinessFilter | None = Field(
+        default=None, description="Properties specific to the stickiness insight"
     )
 
 
@@ -8560,7 +8932,31 @@ class AssistantTrendsQuery(BaseModel):
             | AssistantElementPropertyFilter5
         ]
         | None
-    ) = Field(default=[], description="Property filters for all series")
+    ) = Field(
+        default_factory=lambda: TypeAdapter(
+            list[
+                AssistantCohortPropertyFilter
+                | AssistantHogQLPropertyFilter
+                | AssistantFlagPropertyFilter
+                | AssistantGenericPropertyFilter1
+                | AssistantGenericPropertyFilter2
+                | AssistantGenericPropertyFilter3
+                | AssistantGenericPropertyFilter4
+                | AssistantGenericPropertyFilter5
+                | AssistantGroupPropertyFilter1
+                | AssistantGroupPropertyFilter2
+                | AssistantGroupPropertyFilter3
+                | AssistantGroupPropertyFilter4
+                | AssistantGroupPropertyFilter5
+                | AssistantElementPropertyFilter1
+                | AssistantElementPropertyFilter2
+                | AssistantElementPropertyFilter3
+                | AssistantElementPropertyFilter4
+                | AssistantElementPropertyFilter5
+            ]
+        ).validate_python([]),
+        description="Property filters for all series",
+    )
     samplingFactor: float | None = Field(
         default=None,
         description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
@@ -8603,7 +8999,7 @@ class CacheMissResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    cache_key: str | None = None
+    cache_key: str | None
     query_status: QueryStatus | None = None
 
 
@@ -8654,7 +9050,7 @@ class CachedActorsQueryResponse(BaseModel):
         default=None,
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description=(
@@ -8678,7 +9074,7 @@ class CachedActorsQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None,
@@ -8812,7 +9208,7 @@ class CachedEndpointsUsageTableQueryResponse(BaseModel):
         default=None,
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -8835,13 +9231,13 @@ class CachedEndpointsUsageTableQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class CachedEndpointsUsageTrendsQueryResponse(BaseModel):
@@ -9005,7 +9401,7 @@ class CachedEventsQueryResponse(BaseModel):
         default=None,
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description=(
@@ -9029,7 +9425,7 @@ class CachedEventsQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None,
@@ -9074,7 +9470,7 @@ class CachedFunnelCorrelationResponse(BaseModel):
         default=None,
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -9103,7 +9499,7 @@ class CachedFunnelCorrelationResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class CachedFunnelsQueryResponse(BaseModel):
@@ -9153,7 +9549,7 @@ class CachedGroupsQueryResponse(BaseModel):
         default=None,
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description=(
@@ -9177,7 +9573,7 @@ class CachedGroupsQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None,
@@ -9313,7 +9709,7 @@ class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
         default=None,
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -9343,7 +9739,7 @@ class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class CachedNonIntegratedConversionsTableQueryResponse(BaseModel):
@@ -9356,7 +9752,7 @@ class CachedNonIntegratedConversionsTableQueryResponse(BaseModel):
         default=None,
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -9386,7 +9782,7 @@ class CachedNonIntegratedConversionsTableQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class CachedPathsQueryResponse(BaseModel):
@@ -9530,7 +9926,7 @@ class CachedRevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None,
@@ -9699,7 +10095,7 @@ class CachedRevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
         default=None,
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -9728,7 +10124,7 @@ class CachedRevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class CachedRevenueExampleEventsQueryResponse(BaseModel):
@@ -9741,7 +10137,7 @@ class CachedRevenueExampleEventsQueryResponse(BaseModel):
         default=None,
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -9770,7 +10166,7 @@ class CachedRevenueExampleEventsQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class CachedSessionAttributionExplorerQueryResponse(BaseModel):
@@ -9783,7 +10179,7 @@ class CachedSessionAttributionExplorerQueryResponse(BaseModel):
         default=None,
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -9812,7 +10208,7 @@ class CachedSessionAttributionExplorerQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class CachedSessionBatchEventsQueryResponse(BaseModel):
@@ -9825,7 +10221,7 @@ class CachedSessionBatchEventsQueryResponse(BaseModel):
         default=None,
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description=(
@@ -9849,7 +10245,7 @@ class CachedSessionBatchEventsQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     session_events: list[SessionEventsItem] | None = Field(
         default=None,
         description=("Events grouped by session ID. Only populated when group_by_session=True."),
@@ -9875,7 +10271,7 @@ class CachedSessionsQueryResponse(BaseModel):
         default=None,
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description=(
@@ -9898,7 +10294,7 @@ class CachedSessionsQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None,
@@ -10327,7 +10723,7 @@ class CachedWebExternalClicksTableQueryResponse(BaseModel):
         default=None,
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -10350,14 +10746,14 @@ class CachedWebExternalClicksTableQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     samplingRate: SamplingRate | None = None
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class CachedWebGoalsQueryResponse(BaseModel):
@@ -10370,7 +10766,7 @@ class CachedWebGoalsQueryResponse(BaseModel):
         default=None,
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -10393,14 +10789,14 @@ class CachedWebGoalsQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     samplingRate: SamplingRate | None = None
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class CachedWebOverviewQueryResponse(BaseModel):
@@ -10493,7 +10889,7 @@ class CachedWebStatsTableQueryResponse(BaseModel):
         default=None,
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -10516,14 +10912,14 @@ class CachedWebStatsTableQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     samplingRate: SamplingRate | None = None
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
     usedPreAggregatedTables: bool | None = None
 
 
@@ -10892,7 +11288,7 @@ class Response(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description=(
@@ -10912,7 +11308,7 @@ class Response(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -10924,7 +11320,7 @@ class Response1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description=(
@@ -10944,7 +11340,7 @@ class Response1(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -10956,7 +11352,7 @@ class Response2(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description=(
@@ -10976,7 +11372,7 @@ class Response2(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -11018,7 +11414,7 @@ class Response5(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -11037,13 +11433,13 @@ class Response5(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     samplingRate: SamplingRate | None = None
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
     usedPreAggregatedTables: bool | None = None
 
 
@@ -11051,7 +11447,7 @@ class Response6(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -11070,13 +11466,13 @@ class Response6(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     samplingRate: SamplingRate | None = None
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class Response8(BaseModel):
@@ -11109,7 +11505,7 @@ class Response9(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -11133,14 +11529,14 @@ class Response9(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class Response10(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description=(
@@ -11159,7 +11555,7 @@ class Response10(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -11187,7 +11583,7 @@ class Response11(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -11305,7 +11701,7 @@ class Response16(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -11329,14 +11725,14 @@ class Response16(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class Response18(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -11361,7 +11757,7 @@ class Response18(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class Response19(BaseModel):
@@ -11395,7 +11791,7 @@ class Response20(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -11420,7 +11816,7 @@ class Response20(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class Response25(BaseModel):
@@ -11457,7 +11853,7 @@ class Response26(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -11476,12 +11872,12 @@ class Response26(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class DataWarehouseNode(BaseModel):
@@ -11652,7 +12048,15 @@ class EndpointRunRequest(BaseModel):
         default=False,
         description=("Whether to include debug information (such as the executed HogQL) in the response."),
     )
-    filters_override: DashboardFilter | None = None
+    filters_override: DashboardFilter | None = Field(
+        default=None,
+        deprecated=(
+            "Use `variables` instead. Will be removed in a future release.\n\nOverride"
+            " dashboard filters for insight endpoints (TrendsQuery, FunnelsQuery,"
+            " etc.).\nNot allowed for HogQL endpoints.\n\nFor date filtering, use"
+            ' variables: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`'
+        ),
+    )
     limit: int | None = Field(
         default=None,
         description=("Maximum number of results to return. If not provided, returns all results."),
@@ -11716,7 +12120,7 @@ class EndpointsUsageTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -11735,12 +12139,12 @@ class EndpointsUsageTableQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class EndpointsUsageTrendsQueryResponse(BaseModel):
@@ -11887,9 +12291,9 @@ class ErrorTrackingIssue(BaseModel):
         extra="forbid",
     )
     aggregations: ErrorTrackingIssueAggregations | None = None
-    assignee: ErrorTrackingIssueAssignee | None = None
+    assignee: ErrorTrackingIssueAssignee | None
     cohort: ErrorTrackingIssueCohort | None = None
-    description: str | None = None
+    description: str | None
     external_issues: list[ErrorTrackingExternalReference] | None = None
     first_event: FirstEvent | None = None
     first_seen: AwareDatetime
@@ -11897,8 +12301,8 @@ class ErrorTrackingIssue(BaseModel):
     id: str
     last_event: LastEvent | None = None
     last_seen: AwareDatetime
-    library: str | None = None
-    name: str | None = None
+    library: str | None
+    name: str | None
     source: str | None = None
     status: ErrorTrackingIssueStatus
 
@@ -11936,7 +12340,7 @@ class ErrorTrackingIssueFilteringToolOutput(BaseModel):
     orderDirection: OrderDirection1 | None = None
     removedFilterIndexes: list[int] | None = None
     searchQuery: str | None = None
-    status: ErrorTrackingIssueStatus | str | None = Field(default=None, title="ErrorTrackingQueryStatus")
+    status: ErrorTrackingIssueStatus | Literal["all"] | None = Field(default=None, title="ErrorTrackingQueryStatus")
 
 
 class ErrorTrackingQueryResponse(BaseModel):
@@ -11973,13 +12377,13 @@ class ErrorTrackingRelationalIssue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    assignee: ErrorTrackingIssueAssignee | None = None
+    assignee: ErrorTrackingIssueAssignee | None
     cohort: ErrorTrackingIssueCohort | None = None
-    description: str | None = None
+    description: str | None
     external_issues: list[ErrorTrackingExternalReference] | None = None
     first_seen: AwareDatetime
     id: str
-    name: str | None = None
+    name: str | None
     status: ErrorTrackingIssueStatus
 
 
@@ -12123,7 +12527,7 @@ class EventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description=(
@@ -12143,7 +12547,7 @@ class EventsQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -12324,7 +12728,7 @@ class FunnelCorrelationResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -12348,7 +12752,7 @@ class FunnelCorrelationResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class FunnelExclusionActionsNode(BaseModel):
@@ -12647,7 +13051,7 @@ class GroupsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description=(
@@ -12667,7 +13071,7 @@ class GroupsQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -12747,7 +13151,7 @@ class HogQLQueryResponse(BaseModel):
         extra="forbid",
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
-    columns: list | None = Field(default=None, description="Returned columns")
+    columns: list[Any] | None = Field(default=None, description="Returned columns")
     error: str | None = Field(
         default=None,
         description=(
@@ -12769,12 +13173,12 @@ class HogQLQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = Field(default=None, description="Types of returned columns")
+    types: list[Any] | None = Field(default=None, description="Types of returned columns")
 
 
 class IQRDetectorConfig(BaseModel):
@@ -13120,7 +13524,7 @@ class MarketingAnalyticsTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -13145,7 +13549,7 @@ class MarketingAnalyticsTableQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class MaxBillingContext(BaseModel):
@@ -13153,7 +13557,7 @@ class MaxBillingContext(BaseModel):
         extra="forbid",
     )
     billing_period: MaxBillingContextBillingPeriod | None = None
-    billing_plan: str | None = None
+    billing_plan: str | None
     has_active_subscription: bool
     is_deactivated: bool | None = None
     products: list[MaxProductInfo]
@@ -13204,7 +13608,7 @@ class NonIntegratedConversionsTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -13229,7 +13633,7 @@ class NonIntegratedConversionsTableQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class OCSVMDetectorConfig(BaseModel):
@@ -13369,7 +13773,7 @@ class PlanningMessage(BaseModel):
     id: str | None = None
     parent_tool_call_id: str | None = None
     steps: list[PlanningStep]
-    type: Literal["ai/planning"] = "ai/planning"
+    type: Literal["ai/planning"] = Field(default="ai/planning", deprecated="The class should not be used")
 
 
 class PropertyGroupFilterValue(BaseModel):
@@ -13430,7 +13834,7 @@ class QueryResponseAlternative1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description=(
@@ -13450,7 +13854,7 @@ class QueryResponseAlternative1(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -13462,7 +13866,7 @@ class QueryResponseAlternative2(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description=(
@@ -13481,7 +13885,7 @@ class QueryResponseAlternative2(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -13493,7 +13897,7 @@ class QueryResponseAlternative3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description=(
@@ -13513,7 +13917,7 @@ class QueryResponseAlternative3(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -13525,7 +13929,7 @@ class QueryResponseAlternative4(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description=(
@@ -13545,7 +13949,7 @@ class QueryResponseAlternative4(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -13598,7 +14002,7 @@ class QueryResponseAlternative8(BaseModel):
         extra="forbid",
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
-    columns: list | None = Field(default=None, description="Returned columns")
+    columns: list[Any] | None = Field(default=None, description="Returned columns")
     error: str | None = Field(
         default=None,
         description=(
@@ -13620,19 +14024,19 @@ class QueryResponseAlternative8(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = Field(default=None, description="Types of returned columns")
+    types: list[Any] | None = Field(default=None, description="Types of returned columns")
 
 
 class QueryResponseAlternative11(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -13656,7 +14060,7 @@ class QueryResponseAlternative11(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class QueryResponseAlternative14(BaseModel):
@@ -13807,7 +14211,7 @@ class QueryResponseAlternative24(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -13826,13 +14230,13 @@ class QueryResponseAlternative24(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     samplingRate: SamplingRate | None = None
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
     usedPreAggregatedTables: bool | None = None
 
 
@@ -13840,7 +14244,7 @@ class QueryResponseAlternative25(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -13859,13 +14263,13 @@ class QueryResponseAlternative25(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     samplingRate: SamplingRate | None = None
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class QueryResponseAlternative27(BaseModel):
@@ -13942,7 +14346,7 @@ class QueryResponseAlternative30(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -14060,7 +14464,7 @@ class QueryResponseAlternative35(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -14085,7 +14489,7 @@ class QueryResponseAlternative35(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class QueryResponseAlternative36(BaseModel):
@@ -14119,7 +14523,7 @@ class QueryResponseAlternative37(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -14144,14 +14548,14 @@ class QueryResponseAlternative37(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class QueryResponseAlternative38(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description=(
@@ -14171,7 +14575,7 @@ class QueryResponseAlternative38(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -14183,7 +14587,7 @@ class QueryResponseAlternative39(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description=(
@@ -14203,7 +14607,7 @@ class QueryResponseAlternative39(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -14215,7 +14619,7 @@ class QueryResponseAlternative40(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description=(
@@ -14235,7 +14639,7 @@ class QueryResponseAlternative40(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -14248,7 +14652,7 @@ class QueryResponseAlternative41(BaseModel):
         extra="forbid",
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
-    columns: list | None = Field(default=None, description="Returned columns")
+    columns: list[Any] | None = Field(default=None, description="Returned columns")
     error: str | None = Field(
         default=None,
         description=(
@@ -14270,12 +14674,12 @@ class QueryResponseAlternative41(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = Field(default=None, description="Types of returned columns")
+    types: list[Any] | None = Field(default=None, description="Types of returned columns")
 
 
 class QueryResponseAlternative42(BaseModel):
@@ -14312,7 +14716,7 @@ class QueryResponseAlternative43(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -14331,13 +14735,13 @@ class QueryResponseAlternative43(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     samplingRate: SamplingRate | None = None
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
     usedPreAggregatedTables: bool | None = None
 
 
@@ -14345,7 +14749,7 @@ class QueryResponseAlternative44(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -14364,13 +14768,13 @@ class QueryResponseAlternative44(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     samplingRate: SamplingRate | None = None
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class QueryResponseAlternative46(BaseModel):
@@ -14403,7 +14807,7 @@ class QueryResponseAlternative47(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -14427,14 +14831,14 @@ class QueryResponseAlternative47(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class QueryResponseAlternative48(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description=(
@@ -14453,7 +14857,7 @@ class QueryResponseAlternative48(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -14481,7 +14885,7 @@ class QueryResponseAlternative49(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -14599,7 +15003,7 @@ class QueryResponseAlternative54(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -14623,14 +15027,14 @@ class QueryResponseAlternative54(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class QueryResponseAlternative56(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -14655,7 +15059,7 @@ class QueryResponseAlternative56(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class QueryResponseAlternative57(BaseModel):
@@ -14689,7 +15093,7 @@ class QueryResponseAlternative58(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -14714,7 +15118,7 @@ class QueryResponseAlternative58(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class QueryResponseAlternative59(BaseModel):
@@ -14781,7 +15185,7 @@ class QueryResponseAlternative64(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -14800,12 +15204,12 @@ class QueryResponseAlternative64(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class QueryResponseAlternative65(BaseModel):
@@ -14946,7 +15350,7 @@ class QueryResponseAlternative71(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -14970,7 +15374,7 @@ class QueryResponseAlternative71(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class QueryResponseAlternative73(BaseModel):
@@ -15280,7 +15684,7 @@ class QueryResponseAlternative87(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -15299,12 +15703,12 @@ class QueryResponseAlternative87(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class QueryResponseAlternative88(BaseModel):
@@ -15565,9 +15969,9 @@ class RevenueAnalyticsConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    events: list[RevenueAnalyticsEventItem] | None = []
+    events: list[RevenueAnalyticsEventItem] | None = Field(default_factory=list)
     filter_test_accounts: bool | None = False
-    goals: list[RevenueAnalyticsGoal] | None = []
+    goals: list[RevenueAnalyticsGoal] | None = Field(default_factory=list)
 
 
 class RevenueAnalyticsGrossRevenueQuery(BaseModel):
@@ -16022,7 +16426,7 @@ class WebExternalClicksTableQuery(BaseModel):
     dateRange: DateRange | None = None
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
-    includeRevenue: bool | None = None
+    includeRevenue: bool | None = Field(default=None, deprecated="ignored, always treated as disabled")
     interval: IntervalType | None = Field(
         default=None,
         description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
@@ -16033,11 +16437,11 @@ class WebExternalClicksTableQuery(BaseModel):
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: WebExternalClicksTableQueryResponse | None = None
-    sampling: WebAnalyticsSampling | None = None
+    sampling: WebAnalyticsSampling | None = Field(default=None, deprecated="Use samplingFactor instead")
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     stripQueryParams: bool | None = None
     tags: QueryLogTags | None = None
-    useSessionsTable: bool | None = None
+    useSessionsTable: bool | None = Field(default=None, deprecated="ignored, always treated as enabled *")
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -16060,7 +16464,7 @@ class WebGoalsQuery(BaseModel):
     dateRange: DateRange | None = None
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
-    includeRevenue: bool | None = None
+    includeRevenue: bool | None = Field(default=None, deprecated="ignored, always treated as disabled")
     interval: IntervalType | None = Field(
         default=None,
         description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
@@ -16071,10 +16475,10 @@ class WebGoalsQuery(BaseModel):
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: WebGoalsQueryResponse | None = None
-    sampling: WebAnalyticsSampling | None = None
+    sampling: WebAnalyticsSampling | None = Field(default=None, deprecated="Use samplingFactor instead")
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = None
-    useSessionsTable: bool | None = None
+    useSessionsTable: bool | None = Field(default=None, deprecated="ignored, always treated as enabled *")
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -16097,7 +16501,7 @@ class WebOverviewQuery(BaseModel):
     dateRange: DateRange | None = None
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
-    includeRevenue: bool | None = None
+    includeRevenue: bool | None = Field(default=None, deprecated="ignored, always treated as disabled")
     interval: IntervalType | None = Field(
         default=None,
         description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
@@ -16107,10 +16511,10 @@ class WebOverviewQuery(BaseModel):
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: WebOverviewQueryResponse | None = None
-    sampling: WebAnalyticsSampling | None = None
+    sampling: WebAnalyticsSampling | None = Field(default=None, deprecated="Use samplingFactor instead")
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = None
-    useSessionsTable: bool | None = None
+    useSessionsTable: bool | None = Field(default=None, deprecated="ignored, always treated as enabled *")
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -16133,7 +16537,7 @@ class WebPageURLSearchQuery(BaseModel):
     dateRange: DateRange | None = None
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
-    includeRevenue: bool | None = None
+    includeRevenue: bool | None = Field(default=None, deprecated="ignored, always treated as disabled")
     interval: IntervalType | None = Field(
         default=None,
         description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
@@ -16144,12 +16548,12 @@ class WebPageURLSearchQuery(BaseModel):
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: WebPageURLSearchQueryResponse | None = None
-    sampling: WebAnalyticsSampling | None = None
+    sampling: WebAnalyticsSampling | None = Field(default=None, deprecated="Use samplingFactor instead")
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     searchTerm: str | None = None
     stripQueryParams: bool | None = None
     tags: QueryLogTags | None = None
-    useSessionsTable: bool | None = None
+    useSessionsTable: bool | None = Field(default=None, deprecated="ignored, always treated as enabled *")
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -16176,7 +16580,7 @@ class WebStatsTableQuery(BaseModel):
     includeAvgTimeOnPage: bool | None = None
     includeBounceRate: bool | None = None
     includeHost: bool | None = None
-    includeRevenue: bool | None = None
+    includeRevenue: bool | None = Field(default=None, deprecated="ignored, always treated as disabled")
     includeScrollDepth: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
@@ -16189,10 +16593,10 @@ class WebStatsTableQuery(BaseModel):
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: WebStatsTableQueryResponse | None = None
-    sampling: WebAnalyticsSampling | None = None
+    sampling: WebAnalyticsSampling | None = Field(default=None, deprecated="Use samplingFactor instead")
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = None
-    useSessionsTable: bool | None = None
+    useSessionsTable: bool | None = Field(default=None, deprecated="ignored, always treated as enabled *")
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -16201,7 +16605,7 @@ class WebTrendsQueryResponse(BaseModel):
         extra="forbid",
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
-    columns: list | None = Field(default=None, description="Returned columns")
+    columns: list[Any] | None = Field(default=None, description="Returned columns")
     error: str | None = Field(
         default=None,
         description=(
@@ -16229,7 +16633,7 @@ class WebTrendsQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = Field(default=None, description="Types of returned columns")
+    types: list[Any] | None = Field(default=None, description="Types of returned columns")
     usedPreAggregatedTables: bool | None = None
 
 
@@ -16507,7 +16911,7 @@ class CachedHogQLQueryResponse(BaseModel):
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
-    columns: list | None = Field(default=None, description="Returned columns")
+    columns: list[Any] | None = Field(default=None, description="Returned columns")
     error: str | None = Field(
         default=None,
         description=(
@@ -16533,13 +16937,13 @@ class CachedHogQLQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = Field(default=None, description="Types of returned columns")
+    types: list[Any] | None = Field(default=None, description="Types of returned columns")
 
 
 class CachedInsightActorsQueryOptionsResponse(BaseModel):
@@ -16611,7 +17015,7 @@ class CachedWebTrendsQueryResponse(BaseModel):
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
-    columns: list | None = Field(default=None, description="Returned columns")
+    columns: list[Any] | None = Field(default=None, description="Returned columns")
     error: str | None = Field(
         default=None,
         description=(
@@ -16644,7 +17048,7 @@ class CachedWebTrendsQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = Field(default=None, description="Types of returned columns")
+    types: list[Any] | None = Field(default=None, description="Types of returned columns")
     usedPreAggregatedTables: bool | None = None
 
 
@@ -16720,7 +17124,7 @@ class Response3(BaseModel):
         extra="forbid",
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
-    columns: list | None = Field(default=None, description="Returned columns")
+    columns: list[Any] | None = Field(default=None, description="Returned columns")
     error: str | None = Field(
         default=None,
         description=(
@@ -16742,12 +17146,12 @@ class Response3(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    types: list | None = Field(default=None, description="Types of returned columns")
+    types: list[Any] | None = Field(default=None, description="Types of returned columns")
 
 
 class Response21(BaseModel):
@@ -16898,16 +17302,16 @@ class ErrorTrackingCorrelatedIssue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    assignee: ErrorTrackingIssueAssignee | None = None
+    assignee: ErrorTrackingIssueAssignee | None
     cohort: ErrorTrackingIssueCohort | None = None
-    description: str | None = None
+    description: str | None
     event: str
     external_issues: list[ErrorTrackingExternalReference] | None = None
     first_seen: AwareDatetime
     id: str
     last_seen: AwareDatetime
-    library: str | None = None
-    name: str | None = None
+    library: str | None
+    name: str | None
     odds_ratio: float
     population: Population
     status: ErrorTrackingIssueStatus
@@ -16998,13 +17402,13 @@ class ExperimentHoldoutType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    created_at: str | None = None
-    created_by: UserBasicType | None = None
-    description: str | None = None
+    created_at: str | None
+    created_by: UserBasicType | None
+    description: str | None
     filters: list[FeatureFlagGroupType]
-    id: float | None = None
+    id: float | None
     name: str
-    updated_at: str | None = None
+    updated_at: str | None
 
 
 class ExperimentRatioMetric(BaseModel):
@@ -17092,7 +17496,11 @@ class FunnelsFilter(BaseModel):
             "For data warehouse based funnel insights when the aggregation target can't be mapped to persons or groups."
         ),
     )
-    exclusions: list[FunnelExclusionEventsNode | FunnelExclusionActionsNode] | None = []
+    exclusions: list[FunnelExclusionEventsNode | FunnelExclusionActionsNode] | None = Field(
+        default_factory=lambda: TypeAdapter(
+            list[FunnelExclusionEventsNode | FunnelExclusionActionsNode]
+        ).validate_python([])
+    )
     funnelAggregateByHogQL: str | None = None
     funnelFromStep: int | None = None
     funnelOrderType: StepOrderValue | None = StepOrderValue.ORDERED
@@ -17145,7 +17553,7 @@ class HogQLQuery(BaseModel):
         default=None,
         description=("Optional direct external data source id for running against a specific source"),
     )
-    explain: bool | None = None
+    explain: bool | None = Field(default=None, deprecated="use modifiers.debug instead")
     filters: HogQLFilters | None = None
     kind: Literal["HogQLQuery"] = "HogQLQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -17227,7 +17635,7 @@ class MarketingAnalyticsAggregatedQuery(BaseModel):
         description=("Drill-down hierarchy level: channel, source, or campaign (default)"),
     )
     filterTestAccounts: bool | None = None
-    includeRevenue: bool | None = None
+    includeRevenue: bool | None = Field(default=None, deprecated="ignored, always treated as disabled")
     integrationFilter: IntegrationFilter | None = Field(default=None, description="Filter by integration IDs")
     interval: IntervalType | None = Field(
         default=None,
@@ -17237,14 +17645,14 @@ class MarketingAnalyticsAggregatedQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: MarketingAnalyticsAggregatedQueryResponse | None = None
-    sampling: WebAnalyticsSampling | None = None
+    sampling: WebAnalyticsSampling | None = Field(default=None, deprecated="Use samplingFactor instead")
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     select: list[str] | None = Field(
         default=None,
         description="Return a limited set of data. Will use default columns if empty.",
     )
     tags: QueryLogTags | None = None
-    useSessionsTable: bool | None = None
+    useSessionsTable: bool | None = Field(default=None, deprecated="ignored, always treated as enabled *")
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -17275,7 +17683,7 @@ class MarketingAnalyticsTableQuery(BaseModel):
         description=("Drill-down hierarchy level: channel, source, or campaign (default)"),
     )
     filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
-    includeRevenue: bool | None = None
+    includeRevenue: bool | None = Field(default=None, deprecated="ignored, always treated as disabled")
     integrationFilter: IntegrationFilter | None = Field(default=None, description="Filter by integration type")
     interval: IntervalType | None = Field(
         default=None,
@@ -17290,14 +17698,14 @@ class MarketingAnalyticsTableQuery(BaseModel):
     )
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: MarketingAnalyticsTableQueryResponse | None = None
-    sampling: WebAnalyticsSampling | None = None
+    sampling: WebAnalyticsSampling | None = Field(default=None, deprecated="Use samplingFactor instead")
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     select: list[str] | None = Field(
         default=None,
         description="Return a limited set of data. Will use default columns if empty.",
     )
     tags: QueryLogTags | None = None
-    useSessionsTable: bool | None = None
+    useSessionsTable: bool | None = Field(default=None, deprecated="ignored, always treated as enabled *")
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -17387,7 +17795,7 @@ class NonIntegratedConversionsTableQuery(BaseModel):
         description="Draft conversion goal that can be set in the UI without saving",
     )
     filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
-    includeRevenue: bool | None = None
+    includeRevenue: bool | None = Field(default=None, deprecated="ignored, always treated as disabled")
     interval: IntervalType | None = Field(
         default=None,
         description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
@@ -17401,14 +17809,14 @@ class NonIntegratedConversionsTableQuery(BaseModel):
     )
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: NonIntegratedConversionsTableQueryResponse | None = None
-    sampling: WebAnalyticsSampling | None = None
+    sampling: WebAnalyticsSampling | None = Field(default=None, deprecated="Use samplingFactor instead")
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     select: list[str] | None = Field(
         default=None,
         description="Return a limited set of data. Will use default columns if empty.",
     )
     tags: QueryLogTags | None = None
-    useSessionsTable: bool | None = None
+    useSessionsTable: bool | None = Field(default=None, deprecated="ignored, always treated as enabled *")
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -17512,7 +17920,7 @@ class RecordingsQuery(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    operand: FilterLogicalOperator | None = FilterLogicalOperator.AND_
+    operand: FilterLogicalOperator | None = FilterLogicalOperator.AND
     order: RecordingOrder | None = RecordingOrder.START_TIME
     order_direction: RecordingOrderDirection | None = Field(
         default=RecordingOrderDirection.DESC,
@@ -17600,7 +18008,32 @@ class RetentionQuery(BaseModel):
         ]
         | PropertyGroupFilter
         | None
-    ) = Field(default=[], description="Property filters for all series")
+    ) = Field(
+        default_factory=lambda: TypeAdapter(
+            list[
+                EventPropertyFilter
+                | PersonPropertyFilter
+                | ElementPropertyFilter
+                | EventMetadataPropertyFilter
+                | SessionPropertyFilter
+                | CohortPropertyFilter
+                | RecordingPropertyFilter
+                | LogEntryPropertyFilter
+                | GroupPropertyFilter
+                | FeaturePropertyFilter
+                | FlagPropertyFilter
+                | HogQLPropertyFilter
+                | EmptyPropertyFilter
+                | DataWarehousePropertyFilter
+                | DataWarehousePersonPropertyFilter
+                | ErrorTrackingIssueFilter
+                | LogPropertyFilter
+                | RevenueAnalyticsPropertyFilter
+            ]
+            | PropertyGroupFilter
+        ).validate_python([]),
+        description="Property filters for all series",
+    )
     response: RetentionQueryResponse | None = None
     retentionFilter: RetentionFilter = Field(..., description="Properties specific to the retention insight")
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
@@ -17652,7 +18085,32 @@ class StickinessQuery(BaseModel):
         ]
         | PropertyGroupFilter
         | None
-    ) = Field(default=[], description="Property filters for all series")
+    ) = Field(
+        default_factory=lambda: TypeAdapter(
+            list[
+                EventPropertyFilter
+                | PersonPropertyFilter
+                | ElementPropertyFilter
+                | EventMetadataPropertyFilter
+                | SessionPropertyFilter
+                | CohortPropertyFilter
+                | RecordingPropertyFilter
+                | LogEntryPropertyFilter
+                | GroupPropertyFilter
+                | FeaturePropertyFilter
+                | FlagPropertyFilter
+                | HogQLPropertyFilter
+                | EmptyPropertyFilter
+                | DataWarehousePropertyFilter
+                | DataWarehousePersonPropertyFilter
+                | ErrorTrackingIssueFilter
+                | LogPropertyFilter
+                | RevenueAnalyticsPropertyFilter
+            ]
+            | PropertyGroupFilter
+        ).validate_python([]),
+        description="Property filters for all series",
+    )
     response: StickinessQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     series: list[EventsNode | ActionsNode | DataWarehouseNode] = Field(..., description="Events and actions to include")
@@ -17708,7 +18166,7 @@ class WebTrendsQuery(BaseModel):
     dateRange: DateRange | None = None
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
-    includeRevenue: bool | None = None
+    includeRevenue: bool | None = Field(default=None, deprecated="ignored, always treated as disabled")
     interval: IntervalType = Field(
         ...,
         description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
@@ -17721,10 +18179,10 @@ class WebTrendsQuery(BaseModel):
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: WebTrendsQueryResponse | None = None
-    sampling: WebAnalyticsSampling | None = None
+    sampling: WebAnalyticsSampling | None = Field(default=None, deprecated="Use samplingFactor instead")
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = None
-    useSessionsTable: bool | None = None
+    useSessionsTable: bool | None = Field(default=None, deprecated="ignored, always treated as enabled *")
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -17747,7 +18205,7 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     dateRange: DateRange | None = None
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
-    includeRevenue: bool | None = None
+    includeRevenue: bool | None = Field(default=None, deprecated="ignored, always treated as disabled")
     interval: IntervalType | None = Field(
         default=None,
         description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
@@ -17759,11 +18217,11 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     percentile: WebVitalsPercentile
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: WebVitalsPathBreakdownQueryResponse | None = None
-    sampling: WebAnalyticsSampling | None = None
+    sampling: WebAnalyticsSampling | None = Field(default=None, deprecated="Use samplingFactor instead")
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = None
     thresholds: list[float] = Field(..., max_length=2, min_length=2)
-    useSessionsTable: bool | None = None
+    useSessionsTable: bool | None = Field(default=None, deprecated="ignored, always treated as enabled *")
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -17855,7 +18313,32 @@ class CalendarHeatmapQuery(BaseModel):
         ]
         | PropertyGroupFilter
         | None
-    ) = Field(default=[], description="Property filters for all series")
+    ) = Field(
+        default_factory=lambda: TypeAdapter(
+            list[
+                EventPropertyFilter
+                | PersonPropertyFilter
+                | ElementPropertyFilter
+                | EventMetadataPropertyFilter
+                | SessionPropertyFilter
+                | CohortPropertyFilter
+                | RecordingPropertyFilter
+                | LogEntryPropertyFilter
+                | GroupPropertyFilter
+                | FeaturePropertyFilter
+                | FlagPropertyFilter
+                | HogQLPropertyFilter
+                | EmptyPropertyFilter
+                | DataWarehousePropertyFilter
+                | DataWarehousePersonPropertyFilter
+                | ErrorTrackingIssueFilter
+                | LogPropertyFilter
+                | RevenueAnalyticsPropertyFilter
+            ]
+            | PropertyGroupFilter
+        ).validate_python([]),
+        description="Property filters for all series",
+    )
     response: CalendarHeatmapResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     series: list[EventsNode | ActionsNode | DataWarehouseNode] = Field(..., description="Events and actions to include")
@@ -18024,7 +18507,7 @@ class ErrorTrackingQuery(BaseModel):
     personId: str | None = None
     response: ErrorTrackingQueryResponse | None = None
     searchQuery: str | None = None
-    status: ErrorTrackingIssueStatus | str | None = Field(default=None, title="ErrorTrackingQueryStatus")
+    status: ErrorTrackingIssueStatus | Literal["all"] | None = Field(default=None, title="ErrorTrackingQueryStatus")
     tags: QueryLogTags | None = None
     useQueryV2: bool | None = Field(
         default=None,
@@ -18041,7 +18524,7 @@ class ExperimentExposureQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    end_date: str | None = None
+    end_date: str | None
     experiment_id: int | None = None
     experiment_name: str
     exposure_criteria: ExperimentExposureCriteria | None = None
@@ -18050,7 +18533,7 @@ class ExperimentExposureQuery(BaseModel):
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: ExperimentExposureQueryResponse | None = None
-    start_date: str | None = None
+    start_date: str | None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -18284,7 +18767,32 @@ class InsightsQueryBaseCalendarHeatmapResponse(BaseModel):
         ]
         | PropertyGroupFilter
         | None
-    ) = Field(default=[], description="Property filters for all series")
+    ) = Field(
+        default_factory=lambda: TypeAdapter(
+            list[
+                EventPropertyFilter
+                | PersonPropertyFilter
+                | ElementPropertyFilter
+                | EventMetadataPropertyFilter
+                | SessionPropertyFilter
+                | CohortPropertyFilter
+                | RecordingPropertyFilter
+                | LogEntryPropertyFilter
+                | GroupPropertyFilter
+                | FeaturePropertyFilter
+                | FlagPropertyFilter
+                | HogQLPropertyFilter
+                | EmptyPropertyFilter
+                | DataWarehousePropertyFilter
+                | DataWarehousePersonPropertyFilter
+                | ErrorTrackingIssueFilter
+                | LogPropertyFilter
+                | RevenueAnalyticsPropertyFilter
+            ]
+            | PropertyGroupFilter
+        ).validate_python([]),
+        description="Property filters for all series",
+    )
     response: CalendarHeatmapResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
@@ -18327,7 +18835,32 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
         ]
         | PropertyGroupFilter
         | None
-    ) = Field(default=[], description="Property filters for all series")
+    ) = Field(
+        default_factory=lambda: TypeAdapter(
+            list[
+                EventPropertyFilter
+                | PersonPropertyFilter
+                | ElementPropertyFilter
+                | EventMetadataPropertyFilter
+                | SessionPropertyFilter
+                | CohortPropertyFilter
+                | RecordingPropertyFilter
+                | LogEntryPropertyFilter
+                | GroupPropertyFilter
+                | FeaturePropertyFilter
+                | FlagPropertyFilter
+                | HogQLPropertyFilter
+                | EmptyPropertyFilter
+                | DataWarehousePropertyFilter
+                | DataWarehousePersonPropertyFilter
+                | ErrorTrackingIssueFilter
+                | LogPropertyFilter
+                | RevenueAnalyticsPropertyFilter
+            ]
+            | PropertyGroupFilter
+        ).validate_python([]),
+        description="Property filters for all series",
+    )
     response: FunnelsQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
@@ -18370,7 +18903,32 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
         ]
         | PropertyGroupFilter
         | None
-    ) = Field(default=[], description="Property filters for all series")
+    ) = Field(
+        default_factory=lambda: TypeAdapter(
+            list[
+                EventPropertyFilter
+                | PersonPropertyFilter
+                | ElementPropertyFilter
+                | EventMetadataPropertyFilter
+                | SessionPropertyFilter
+                | CohortPropertyFilter
+                | RecordingPropertyFilter
+                | LogEntryPropertyFilter
+                | GroupPropertyFilter
+                | FeaturePropertyFilter
+                | FlagPropertyFilter
+                | HogQLPropertyFilter
+                | EmptyPropertyFilter
+                | DataWarehousePropertyFilter
+                | DataWarehousePersonPropertyFilter
+                | ErrorTrackingIssueFilter
+                | LogPropertyFilter
+                | RevenueAnalyticsPropertyFilter
+            ]
+            | PropertyGroupFilter
+        ).validate_python([]),
+        description="Property filters for all series",
+    )
     response: LifecycleQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
@@ -18413,7 +18971,32 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
         ]
         | PropertyGroupFilter
         | None
-    ) = Field(default=[], description="Property filters for all series")
+    ) = Field(
+        default_factory=lambda: TypeAdapter(
+            list[
+                EventPropertyFilter
+                | PersonPropertyFilter
+                | ElementPropertyFilter
+                | EventMetadataPropertyFilter
+                | SessionPropertyFilter
+                | CohortPropertyFilter
+                | RecordingPropertyFilter
+                | LogEntryPropertyFilter
+                | GroupPropertyFilter
+                | FeaturePropertyFilter
+                | FlagPropertyFilter
+                | HogQLPropertyFilter
+                | EmptyPropertyFilter
+                | DataWarehousePropertyFilter
+                | DataWarehousePersonPropertyFilter
+                | ErrorTrackingIssueFilter
+                | LogPropertyFilter
+                | RevenueAnalyticsPropertyFilter
+            ]
+            | PropertyGroupFilter
+        ).validate_python([]),
+        description="Property filters for all series",
+    )
     response: PathsQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
@@ -18456,7 +19039,32 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
         ]
         | PropertyGroupFilter
         | None
-    ) = Field(default=[], description="Property filters for all series")
+    ) = Field(
+        default_factory=lambda: TypeAdapter(
+            list[
+                EventPropertyFilter
+                | PersonPropertyFilter
+                | ElementPropertyFilter
+                | EventMetadataPropertyFilter
+                | SessionPropertyFilter
+                | CohortPropertyFilter
+                | RecordingPropertyFilter
+                | LogEntryPropertyFilter
+                | GroupPropertyFilter
+                | FeaturePropertyFilter
+                | FlagPropertyFilter
+                | HogQLPropertyFilter
+                | EmptyPropertyFilter
+                | DataWarehousePropertyFilter
+                | DataWarehousePersonPropertyFilter
+                | ErrorTrackingIssueFilter
+                | LogPropertyFilter
+                | RevenueAnalyticsPropertyFilter
+            ]
+            | PropertyGroupFilter
+        ).validate_python([]),
+        description="Property filters for all series",
+    )
     response: RetentionQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
@@ -18499,7 +19107,32 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
         ]
         | PropertyGroupFilter
         | None
-    ) = Field(default=[], description="Property filters for all series")
+    ) = Field(
+        default_factory=lambda: TypeAdapter(
+            list[
+                EventPropertyFilter
+                | PersonPropertyFilter
+                | ElementPropertyFilter
+                | EventMetadataPropertyFilter
+                | SessionPropertyFilter
+                | CohortPropertyFilter
+                | RecordingPropertyFilter
+                | LogEntryPropertyFilter
+                | GroupPropertyFilter
+                | FeaturePropertyFilter
+                | FlagPropertyFilter
+                | HogQLPropertyFilter
+                | EmptyPropertyFilter
+                | DataWarehousePropertyFilter
+                | DataWarehousePersonPropertyFilter
+                | ErrorTrackingIssueFilter
+                | LogPropertyFilter
+                | RevenueAnalyticsPropertyFilter
+            ]
+            | PropertyGroupFilter
+        ).validate_python([]),
+        description="Property filters for all series",
+    )
     response: TrendsQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
@@ -18572,7 +19205,32 @@ class LifecycleQuery(BaseModel):
         ]
         | PropertyGroupFilter
         | None
-    ) = Field(default=[], description="Property filters for all series")
+    ) = Field(
+        default_factory=lambda: TypeAdapter(
+            list[
+                EventPropertyFilter
+                | PersonPropertyFilter
+                | ElementPropertyFilter
+                | EventMetadataPropertyFilter
+                | SessionPropertyFilter
+                | CohortPropertyFilter
+                | RecordingPropertyFilter
+                | LogEntryPropertyFilter
+                | GroupPropertyFilter
+                | FeaturePropertyFilter
+                | FlagPropertyFilter
+                | HogQLPropertyFilter
+                | EmptyPropertyFilter
+                | DataWarehousePropertyFilter
+                | DataWarehousePersonPropertyFilter
+                | ErrorTrackingIssueFilter
+                | LogPropertyFilter
+                | RevenueAnalyticsPropertyFilter
+            ]
+            | PropertyGroupFilter
+        ).validate_python([]),
+        description="Property filters for all series",
+    )
     response: LifecycleQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     series: list[EventsNode | ActionsNode | LifecycleDataWarehouseNode] = Field(
@@ -18853,7 +19511,32 @@ class TrendsQuery(BaseModel):
         ]
         | PropertyGroupFilter
         | None
-    ) = Field(default=[], description="Property filters for all series")
+    ) = Field(
+        default_factory=lambda: TypeAdapter(
+            list[
+                EventPropertyFilter
+                | PersonPropertyFilter
+                | ElementPropertyFilter
+                | EventMetadataPropertyFilter
+                | SessionPropertyFilter
+                | CohortPropertyFilter
+                | RecordingPropertyFilter
+                | LogEntryPropertyFilter
+                | GroupPropertyFilter
+                | FeaturePropertyFilter
+                | FlagPropertyFilter
+                | HogQLPropertyFilter
+                | EmptyPropertyFilter
+                | DataWarehousePropertyFilter
+                | DataWarehousePersonPropertyFilter
+                | ErrorTrackingIssueFilter
+                | LogPropertyFilter
+                | RevenueAnalyticsPropertyFilter
+            ]
+            | PropertyGroupFilter
+        ).validate_python([]),
+        description="Property filters for all series",
+    )
     response: TrendsQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     series: list[GroupNode | EventsNode | ActionsNode | DataWarehouseNode] = Field(
@@ -19018,15 +19701,15 @@ class ExperimentMetricTimeseries(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    computed_at: str | None = None
+    computed_at: str | None
     created_at: str
-    errors: dict[str, str] | None = None
+    errors: dict[str, str] | None
     experiment_id: float
     metric_uuid: str
     recalculation_created_at: str | None = None
     recalculation_status: str | None = None
     status: Status
-    timeseries: dict[str, ExperimentQueryResponse] | None = None
+    timeseries: dict[str, ExperimentQueryResponse] | None
     updated_at: str
 
 
@@ -19103,7 +19786,32 @@ class FunnelsQuery(BaseModel):
         ]
         | PropertyGroupFilter
         | None
-    ) = Field(default=[], description="Property filters for all series")
+    ) = Field(
+        default_factory=lambda: TypeAdapter(
+            list[
+                EventPropertyFilter
+                | PersonPropertyFilter
+                | ElementPropertyFilter
+                | EventMetadataPropertyFilter
+                | SessionPropertyFilter
+                | CohortPropertyFilter
+                | RecordingPropertyFilter
+                | LogEntryPropertyFilter
+                | GroupPropertyFilter
+                | FeaturePropertyFilter
+                | FlagPropertyFilter
+                | HogQLPropertyFilter
+                | EmptyPropertyFilter
+                | DataWarehousePropertyFilter
+                | DataWarehousePersonPropertyFilter
+                | ErrorTrackingIssueFilter
+                | LogPropertyFilter
+                | RevenueAnalyticsPropertyFilter
+            ]
+            | PropertyGroupFilter
+        ).validate_python([]),
+        description="Property filters for all series",
+    )
     response: FunnelsQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     series: list[GroupNode | EventsNode | ActionsNode | FunnelsDataWarehouseNode] = Field(
@@ -19387,6 +20095,7 @@ class VisualizationBlock(BaseModel):
         | AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
+        | AssistantStickinessQuery
         | AssistantHogQLQuery
     ) = Field(
         ...,
@@ -19404,6 +20113,7 @@ class VisualizationItem(BaseModel):
         TrendsQuery
         | FunnelsQuery
         | RetentionQuery
+        | StickinessQuery
         | HogQLQuery
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsMetricsQuery
@@ -19412,6 +20122,7 @@ class VisualizationItem(BaseModel):
         | AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
+        | AssistantStickinessQuery
         | AssistantHogQLQuery
     )
     initiator: str | None = None
@@ -19427,6 +20138,7 @@ class VisualizationMessage(BaseModel):
         TrendsQuery
         | FunnelsQuery
         | RetentionQuery
+        | StickinessQuery
         | HogQLQuery
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsMetricsQuery
@@ -19435,6 +20147,7 @@ class VisualizationMessage(BaseModel):
         | AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
+        | AssistantStickinessQuery
         | AssistantHogQLQuery
     )
     id: str | None = None
@@ -19655,7 +20368,32 @@ class PathsQuery(BaseModel):
         ]
         | PropertyGroupFilter
         | None
-    ) = Field(default=[], description="Property filters for all series")
+    ) = Field(
+        default_factory=lambda: TypeAdapter(
+            list[
+                EventPropertyFilter
+                | PersonPropertyFilter
+                | ElementPropertyFilter
+                | EventMetadataPropertyFilter
+                | SessionPropertyFilter
+                | CohortPropertyFilter
+                | RecordingPropertyFilter
+                | LogEntryPropertyFilter
+                | GroupPropertyFilter
+                | FeaturePropertyFilter
+                | FlagPropertyFilter
+                | HogQLPropertyFilter
+                | EmptyPropertyFilter
+                | DataWarehousePropertyFilter
+                | DataWarehousePersonPropertyFilter
+                | ErrorTrackingIssueFilter
+                | LogPropertyFilter
+                | RevenueAnalyticsPropertyFilter
+            ]
+            | PropertyGroupFilter
+        ).validate_python([]),
+        description="Property filters for all series",
+    )
     response: PathsQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
@@ -19775,7 +20513,7 @@ class WebVitalsQuery(BaseModel):
     dateRange: DateRange | None = None
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
-    includeRevenue: bool | None = None
+    includeRevenue: bool | None = Field(default=None, deprecated="ignored, always treated as disabled")
     interval: IntervalType | None = Field(
         default=None,
         description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
@@ -19785,7 +20523,7 @@ class WebVitalsQuery(BaseModel):
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: WebGoalsQueryResponse | None = None
-    sampling: WebAnalyticsSampling | None = None
+    sampling: WebAnalyticsSampling | None = Field(default=None, deprecated="Use samplingFactor instead")
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     source: (
         TrendsQuery
@@ -19798,7 +20536,7 @@ class WebVitalsQuery(BaseModel):
         | WebOverviewQuery
     ) = Field(..., discriminator="kind")
     tags: QueryLogTags | None = None
-    useSessionsTable: bool | None = None
+    useSessionsTable: bool | None = Field(default=None, deprecated="ignored, always treated as enabled *")
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -20603,7 +21341,7 @@ class QueryRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    async_: bool | None = Field(default=None, alias="async")
+    async_: bool | None = Field(default=None, alias="async", deprecated="Use `refresh` instead.")
     client_query_id: str | None = Field(
         default=None,
         description=("Client provided query ID. Can be used to retrieve the status or cancel the query."),
@@ -20723,162 +21461,6 @@ class QueryRequest(BaseModel):
         ),
     )
     variables_override: dict[str, dict[str, Any]] | None = None
-
-
-class QuerySchemaRoot(
-    RootModel[
-        EventsNode
-        | ActionsNode
-        | PersonsNode
-        | DataWarehouseNode
-        | FunnelsDataWarehouseNode
-        | LifecycleDataWarehouseNode
-        | EventsQuery
-        | SessionsQuery
-        | ActorsQuery
-        | GroupsQuery
-        | InsightActorsQuery
-        | InsightActorsQueryOptions
-        | SessionsTimelineQuery
-        | HogQuery
-        | HogQLQuery
-        | HogQLMetadata
-        | HogQLAutocomplete
-        | SessionAttributionExplorerQuery
-        | RevenueExampleEventsQuery
-        | RevenueExampleDataWarehouseTablesQuery
-        | ErrorTrackingQuery
-        | ErrorTrackingSimilarIssuesQuery
-        | ErrorTrackingBreakdownsQuery
-        | ErrorTrackingIssueCorrelationQuery
-        | ExperimentFunnelsQuery
-        | ExperimentTrendsQuery
-        | ExperimentQuery
-        | ExperimentExposureQuery
-        | DocumentSimilarityQuery
-        | WebOverviewQuery
-        | WebStatsTableQuery
-        | WebExternalClicksTableQuery
-        | WebGoalsQuery
-        | WebVitalsQuery
-        | WebVitalsPathBreakdownQuery
-        | WebPageURLSearchQuery
-        | WebAnalyticsExternalSummaryQuery
-        | RevenueAnalyticsGrossRevenueQuery
-        | RevenueAnalyticsMetricsQuery
-        | RevenueAnalyticsMRRQuery
-        | RevenueAnalyticsOverviewQuery
-        | RevenueAnalyticsTopCustomersQuery
-        | MarketingAnalyticsTableQuery
-        | MarketingAnalyticsAggregatedQuery
-        | NonIntegratedConversionsTableQuery
-        | DataVisualizationNode
-        | DataTableNode
-        | SavedInsightNode
-        | InsightVizNode
-        | TrendsQuery
-        | FunnelsQuery
-        | RetentionQuery
-        | PathsQuery
-        | StickinessQuery
-        | LifecycleQuery
-        | FunnelCorrelationQuery
-        | DatabaseSchemaQuery
-        | LogsQuery
-        | LogAttributesQuery
-        | LogValuesQuery
-        | TraceSpansQuery
-        | SuggestedQuestionsQuery
-        | TeamTaxonomyQuery
-        | EventTaxonomyQuery
-        | ActorsPropertyTaxonomyQuery
-        | TracesQuery
-        | TraceQuery
-        | TraceNeighborsQuery
-        | VectorSearchQuery
-        | UsageMetricsQuery
-        | EndpointsUsageOverviewQuery
-        | EndpointsUsageTableQuery
-        | EndpointsUsageTrendsQuery
-        | PropertyValuesQuery
-    ]
-):
-    root: (
-        EventsNode
-        | ActionsNode
-        | PersonsNode
-        | DataWarehouseNode
-        | FunnelsDataWarehouseNode
-        | LifecycleDataWarehouseNode
-        | EventsQuery
-        | SessionsQuery
-        | ActorsQuery
-        | GroupsQuery
-        | InsightActorsQuery
-        | InsightActorsQueryOptions
-        | SessionsTimelineQuery
-        | HogQuery
-        | HogQLQuery
-        | HogQLMetadata
-        | HogQLAutocomplete
-        | SessionAttributionExplorerQuery
-        | RevenueExampleEventsQuery
-        | RevenueExampleDataWarehouseTablesQuery
-        | ErrorTrackingQuery
-        | ErrorTrackingSimilarIssuesQuery
-        | ErrorTrackingBreakdownsQuery
-        | ErrorTrackingIssueCorrelationQuery
-        | ExperimentFunnelsQuery
-        | ExperimentTrendsQuery
-        | ExperimentQuery
-        | ExperimentExposureQuery
-        | DocumentSimilarityQuery
-        | WebOverviewQuery
-        | WebStatsTableQuery
-        | WebExternalClicksTableQuery
-        | WebGoalsQuery
-        | WebVitalsQuery
-        | WebVitalsPathBreakdownQuery
-        | WebPageURLSearchQuery
-        | WebAnalyticsExternalSummaryQuery
-        | RevenueAnalyticsGrossRevenueQuery
-        | RevenueAnalyticsMetricsQuery
-        | RevenueAnalyticsMRRQuery
-        | RevenueAnalyticsOverviewQuery
-        | RevenueAnalyticsTopCustomersQuery
-        | MarketingAnalyticsTableQuery
-        | MarketingAnalyticsAggregatedQuery
-        | NonIntegratedConversionsTableQuery
-        | DataVisualizationNode
-        | DataTableNode
-        | SavedInsightNode
-        | InsightVizNode
-        | TrendsQuery
-        | FunnelsQuery
-        | RetentionQuery
-        | PathsQuery
-        | StickinessQuery
-        | LifecycleQuery
-        | FunnelCorrelationQuery
-        | DatabaseSchemaQuery
-        | LogsQuery
-        | LogAttributesQuery
-        | LogValuesQuery
-        | TraceSpansQuery
-        | SuggestedQuestionsQuery
-        | TeamTaxonomyQuery
-        | EventTaxonomyQuery
-        | ActorsPropertyTaxonomyQuery
-        | TracesQuery
-        | TraceQuery
-        | TraceNeighborsQuery
-        | VectorSearchQuery
-        | UsageMetricsQuery
-        | EndpointsUsageOverviewQuery
-        | EndpointsUsageTableQuery
-        | EndpointsUsageTrendsQuery
-        | PropertyValuesQuery
-    ) = Field(..., discriminator="kind")
 
 
 class QueryUpgradeRequest(BaseModel):
@@ -21045,36 +21627,6 @@ class QueryUpgradeResponse(BaseModel):
     ) = Field(..., discriminator="kind")
 
 
-class RootAssistantMessage(
-    RootModel[
-        VisualizationMessage
-        | MultiVisualizationMessage
-        | ArtifactMessage
-        | ReasoningMessage
-        | AssistantMessage
-        | HumanMessage
-        | FailureMessage
-        | NotebookUpdateMessage
-        | PlanningMessage
-        | TaskExecutionMessage
-        | AssistantToolCallMessage
-    ]
-):
-    root: (
-        VisualizationMessage
-        | MultiVisualizationMessage
-        | ArtifactMessage
-        | ReasoningMessage
-        | AssistantMessage
-        | HumanMessage
-        | FailureMessage
-        | NotebookUpdateMessage
-        | PlanningMessage
-        | TaskExecutionMessage
-        | AssistantToolCallMessage
-    )
-
-
 class SourceConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -21103,7 +21655,7 @@ class SourceConfig(BaseModel):
     name: ExternalDataSourceType
     permissionsCaption: str | None = None
     suggestedTables: list[SuggestedTable] | None = Field(
-        default=[],
+        default_factory=list,
         description="Tables to suggest enabling, with optional tooltip explaining why",
     )
     unreleasedSource: bool | None = None
@@ -21184,11 +21736,48 @@ class VisualizationArtifactContent(BaseModel):
     name: str | None = None
     plan: str | None = None
     query: (
-        AssistantTrendsQuery
+        AssistantQuerySchema
+        | AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
+        | AssistantStickinessQuery
         | AssistantHogQLQuery
-        | EventsNode
+    )
+
+
+class RootAssistantMessage(
+    RootModel[
+        VisualizationMessage
+        | MultiVisualizationMessage
+        | ArtifactMessage
+        | ReasoningMessage
+        | AssistantMessage
+        | HumanMessage
+        | FailureMessage
+        | NotebookUpdateMessage
+        | PlanningMessage
+        | TaskExecutionMessage
+        | AssistantToolCallMessage
+    ]
+):
+    root: (
+        VisualizationMessage
+        | MultiVisualizationMessage
+        | ArtifactMessage
+        | ReasoningMessage
+        | AssistantMessage
+        | HumanMessage
+        | FailureMessage
+        | NotebookUpdateMessage
+        | PlanningMessage
+        | TaskExecutionMessage
+        | AssistantToolCallMessage
+    )
+
+
+class AssistantQuerySchema(
+    RootModel[
+        EventsNode
         | ActionsNode
         | PersonsNode
         | DataWarehouseNode
@@ -21262,13 +21851,250 @@ class VisualizationArtifactContent(BaseModel):
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
         | PropertyValuesQuery
-    )
+    ]
+):
+    root: (
+        EventsNode
+        | ActionsNode
+        | PersonsNode
+        | DataWarehouseNode
+        | FunnelsDataWarehouseNode
+        | LifecycleDataWarehouseNode
+        | EventsQuery
+        | SessionsQuery
+        | ActorsQuery
+        | GroupsQuery
+        | InsightActorsQuery
+        | InsightActorsQueryOptions
+        | SessionsTimelineQuery
+        | HogQuery
+        | HogQLQuery
+        | HogQLMetadata
+        | HogQLAutocomplete
+        | SessionAttributionExplorerQuery
+        | RevenueExampleEventsQuery
+        | RevenueExampleDataWarehouseTablesQuery
+        | ErrorTrackingQuery
+        | ErrorTrackingSimilarIssuesQuery
+        | ErrorTrackingBreakdownsQuery
+        | ErrorTrackingIssueCorrelationQuery
+        | ExperimentFunnelsQuery
+        | ExperimentTrendsQuery
+        | ExperimentQuery
+        | ExperimentExposureQuery
+        | DocumentSimilarityQuery
+        | WebOverviewQuery
+        | WebStatsTableQuery
+        | WebExternalClicksTableQuery
+        | WebGoalsQuery
+        | WebVitalsQuery
+        | WebVitalsPathBreakdownQuery
+        | WebPageURLSearchQuery
+        | WebAnalyticsExternalSummaryQuery
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsOverviewQuery
+        | RevenueAnalyticsTopCustomersQuery
+        | MarketingAnalyticsTableQuery
+        | MarketingAnalyticsAggregatedQuery
+        | NonIntegratedConversionsTableQuery
+        | DataVisualizationNode
+        | DataTableNode
+        | SavedInsightNode
+        | InsightVizNode
+        | TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | PathsQuery
+        | StickinessQuery
+        | LifecycleQuery
+        | FunnelCorrelationQuery
+        | DatabaseSchemaQuery
+        | LogsQuery
+        | LogAttributesQuery
+        | LogValuesQuery
+        | TraceSpansQuery
+        | SuggestedQuestionsQuery
+        | TeamTaxonomyQuery
+        | EventTaxonomyQuery
+        | ActorsPropertyTaxonomyQuery
+        | TracesQuery
+        | TraceQuery
+        | TraceNeighborsQuery
+        | VectorSearchQuery
+        | UsageMetricsQuery
+        | EndpointsUsageOverviewQuery
+        | EndpointsUsageTableQuery
+        | EndpointsUsageTrendsQuery
+        | PropertyValuesQuery
+    ) = Field(..., discriminator="kind")
+
+
+class QuerySchemaRoot(
+    RootModel[
+        EventsNode
+        | ActionsNode
+        | PersonsNode
+        | DataWarehouseNode
+        | FunnelsDataWarehouseNode
+        | LifecycleDataWarehouseNode
+        | EventsQuery
+        | SessionsQuery
+        | ActorsQuery
+        | GroupsQuery
+        | InsightActorsQuery
+        | InsightActorsQueryOptions
+        | SessionsTimelineQuery
+        | HogQuery
+        | HogQLQuery
+        | HogQLMetadata
+        | HogQLAutocomplete
+        | SessionAttributionExplorerQuery
+        | RevenueExampleEventsQuery
+        | RevenueExampleDataWarehouseTablesQuery
+        | ErrorTrackingQuery
+        | ErrorTrackingSimilarIssuesQuery
+        | ErrorTrackingBreakdownsQuery
+        | ErrorTrackingIssueCorrelationQuery
+        | ExperimentFunnelsQuery
+        | ExperimentTrendsQuery
+        | ExperimentQuery
+        | ExperimentExposureQuery
+        | DocumentSimilarityQuery
+        | WebOverviewQuery
+        | WebStatsTableQuery
+        | WebExternalClicksTableQuery
+        | WebGoalsQuery
+        | WebVitalsQuery
+        | WebVitalsPathBreakdownQuery
+        | WebPageURLSearchQuery
+        | WebAnalyticsExternalSummaryQuery
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsOverviewQuery
+        | RevenueAnalyticsTopCustomersQuery
+        | MarketingAnalyticsTableQuery
+        | MarketingAnalyticsAggregatedQuery
+        | NonIntegratedConversionsTableQuery
+        | DataVisualizationNode
+        | DataTableNode
+        | SavedInsightNode
+        | InsightVizNode
+        | TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | PathsQuery
+        | StickinessQuery
+        | LifecycleQuery
+        | FunnelCorrelationQuery
+        | DatabaseSchemaQuery
+        | LogsQuery
+        | LogAttributesQuery
+        | LogValuesQuery
+        | TraceSpansQuery
+        | SuggestedQuestionsQuery
+        | TeamTaxonomyQuery
+        | EventTaxonomyQuery
+        | ActorsPropertyTaxonomyQuery
+        | TracesQuery
+        | TraceQuery
+        | TraceNeighborsQuery
+        | VectorSearchQuery
+        | UsageMetricsQuery
+        | EndpointsUsageOverviewQuery
+        | EndpointsUsageTableQuery
+        | EndpointsUsageTrendsQuery
+        | PropertyValuesQuery
+    ]
+):
+    root: (
+        EventsNode
+        | ActionsNode
+        | PersonsNode
+        | DataWarehouseNode
+        | FunnelsDataWarehouseNode
+        | LifecycleDataWarehouseNode
+        | EventsQuery
+        | SessionsQuery
+        | ActorsQuery
+        | GroupsQuery
+        | InsightActorsQuery
+        | InsightActorsQueryOptions
+        | SessionsTimelineQuery
+        | HogQuery
+        | HogQLQuery
+        | HogQLMetadata
+        | HogQLAutocomplete
+        | SessionAttributionExplorerQuery
+        | RevenueExampleEventsQuery
+        | RevenueExampleDataWarehouseTablesQuery
+        | ErrorTrackingQuery
+        | ErrorTrackingSimilarIssuesQuery
+        | ErrorTrackingBreakdownsQuery
+        | ErrorTrackingIssueCorrelationQuery
+        | ExperimentFunnelsQuery
+        | ExperimentTrendsQuery
+        | ExperimentQuery
+        | ExperimentExposureQuery
+        | DocumentSimilarityQuery
+        | WebOverviewQuery
+        | WebStatsTableQuery
+        | WebExternalClicksTableQuery
+        | WebGoalsQuery
+        | WebVitalsQuery
+        | WebVitalsPathBreakdownQuery
+        | WebPageURLSearchQuery
+        | WebAnalyticsExternalSummaryQuery
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsOverviewQuery
+        | RevenueAnalyticsTopCustomersQuery
+        | MarketingAnalyticsTableQuery
+        | MarketingAnalyticsAggregatedQuery
+        | NonIntegratedConversionsTableQuery
+        | DataVisualizationNode
+        | DataTableNode
+        | SavedInsightNode
+        | InsightVizNode
+        | TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | PathsQuery
+        | StickinessQuery
+        | LifecycleQuery
+        | FunnelCorrelationQuery
+        | DatabaseSchemaQuery
+        | LogsQuery
+        | LogAttributesQuery
+        | LogValuesQuery
+        | TraceSpansQuery
+        | SuggestedQuestionsQuery
+        | TeamTaxonomyQuery
+        | EventTaxonomyQuery
+        | ActorsPropertyTaxonomyQuery
+        | TracesQuery
+        | TraceQuery
+        | TraceNeighborsQuery
+        | VectorSearchQuery
+        | UsageMetricsQuery
+        | EndpointsUsageOverviewQuery
+        | EndpointsUsageTableQuery
+        | EndpointsUsageTrendsQuery
+        | PropertyValuesQuery
+    ) = Field(..., discriminator="kind")
 
 
 ProsemirrorJSONContent.model_rebuild()
 PropertyGroupFilterValue.model_rebuild()
+ArtifactMessage.model_rebuild()
+HogQLAutocomplete.model_rebuild()
+HogQLMetadata.model_rebuild()
 HumanMessage.model_rebuild()
 MaxDashboardContext.model_rebuild()
-MaxInsightContext.model_rebuild()
-QueryRequest.model_rebuild()
 SourceConfig.model_rebuild()
+Option.model_rebuild()
+SourceFieldSwitchGroupConfig.model_rebuild()
+VisualizationArtifactContent.model_rebuild()
