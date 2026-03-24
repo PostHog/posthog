@@ -77,6 +77,7 @@ import {
 } from '~/types'
 
 import { getResponseBytes, sortDayJsDates } from '../insights/utils'
+import { filterVariablesReferencedInQuery } from '../insights/utils/queryUtils'
 import { teamLogic } from '../teamLogic'
 import { BreakdownColorConfig } from './DashboardInsightColorsModal'
 import type { dashboardLogicType } from './dashboardLogicType'
@@ -1161,10 +1162,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             Boolean(n.query) && Boolean(n.title)
                     )
 
-                const usedVariables = dataVizNodes
-                    .map((n) => n.query.source.variables)
-                    .filter((n): n is Record<string, HogQLVariable> => Boolean(n))
-                    .flatMap((n) => Object.values(n))
+                const usedVariables = dataVizNodes.flatMap((n) =>
+                    filterVariablesReferencedInQuery(
+                        n.query.source.query,
+                        Object.values(n.query.source.variables ?? {})
+                    )
+                )
                 const uniqueVariables = uniqBy(usedVariables, (n) => n.variableId)
 
                 const effectiveVariables = uniqueVariables
@@ -1204,12 +1207,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         // get insights using variable
                         const insightsUsingVariable = dataVizNodes
                             .filter((n) => {
-                                const vars = n.query.source.variables
-                                if (!vars) {
-                                    return false
-                                }
-
-                                return !!vars[v.variableId]
+                                return filterVariablesReferencedInQuery(
+                                    n.query.source.query,
+                                    Object.values(n.query.source.variables ?? {})
+                                ).some((variable) => variable.variableId === v.variableId)
                             })
                             .map((n) => n.title)
 

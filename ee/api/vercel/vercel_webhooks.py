@@ -20,7 +20,7 @@ from ee.vercel.integration import VercelIntegration
 logger = structlog.get_logger(__name__)
 
 BILLING_EVENT_PREFIX = "marketplace.invoice."
-DEAUTHORIZATION_EVENT = "integration.configuration-removed"
+DEAUTHORIZATION_EVENT = "integration-configuration.removed"
 
 
 def _is_valid_signature(payload: bytes, signature: str | None) -> bool:

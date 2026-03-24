@@ -203,7 +203,7 @@ function resolveResponseType(operation: OpenApiOperation, knownTypes: Set<string
         if (schema.type === 'array' && items && '$ref' in items && items.$ref) {
             const schemaName = (items.$ref as string).replace('#/components/schemas/', '')
             if (knownTypes.has(schemaName)) {
-                return `Schemas.${schemaName}`
+                return `Schemas.${schemaName}[]`
             }
         }
     }
@@ -794,18 +794,40 @@ ${mapEntries}
 // Generate tool definitions JSON
 // ------------------------------------------------------------------
 
+/**
+ * Resolve a tool description from either an inline `description` string or a
+ * `description_file` path (resolved relative to `yamlDir`). Returns the
+ * fallback when neither is set.
+ */
+function resolveDescription(
+    config: { description?: string | undefined; description_file?: string | undefined },
+    yamlDir: string,
+    fallback: string
+): string {
+    if (config.description_file) {
+        const filePath = path.resolve(yamlDir, config.description_file)
+        if (!fs.existsSync(filePath)) {
+            console.error(`description_file not found: ${filePath}`)
+            process.exit(1)
+        }
+        return fs.readFileSync(filePath, 'utf-8').trim()
+    }
+    return config.description?.trim() || fallback
+}
+
 function generateDefinitionsJson(
     categories: {
         config: CategoryConfig
         enabledTools: [string, EnabledToolConfig, ResolvedOperation][]
+        yamlDir: string
     }[]
 ): Record<string, unknown> {
     const definitions: Record<string, unknown> = {}
-    for (const { config: category, enabledTools } of categories) {
+    for (const { config: category, enabledTools, yamlDir } of categories) {
         for (const [name, toolConfig, resolved] of enabledTools) {
             const opDescription = resolved.operation.description?.trim() || resolved.operation.summary?.trim() || ''
             definitions[name] = {
-                description: toolConfig.description?.trim() || opDescription,
+                description: resolveDescription(toolConfig, yamlDir, opDescription),
                 category: category.category,
                 feature: category.feature,
                 summary: toolConfig.title || opDescription.split('.')[0] || name,
@@ -940,12 +962,13 @@ function extractKindFromSchemaRef(querySchema: JsonSchemaRoot, schemaRef: string
 
 function generateQueryWrapperDefinitionsJson(
     config: QueryWrappersConfig,
-    enabledWrappers: [string, EnabledQueryWrapperToolConfig][]
+    enabledWrappers: [string, EnabledQueryWrapperToolConfig][],
+    yamlDir: string
 ): Record<string, unknown> {
     const definitions: Record<string, unknown> = {}
     for (const [name, toolConfig] of enabledWrappers) {
         definitions[name] = {
-            description: toolConfig.description?.trim() || `Run a ${toolConfig.schema_ref} query`,
+            description: resolveDescription(toolConfig, yamlDir, `Run a ${toolConfig.schema_ref} query`),
             category: config.category,
             feature: config.feature,
             summary: toolConfig.title || name,
@@ -983,6 +1006,7 @@ function main(): void {
     const allCategories: {
         config: CategoryConfig
         enabledTools: [string, EnabledToolConfig, ResolvedOperation][]
+        yamlDir: string
     }[] = []
     const generatedModules: string[] = []
 
@@ -1017,7 +1041,10 @@ function main(): void {
             if (enabledWrappers.length > 0) {
                 generatedModules.push(def.moduleName)
                 fs.writeFileSync(path.join(GENERATED_DIR, `${def.moduleName}.ts`), code)
-                Object.assign(queryWrapperDefinitions, generateQueryWrapperDefinitionsJson(config, enabledWrappers))
+                Object.assign(
+                    queryWrapperDefinitions,
+                    generateQueryWrapperDefinitionsJson(config, enabledWrappers, path.dirname(def.filePath))
+                )
                 process.stdout.write(`Generated ${enabledWrappers.length} query wrapper(s) from ${label}\n`)
             }
             continue
@@ -1038,7 +1065,7 @@ function main(): void {
 
         if (enabledTools.length > 0) {
             generatedModules.push(def.moduleName)
-            allCategories.push({ config, enabledTools })
+            allCategories.push({ config, enabledTools, yamlDir: path.dirname(def.filePath) })
             fs.writeFileSync(path.join(GENERATED_DIR, `${def.moduleName}.ts`), code)
         }
     }

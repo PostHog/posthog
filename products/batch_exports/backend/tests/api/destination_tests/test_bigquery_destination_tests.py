@@ -272,6 +272,19 @@ async def test_bigquery_impersonate_service_account_test_step_with_unknown_accou
     assert result.message is not None
 
 
+@pytest.mark.parametrize("integration", ["key_file", None], indirect=True)
+async def test_bigquery_impersonate_service_account_test_step_with_no_impersonation(project_id, integration):
+    test_step = BigQueryImpersonateServiceAccountTestStep(
+        project_id=project_id,
+        integration=integration,
+    )
+    result = await test_step.run()
+
+    assert result.status == Status.SKIPPED
+    assert result.message is not None
+    assert "Using credentials without impersonation" in result.message
+
+
 @pytest.mark.parametrize("integration", ["impersonated"], indirect=True)
 async def test_bigquery_verify_service_account_ownership_test_step(project_id, integration, aorganization):
     test_step = BigQueryVerifyServiceAccountOwnershipTestStep(
@@ -299,6 +312,22 @@ async def test_bigquery_verify_service_account_ownership_test_step_with_garbage_
 
     assert result.status == Status.FAILED
     assert result.message is not None
+
+
+@pytest.mark.parametrize("integration", ["key_file", None], indirect=True)
+async def test_bigquery_verify_service_account_ownership_test_step_with_no_impersonation(
+    project_id, integration, aorganization
+):
+    test_step = BigQueryVerifyServiceAccountOwnershipTestStep(
+        project_id=project_id,
+        integration=integration,
+        organization_id=str(aorganization.id),
+    )
+    result = await test_step.run()
+
+    assert result.status == Status.SKIPPED, result.message
+    assert result.message is not None
+    assert "Using credentials without impersonation" in result.message
 
 
 @pytest.mark.parametrize(

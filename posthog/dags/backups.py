@@ -33,10 +33,8 @@ SHARDED_TABLES = [
     "sharded_heatmaps",
     "sharded_ingestion_warnings",
     "sharded_performance_events",
-    "sharded_raw_sessions",
     "sharded_session_replay_embeddings",
     "sharded_session_replay_events",
-    "sharded_sessions",
 ]
 
 NON_SHARDED_TABLES = [

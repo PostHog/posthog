@@ -27,13 +27,13 @@ from posthog.models.file_system.file_system import FileSystem
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.insight import Insight
-from posthog.models.surveys.survey import Survey
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
 from products.links.backend.models import Link
 from products.notebooks.backend.models import Notebook
+from products.surveys.backend.models import Survey
 
 
 def _ensure_session_cookie(client) -> None:

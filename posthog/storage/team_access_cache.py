@@ -1,5 +1,5 @@
 """
-Per-token auth cache with targeted invalidation.
+Per-token auth cache for the /flags/definitions service with targeted invalidation.
 
 Rust populates cache entries on first use (lazy). Python signal handlers
 perform targeted invalidation when cached tokens become invalid.
@@ -8,14 +8,20 @@ Cache keys (Rust writes, Python only deletes):
   posthog:auth_token:{token_hash}        → token metadata
 """
 
+from __future__ import annotations
+
+from django.db.models import Q
+
 import redis as redis_lib
 import structlog
 
-from posthog.models.personal_api_key import SHA256_HASH_PREFIX, PersonalAPIKey
+from posthog.models.personal_api_key import SHA256_HASH_PREFIX, PersonalAPIKey, hash_key_value
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+from posthog.models.team.team import Team
 
 logger = structlog.get_logger(__name__)
 
-# Cache key prefix — must match the prefix used by the Rust feature-flags service
+# Cache key prefix — must match the prefix used by the Rust /flags/definitions service
 TOKEN_CACHE_PREFIX = "posthog:auth_token:"
 
 
@@ -29,7 +35,7 @@ def _get_redis_client() -> redis_lib.Redis:
 
 
 class TokenAuthCache:
-    """Per-token auth cache with targeted invalidation."""
+    """Per-token auth cache for the /flags/definitions service with targeted invalidation."""
 
     def __init__(self, redis_client: redis_lib.Redis | None = None):
         self._redis_client = redis_client
@@ -95,6 +101,76 @@ class TokenAuthCache:
 
         self.invalidate_tokens(secure_values)
         logger.info("Invalidated tokens for user via DB", user_id=user_id, tokens_invalidated=len(secure_values))
+
+    def invalidate_team_tokens(
+        self,
+        team_id: int,
+        dry_run: bool = False,
+    ) -> dict[str, int]:
+        """Invalidate all cached flags-service auth tokens for a team.
+
+        Clears Redis cache entries so the Rust /flags/definitions service re-validates
+        against Postgres on the next request. Does not revoke the tokens themselves.
+        Covers team secret tokens, project secret API keys, and personal API keys
+        that have access to the team.
+
+        When dry_run=True, collects and counts tokens but skips Redis deletion.
+
+        Returns counts of tokens found per category.
+        """
+        # Guard here (not just in invalidate_tokens) to skip the DB queries
+        if not dry_run and not self.is_configured:
+            return {"secret_tokens": 0, "project_secret_keys": 0, "personal_keys": 0, "total": 0}
+
+        team = Team.objects.only("id", "secret_api_token", "secret_api_token_backup", "organization_id").get(id=team_id)
+
+        all_hashes: list[str] = []
+
+        # 1. Team secret tokens
+        secret_token_hashes = [
+            hash_key_value(token, mode="sha256")
+            for token in (team.secret_api_token, team.secret_api_token_backup)
+            if token
+        ]
+        all_hashes.extend(secret_token_hashes)
+
+        # 2. Project Secret API Keys
+        psak_secure_values: list[str] = list(
+            ProjectSecretAPIKey.objects.filter(team_id=team_id, secure_value__isnull=False).values_list(
+                "secure_value", flat=True
+            )  # type: ignore[arg-type]  # filter guarantees non-null
+        )
+        all_hashes.extend(psak_secure_values)
+
+        # 3. Personal API Keys that could access this team
+        org_id = str(team.organization_id)
+        pak_secure_values: list[str] = list(
+            PersonalAPIKey.objects.filter(
+                user__organization_membership__organization_id=team.organization_id,
+                secure_value__startswith=SHA256_HASH_PREFIX,
+            )
+            .filter(
+                Q(scoped_teams__isnull=True) | Q(scoped_teams=[]) | Q(scoped_teams__contains=[team_id]),
+                Q(scoped_organizations__isnull=True)
+                | Q(scoped_organizations=[])
+                | Q(scoped_organizations__contains=[org_id]),
+            )
+            .values_list("secure_value", flat=True)  # type: ignore[arg-type]  # startswith filter guarantees non-null
+        )
+        all_hashes.extend(pak_secure_values)
+
+        if all_hashes and not dry_run:
+            self.invalidate_tokens(all_hashes)
+
+        counts = {
+            "secret_tokens": len(secret_token_hashes),
+            "project_secret_keys": len(psak_secure_values),
+            "personal_keys": len(pak_secure_values),
+            "total": len(all_hashes),
+        }
+        if not dry_run:
+            logger.info("Invalidated team tokens", team_id=team_id, **counts)
+        return counts
 
 
 # Global instance

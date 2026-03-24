@@ -35,7 +35,6 @@ from posthog.models.group.util import create_group
 from posthog.models.organization import Organization
 from posthog.models.person import Person
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
-from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.test.db_context_capturing import capture_db_queries
@@ -44,6 +43,7 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
 from products.product_tours.backend.models import ProductTour
+from products.surveys.backend.models import Survey
 
 
 class TestExtractEtagFromHeader:
@@ -9761,7 +9761,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(
             response.status_code,
-            status.HTTP_404_NOT_FOUND if expected_status == FeatureFlagStatus.UNKNOWN else status.HTTP_200_OK,
+            status.HTTP_200_OK,
         )
         response_data = response.json()
         self.assertEqual(response_data.get("status"), expected_status)

@@ -1,3 +1,71 @@
+import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { capitalizeFirstLetter } from 'lib/utils'
+
+import { AnyPropertyFilter } from '~/types'
+
+import { formatDateRangeLabel } from 'products/logs/frontend/components/LogsViewer/Filters/LogsDateRangePicker/utils'
+
+export function formatFilterGroupValues(filterGroup: Record<string, any> | undefined): string[] {
+    const group = filterGroup?.values?.[0]
+    if (!group || !('values' in group)) {
+        return []
+    }
+
+    return group.values.filter(isValidPropertyFilter).map((filter: AnyPropertyFilter) => {
+        const key = filter.key || '?'
+        const value = Array.isArray(filter.value) ? filter.value.join(', ') : String(filter.value ?? '')
+        const truncatedValue = value.length > 15 ? `${value.slice(0, 15)}...` : value
+        return `${key}=${truncatedValue}`
+    })
+}
+
+export interface FiltersSummaryLine {
+    label: string
+    value: string
+}
+
+export function getFiltersSummaryLines(filters: Record<string, any>): FiltersSummaryLine[] {
+    const lines: FiltersSummaryLine[] = []
+
+    if (filters.dateRange) {
+        const label = formatDateRangeLabel(filters.dateRange, Intl.DateTimeFormat().resolvedOptions().timeZone, [])
+        lines.push({ label: 'Date range', value: label })
+    }
+
+    if (filters.severityLevels?.length) {
+        lines.push({
+            label: 'Severity',
+            value: filters.severityLevels.map((l: string) => capitalizeFirstLetter(l)).join(', '),
+        })
+    }
+
+    if (filters.serviceNames?.length) {
+        const maxDisplayed = 3
+        const displayed = filters.serviceNames.slice(0, maxDisplayed)
+        const remaining = filters.serviceNames.length - displayed.length
+        const serviceText = displayed.join(', ')
+        lines.push({
+            label: filters.serviceNames.length === 1 ? 'Service' : 'Services',
+            value: remaining > 0 ? `${serviceText} +${remaining} more` : serviceText,
+        })
+    }
+
+    if (filters.searchTerm) {
+        const truncated = filters.searchTerm.length > 30 ? `${filters.searchTerm.slice(0, 30)}...` : filters.searchTerm
+        lines.push({ label: 'Search', value: `"${truncated}"` })
+    }
+
+    const attributeFilters = formatFilterGroupValues(filters.filterGroup)
+    if (attributeFilters.length > 0) {
+        lines.push({
+            label: attributeFilters.length === 1 ? 'Filter' : 'Filters',
+            value: attributeFilters.join(', '),
+        })
+    }
+
+    return lines
+}
+
 const DISTINCT_ID_KEYS = [
     'distinct.id',
     'distinct_id',

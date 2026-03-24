@@ -55,6 +55,13 @@ and describe the desired outcome for the customer.
 This separation matters because agents are good at composing simple tools
 but need guidance on _which_ tools to use, in _what order_, with _what constraints_.
 
+### Referencing MCP tools in skills
+
+When a skill references an MCP tool, use the `posthog:` namespace prefix
+(e.g. `posthog:execute-sql`, `posthog:feature-flag-get-all`).
+This matches how tools appear to agents consuming the PostHog MCP server
+and helps agents resolve tool names unambiguously.
+
 ## Skill structure
 
 Skills live in `products/*/skills/` and come in two forms.

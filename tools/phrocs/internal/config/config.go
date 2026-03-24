@@ -11,8 +11,10 @@ import (
 type ProcConfig struct {
 	Shell        string            `yaml:"shell"`
 	Capability   string            `yaml:"capability"`
+	Cmd          []string          `yaml:"cmd"`
 	Autostart    *bool             `yaml:"autostart"`
 	Autorestart  bool              `yaml:"autorestart"`
+	Stop         string            `yaml:"stop"` // "SIGINT", "SIGTERM", "SIGKILL", or "hard-kill"
 	AskSkip      bool              `yaml:"ask_skip"`
 	Env          map[string]string `yaml:"env"`
 	ReadyPattern string            `yaml:"ready_pattern"`
@@ -27,7 +29,9 @@ func (p ProcConfig) ShouldAutostart() bool {
 // Top-level mprocs.yaml document
 type Config struct {
 	Procs            map[string]ProcConfig `yaml:"procs"`
+	HideKeymapWindow bool                  `yaml:"hide_keymap_window"`
 	MouseScrollSpeed int                   `yaml:"mouse_scroll_speed"`
+	ProcListWidth    int                   `yaml:"proc_list_width"`
 	Scrollback       int                   `yaml:"scrollback"`
 }
 
