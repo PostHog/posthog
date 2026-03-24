@@ -95,12 +95,40 @@ fn validate_events(context: &Context, batch: CaptureV1Batch) -> Vec<WrappedEvent
         })
         .collect();
 
-    for (error_tag, count) in &malformed {
+    if !malformed.is_empty() {
+        observe_malformed_events(context, &malformed);
+    }
+
+    events
+}
+
+fn observe_malformed_events(context: &Context, malformed: &HashMap<&'static str, u64>) {
+    for (error_tag, count) in malformed {
         metrics::counter!(CAPTURE_PARSED_EVENTS, "result" => "malformed", "error" => *error_tag)
             .increment(*count);
     }
 
-    events
+    let summary: String = malformed
+        .iter()
+        .map(|(tag, count)| format!("{tag}={count}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    tracing::warn!(
+        token = %context.api_token,
+        request_id = %context.request_id,
+        sdk_info = %context.sdk_info,
+        attempt = context.attempt,
+        client_timestamp = %context.client_timestamp,
+        server_received_at = %context.server_received_at,
+        user_agent = %context.user_agent,
+        content_type = %context.content_type,
+        content_encoding = ?context.content_encoding,
+        client_ip = %context.client_ip,
+        method = %context.method,
+        path = %context.path,
+        "malformed events: {summary}"
+    );
 }
 
 fn validate_event(event: &CaptureV1Event) -> Result<DateTime<Utc>, Error> {
