@@ -6,6 +6,7 @@ import { Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
@@ -33,6 +34,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
     const { series, querySource } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
+    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_INSIGHT_EDITOR_PANELS')
     const supportsDwhFunnels = featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DWH_FUNNEL_SUPPORT]
     const isFunnelDwhStepPopoverVariant =
         supportsDwhFunnels && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DWH_FUNNEL_STEP_UI] === 'popover'
@@ -123,16 +125,18 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                     ]}
                 />
             </div>
-            <div className="mt-4 deprecated-space-y-4">
-                {showGroupsOptions && (
-                    <div className="flex items-center w-full gap-2" data-attr="funnel-aggregation-filter">
-                        <span>Aggregating by</span>
-                        <AggregationSelect insightProps={insightProps} hogqlAvailable />
-                    </div>
-                )}
+            {!editorPanelsEnabled && (
+                <div className="mt-4 deprecated-space-y-4">
+                    {showGroupsOptions && (
+                        <div className="flex items-center w-full gap-2" data-attr="funnel-aggregation-filter">
+                            <span>Aggregating by</span>
+                            <AggregationSelect insightProps={insightProps} hogqlAvailable />
+                        </div>
+                    )}
 
-                <FunnelConversionWindowFilter insightProps={insightProps} />
-            </div>
+                    <FunnelConversionWindowFilter insightProps={insightProps} />
+                </div>
+            )}
         </>
     )
 }

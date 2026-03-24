@@ -13,6 +13,7 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { FunnelsAdvanced } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
 import { FunnelsQuerySteps } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
+import { FunnelStepConfiguration } from 'scenes/insights/EditorFilters/FunnelStepConfiguration'
 import { GoalLines } from 'scenes/insights/EditorFilters/GoalLines'
 import { PathsAdvanced } from 'scenes/insights/EditorFilters/PathsAdvanced'
 import { PathsEventsTypes } from 'scenes/insights/EditorFilters/PathsEventTypes'
@@ -252,6 +253,11 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     key: 'paths-advanced',
                     component: PathsAdvanced,
                 },
+                isFunnels &&
+                    editorPanelsEnabled && {
+                        key: 'funnel-step-configuration',
+                        component: FunnelStepConfiguration,
+                    },
                 isFunnels && {
                     key: 'funnels-advanced',
                     component: FunnelsAdvanced,
