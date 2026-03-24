@@ -407,8 +407,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             return initial_query
 
         result = ast.SelectSetQuery(initial_select_query=initial_query, subsequent_select_queries=select_queries)
-        if ctx.orderByClause():
-            result.order_by = self.visit(ctx.orderByClause())
         if ctx.limitAndOffsetClauseOptional():
             limit_clause = ctx.limitAndOffsetClauseOptional()
             exprs = limit_clause.columnExpr()
@@ -1291,11 +1289,12 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.ColumnsExpr(all_columns=True)
 
     def visitColumnExprColumnsQualifiedAll(self, ctx: HogQLParser.ColumnExprColumnsQualifiedAllContext):
-        return ast.ColumnsExpr(all_columns=True)
+        table = self.visit(ctx.identifier())
+        return ast.ColumnsExpr(columns=[ast.Field(chain=[table, "*"])])
 
     def visitColumnExprColumnsQualifiedExclude(self, ctx: HogQLParser.ColumnExprColumnsQualifiedExcludeContext):
         exclude = self.visit(ctx.identifierList())
-        return ast.ColumnsExpr(all_columns=True, exclude=exclude)
+        return ast.ColumnsExpr(columns=[ast.ColumnsExpr(all_columns=True, exclude=exclude)])
 
     def visitColumnExprColumnsQualifiedReplace(self, ctx: HogQLParser.ColumnExprColumnsQualifiedReplaceContext):
         replace = self._parse_columns_replace_list(ctx.columnsReplaceList())

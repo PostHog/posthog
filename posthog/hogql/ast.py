@@ -1139,7 +1139,6 @@ class SelectSetQuery(Expr):
     type: Optional[SelectSetQueryType] = None
     initial_select_query: Union["SelectQuery", "SelectSetQuery"]
     subsequent_select_queries: list[SelectSetNode]
-    order_by: Optional[list["OrderExpr"]] = None
     limit: Optional[Expr] = None
     offset: Optional[Expr] = None
     limit_percent: Optional[bool] = None
