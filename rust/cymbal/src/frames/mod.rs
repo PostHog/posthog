@@ -441,7 +441,9 @@ mod frame_error_serde {
         // but we match exhaustively to satisfy the type checker.
         match value {
             Some(err) => serializer.serialize_str(&err.to_string()),
-            None => unreachable!("skip_serializing_if = Option::is_none prevents None reaching here"),
+            None => {
+                unreachable!("skip_serializing_if = Option::is_none prevents None reaching here")
+            }
         }
     }
 }

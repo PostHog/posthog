@@ -1,6 +1,6 @@
 ---
 source: cymbal/tests/event.rs
-expression: exception_list.0
+expression: exception_list
 ---
 [
   {
