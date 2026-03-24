@@ -43,10 +43,10 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
                         { scene: currentScene, productKey: 'platform_and_support' },
                         { refresh: 'async' }
                     )
-                    const result = response.results as number[][]
+                    const result = response.results as number[][] | undefined
                     return {
-                        views: result[0][0],
-                        users: result[0][1],
+                        views: result?.[0]?.[0] ?? 0,
+                        users: result?.[0]?.[1] ?? 0,
                     }
                 },
             },
@@ -69,7 +69,7 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
                         { scene: currentScene, productKey: 'platform_and_support' },
                         { refresh: 'async' }
                     )
-                    return response.results.map((result) => result[0]) as string[]
+                    return (response.results?.map((result) => result[0]) ?? []) as string[]
                 },
             },
         ],
