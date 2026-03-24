@@ -4,7 +4,7 @@ import { EditorContent } from '@tiptap/react'
 import clsx from 'clsx'
 import React, { memo, useEffect, useMemo } from 'react'
 
-import 'lib/components/MarkdownEditor/RichMarkdownEditor.scss'
+import 'lib/components/MarkdownEditor/shared/RichMarkdownEditor.scss'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { DashboardResizeHandles } from 'lib/components/Cards/handles'
 import { EditModeEdgeOverlay } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
