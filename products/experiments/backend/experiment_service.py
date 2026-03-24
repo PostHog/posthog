@@ -993,7 +993,7 @@ class ExperimentService:
         if not flag:
             raise ValidationError("Experiment does not have a feature flag")
 
-        if not experiment.start_date:
+        if not experiment.is_launched:
             raise ValidationError("Experiment does not have a start date")
 
         if experiment.exposure_cohort:
@@ -1295,7 +1295,7 @@ class ExperimentService:
         """Retrieve timeseries results for an experiment-metric combination."""
         project_tz = ZoneInfo(experiment.team.timezone) if experiment.team.timezone else ZoneInfo("UTC")
 
-        if not experiment.start_date:
+        if not experiment.is_launched:
             raise ValidationError("Experiment has not been started yet")
         start_date = experiment.start_date.date()
         end_date = experiment.end_date.date() if experiment.end_date else date.today()
@@ -1394,7 +1394,7 @@ class ExperimentService:
         fingerprint: str,
     ) -> dict:
         """Create an idempotent recalculation request for experiment timeseries data."""
-        if not experiment.start_date:
+        if not experiment.is_launched:
             raise ValidationError("Cannot recalculate timeseries for experiment that hasn't started")
 
         existing_recalculation = ExperimentTimeseriesRecalculation.objects.filter(

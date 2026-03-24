@@ -104,16 +104,32 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         return self.name or "Untitled"
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        self.status = Experiment.compute_status(self.start_date, self.end_date)
+        self.status = self.computed_status
         if "update_fields" in kwargs:
             kwargs["update_fields"] = [*list(kwargs["update_fields"]), "status"]
         super().save(*args, **kwargs)
 
-    @staticmethod
-    def compute_status(start_date: Any, end_date: Any) -> "Experiment.Status":
-        if start_date is not None and end_date is not None:
+    @property
+    def is_launched(self) -> bool:
+        return self.start_date is not None
+
+    @property
+    def is_draft(self) -> bool:
+        return not self.is_launched
+
+    @property
+    def is_running(self) -> bool:
+        return self.is_launched and self.end_date is None
+
+    @property
+    def is_stopped(self) -> bool:
+        return self.is_launched and self.end_date is not None
+
+    @property
+    def computed_status(self) -> "Experiment.Status":
+        if self.is_stopped:
             return Experiment.Status.STOPPED
-        if start_date is not None:
+        if self.is_running:
             return Experiment.Status.RUNNING
         return Experiment.Status.DRAFT
 
@@ -130,7 +146,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
             "experiment_name": self.name,
             "feature_flag_key": self.get_feature_flag_key(),
             "type": self.type,
-            "status": self.status or Experiment.compute_status(self.start_date, self.end_date),
+            "status": self.status or self.computed_status,
             "metrics_count": len(self.metrics or []),
             "secondary_metrics_count": len(self.metrics_secondary or []),
             "has_description": bool(self.description),
@@ -140,18 +156,6 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
 
     def get_stats_config(self, key: str):
         return self.stats_config.get(key) if self.stats_config else None
-
-    @property
-    def is_draft(self):
-        return (self.status or Experiment.compute_status(self.start_date, self.end_date)) == Experiment.Status.DRAFT
-
-    @property
-    def is_running(self):
-        return (self.status or Experiment.compute_status(self.start_date, self.end_date)) == Experiment.Status.RUNNING
-
-    @property
-    def is_stopped(self):
-        return (self.status or Experiment.compute_status(self.start_date, self.end_date)) == Experiment.Status.STOPPED
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Experiment"]:
