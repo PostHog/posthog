@@ -526,7 +526,6 @@ fn classify_and_track_error(error: &FlagError, operation: &str, will_retry: bool
     common_metrics::inc(FLAG_DATABASE_ERROR_COUNTER, &labels, 1);
 }
 
-
 // Attempts to match a flag condition filter that depends on another flag
 // evaluation result to a flag evaluation result
 pub fn match_flag_value_to_flag_filter(

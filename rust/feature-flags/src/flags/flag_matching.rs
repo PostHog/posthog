@@ -1431,35 +1431,25 @@ impl FeatureFlagMatcher {
                 );
             }
 
-            // Evaluate filters by type without cloning, ordered cheapest-first:
-            // 1. Flag-value filters (hash lookups against already-evaluated flags)
-            for filter in flag_property_filters
-                .iter()
-                .filter(|f| f.depends_on_feature_flag())
-            {
-                if !match_flag_value_to_flag_filter(
-                    filter,
-                    &self.flag_evaluation_state.flag_evaluation_results,
-                ) {
+            // Single-pass evaluation, cheapest-first: flag-value → property → cohort.
+            // Flag-value and property filters short-circuit immediately on mismatch.
+            // Cohort filters are collected and batch-evaluated after the loop.
+            let mut cohort_filters: Vec<&PropertyFilter> = Vec::new();
+            for filter in flag_property_filters {
+                if filter.depends_on_feature_flag() {
+                    if !match_flag_value_to_flag_filter(
+                        filter,
+                        &self.flag_evaluation_state.flag_evaluation_results,
+                    ) {
+                        return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
+                    }
+                } else if filter.is_cohort() {
+                    cohort_filters.push(filter);
+                } else if !match_property(filter, merged_properties, false).unwrap_or(false) {
                     return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
                 }
             }
 
-            // 2. Non-cohort property filters (person/group property lookups)
-            for filter in flag_property_filters
-                .iter()
-                .filter(|f| !f.depends_on_feature_flag() && !f.is_cohort())
-            {
-                if !match_property(filter, merged_properties, false).unwrap_or(false) {
-                    return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
-                }
-            }
-
-            // 3. Cohort filters (most expensive, deferred to last)
-            let cohort_filters: Vec<&PropertyFilter> = flag_property_filters
-                .iter()
-                .filter(|f| f.is_cohort())
-                .collect();
             if !cohort_filters.is_empty() {
                 let cohorts = match &self.flag_evaluation_state.cohorts {
                     Some(cohorts) => cohorts.clone(),
