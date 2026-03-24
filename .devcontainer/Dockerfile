@@ -31,7 +31,9 @@ COPY --from=ghcr.io/astral-sh/uv:0.10.12 /uv /usr/local/bin/uv
 
 # mprocs — process manager used by bin/start
 ARG MPROCS_VERSION=0.7.2
-RUN curl -fsSL "https://github.com/pvolok/mprocs/releases/download/v${MPROCS_VERSION}/mprocs-${MPROCS_VERSION}-linux-x86_64-musl.tar.gz" \
+RUN ARCH=$(dpkg --print-architecture) && \
+    case "${ARCH}" in amd64) MPROCS_ARCH='x86_64';; arm64) MPROCS_ARCH='aarch64';; *) echo "unsupported: ${ARCH}"; exit 1;; esac && \
+    curl -fsSL "https://github.com/pvolok/mprocs/releases/download/v${MPROCS_VERSION}/mprocs-${MPROCS_VERSION}-linux-${MPROCS_ARCH}-musl.tar.gz" \
     | tar xz -C /usr/local/bin
 
 # Node.js via tarball (avoids a second apt-get update cycle from NodeSource)
@@ -52,8 +54,7 @@ WORKDIR /workspaces/posthog
 
 # Pre-install Python dependencies (cached layer — rebuilds only when lockfile changes)
 COPY pyproject.toml uv.lock ./
-RUN --mount=from=ghcr.io/astral-sh/uv:0.10.12,source=/uv,target=/bin/uv \
-    uv sync
+RUN uv sync
 
 # Node dependencies are installed in on-create.sh (pnpm workspace
 # requires the full source tree with all workspace package.json files)

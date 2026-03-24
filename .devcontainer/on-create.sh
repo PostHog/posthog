@@ -74,7 +74,7 @@ RUN_ID=$(gh api 'repos/PostHog/posthog/actions/artifacts?name=migrated-schema&pe
     --jq '[.artifacts[] | select(.expired == false and .size_in_bytes > 10000)] | .[0].workflow_run.id' 2>/dev/null) || true
 if [ -n "$RUN_ID" ] && [ "$RUN_ID" != "null" ]; then
     if gh run download "$RUN_ID" --name migrated-schema -R PostHog/posthog -D /tmp/migrated-schema-dl 2>/dev/null; then
-        gunzip -c /tmp/migrated-schema-dl/schema.sql.gz | psql -h localhost -U posthog posthog >/dev/null 2>&1 && SCHEMA_RESTORED=1
+        gunzip -c /tmp/migrated-schema-dl/schema.sql.gz | PGPASSWORD=posthog psql -h localhost -U posthog posthog >/dev/null 2>&1 && SCHEMA_RESTORED=1
         rm -rf /tmp/migrated-schema-dl
     fi
 fi
