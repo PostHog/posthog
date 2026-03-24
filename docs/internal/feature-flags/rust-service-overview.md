@@ -303,11 +303,11 @@ python manage.py invalidate_flags_auth_cache --team-id 12345 --dry-run
 
 The command collects token hashes from three sources and batch-deletes the corresponding Redis cache entries:
 
-| Source | Description |
-| --- | --- |
-| Team secret tokens | `secret_api_token` and `secret_api_token_backup`, hashed with SHA-256 |
-| Project secret API keys | `ProjectSecretAPIKey.secure_value` for the team |
-| Personal API keys | `PersonalAPIKey` entries for users in the team's organization, filtered by `scoped_teams` and `scoped_organizations` |
+| Source                  | Description                                                                                                          |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Team secret tokens      | `secret_api_token` and `secret_api_token_backup`, hashed with SHA-256                                                |
+| Project secret API keys | `ProjectSecretAPIKey.secure_value` for the team                                                                      |
+| Personal API keys       | `PersonalAPIKey` entries for users in the team's organization, filtered by `scoped_teams` and `scoped_organizations` |
 
 ### When to use
 
@@ -317,13 +317,12 @@ The command collects token hashes from three sources and batch-deletes the corre
 
 ### Options
 
-| Flag | Description |
-| --- | --- |
-| `--team-id` (required) | Team ID whose flags auth cache entries to invalidate |
-| `--dry-run` | Show what would be invalidated without deleting. Works even when `FLAGS_REDIS_URL` is not configured |
+| Flag                   | Description                                                                                          |
+| ---------------------- | ---------------------------------------------------------------------------------------------------- |
+| `--team-id` (required) | Team ID whose flags auth cache entries to invalidate                                                 |
+| `--dry-run`            | Show what would be invalidated without deleting. Works even when `FLAGS_REDIS_URL` is not configured |
 
 > **Note:** Without `--dry-run`, the command requires `FLAGS_REDIS_URL` to be configured.
-
 
 ## Key dependencies
 
@@ -368,6 +367,7 @@ Applied in order via Axum layers (defined in `router.rs`):
 | `posthog/management/commands/invalidate_flags_auth_cache.py` | Bulk cache invalidation management command        |
 
 ## See also
+
 - [Rate limiting](rate-limiting.md) - Warn-then-enforce model, configuration modes, per-token overrides
 - [Flag evaluation engine](flag-evaluation-engine.md) - How flags are matched and evaluated
 - [Database interaction patterns](database-interaction-patterns.md) - PostgreSQL connection pooling and query routing
